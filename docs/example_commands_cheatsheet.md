@@ -4,19 +4,6 @@ source env_setup.sh
 conda activate env_isaaclab3
 ```
 
-Any command below that boots Kit can be run through the boot watchdog, which
-relaunches a launch that deadlocks during carb initialisation instead of
-hanging, and prints one accounting line per attempt:
-
-```bash
-tools/kit_boot_watchdog.sh -- $ISAACLAB -p <script> [args...]
-```
-
-The `sim-bridge` / `sim-bridge-gui` / `sim-harness` / `harness-smoke` targets
-and `run_tests.py`'s Kit suites already do this for themselves. It is worth
-adding by hand for anything long-running or unattended; for a short one-shot a
-deadlock is obvious and cheap to re-run.
-
 # Run test cases
 ```bash
 # One command per host — auto-dispatches (DGX -> test-dgx, Jetson -> test-jetson)

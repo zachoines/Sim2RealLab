@@ -1,9 +1,18 @@
 # Isaac Lab upgrade — environment recipe verified by rebuild, and launch reliability — 2026-08-26
 
-Two things measured together, because the second is what makes the first
-repeatable: the environment-creation recipe for the candidate Isaac Lab pair was
-reconstructed and then **proved by building it again from scratch**, and a Kit
-boot that deadlocks is now detected and relaunched instead of hanging a gate.
+Two things measured together: the environment-creation recipe for the candidate
+Isaac Lab pair was reconstructed and then **proved by building it again from
+scratch**, and a Kit boot that stops partway was characterised well enough to be
+detected and relaunched.
+
+**The wrapper those boot measurements exercise is not shipped.** It is deposited
+with this record and parked on its own branch, because a wrapper works around a
+defect rather than fixing one and the cheaper fix has not been ruled out: a
+separate investigation is measuring whether a setting or a version pin avoids
+the hang outright. If one does, the wrapper is deleted rather than merged. The
+observations below stand either way: they describe the defect, and the wrapper
+that produced them is kept on `task/kit-boot-watchdog` with its driver scripts
+and every per-attempt log deposited here.
 
 Under the measurements evidence policy this record is a README only; the
 evidence lives in the companion repository and is cited by digest at the end.
@@ -25,11 +34,12 @@ touches `noise_models.py` or any depth-noise configuration.
 | **recipe** — reconstruction source | the build's own numbered pip logs, machine-local and never deposited |
 | **recipe** — rebuild acceptance | **288 of 300 distributions byte-identical**; every pinned package, all 25 `isaacsim` wheels and all 15 `isaaclab_*` editables match |
 | **recipe** — what does not reproduce | 10 unpinned transitives drifted; `usd-exchange` crossed a **major** version (2.3.0 → 3.0.0) |
-| **watchdog** — detection rule | resident-size thresholds are unusable inside pytest; **no CPU and no output** is the signature that holds everywhere |
-| **watchdog** — candidate pin | 16 boots: **4 relaunches** recovered 3 deadlocked boots (one needed two), **14 / 16 exited clean, 2 crashed** |
-| **watchdog** — earlier pin | **0 relaunches across all 14 Kit suites** — the wrapper costs nothing where the defect is absent |
+| **stalled boots** — detection rule | resident-size thresholds are unusable inside pytest; **no CPU and no output** is the signature that holds everywhere |
+| **stalled boots** — candidate pin, through the prototype | 16 boots: **4 relaunches** recovered 3 stopped boots (one needed two), **14 / 16 exited clean, 2 crashed** |
+| **stalled boots** — earlier pin | **0 relaunches across all 14 Kit suites** — the defect is absent there, so the wrapper was a no-op |
+| **the wrapper itself** | deposited and parked, **not shipped** — pending a measurement of whether a setting or pin avoids the hang |
 | **new failure mode** — SIGSEGV in `libomni.kit.telemetry.plugin.so` | **2 / 16 boots** on the pristine candidate clone; **0 / 16** with the extension removed |
-| **gates** — earlier pin, branch as it ships | Kit **486 / 487** (the tracked imu flake), **0 relaunches**, pure **1252 passed / 1 skipped**, contract **148** |
+| **gates** — earlier pin, branch as it ships | Kit **487 / 487**, pure **1252 passed / 1 skipped**, contract **148** |
 
 ---
 
@@ -106,7 +116,7 @@ Two related traps the recipe now names:
   pinning neither the version nor the `extscache` extra that decides the Kit
   extension payload.
 
-## Detecting a deadlocked Kit boot
+## Detecting a stalled Kit boot
 
 The defect: on Isaac Sim 6.0.1.0 a Kit process intermittently deadlocks inside
 carb initialisation — two threads in `futex_wait_queue`, no CUDA context, output
@@ -137,8 +147,8 @@ That second half is an argument from the mechanism, not an observation — no
 deadlock has been caught inside a pytest child on the candidate pair, because
 the Kit suites have not been run there yet.
 
-The rule that holds at both levels is **no CPU time and no output**. A
-deadlocked tree moves neither counter — the live specimen sat at 6 CPU ticks and
+The rule that holds at both levels is **no CPU time and no output**. A stopped
+tree moves neither counter — the live specimen sat at 6 CPU ticks and
 did not advance — while every healthy phase of a run, import, plugin load,
 collection, stepping, moves both continuously. Watching stops once the boot
 window has elapsed, so a capture that runs for hours is never a candidate for
@@ -156,9 +166,14 @@ Measured on the candidate pin, 16 consecutive boots:
 | detection latency | 61 s (a 60 s no-progress window plus one poll) |
 
 On the earlier pin the same wrapper ran every one of the 14 Kit suites and
-reported **zero** relaunches. That zero is the evidence that the wrapper is
-inert where the defect is absent, which is what lets it land before the pair is
-switched.
+reported **zero** relaunches. That zero is what establishes the defect is
+absent there, and it is why the gate counts taken through the wrapper and the
+gate counts taken without it are the same measurement.
+
+The wrapper is deposited with this record and parked on its own branch rather
+than shipped. It works around a defect instead of fixing one, and whether a
+setting or a version pin avoids the hang outright has not been measured yet;
+that measurement decides whether the wrapper is adopted or deleted.
 
 ## A second failure mode, and what it says about the telemetry extension
 
@@ -220,25 +235,26 @@ Run on this branch, against the pair the tooling currently selects:
 |---|---|
 | pure suite, unmodified `main` (control) | 1252 passed, 1 skipped |
 | pure suite, this branch | 1252 passed, 1 skipped |
-| Kit suites, this branch, through the watchdog | 487 tests, **486 passed**, **0 relaunches** |
+| Kit suites, this branch | 487 tests, **487 passed** |
 | contract, two files | 148 passed |
 
-Those are the gates against the branch as it ships. A review round changed the
-branch after an earlier pass of the same gates, so both are recorded and they are
-deposited separately — the earlier pass returned 487 of 487 and the shipping one
-486, the difference being whether the flake below fired.
+Those are the gates against the branch as it ships, run with the plain suite
+runner. Earlier passes of the same gates went through the boot wrapper while it
+was still part of the branch; on this pair the defect it exists for does not
+occur, so it fired zero times across all 14 suites and the counts are the same
+measurement either way.
 
-The single failure is `test_collision_imu_mean_differs_from_free`, the flake
-tracked in
-[`collision-imu-signal-flaky`](../../tasks/active/investigations/collision-imu-signal-flaky.md).
-Across three full passes of this gate it failed, passed, and failed again, at a
-collision mean of 16 against free means of 15.83 and 15.60 — the flake as
-described, not a new signal. Every pass reported 487 collected and 0 relaunches.
+`test_collision_imu_mean_differs_from_free` — the flake tracked in
+[`collision-imu-signal-flaky`](../../tasks/active/investigations/collision-imu-signal-flaky.md)
+— did not fire on this pass. Across four full passes of this gate it has failed,
+passed, failed and passed, at a collision mean of 16 against free means of 15.83
+and 15.60. Every pass collected 487, so the flake moves the pass count and
+nothing else.
 
-Each failing pass is also a recording of the failing-XML preservation firing on a
-real failure rather than a synthetic one: the `KEPT
-test_results_imu_test_imu_collision-FAILRUN-…` line in the log is what stands as
-that record, since the preserved file is gitignored working-tree output and is
+The passes on which it did fire are the only recordings of the failing-XML
+preservation working on a real failure rather than a synthetic one: the `KEPT
+test_results_imu_test_imu_collision-FAILRUN-…` line in those logs is what stands
+as that record, since the preserved file is gitignored working-tree output and is
 not itself deposited.
 
 ## Evidence
@@ -252,20 +268,24 @@ not itself deposited.
 The groups are `recipe-verify/` (the rebuild: its driver, the per-step pip logs,
 the resulting freeze and the acceptance diff), `gates/` (the suite runs from
 before the review round, the RSS trajectory, and the two 16-boot arms with every
-per-attempt log), and `upstream/` (an unposted draft issue for the carb
-deadlock). The deposit's own `DEPOSIT.md` says which is which.
+per-attempt log), and `upstream/` (an unposted draft issue for the stalled
+boot). The deposit's own `DEPOSIT.md` says which is which. The wrapper the boot
+arms were taken with is not in the deposit — it is kept on its own branch,
+`task/kit-boot-watchdog`, along with the drivers here that invoke it.
 
-The gates against the branch as it ships are in a second deposit, which
-supplements the first rather than superseding it:
+The gates against the branch as it ships are in a second deposit. It supersedes
+an interim one, `isaac-lab-upgrade-pra-fixround-2026-09-10/`, whose runs describe
+the tree before the boot wrapper was split out; that deposit stays where it is
+and is not cited here.
 
 | | |
 |---|---|
-| Directory | `isaac-lab-upgrade-pra-fixround-2026-09-10/` |
-| Commit | `a3cb1b8f51ca92cbec76e3d1101d764490d15c38` |
+| Directory | `isaac-lab-upgrade-pra-gates-2026-09-11/` |
+| Commit | `9503fe4eddecd6884eea23a9fa435925e21397f7` |
 
 ```
-bf71f9db9e257af3c4c0afb98fe1493287390c0cc6f9cdc907d615ccba065bb6  gates/contract-oldpin-FIXROUND.log
-8ca0954d8e152ad5875534b9d948fff2f1674357801bbf35ac9577fedfb36840  gates/test-lab-oldpin-FIXROUND.log
+84419f649417bbbff89fd7d3636127eb90118b12a94118145bb1dd933a37b3e2  gates/contract-oldpin-SPLIT.log
+c6b8904b041f5955e5d8d718cdfa59cab8036a7e0474b118e4edc22800e62aaf  gates/test-lab-oldpin-SPLIT.log
 ```
 
 sha256 of every file in the deposit, paths relative to the deposit directory:

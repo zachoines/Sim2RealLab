@@ -32,27 +32,6 @@ from pathlib import Path
 TEST_ROOT = Path(__file__).parent / "test_sim"
 XML_DIR = Path(__file__).parent  # directory for junit-xml files
 
-# Every suite boots Kit, so every suite goes through the boot watchdog: on
-# Isaac Sim 6.0.0.0 it is a no-op that costs one poll a second, and on 6.0.1.0
-# it turns an unrecoverable carb deadlock into a relaunch plus an accounting
-# line. Absent or not executable (a partial checkout, a copied-out
-# run_tests.py, a non-POSIX host), suites run unwrapped rather than not at all.
-WATCHDOG = Path(__file__).resolve().parents[2] / "tools" / "kit_boot_watchdog.sh"
-WATCHDOG_ATTEMPTS = 3
-WATCHDOG_STALL_WINDOW = 60
-WATCHDOG_POLL = 1
-# The wrapper's own SIGTERM grace before it escalates to SIGKILL. A child that
-# ignores SIGTERM costs the whole of it, so the budget below has to include it.
-WATCHDOG_KILL_GRACE = 10
-
-# A suite's timeout has to cover what the watchdog may spend before the suite's
-# own work starts, or a stall it could have recovered from is killed as a
-# timeout instead. Only the losing attempts count: the winning one runs the
-# suite, which is what the per-suite timeout already budgets for. Each losing
-# attempt costs one poll to notice, the stall window itself, and the grace.
-WATCHDOG_BUDGET = (WATCHDOG_ATTEMPTS - 1) * (
-    WATCHDOG_POLL + WATCHDOG_STALL_WINDOW + WATCHDOG_KILL_GRACE + 2
-)
 
 # Seconds a timed-out suite gets to shut down after SIGTERM before it is killed.
 # Isaac Sim releases its carb shared memory and named semaphores on the way out;
@@ -105,31 +84,14 @@ SUITES = {
 }
 
 
-def _wrap(cmd: list[str], label: str) -> list[str]:
-    """Put the boot watchdog in front of a suite command, if it is runnable."""
-    if not (WATCHDOG.is_file() and os.access(WATCHDOG, os.X_OK)):
-        return cmd
-    return [str(WATCHDOG),
-            "--label", label,
-            "--attempts", str(WATCHDOG_ATTEMPTS),
-            "--stall-window", str(WATCHDOG_STALL_WINDOW),
-            "--poll", str(WATCHDOG_POLL),
-            "--"] + cmd
-
-
-def _timeout_for(name: str, cmd: list[str]) -> int:
-    """The suite's own budget, plus the watchdog's worst case when wrapped."""
-    base = SUITE_TIMEOUTS.get(name, DEFAULT_TIMEOUT)
-    return base + WATCHDOG_BUDGET if cmd and cmd[0] == str(WATCHDOG) else base
-
-
 def _terminate(proc: subprocess.Popen) -> None:
-    """SIGTERM the suite, then SIGKILL what is left, bounding both waits.
+    """SIGTERM the suite's process group, then SIGKILL what is left.
 
-    The suite runs in its own session. SIGTERM reaches Kit because the watchdog
-    traps it and tears its own child group down; SIGKILL cannot be trapped, so
-    it reaches only the wrapper. That is the right order anyway — the deadlock
-    this exists for blocks nothing and dies on SIGTERM.
+    The suite runs in its own session, so the group signal reaches Kit and not
+    just the process that was spawned. Both waits are bounded: a child that
+    ignores SIGTERM must not hang the runner that is trying to end it. Isaac Sim
+    releases its shared memory and named semaphores on the way out, which a
+    straight SIGKILL abandons.
     """
     escalation = ((signal.SIGTERM, TERM_GRACE), (getattr(signal, "SIGKILL", signal.SIGTERM), 10))
     for sig, wait in escalation:
@@ -167,25 +129,6 @@ def _preserve_failing_xml(xml_path: Path) -> Path | None:
             return kept
     return None
 
-
-def _watchdog_lines(captured: str) -> list[str]:
-    """The watchdog's per-attempt accounting lines, in order.
-
-    pytest's progress bar ends without a newline, so an accounting line can
-    arrive glued to it; keep only the part from the marker on.
-    """
-    marker = "[kit-boot-watchdog"
-    return [ln[ln.index(marker):].strip()
-            for ln in captured.splitlines() if marker in ln]
-
-
-def _relaunches(result: dict) -> int:
-    """How many times the watchdog actually relaunched this suite's Kit boot.
-
-    The attempt that exhausts the budget also reports a stall, but nothing is
-    relaunched after it, so only the lines that say so are counted.
-    """
-    return sum(1 for ln in result.get("watchdog", []) if ln.endswith("-> relaunching"))
 
 
 def _run_subprocess(cmd: list[str], timeout: int, xml_path: Path) -> dict:
@@ -236,14 +179,13 @@ def _run_subprocess(cmd: list[str], timeout: int, xml_path: Path) -> dict:
                     + tmp_err.read().decode("utf-8", "replace"))
 
     if timed_out:
-        # Keep whatever the run produced, and hand the watchdog's accounting
-        # back so a timeout that followed relaunches is readable as one.
+        # Keep whatever the run produced before it was cut off.
         kept = _preserve_failing_xml(xml_path)
         details = [f"  ERROR  TIMEOUT after {timeout}s"]
         if kept is not None:
             details.append(f"  KEPT   {kept.name}")
         return {"tests": 0, "passed": 0, "failed": 0, "errors": 1, "skipped": 0,
-                "watchdog": _watchdog_lines(captured), "details": details}
+                "details": details}
 
     # Parse XML results (written before os._exit kills the process)
     try:
@@ -260,7 +202,6 @@ def _run_subprocess(cmd: list[str], timeout: int, xml_path: Path) -> dict:
                    ["         | (no output captured)"]
         return {"tests": 0, "passed": 0, "failed": 0,
                 "errors": 1, "skipped": 0,
-                "watchdog": _watchdog_lines(captured),
                 "details": details}
 
     root = tree.getroot()
@@ -272,7 +213,6 @@ def _run_subprocess(cmd: list[str], timeout: int, xml_path: Path) -> dict:
             details.append(f"  KEPT   {kept.name}")
         return {"tests": 0, "passed": 0, "failed": 0,
                 "errors": 1, "skipped": 0,
-                "watchdog": _watchdog_lines(captured),
                 "details": details}
 
     total = int(suite.get("tests", 0))
@@ -312,7 +252,6 @@ def _run_subprocess(cmd: list[str], timeout: int, xml_path: Path) -> dict:
 
     return {"tests": total, "passed": passed, "failed": failures,
             "errors": errors, "skipped": skipped,
-            "watchdog": _watchdog_lines(captured),
             "details": details}
 
 
@@ -323,28 +262,30 @@ def run_suite(name: str, paths: list[str]) -> dict:
     own subprocess because they each create a ManagerBasedRLEnv and Isaac Sim
     only allows one SimulationContext per process.
     """
+    timeout = SUITE_TIMEOUTS.get(name, DEFAULT_TIMEOUT)
+
     if name in MULTI_PROCESS_SUITES:
-        return _run_multi_process(name, paths)
-    return _run_single_process(name, paths)
+        return _run_multi_process(name, paths, timeout)
+    return _run_single_process(name, paths, timeout)
 
 
-def _run_single_process(name: str, paths: list[str]) -> dict:
+def _run_single_process(name: str, paths: list[str], timeout: int) -> dict:
     """Run all test paths in a single pytest subprocess."""
     xml_path = XML_DIR / f"test_results_{name}.xml"
-    cmd = _wrap([
+    cmd = [
         sys.executable, "-m", "pytest",
         *paths,
         "--tb=short",
         "-q",
         f"--junit-xml={xml_path}",
-    ], name)
+    ]
 
-    result = _run_subprocess(cmd, _timeout_for(name, cmd), xml_path)
+    result = _run_subprocess(cmd, timeout, xml_path)
     result["name"] = name
     return result
 
 
-def _run_multi_process(name: str, paths: list[str]) -> dict:
+def _run_multi_process(name: str, paths: list[str], per_file_timeout: int) -> dict:
     """Run each test file in its own subprocess and merge results.
 
     Required for suites where each file creates its own SimulationContext.
@@ -356,32 +297,30 @@ def _run_multi_process(name: str, paths: list[str]) -> dict:
         "failed": 0,
         "errors": 0,
         "skipped": 0,
-        "watchdog": [],
         "details": [],
     }
 
     for i, path in enumerate(paths, 1):
         file_label = Path(path).stem
         xml_path = XML_DIR / f"test_results_{name}_{file_label}.xml"
-        cmd = _wrap([
+        cmd = [
             sys.executable, "-m", "pytest",
             path,
             "--tb=short",
             "-q",
             f"--junit-xml={xml_path}",
-        ], f"{name}:{file_label}")
+        ]
 
         print(f"    [{i}/{len(paths)}] {file_label} ...", end=" ")
         sys.stdout.flush()
 
-        result = _run_subprocess(cmd, _timeout_for(name, cmd), xml_path)
+        result = _run_subprocess(cmd, per_file_timeout, xml_path)
 
         merged["tests"] += result["tests"]
         merged["passed"] += result["passed"]
         merged["failed"] += result["failed"]
         merged["errors"] += result["errors"]
         merged["skipped"] += result["skipped"]
-        merged["watchdog"].extend(result.get("watchdog", []))
         merged["details"].extend(f"  {file_label}: {ln.strip()}"
                                  if ln.startswith("  ERROR  TIMEOUT") else ln
                                  for ln in result["details"])
@@ -422,7 +361,6 @@ def main():
     grand_passed = 0
     grand_failed = 0
     grand_errors = 0
-    grand_relaunches = 0
     results = []
 
     for i, (name, paths) in enumerate(selected, 1):
@@ -438,13 +376,6 @@ def main():
         grand_passed += result["passed"]
         grand_failed += result["failed"]
         grand_errors += result["errors"]
-        grand_relaunches += _relaunches(result)
-
-        # The watchdog's accounting first: a suite that had to be relaunched
-        # says so here, and a suite that did not leaves the count at zero —
-        # which is the reading that shows the wrapper cost nothing.
-        for line in result.get("watchdog", []):
-            print(f"  {line}")
 
         # Print per-test details
         for line in result["details"]:
@@ -463,15 +394,13 @@ def main():
     print(f"\n{'='*60}")
     print(f" SUMMARY")
     print(f"{'='*60}")
-    print(f"{'Suite':<20} {'Tests':>6} {'Pass':>6} {'Fail':>6} {'Err':>6} {'Relaunch':>9}")
-    print(f"{'-'*20} {'-'*6} {'-'*6} {'-'*6} {'-'*6} {'-'*9}")
+    print(f"{'Suite':<20} {'Tests':>6} {'Pass':>6} {'Fail':>6} {'Err':>6}")
+    print(f"{'-'*20} {'-'*6} {'-'*6} {'-'*6} {'-'*6}")
     for r in results:
         mark = "+" if r["failed"] == 0 and r["errors"] == 0 else "X"
-        print(f"{mark} {r['name']:<18} {r['tests']:>6} {r['passed']:>6} {r['failed']:>6} "
-              f"{r['errors']:>6} {_relaunches(r):>9}")
-    print(f"{'-'*20} {'-'*6} {'-'*6} {'-'*6} {'-'*6} {'-'*9}")
-    print(f"  {'TOTAL':<18} {grand_total:>6} {grand_passed:>6} {grand_failed:>6} "
-          f"{grand_errors:>6} {grand_relaunches:>9}")
+        print(f"{mark} {r['name']:<18} {r['tests']:>6} {r['passed']:>6} {r['failed']:>6} {r['errors']:>6}")
+    print(f"{'-'*20} {'-'*6} {'-'*6} {'-'*6} {'-'*6}")
+    print(f"  {'TOTAL':<18} {grand_total:>6} {grand_passed:>6} {grand_failed:>6} {grand_errors:>6}")
 
     all_pass = grand_failed == 0 and grand_errors == 0
     print(f"\n{'ALL PASSED' if all_pass else 'SOME FAILURES'}")

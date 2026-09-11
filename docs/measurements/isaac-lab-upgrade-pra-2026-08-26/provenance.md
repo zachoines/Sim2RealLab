@@ -52,7 +52,7 @@ without editing `.env`.
   rebuild is accepted against:
   `isaac-lab-upgrade-stage3-2026-08-23/record-files/pip-freeze-env_isaaclab3beta2.txt`
   in the evidence repository.
-- **The boot-hang forensics** the watchdog's detection rule is derived from:
+- **The boot-hang forensics** the detection rule is derived from:
   `isaac-lab-upgrade-stage3-followup-2026-08-23/r1/` in the evidence repository.
 
 ## Deposit

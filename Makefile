@@ -262,9 +262,7 @@ test-lab: ## Run ALL strafer_lab tests in env_isaaclab3 — Kit suites (run_test
 	@# clean. isaaclab.sh picks its interpreter from VIRTUAL_ENV first and
 	@# CONDA_PREFIX second, so the Kit half runs in whatever env is active —
 	@# hence the activate, and the checks that nothing else is selected and that
-	@# the pure half's interpreter is the same one. Kit boots inside the
-	@# pytest children, not here, so the boot watchdog is applied per suite in
-	@# run_tests.py rather than around this line.
+	@# the pure half's interpreter is the same one.
 	@source env_setup.sh && \
 		source $(CONDA_ROOT)/etc/profile.d/conda.sh && \
 		conda activate $(CONDA_ENV) || exit 1; \
@@ -313,8 +311,7 @@ sim-bridge: ## Launch Isaac Sim + ROS 2 bridge (headless)
 		source $(CONDA_ROOT)/etc/profile.d/conda.sh && \
 		conda activate $(CONDA_ENV) && \
 		echo "[sim-bridge] ROS_DISTRO=$$ROS_DISTRO, LD_LIBRARY_PATH head: $$(echo $$LD_LIBRARY_PATH | cut -d: -f1)" && \
-		tools/kit_boot_watchdog.sh --label sim-bridge -- \
-			$(ISAACLAB) -p source/strafer_lab/scripts/run_sim_in_the_loop.py \
+		$(ISAACLAB) -p source/strafer_lab/scripts/run_sim_in_the_loop.py \
 			--mode bridge --headless --enable_cameras \
 			$${SCENE_NAME:+--scene-name $$SCENE_NAME} \
 			$${SCENE_USD:+--scene-usd $$SCENE_USD}
@@ -324,8 +321,7 @@ sim-bridge-gui: ## Launch Isaac Sim + ROS 2 bridge with the viewport open
 		source $(CONDA_ROOT)/etc/profile.d/conda.sh && \
 		conda activate $(CONDA_ENV) && \
 		echo "[sim-bridge-gui] ROS_DISTRO=$$ROS_DISTRO, LD_LIBRARY_PATH head: $$(echo $$LD_LIBRARY_PATH | cut -d: -f1)" && \
-		tools/kit_boot_watchdog.sh --label sim-bridge-gui -- \
-			$(ISAACLAB) -p source/strafer_lab/scripts/run_sim_in_the_loop.py \
+		$(ISAACLAB) -p source/strafer_lab/scripts/run_sim_in_the_loop.py \
 			--mode bridge --enable_cameras --viz kit \
 			$${SCENE_NAME:+--scene-name $$SCENE_NAME} \
 			$${SCENE_USD:+--scene-usd $$SCENE_USD}
@@ -338,8 +334,7 @@ sim-harness: ## Run sim-in-the-loop autonomous mission sweep (metadata travels i
 	@source env_setup.sh && \
 		source $(CONDA_ROOT)/etc/profile.d/conda.sh && \
 		conda activate $(CONDA_ENV) && \
-		tools/kit_boot_watchdog.sh --label sim-harness -- \
-			$(ISAACLAB) -p source/strafer_lab/scripts/run_sim_in_the_loop.py \
+		$(ISAACLAB) -p source/strafer_lab/scripts/run_sim_in_the_loop.py \
 			--mode harness \
 			$${SCENE_NAME:+--scene-name $$SCENE_NAME} \
 			$${SCENE_USD:+--scene-usd $$SCENE_USD} \
@@ -351,8 +346,7 @@ harness-smoke: ## Jetson-free Kit smoke of the bridge harness capture path (scri
 	@source env_setup.sh && \
 		source $(CONDA_ROOT)/etc/profile.d/conda.sh && \
 		conda activate $(CONDA_ENV) && \
-		tools/kit_boot_watchdog.sh --label harness-smoke -- \
-			$(ISAACLAB) -p source/strafer_lab/scripts/bridge_harness_smoke.py \
+		$(ISAACLAB) -p source/strafer_lab/scripts/bridge_harness_smoke.py \
 			$${SCENE:+--scene $$SCENE} \
 			$${OUTPUT_DIR:+--output $$OUTPUT_DIR} \
 			$${SMOKE_STEPS:+--steps $$SMOKE_STEPS} \

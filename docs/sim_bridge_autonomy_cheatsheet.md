@@ -9,10 +9,18 @@
    cd ~/Workspace/Sim2RealLab
    export ROS_DOMAIN_ID=42 RMW_IMPLEMENTATION=rmw_cyclonedds_cpp PYTHONUNBUFFERED=1
    source env_setup.sh && source $CONDA_ROOT/etc/profile.d/conda.sh && conda activate env_isaaclab3
-   $ISAACLAB -p source/strafer_lab/scripts/run_sim_in_the_loop.py \
+   tools/kit_boot_watchdog.sh --label sim-bridge -- \
+       $ISAACLAB -p source/strafer_lab/scripts/run_sim_in_the_loop.py \
        --mode bridge --headless --enable_cameras \
        --task Isaac-Strafer-Nav-Capture-Bridge-ProcRoom-Enriched-v0
    ```
+   The watchdog relaunches a Kit boot that stops during app-settings
+   initialisation, which Isaac Sim 6.0.1 does intermittently, and prints one
+   accounting line per attempt so a relaunch is visible rather than silent. It
+   stops watching once the boot is under way, so a bridge that runs for hours is
+   never touched. The `make sim-bridge*` / `make sim-harness` /
+   `make harness-smoke` targets already wrap themselves; this line is the raw
+   form.
    Confirm the cadence print: `frame_skip=3 (derived, derived 3)` /
    `publish 30.00 Hz sim`. **`PYTHONUNBUFFERED=1` is load-bearing when the
    launch is redirected to a file** — without it that print sits in a block

@@ -70,6 +70,10 @@ entry-point scripts](repo-topology.md#key-entry-point-scripts).
 
 - `check_brief_links.py` / `.sh` — brief cross-reference validator.
 - `run_ros_tests.sh` — robot-stack suites, natively or in `strafer-cpu:humble`.
+- `kit_boot_watchdog.sh` — wraps one Kit-booting command and relaunches it if
+  the boot stops during app-settings initialisation; prints one accounting line
+  per attempt. Used by the `sim-bridge*` / `sim-harness` / `harness-smoke` Make
+  targets and by `run_tests.py` around each Kit suite.
 
 ## Other packages
 

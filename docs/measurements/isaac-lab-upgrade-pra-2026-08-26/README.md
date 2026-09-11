@@ -84,13 +84,50 @@ wheels at 6.0.1.0, all 15 `isaaclab_*` editables at `ffff603`, `rsl-rl-lib`
 
 So the recipe is correct and complete, and the reproducibility limit is named
 rather than assumed: only about 15 of the 300 distributions are version-
-controlled by the commands. A rebuild that must match exactly needs a
-constraints file, which does not exist. `usd-exchange` crossing a major version
-is the first thing to check if a future rebuild misbehaves.
+controlled by the commands. The rest are now pinned by
+`source/strafer_lab/constraints-isaac-lab.txt`, and a build under it reproduces
+**all 282 pinned versions exactly** — see *Constraining the rest*, below.
 
 The rebuilt environment carries **no `EULA_ACCEPTED` marker**, which confirms
 the recipe's own claim that the marker comes from an interactive first boot and
 not from anything the install sequence does.
+
+## Constraining the rest
+
+The recipe's own commands leave ~267 packages to the resolver, and they move. A
+constraints file built from the deposited freeze pins them — but it cannot simply
+be handed to pip, and finding out why took three builds.
+
+**The finished environment is internally inconsistent.** `pip check` reports 18
+findings, and four of them are load-bearing during a constrained resolve:
+`isaacsim-kernel` requires `coverage==7.4.4`, `psutil==5.9.8` and
+`websockets==12.0`, and `isaaclab_rl` requires `packaging<24`, while the finished
+environment holds 7.6.1, 7.2.2, 16.1.1 and 26.0. A sequential build reaches that
+state because a later `pip install` may override an already-installed package's
+pin. A constrained resolve may not, and refuses outright.
+
+| build | constraints | result |
+|---|---|---|
+| 1 | all 282 pins | **4 steps failed**, 211 distributions — `isaacsim` died on `websockets==12.0` against the constraint's 16.1.1 |
+| 2 | 278 pins (the four dropped), cu130 index everywhere | every step passed, 300 distributions, **8 of 282 pins still drifted** — the convergence pass was resolving the pinned set jointly and failed on `ipython` needing `psutil>=7` |
+| 3 | as above, convergence `--no-deps`, `torchcodec` forced from PyPI | **all 17 steps green, 300 distributions, 282 / 282 pins identical** |
+
+Four rules came out of that, and they are in the recipe:
+
+1. The four conflicting packages stay out of the constraints file; the recipe's
+   own ordering is what produces their final versions.
+2. Every step needs the cu130 index reachable — the torch pin carries a `+cu130`
+   local label that exists on no other index, so any step resolving torch fails
+   with "no matching distributions" without it.
+3. The convergence pass after `isaaclab.sh --install` must be `--no-deps`, which
+   sets each package to its pin without asking whether the set resolves jointly.
+4. `torchcodec` is force-reinstalled from PyPI: rule 2 makes a `+cu130` build
+   available that also satisfies `==0.16.0`, and a plain install would leave it.
+
+Rule 4 is only visible in a clean replay. Build 2 reached 282/282 after being
+repaired in place, and the replay of that repaired recipe came back 281/282 —
+the repair had masked the ordering bug. That is why the number above comes from
+a build into an empty environment rather than from a fixed-up one.
 
 ## The torch pin has to be last
 
@@ -359,6 +396,48 @@ c4378cc1694568b9433521931a5c8eacebbec205b53c63c36e3dca0136cdf000  recipe-verify/
 9f06d5ff0a4b7f5f65afa656016c7e028a9f75e78cb4fda31e8a71eab01c8836  recipe-verify/freeze-verify.txt
 a5544d33e5af758addc205cb9fa8af602937a3834e3a96a2df4708a5f0abb383  recipe-verify/verify_build.sh
 0f9b24d24f3b8c8338880e5306977ffd159f7f4dc727272bca5c46eeb1e5f3f4  upstream/UPSTREAM-ISSUE-DRAFT.md
+```
+
+### `isaac-lab-upgrade-pra-constraints-2026-09-11/` — commit `009215011593a962e71f3d8e7444bb70ad2453bc`
+
+The constrained-rebuild proof and the two attempts the rules came from.
+`proved/` is the passing run; `attempt-1-unreduced/` and `attempt-2-partial/`
+carry the failures that each rule answers.
+
+sha256 of every file, paths relative to that deposit directory:
+
+```
+9ebaf8abfe86653692a6b71112230c11e7886b6648c6395e694b815492be10f6  attempt-1-unreduced/04-isaacsim.log
+5b23ae9c25ad7d2e47a5a420d5abca373334e47c6b1baf3bf898ee8b88c3e6dd  attempt-1-unreduced/06b-convergence.log
+179f4d3c3aa3f83cb2532b88a90431204be6aa118c7d9a16ecc7175f8803e705  attempt-1-unreduced/07-rslrl.log
+e9aa2388c94128fcb0e1aa4a7209823e6d6a3cb1b138f7090599b3a462f30e25  attempt-1-unreduced/10-strafer-lab.log
+05a0d5129b4b2d05b6d3ba4519e79d94b987bc46c14d39aeaa4e32dc976796ba  attempt-1-unreduced/DRIVER.log
+40972e58159f96615ebf24d4980e8686326b55feb506d32fcb93485c2d49ea6f  attempt-2-partial/06b-convergence.log
+4a57678d67da0dd9d591979a932cb82c87502bd5452f2f777f017ddb636035b6  attempt-2-partial/ACCEPTANCE.diff
+b4a5a2f94293e0d528485908127ccb1977261ddc755d83b8c05ab09828d5128c  attempt-2-partial/DRIVER.log
+da51d0f6cb5aa1fc6d55c37e2dcb26eccaf4d1bda8d33e802d39d178b769afda  proved/02-conda-create.log
+1be1158e5574e98d37a0c97ddfccc11c0ad0acb90e55bfb8941732d995e9d5a6  proved/03-torch.log
+228f4183e8ef44cc61ba76c089765fb9fe2ec889786f7e45bb90109986a02e53  proved/04-isaacsim.log
+02a415fa6ccc7c02d5a3a81a9bb5651490cdde2ae076cfb919bbb8338378b630  proved/05-torch-force.log
+fce4fa7d040da7bcec61c09886800b31b56b8467b11556620303c2d32f91cb31  proved/06-isaaclab-editables.log
+6921d1037be5dc4c6041a23cf461579667580e3789b2ec412d51fb5dac39f816  proved/06b-convergence.log
+19b8b1a45050fe30c4b44e2fc83b1c72b63ba8786716ee94b7f682699b2ea593  proved/07-rslrl.log
+15f380d4f1ae9b551d6d0f2e1e78b755d25e77eadb3cb729037a420f28764333  proved/08-onnxscript.log
+c032511def9cdeac2f019a944a56c47e19028f8f447cb136eed577386b66c229  proved/09-strafer-shared.log
+316641611feedbde9c63b2773271e536ce5200c4387136e15e9b61d69818db7f  proved/10-strafer-lab.log
+731c808c149f390e7c1715c1e1702602c2cb057e5abf6408adec999cad6825ce  proved/11-lerobot.log
+798e42fcb8b9c3f98aee59ab958cdc92dcbe440ea656e559bec2e92868a7dbc3  proved/12-lerobot-deps.log
+b3554186c771d9fb00bc3ac2af308744c4b76f3aae427367e995117d0e5ead4a  proved/13-torch-final.log
+b0754b03cdb996e8d6ba31fcac6e10ebafbd26be7f5394546b202df4248473f4  proved/14-cudnn-repair.log
+1b3dbdbcd5f67f2136414eae6ea14116ad0571f76c621f057de26cee3751839c  proved/21-onnxruntime.log
+ae8bc2d5a5c2a925169c1752e524d04fa37d8ae2d822d724c9ddb7177d9e3c6e  proved/24-packaging.log
+dfcd34cca536f6120337c1d08f0c7e5ae6f37c656a7f0f7af34e1d145db64159  proved/31-torchcodec.log
+2ea6613634dac824cdefe31310ec1c136131bc25673e91e8385c5883c69c746a  proved/40-pyspy.log
+877354b8b7440edaaa53e2dc2a2d0199900d6f0ad2bbfe565a785ea6842f2059  proved/ACCEPTANCE.diff
+03960a52ae858f6eef14e8483474105f168238ba3ebc75ce306018f6c2e2e6f6  proved/DRIVER.log
+cd0cd59da61fb6362eed72701ff67b8f503fdc89370dc31eb2cd2f0a65c93b9f  proved/constrained_build.sh
+4a9ea7fa73d00cb444ebb20b9fd3f1ef4f3cf73958fd810ee1850d0e3631641d  proved/freeze-constrained.txt
+94d87b2742197b4489f4f09ad5675a6609963260d4688138130d641e1bfa335a  proved/pins.txt
 ```
 
 ### `isaac-lab-upgrade-pra-gates-2026-09-11/` — commit `a8195a1b571f46c8c1b8e3715af2cc9f028c0dcf`

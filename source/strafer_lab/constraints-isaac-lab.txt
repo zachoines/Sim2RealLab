@@ -1,26 +1,31 @@
 # Constraints for the Isaac Sim / Isaac Lab conda environment.
 #
 # Generated from the pip freeze deposited with isaac-lab-upgrade-stage3-2026-08-23:
-# the 282 `name==version` lines of that freeze, with the 17 editable installs
-# and the one git-URL requirement (robomimic) dropped — a constraints file
-# cannot pin an editable or a URL requirement, and pip rejects the file if it
-# tries.
+# its `name==version` lines, minus the 17 editable installs and the one git-URL
+# requirement (a constraints file cannot pin either), minus four more named
+# below.
 #
-# What this is for: the recipe in README.md pins about fifteen packages by
-# name. The other ~267 are whatever the resolver returned on the day, and they
-# do move — a rebuild eleven days later drew ten different versions, including
-# usd-exchange across a major version. This file is how a rebuild gets the
-# resolved set rather than a contemporary one.
+# What this is for: the recipe in README.md pins about fifteen packages by name.
+# The rest are whatever the resolver returns on the day, and they do move — a
+# rebuild eleven days later drew ten different versions, including usd-exchange
+# across a major version. This file is how a rebuild gets the resolved set.
 #
-# How far this is proved: the file parses, and the constrained resolutions were
-# checked by dry-run. A full rebuild under these constraints has NOT been run
-# end to end. Two things are known to need care and are described in README.md
-# under the recipe:
-#   - the torch steps need `--extra-index-url https://pypi.org/simple`, because
-#     the cu130 index alone cannot supply the constrained transitives;
-#   - `isaaclab.sh --install` must run OUTSIDE PIP_CONSTRAINT, and be followed
-#     by a convergence pass, because it uninstalls torch before re-pinning it
-#     and fails under a constraint that names the version it just removed.
+# FOUR PACKAGES ARE DELIBERATELY ABSENT: coverage, packaging, psutil, websockets.
+# The finished environment holds versions that a package installed earlier in the
+# build pins against — isaacsim-kernel requires coverage==7.4.4, psutil==5.9.8 and
+# websockets==12.0, and isaaclab_rl requires packaging<24, while the finished
+# environment has 7.6.1, 7.2.2, 16.1.1 and 26.0. The recipe reaches that state
+# because a later `pip install` is allowed to override an already-installed
+# package's pin; a constrained resolve is not, and fails outright. Constraining
+# these four makes the build unresolvable, so they are left to the recipe's own
+# ordering, which is what produced them.
+#
+# Every step that can resolve torch needs the cu130 index reachable, because the
+# pin below carries a local version label that exists on no other index. See the
+# usage block in README.md for that and the two other rules.
+#
+# Proved: a build from an empty env under these constraints reproduced all 282
+# pinned versions exactly.
 absl-py==2.4.0
 aioboto3==15.5.0
 aiobotocore==2.25.1
@@ -64,7 +69,6 @@ coacd==1.0.7
 coal==3.0.3
 comm==0.2.3
 contourpy==1.3.3
-coverage==7.6.1
 cryptography==46.0.7
 cuda-bindings==13.0.3
 cuda-pathfinder==1.6.0
@@ -204,7 +208,6 @@ onnxscript==0.7.1
 opencv-python-headless==4.13.0.90
 orjson==3.12.0
 osqp==1.0.5
-packaging==26.0
 pandas==3.0.5
 parso==0.8.7
 pexpect==4.9.0
@@ -218,7 +221,6 @@ proglog==0.1.12
 prompt_toolkit==3.0.53
 propcache==0.2.1
 protobuf==7.35.1
-psutil==7.2.2
 ptyprocess==0.7.0
 pure_eval==0.2.3
 py-spy==0.4.2
@@ -294,7 +296,6 @@ viser==1.0.30
 warp-lang==1.13.0
 watchdog==4.0.0
 wcwidth==0.8.2
-websockets==16.1.1
 Werkzeug==3.1.8
 wheel==0.47.0
 widgetsnbextension==4.0.15

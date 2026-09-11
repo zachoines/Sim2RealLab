@@ -275,7 +275,11 @@ pip install --index-url https://download.pytorch.org/whl/cu130 \
 # 12. Remaining pins.
 pip install onnxruntime==1.25.1   # without it 15 tests skip silently
 pip install packaging==26.0       # step 6 pins it down to 23.2
-pip install torchcodec==0.16.0    # ABI-coupled to torch; re-check on a torch move
+# torchcodec from PyPI, forced: the cu130 index carries a +cu130 build that also
+# satisfies ==0.16.0, so an earlier step may already have left that one in place
+# and a plain install would consider the requirement met.
+pip install --force-reinstall --no-deps --index-url https://pypi.org/simple \
+  torchcodec==0.16.0
 pip install py-spy==0.4.2
 ```
 
@@ -324,26 +328,51 @@ printing the other two. Do not "fix" it.
 
 **Reproducing this exact set.** The commands above pin about fifteen packages;
 the rest are whatever the resolver returns on the day.
-[`constraints-env_isaaclab3beta2.txt`](constraints-env_isaaclab3beta2.txt) holds
-the 282 resolved versions of the environment
+[`constraints-isaac-lab.txt`](constraints-isaac-lab.txt) holds
+the resolved versions of the environment
 [`isaac-lab-upgrade-stage3-2026-08-23`](../../docs/measurements/isaac-lab-upgrade-stage3-2026-08-23/README.md)
-validated. To build under it:
+validated. Three rules make it work, and none of them is optional:
 
 ```bash
-export PIP_CONSTRAINT=$PWD/source/strafer_lab/constraints-env_isaaclab3beta2.txt
-
-# Add PyPI to every torch step (3, 5, 10): constrained, torch's dependencies
-# must resolve to pinned versions and the cu130 index does not carry them.
-#   --index-url https://download.pytorch.org/whl/cu130 \
-#   --extra-index-url https://pypi.org/simple
-
-# Step 6 must run unconstrained — it installs torch==2.10.0, which the
-# constraint forbids — and be followed by a convergence pass:
-env -u PIP_CONSTRAINT ./isaaclab.sh --install mimic,newton,visualizer
-pip install --index-url https://download.pytorch.org/whl/cu130 \
-    --extra-index-url https://pypi.org/simple \
-    -r <(grep -E '^[A-Za-z0-9._-]+==' source/strafer_lab/constraints-env_isaaclab3beta2.txt)
+export PIP_CONSTRAINT=$PWD/source/strafer_lab/constraints-isaac-lab.txt
 ```
+
+1. **Every step needs the cu130 index reachable**, not just the torch steps. The
+   torch pin carries a local version label (`+cu130`) that exists on no other
+   index, so any step that resolves torch — which is most of them, directly or
+   transitively — fails with "no matching distributions" without
+   `--extra-index-url https://download.pytorch.org/whl/cu130`.
+2. **Step 6 runs unconstrained**, then converges `--no-deps`. It installs
+   `torch==2.10.0`, which the constraint forbids; and the convergence must not
+   re-resolve, or it fails on the same inconsistency described in rule 3:
+
+   ```bash
+   env -u PIP_CONSTRAINT ./isaaclab.sh --install mimic,newton,visualizer
+   pip install --no-deps --index-url https://pypi.org/simple \
+       --extra-index-url https://download.pytorch.org/whl/cu130 \
+       -r <(grep -E '^[A-Za-z0-9._-]+==' source/strafer_lab/constraints-isaac-lab.txt)
+   ```
+
+   `--no-deps` is what makes this work: it sets each package to its pinned
+   version without asking whether the set resolves jointly, which is the same
+   thing the recipe's own ordering does one step at a time.
+3. **Four packages are not in the file and must not be added.** `coverage`,
+   `packaging`, `psutil` and `websockets` end up at versions that a package
+   installed earlier pins against — `isaacsim-kernel` requires `coverage==7.4.4`,
+   `psutil==5.9.8`, `websockets==12.0`, and `isaaclab_rl` requires
+   `packaging<24`. The recipe reaches the final versions because a later
+   `pip install` may override an already-installed package's pin; a constrained
+   resolve may not, and refuses outright. This is the same inconsistency that
+   makes `pip check` unusable as a gate here, seen from the other side. Their
+   final versions come from the recipe's own ordering, which is why they need no
+   constraint.
+
+This was run: the recipe above, with these three rules, built from an empty conda
+env into **300 distributions with all 282 pinned versions identical** to the
+environment the constraints came from — the only difference being the two
+editable lines, which carry the working-tree revision rather than an environment
+fact. The logs are in
+[`isaac-lab-upgrade-pra-2026-08-26`](../../docs/measurements/isaac-lab-upgrade-pra-2026-08-26/README.md).
 
 **DGX Spark limitations** (Isaac Sim aarch64 build): no SkillGen, no OpenXR, no
 JAX-GPU, no Livestream — none affect `strafer_lab`. `nvidia-smi` reports VRAM as

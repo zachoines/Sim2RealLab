@@ -14,8 +14,8 @@
        --mode bridge --headless --enable_cameras \
        --task Isaac-Strafer-Nav-Capture-Bridge-ProcRoom-Enriched-v0
    ```
-   The watchdog relaunches a Kit boot that stops during app-settings
-   initialisation, which Isaac Sim 6.0.1 does intermittently, and prints one
+   The watchdog relaunches a Kit boot that stops early and stays stopped,
+   which Isaac Sim 6.0.1 does intermittently, and prints one
    accounting line per attempt so a relaunch is visible rather than silent. It
    stops watching once the boot is under way, so a bridge that runs for hours is
    never touched. The `make sim-bridge*` / `make sim-harness` /

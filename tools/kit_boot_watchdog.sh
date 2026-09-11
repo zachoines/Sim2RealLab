@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Run one Kit-booting command, relaunching it if the boot deadlocks.
+# Run one Kit-booting command, relaunching it if the boot stops and stays stopped.
 #
 #   tools/kit_boot_watchdog.sh -- ./isaaclab.sh -p script.py --headless
 #   tools/kit_boot_watchdog.sh --log run.log -- python -m pytest test_sim/env
@@ -9,19 +9,19 @@
 # around a defect rather than fixing one, and it should not outlive the defect.
 #
 # What is observed, on Isaac Sim 6.0.1.0 / aarch64: a Kit process intermittently
-# stops during app-settings initialisation, with two threads parked in a futex
-# wait, no CUDA context ever opened, and stdout stopping after the launcher's
-# own first line. It does not recover. Isaac Sim 6.0.0.0 does not do this, so on
-# that version this wrapper never fires and costs one poll a second.
+# stops early in its boot, with two threads parked in a futex wait, no CUDA
+# context ever opened, and stdout stopping after the launcher's own first line.
+# It does not recover. Isaac Sim 6.0.0.0 does not do this, so on that version
+# this wrapper never fires and costs one poll a second.
 #
 # The mechanism is NOT established. The above is the signature, not a diagnosis:
 # no cause has been isolated, and nothing here should be read as attributing it
 # to a particular subsystem.
 #
-# Detection is by progress, not by a runtime bound: a deadlocked tree
-# accumulates no CPU time and writes no output, while every healthy phase of a
-# run — plugin load, import, collection, stepping — does both continuously. A
-# tree that moves neither counter for --stall-window seconds has deadlocked.
+# Detection is by progress, not by a runtime bound: a stopped tree accumulates
+# no CPU time and writes no output, while every healthy phase of a run — plugin
+# load, import, collection, stepping — does both continuously. A tree that moves
+# neither counter for --stall-window seconds is treated as stopped.
 # That rule holds inside a pytest subprocess too, where the boot is preceded by
 # imports heavy enough to defeat any resident-size threshold.
 #

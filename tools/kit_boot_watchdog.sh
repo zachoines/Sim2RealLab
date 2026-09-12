@@ -14,9 +14,14 @@
 # It does not recover. Isaac Sim 6.0.0.0 does not do this, so on that version
 # this wrapper never fires and costs one poll a second.
 #
-# The mechanism is NOT established. The above is the signature, not a diagnosis:
-# no cause has been isolated, and nothing here should be read as attributing it
-# to a particular subsystem.
+# The mechanism is established. App-settings initialisation starts the internal-
+# session check on a std::async worker before it reads any setting, and on 6.0.1.0
+# that worker's first act acquires a carb interface, which drives carb.settings
+# plugin startup while the main thread is still in carb.dictionary pre-startup;
+# both threads then park forever in an unbounded futex inside the plugin registry.
+# On 6.0.0.0 the same check reads its environment variable first and makes no carb
+# call, which is why that pin does not stall. See
+# docs/measurements/kit-boot-hang-2026-09-11.
 #
 # Detection is by progress, not by a runtime bound: a stopped tree accumulates
 # no CPU time and writes no output, while every healthy phase of a run — plugin

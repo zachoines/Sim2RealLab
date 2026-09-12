@@ -92,6 +92,13 @@ imports the deprecated surface directly again.
   by rebuilding into a third, throwaway env** — the pair was built before any
   recipe was written down, so transcribing was not an option and a freeze
   cannot recover ordering.
+- **Every Kit launch goes through a boot watchdog.** Isaac Sim 6.0.1
+  intermittently stops during a Kit boot on this host, so a launch that never
+  starts is relaunched and counted rather than recorded as a failed measurement.
+  It is a no-op on the earlier pin. The stall was located to a deadlock inside
+  the carb plugin registry and neither candidate avoidance works, so the
+  wrapper is the mitigation rather than a placeholder — see
+  `docs/measurements/kit-boot-hang-2026-09-11`.
 - Re-validate the sim stack: `make test-lab` (Kit suite + pure-Python), a
   training smoke, and a `make sim-bridge` smoke. Confirm no regression to the
   physics fixes (roller-bounce / teleop-perf shared cfg) or the headless

@@ -189,116 +189,200 @@ runnable scripts under `scripts/`, importable modules under
 
 ### Linux (DGX Spark, aarch64 — preferred)
 
-`strafer_lab` runs in the `env_isaaclab3` conda env (Isaac Sim 6 + Isaac
-Lab develop on Python 3.12). This subsection is the canonical recreate
-recipe for that env — [`repo-topology.md`](../../docs/tasks/context/repo-topology.md#python-environments-dgx)
-links here.
+`strafer_lab` runs in a conda env carrying Isaac Sim 6 and Isaac Lab
+`v3.0.0-beta2.patch1`, paired with a clone of Isaac Lab at that tag. `.env` names
+the pair (`CONDA_ENV`, `ISAACLAB`); everything below refers to it by role.
+
+Why each step is the way it is — the ordering hazards, what a rebuild does and
+does not reproduce — is in
+[`isaac-lab-upgrade-pra-2026-08-26`](../../docs/measurements/isaac-lab-upgrade-pra-2026-08-26/README.md).
+Read that if a step surprises you; otherwise run these in order.
 
 **Prereqs** (audited on `gx10-d1d8`):
 
 | Item | Value |
 |---|---|
 | OS | Ubuntu 24.04 LTS (aarch64) |
-| GPU / driver | NVIDIA GB10 (Blackwell) / 580.82.09 (NVIDIA recommends ≥ 580.95.05 for Spark) |
+| GPU / driver | NVIDIA GB10 (Blackwell) / 580.82.09 |
 | CUDA | 13.0 (`/usr/local/cuda-13.0`) |
 | Python | 3.12 (Isaac Sim 6 requires `==3.12.*`) |
 
-**Build `env_isaaclab3` from scratch.** Isaac Sim 6 builds its
-`imgui-bundle` dependency from source on aarch64, which needs the X11 / GL
-dev headers:
+```bash
+# nlopt, quadprog and imgui-bundle build from source on aarch64. isaaclab.sh
+# installs most of this itself via apt; doing it first keeps the build
+# non-interactive.
+sudo apt-get install -y cmake swig build-essential python3.12-dev \
+  libx11-dev libxrandr-dev libxinerama-dev libxcursor-dev libxi-dev \
+  libxkbcommon-dev libgl1-mesa-dev libopengl-dev libglx-dev
+```
+
+**Build.** `$ENV` is the name you gave `CONDA_ENV`; `$CLONE` the path in
+`ISAACLAB`.
 
 ```bash
-sudo apt-get install -y libx11-dev libxrandr-dev libxinerama-dev \
-  libxcursor-dev libxi-dev libxkbcommon-dev libgl1-mesa-dev
+# 1. Isaac Lab at the tag. Detached HEAD is expected.
+git clone git@github.com:isaac-sim/IsaacLab.git "$CLONE"
+git -C "$CLONE" checkout v3.0.0-beta2.patch1
 
-conda create -n env_isaaclab3 python=3.12 -y
-conda activate env_isaaclab3
+# 2. The env.
+conda create -n "$ENV" python=3.12 -y
+conda activate "$ENV"
 
-# CUDA torch 2.10 — the version Isaac Sim is compiled against. This is a
-# hard floor; do not bump it (see env rationale in repo-topology.md).
-pip install torch==2.10.0 torchvision==0.25.0 torchaudio==2.10.0 \
-  --index-url https://download.pytorch.org/whl/cu130
+# 3. CUDA torch first, so the Isaac Sim install resolves against it.
+pip install --index-url https://download.pytorch.org/whl/cu130 \
+  torch==2.11.0 torchvision==0.26.0 torchaudio==2.11.0
 
-# Isaac Sim 6 (imgui-bundle compiles from source on aarch64, ~2 min)
-pip install "isaacsim[all]>=6.0.0" --extra-index-url https://pypi.nvidia.com
+# 4. Isaac Sim, pinned. Not via `isaaclab.sh --install isaacsim`, which asks for
+#    `isaacsim[all]>=6.0.0` and pins neither the version nor `extscache`.
+pip install "isaacsim[all,extscache]==6.0.1.0" --extra-index-url https://pypi.nvidia.com
 
-# Isaac Sim's resolver pulls a CPU-only torch; force the CUDA build back in
+# 5. Isaac Sim's resolver may move torch; force the CUDA build back.
+#    --no-deps, or pip re-resolves the whole closure off the cu130 index.
 pip install --force-reinstall --no-deps \
-  torch==2.10.0 torchvision==0.25.0 torchaudio==2.10.0 \
-  --index-url https://download.pytorch.org/whl/cu130
-python -c "import torch; print(torch.__version__, torch.cuda.is_available())"
-# Expected: 2.10.0+cu130 True
+  --index-url https://download.pytorch.org/whl/cu130 \
+  torch==2.11.0 torchvision==0.26.0 torchaudio==2.11.0
 
-# Isaac Lab — check out the develop branch in your $ISAACLAB clone and
-# install rsl_rl editable. The working tree is built against a known-good
-# develop revision and intentionally trails tip; advancing it is a
-# deliberate, separately-managed upgrade, not a blind pull to develop HEAD.
-cd ~/Documents/repos/IsaacLab
-git checkout develop
-./isaaclab.sh --install rsl_rl
-```
+# 6. Isaac Lab's editables and extras. `--install rsl_rl` no longer exists: an
+#    unknown token only warns, so a stale command installs nothing and looks
+#    fine. The `rl` extra is skipped deliberately — it pins rsl-rl-lib==5.0.1.
+cd "$CLONE" && ./isaaclab.sh --install mimic,newton,visualizer
 
-**Install the strafer packages** into that env:
+# 7. rsl-rl at the version this stack needs, and the onnxscript floor that
+#    matters (0.6.2 is an export hazard on aarch64).
+pip install rsl-rl-lib==5.4.2 "onnxscript>=0.7.1"
 
-```bash
+# 8. The strafer packages. strafer_lab needs --no-build-isolation: a transitive
+#    (flatdict) uses legacy pkg_resources.
 cd ~/Workspace/Sim2RealLab
-source env_setup.sh          # loads .env; exports LD_PRELOAD (libgomp) + $ISAACLAB
-conda activate env_isaaclab3
-
+source env_setup.sh          # exports the libgomp LD_PRELOAD Isaac Lab needs
 pip install -e source/strafer_shared
-# --no-build-isolation: a transitive dep (flatdict) uses legacy pkg_resources
 pip install --no-build-isolation -e source/strafer_lab
+
+# 9. lerobot for the harness writer, --no-deps so its bounds cannot drag the
+#    pinned stack backwards, then only the runtime deps the writer uses.
+pip install --no-deps lerobot==0.5.1
+pip install "datasets>=4.0.0,<5.0.0" "av>=15.0.0,<16.0.0" "jsonlines>=4.0.0,<5.0.0"
+
+# 10. THE TORCH PIN GOES LAST. Step 6 downgrades torch to 2.10 and uninstalls
+#     torchaudio without putting it back — see the hazard note below.
+pip install --no-deps --index-url https://download.pytorch.org/whl/cu130 \
+  torch==2.11.0 torchvision==0.26.0 torchaudio==2.11.0
+
+# 11. The torch 2.10 leg pulled cuDNN back; --no-deps above does not lift it.
+pip install --index-url https://download.pytorch.org/whl/cu130 \
+  nvidia-cudnn-cu13==9.19.0.56
+
+# 12. Remaining pins.
+pip install onnxruntime==1.25.1   # without it 15 tests skip silently
+pip install packaging==26.0       # step 6 pins it down to 23.2
+# torchcodec from PyPI, forced: the cu130 index carries a +cu130 build that also
+# satisfies ==0.16.0, so an earlier step may already have left that one in place
+# and a plain install would consider the requirement met.
+pip install --force-reinstall --no-deps --index-url https://pypi.org/simple \
+  torchcodec==0.16.0
+pip install py-spy==0.4.2
 ```
 
-Isaac Lab's aarch64 installer requires `LD_PRELOAD=/lib/aarch64-linux-gnu/libgomp.so.1`;
-`env_setup.sh` exports it, so source that rather than setting it by hand
-before every Isaac Lab command.
+**`isaaclab.sh --install` is not idempotent.** It re-pins torch to 2.10 and
+uninstalls `torchaudio` without reinstalling it, on *every* invocation — twice
+per run, so the second pass logs "already installed" and the log looks clean.
+Re-run steps 10–11 after any later `--install`, or do not invoke it again.
 
-**Layer in `lerobot`** (the harness teleop/capture writer needs it). Install
-it `--no-deps` so it can't downgrade Isaac Sim's `numpy` / `huggingface-hub`,
-then add only the runtime deps the writer uses:
+**EULA.** The marker is
+`$CONDA_PREFIX/lib/python3.12/site-packages/isaacsim/kit/EULA_ACCEPTED`, written
+by an interactive first boot. Accept it that way; do not set
+`OMNI_KIT_ACCEPT_EULA`.
+
+**Kit-app modification.** Remove the telemetry extension from the clone — a
+pristine boot leaves an `omni.telemetry.transmitter` process resident with
+`enableAnonymousData=true`. This is a privacy decision, not a fix; it is
+machine-local, and the clone is not tracked by this repository.
 
 ```bash
-# $ISAACLAB can't run `-m pip` (it forwards args only after its own flags);
-# use the env's python directly.
-python -m pip install --no-deps "lerobot==0.5.1"
-python -m pip install --upgrade-strategy only-if-needed \
-    "datasets>=4.0.0,<5.0.0" "av>=15.0.0,<16.0.0" "jsonlines>=4.0.0,<5.0.0"
-python -c "import torch, lerobot; print('torch', torch.__version__, 'lerobot', lerobot.__version__, 'cuda', torch.cuda.is_available())"
-# Expected: torch 2.10.0+cu130 lerobot 0.5.1 cuda True
+cd "$CLONE" && sed -i '/^"omni\.kit\.telemetry" = {}$/d' \
+  apps/isaaclab.python.kit apps/isaaclab.python.headless.kit
 ```
 
-Pip warns that lerobot's strict `numpy` / `huggingface-hub` / `rerun-sdk`
-pins aren't satisfied — expected and safe: `--no-deps` skipped them to keep
-Isaac Sim's stack intact. The narrow LeRobot v3 writer surface the harness
-uses (`create` / `add_frame` / `save_episode` / `finalize`) is smoke-tested
-against this install. Capture workflow deep-dive:
-[`docs/HARNESS_DATA_CAPTURE.md`](../../docs/HARNESS_DATA_CAPTURE.md).
+The `omni.kit.pip_archive` shim that the earlier clone carried is obsolete — a
+pristine clone boots. Do not reapply it.
 
-**Smoke test:**
+**Verify.**
 
 ```bash
-python -c "
-import strafer_lab
-from strafer_lab.tools.scene_labels import get_scene_label_set
-from strafer_lab.tools.spatial_description import SpatialDescriptionBuilder
-from strafer_lab.tools.retired.dataset_export import run_export
-print('strafer_lab tools OK')
-"
+python -c "import torch; print(torch.__version__, torch.cuda.is_available())"
+# 2.11.0+cu130 True
+python -c "import torch, lerobot; print(lerobot.__version__)"        # 0.5.1
+python -c "import isaaclab, strafer_lab; print(isaaclab.__file__, strafer_lab.__file__)"
 
-# Registered Strafer envs — 3 RL families × {train, play} + 3 capture = 9
-python -c "import strafer_lab, gymnasium as gym; \
-  print(sorted(e for e in gym.envs.registry if 'Strafer' in e))"
+# No duplicate dist-info — two versions of one package is how an earlier env
+# ended up reporting the wrong isaaclab version. Expect no output.
+ls $CONDA_PREFIX/lib/python3.12/site-packages | grep dist-info \
+  | sed 's/-[0-9].*//' | sort | uniq -d
 ```
 
-**DGX Spark limitations** (Isaac Sim aarch64 build): no SkillGen, no
-OpenXR, no JAX-GPU, no Livestream — none affect `strafer_lab`. `nvidia-smi`
-reports VRAM as `[N/A]` because the GB10 shares unified memory with the
-CPU; watch `free -h` for memory pressure at high `--num_envs` instead.
+`pip check` is not a usable gate here — it reports findings that are the ordinary
+consequence of the `--no-deps` and pinned steps above. `packaging` in particular
+is an unsatisfiable three-way (`isaacsim-core` wants `==26.0`, `isaaclab_rl`
+`<24`, `lerobot` `>=24.2,<26.0`); 26.0 is the deliberate choice and pip will keep
+printing the other two. Do not "fix" it.
+
+**Reproducing this exact set.** The commands above pin about fifteen packages;
+the rest are whatever the resolver returns on the day.
+[`constraints-isaac-lab.txt`](constraints-isaac-lab.txt) holds
+the resolved versions of the environment
+[`isaac-lab-upgrade-stage3-2026-08-23`](../../docs/measurements/isaac-lab-upgrade-stage3-2026-08-23/README.md)
+validated. Three rules make it work, and none of them is optional:
+
+```bash
+export PIP_CONSTRAINT=$PWD/source/strafer_lab/constraints-isaac-lab.txt
+```
+
+1. **Every step needs the cu130 index reachable**, not just the torch steps. The
+   torch pin carries a local version label (`+cu130`) that exists on no other
+   index, so any step that resolves torch — which is most of them, directly or
+   transitively — fails with "no matching distributions" without
+   `--extra-index-url https://download.pytorch.org/whl/cu130`.
+2. **Step 6 runs unconstrained**, then converges `--no-deps`. It installs
+   `torch==2.10.0`, which the constraint forbids; and the convergence must not
+   re-resolve, or it fails on the same inconsistency described in rule 3:
+
+   ```bash
+   env -u PIP_CONSTRAINT ./isaaclab.sh --install mimic,newton,visualizer
+   pip install --no-deps --index-url https://pypi.org/simple \
+       --extra-index-url https://download.pytorch.org/whl/cu130 \
+       -r <(grep -E '^[A-Za-z0-9._-]+==' source/strafer_lab/constraints-isaac-lab.txt)
+   ```
+
+   `--no-deps` is what makes this work: it sets each package to its pinned
+   version without asking whether the set resolves jointly, which is the same
+   thing the recipe's own ordering does one step at a time.
+3. **Four packages are not in the file and must not be added.** `coverage`,
+   `packaging`, `psutil` and `websockets` end up at versions that a package
+   installed earlier pins against — `isaacsim-kernel` requires `coverage==7.4.4`,
+   `psutil==5.9.8`, `websockets==12.0`, and `isaaclab_rl` requires
+   `packaging<24`. The recipe reaches the final versions because a later
+   `pip install` may override an already-installed package's pin; a constrained
+   resolve may not, and refuses outright. This is the same inconsistency that
+   makes `pip check` unusable as a gate here, seen from the other side. Their
+   final versions come from the recipe's own ordering, which is why they need no
+   constraint.
+
+This was run: the recipe above, with these three rules, built from an empty conda
+env into **300 distributions with all 282 pinned versions identical** to the
+environment the constraints came from — the only difference being the two
+editable lines, which carry the working-tree revision rather than an environment
+fact. The logs are in
+[`isaac-lab-upgrade-pra-2026-08-26`](../../docs/measurements/isaac-lab-upgrade-pra-2026-08-26/README.md).
+
+**DGX Spark limitations** (Isaac Sim aarch64 build): no SkillGen, no OpenXR, no
+JAX-GPU, no Livestream — none affect `strafer_lab`. `nvidia-smi` reports VRAM as
+`[N/A]` because the GB10 shares unified memory with the CPU; watch `free -h` for
+memory pressure at high `--num_envs` instead.
 
 For the Infinigen-only conda env (`env_infinigen`, aarch64 source-built
 `bpy==4.2.0`), see the `README.md` in the sibling `~/Workspace/blender-build/`
 directory — those artifacts are machine-specific and live outside this repo.
+
 
 ### Windows workstation
 
@@ -309,11 +393,13 @@ cd C:\Workspace
 python -m pip install -e source/strafer_lab source/strafer_shared
 ```
 
-Three environments partition the DGX stack — `env_isaaclab3` (this
-package, Isaac Sim/Lab + CUDA torch 2.10), `.venv_vlm` (the VLM + planner
-services, on a faster-moving torch 2.11), and `env_infinigen` (scene-gen,
-Python 3.11). The full table, the why-separate rationale, and each
-recreate recipe live in
+Three environments partition the DGX stack — the Isaac Sim / Isaac Lab conda
+env (this package), `.venv_vlm` (the VLM + planner services), and
+`env_infinigen` (scene-gen, Python 3.11). `isaacsim-core` pins torch to an exact
+version, so the Isaac Lab env's torch is not free to move at all; `.venv_vlm`
+tracks its own. On the candidate pair the two happen to share a torch minor and
+differ only in the CUDA build; the currently selected pair is a minor behind.
+The full table, the why-separate rationale, and each recreate recipe live in
 [`repo-topology.md` → Python environments (DGX)](../../docs/tasks/context/repo-topology.md#python-environments-dgx).
 
 ## Run
@@ -467,7 +553,7 @@ Jetson side (either mode) launches `bringup_sim_in_the_loop.launch.py` from [`st
 
 ## Testing
 
-Both test trees run in `env_isaaclab3`; the split is whether they boot Kit:
+Both test trees run in the Isaac Lab conda env; the split is whether they boot Kit:
 
 - **`test_sim/`** — env / sensor / reward / observation suites that need Isaac Sim. The root `test_sim/conftest.py` boots Kit headlessly once per session; use `run_tests.py` for clean output (direct pytest is drowned by Kit startup noise, and the root conftest calls `os._exit()` before pytest can print its summary).
 - **`tests/`** — suites that run without booting Kit, foldered by intent:
@@ -475,7 +561,7 @@ Both test trees run in `env_isaaclab3`; the split is whether they boot Kit:
   - **`tests/policy_tooling/`** — `test_export_policy.py`, `test_load_policy.py`: the `.pt`/`.onnx` export and `strafer_shared.policy_interface` loader round-trips.
   - **`tests/contracts/`** — `test_action_clamp.py`, `test_obs_contract_parity.py`, `test_recurrent_contract_e2e.py`: the sim↔real boundary guards (action clamp, encoder-FK observation parity, recurrent hidden-state contract).
 
-`tests/` imports `lerobot` / `pxr` / `warp` / `isaaclab_tasks` / `onnx`, all of which `env_isaaclab3` already carries — so the whole pure-Python tree runs there (no separate `.venv_harness`).
+`tests/` imports `lerobot` / `pxr` / `warp` / `isaaclab_tasks` / `onnx`, all of which the Isaac Lab env already carries — so the whole pure-Python tree runs there (no separate `.venv_harness`).
 
 ```bash
 # Everything strafer_lab (Kit suites + pure-Python), from the repo root

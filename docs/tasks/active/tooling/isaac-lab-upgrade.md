@@ -74,6 +74,13 @@ imports the deprecated surface directly again.
   Update the recreate command + pinned versions in `env_setup.sh` /
   `.env.example` / `repo-topology.md` to describe the new pair in the same PR
   as the flip. **Rollback is flipping those three pointers back.**
+- **One canonical name, renamed at the flip.** Documentation names a single
+  Isaac Lab environment by role; only `.env` and the Makefile defaults carry the
+  concrete name. The flip renames the tagged environment to `env_isaaclab3` and
+  the retired one to `env_isaaclab3-retired`, moves the clones to match, and
+  re-links the `isaaclab_*` editables against the moved path, so afterwards only
+  canonical names appear anywhere. The retired pair is deleted only once the
+  post-flip gates hold.
 - **The old pair is a preserved artifact, not scratch space.** It is no longer
   rebuildable from the notes that produced it, and it is the only way to
   recompute pre-bump config hashes when a golden moves and the attribution
@@ -81,6 +88,10 @@ imports the deprecated surface directly again.
   inside it.
 - Record the **torch version** the new release ships (the input to the
   `.venv_vlm` consolidation question).
+- **The recipe is reconstructed from the build's own pip logs and then proved
+  by rebuilding into a third, throwaway env** — the pair was built before any
+  recipe was written down, so transcribing was not an option and a freeze
+  cannot recover ordering.
 - Re-validate the sim stack: `make test-lab` (Kit suite + pure-Python), a
   training smoke, and a `make sim-bridge` smoke. Confirm no regression to the
   physics fixes (roller-bounce / teleop-perf shared cfg) or the headless

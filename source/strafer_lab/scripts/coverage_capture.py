@@ -539,8 +539,22 @@ def main() -> int:
             else viewer.cam_prim_path
         )
         if capture is not None:
-            capture.cfg.camera_position = world_eye
-            capture.cfg.camera_target = world_target
+            # Isaac Lab renamed these fields (camera_position/camera_target ->
+            # eye/lookat) at v3.0.0-beta2; write whichever pair the installed
+            # version exposes, so the anchor works on both rather than silently
+            # doing nothing on one of them.
+            if hasattr(capture.cfg, "camera_position"):
+                capture.cfg.camera_position = world_eye
+                capture.cfg.camera_target = world_target
+            elif hasattr(capture.cfg, "eye"):
+                capture.cfg.eye = world_eye
+                capture.cfg.lookat = world_target
+            else:
+                raise RuntimeError(
+                    "[coverage_capture] --video: the capture config exposes neither "
+                    "camera_position/camera_target nor eye/lookat, so the recording "
+                    "cannot be anchored on env 0 and would use the recorder's own pose."
+                )
         else:
             print(
                 "[coverage_capture] --video: viewport capture handle "

@@ -19,15 +19,25 @@ Examples:
 """
 
 import importlib.util
+import itertools
+import signal
 import subprocess
 import sys
 import os
+import shutil
 import tempfile
+import time
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
 TEST_ROOT = Path(__file__).parent / "test_sim"
 XML_DIR = Path(__file__).parent  # directory for junit-xml files
+
+
+# Seconds a timed-out suite gets to shut down after SIGTERM before it is killed.
+# Isaac Sim releases its carb shared memory and named semaphores on the way out;
+# SIGKILL alone abandons both, and the litter accumulates across runs.
+TERM_GRACE = 20
 
 # Per-suite timeout in seconds
 # depth_noise files each need their own process (SimulationContext singleton)
@@ -75,28 +85,96 @@ SUITES = {
 }
 
 
-def _run_subprocess(cmd: list[str], timeout: int, xml_path: Path) -> dict | None:
+def _terminate(proc: subprocess.Popen) -> None:
+    """SIGTERM the suite's process group, then SIGKILL what is left.
+
+    The suite runs in its own session, so the group signal reaches Kit and not
+    just the process that was spawned. Both waits are bounded: a child that
+    ignores SIGTERM must not hang the runner that is trying to end it. Isaac Sim
+    releases its shared memory and named semaphores on the way out, which a
+    straight SIGKILL abandons.
+    """
+    escalation = ((signal.SIGTERM, TERM_GRACE), (getattr(signal, "SIGKILL", signal.SIGTERM), 10))
+    for sig, wait in escalation:
+        try:
+            os.killpg(proc.pid, sig)
+        except (ProcessLookupError, PermissionError):
+            proc.send_signal(sig)
+        try:
+            proc.wait(timeout=wait)
+            return
+        except subprocess.TimeoutExpired:
+            continue
+
+
+def _preserve_failing_xml(xml_path: Path) -> Path | None:
+    """Copy a failing suite's JUnit XML aside so the next run cannot erase it.
+
+    Suites write to a fixed per-suite path, so re-running a suite overwrites the
+    evidence of why it failed. The copy carries a timestamp, and a counter for
+    the case where two failures land in the same second. The name is claimed
+    with O_CREAT | O_EXCL, so the check and the claim are one operation and two
+    runs preserving at the same moment cannot land on the same file.
+
+    Nothing prunes these. They are gitignored by the same `test_results*.xml`
+    rule as the live files, and a tree that has failed often enough to notice
+    wants clearing by hand.
+    """
+    if not xml_path.is_file():
+        return None
+    stamp = time.strftime("%Y%m%d-%H%M%S")
+    for n in itertools.count():
+        suffix = f"-FAILRUN-{stamp}" + (f"-{n}" if n else "")
+        kept = xml_path.with_name(f"{xml_path.stem}{suffix}{xml_path.suffix}")
+        try:
+            fd = os.open(kept, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o644)
+        except FileExistsError:
+            continue
+        os.close(fd)
+        shutil.copy2(xml_path, kept)
+        return kept
+
+
+
+def _run_subprocess(cmd: list[str], timeout: int, xml_path: Path) -> dict:
     """Run a pytest subprocess, redirect output to temp files, return parsed results.
 
-    Uses temp files for stdout/stderr instead of PIPE to avoid Windows pipe
-    buffer deadlocks with Isaac Sim's heavy output.
+    Uses temp files for stdout/stderr instead of PIPE to avoid pipe-buffer
+    deadlocks with Isaac Sim's heavy output.
 
-    Returns:
-        Parsed result dict, or None on timeout/XML failure.
+    Every outcome — a clean run, a timeout, a crash before the XML was written —
+    comes back as a result dict, so no path can report an absent result as a pass.
     """
+    # Suites write to a fixed per-suite path. A run that dies before pytest
+    # writes results would otherwise parse the file left there by the previous
+    # run and report its counts as this run's — a crashed suite reading green.
+    # Removing it first turns that case into the "XML not generated" error the
+    # parse path already handles.
+    xml_path.unlink(missing_ok=True)
+
     # Use temp files so the child process never blocks on pipe buffers
     captured = ""
     with tempfile.TemporaryFile(mode="w+b") as tmp_out, \
          tempfile.TemporaryFile(mode="w+b") as tmp_err:
 
-        proc = subprocess.Popen(cmd, stdout=tmp_out, stderr=tmp_err)
+        # A session of its own is what lets a timed-out suite be signalled as a
+        # group; POSIX only, and the rest of this function degrades to plain
+        # process signalling where it is unavailable.
+        proc = subprocess.Popen(cmd, stdout=tmp_out, stderr=tmp_err,
+                                start_new_session=(os.name == "posix"))
 
+        timed_out = False
         try:
             proc.wait(timeout=timeout)
         except subprocess.TimeoutExpired:
-            proc.kill()
-            proc.wait()
-            return None  # caller handles timeout
+            _terminate(proc)
+            timed_out = True
+        except KeyboardInterrupt:
+            # The suite runs in its own session, so Ctrl-C no longer reaches it
+            # the way it did when it shared this process's group. Tear it down
+            # here, or Kit outlives the runner that was watching it.
+            _terminate(proc)
+            raise
 
         # Read the child's output before the temp files are released, so a
         # missing-XML run can be diagnosed below rather than reported opaquely.
@@ -104,6 +182,15 @@ def _run_subprocess(cmd: list[str], timeout: int, xml_path: Path) -> dict | None
         tmp_err.seek(0)
         captured = (tmp_out.read().decode("utf-8", "replace")
                     + tmp_err.read().decode("utf-8", "replace"))
+
+    if timed_out:
+        # Keep whatever the run produced before it was cut off.
+        kept = _preserve_failing_xml(xml_path)
+        details = [f"  ERROR  TIMEOUT after {timeout}s"]
+        if kept is not None:
+            details.append(f"  KEPT   {kept.name}")
+        return {"tests": 0, "passed": 0, "failed": 0, "errors": 1, "skipped": 0,
+                "details": details}
 
     # Parse XML results (written before os._exit kills the process)
     try:
@@ -118,6 +205,12 @@ def _run_subprocess(cmd: list[str], timeout: int, xml_path: Path) -> dict | None
         details = ["  ERROR  XML not generated (subprocess crashed before writing results)"]
         details += [f"         | {ln}" for ln in tail] if tail else \
                    ["         | (no output captured)"]
+        # A parse error means a partial file IS on disk, and it is the most
+        # useful thing the run left behind; the next run's unlink would destroy
+        # it. FileNotFoundError leaves nothing to keep and this is a no-op.
+        kept = _preserve_failing_xml(xml_path)
+        if kept is not None:
+            details.append(f"  KEPT   {kept.name}")
         return {"tests": 0, "passed": 0, "failed": 0,
                 "errors": 1, "skipped": 0,
                 "details": details}
@@ -125,8 +218,13 @@ def _run_subprocess(cmd: list[str], timeout: int, xml_path: Path) -> dict | None
     root = tree.getroot()
     suite = root.find(".//testsuite")
     if suite is None:
+        kept = _preserve_failing_xml(xml_path)
+        details = ["  ERROR  No testsuite in XML"]
+        if kept is not None:
+            details.append(f"  KEPT   {kept.name}")
         return {"tests": 0, "passed": 0, "failed": 0,
-                "errors": 1, "skipped": 0, "details": ["  ERROR  No testsuite in XML"]}
+                "errors": 1, "skipped": 0,
+                "details": details}
 
     total = int(suite.get("tests", 0))
     errors = int(suite.get("errors", 0))
@@ -158,8 +256,14 @@ def _run_subprocess(cmd: list[str], timeout: int, xml_path: Path) -> dict | None
         errors = 1
         details.append("  ERROR  0 tests collected")
 
+    if failures or errors:
+        kept = _preserve_failing_xml(xml_path)
+        if kept is not None:
+            details.append(f"  KEPT   {kept.name}")
+
     return {"tests": total, "passed": passed, "failed": failures,
-            "errors": errors, "skipped": skipped, "details": details}
+            "errors": errors, "skipped": skipped,
+            "details": details}
 
 
 def run_suite(name: str, paths: list[str]) -> dict:
@@ -173,8 +277,7 @@ def run_suite(name: str, paths: list[str]) -> dict:
 
     if name in MULTI_PROCESS_SUITES:
         return _run_multi_process(name, paths, timeout)
-    else:
-        return _run_single_process(name, paths, timeout)
+    return _run_single_process(name, paths, timeout)
 
 
 def _run_single_process(name: str, paths: list[str], timeout: int) -> dict:
@@ -189,11 +292,6 @@ def _run_single_process(name: str, paths: list[str], timeout: int) -> dict:
     ]
 
     result = _run_subprocess(cmd, timeout, xml_path)
-    if result is None:
-        return {"name": name, "tests": 0, "passed": 0, "failed": 0,
-                "errors": 1, "skipped": 0,
-                "details": [f"  ERROR  TIMEOUT after {timeout}s"]}
-
     result["name"] = name
     return result
 
@@ -229,22 +327,17 @@ def _run_multi_process(name: str, paths: list[str], per_file_timeout: int) -> di
 
         result = _run_subprocess(cmd, per_file_timeout, xml_path)
 
-        if result is None:
-            merged["errors"] += 1
-            merged["details"].append(
-                f"  ERROR  {file_label}  (TIMEOUT after {per_file_timeout}s)"
-            )
-            print("TIMEOUT")
-        else:
-            merged["tests"] += result["tests"]
-            merged["passed"] += result["passed"]
-            merged["failed"] += result["failed"]
-            merged["errors"] += result["errors"]
-            merged["skipped"] += result["skipped"]
-            merged["details"].extend(result["details"])
+        merged["tests"] += result["tests"]
+        merged["passed"] += result["passed"]
+        merged["failed"] += result["failed"]
+        merged["errors"] += result["errors"]
+        merged["skipped"] += result["skipped"]
+        merged["details"].extend(f"  {file_label}: {ln.strip()}"
+                                 if ln.startswith("  ERROR  TIMEOUT") else ln
+                                 for ln in result["details"])
 
-            status = "ok" if result["failed"] == 0 and result["errors"] == 0 else "FAIL"
-            print(f"{status} ({result['passed']}/{result['tests']})")
+        status = "ok" if result["failed"] == 0 and result["errors"] == 0 else "FAIL"
+        print(f"{status} ({result['passed']}/{result['tests']})")
 
         sys.stdout.flush()
 

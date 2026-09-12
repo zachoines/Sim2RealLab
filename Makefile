@@ -259,8 +259,27 @@ test-lab: ## Run ALL strafer_lab tests in env_isaaclab3 — Kit suites (run_test
 	@# gained pxr) — no separate venv. Both halves always run; the target
 	@# exits non-zero if either failed. env_setup.sh supplies LD_PRELOAD and
 	@# scrubs the vendored-ROS2 path off PYTHONPATH so pytest autoload stays
-	@# clean.
-	@source env_setup.sh && rc=0; \
+	@# clean. isaaclab.sh picks its interpreter from VIRTUAL_ENV first and
+	@# CONDA_PREFIX second, so the Kit half runs in whatever env is active —
+	@# hence the activate, and the checks that nothing else is selected and that
+	@# the pure half's interpreter is the same one.
+	@source env_setup.sh && \
+		source $(CONDA_ROOT)/etc/profile.d/conda.sh && \
+		conda activate $(CONDA_ENV) || exit 1; \
+		[ -z "$$VIRTUAL_ENV" ] || { \
+			echo "[test-lab] VIRTUAL_ENV=$$VIRTUAL_ENV is set; isaaclab.sh prefers it over the"; \
+			echo "[test-lab] conda env, so the Kit half would run somewhere else. Deactivate it first."; \
+			exit 1; }; \
+		[ -n "$$STRAFER_ISAACLAB_PYTHON" ] || { \
+			echo "[test-lab] STRAFER_ISAACLAB_PYTHON is unset — source env_setup.sh first."; \
+			exit 1; }; \
+		[ "$$(dirname "$$(dirname "$$STRAFER_ISAACLAB_PYTHON")")" = "$$CONDA_PREFIX" ] || { \
+			echo "[test-lab] the two halves would not test the same environment:"; \
+			echo "[test-lab]   Kit half   -> CONDA_ENV=$(CONDA_ENV) (from $(origin CONDA_ENV)), active prefix $$CONDA_PREFIX"; \
+			echo "[test-lab]   pure half  -> STRAFER_ISAACLAB_PYTHON=$$STRAFER_ISAACLAB_PYTHON"; \
+			echo "[test-lab] origin 'environment' means env_setup.sh exported it from .env; 'file' means the Makefile default."; \
+			exit 1; }; \
+		rc=0; \
 		$(ISAACLAB) -p source/strafer_lab/run_tests.py all || rc=1; \
 		$$STRAFER_ISAACLAB_PYTHON -m pytest source/strafer_lab/tests/ || rc=1; \
 		exit $$rc

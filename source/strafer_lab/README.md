@@ -397,8 +397,8 @@ Three environments partition the DGX stack — the Isaac Sim / Isaac Lab conda
 env (this package), `.venv_vlm` (the VLM + planner services), and
 `env_infinigen` (scene-gen, Python 3.11). `isaacsim-core` pins torch to an exact
 version, so the Isaac Lab env's torch is not free to move at all; `.venv_vlm`
-tracks its own. On the candidate pair the two happen to share a torch minor and
-differ only in the CUDA build; the currently selected pair is a minor behind.
+tracks its own. The two currently share a torch minor and differ only in the
+CUDA build.
 The full table, the why-separate rationale, and each recreate recipe live in
 [`repo-topology.md` → Python environments (DGX)](../../docs/tasks/context/repo-topology.md#python-environments-dgx).
 

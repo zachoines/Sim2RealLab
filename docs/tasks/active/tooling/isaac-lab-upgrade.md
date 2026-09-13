@@ -69,11 +69,16 @@ imports the deprecated surface directly again.
   place afterwards. Install the Isaac Lab editables *without* the `rsl-rl`
   extra — its `==5.0.1` pin would trip `pip check` — then install
   `rsl-rl-lib==5.4.2` directly.
-- **Cutover is a pointer flip, not a reinstall**: `STRAFER_ISAACLAB_PYTHON`,
-  `CONDA_ENV`, and `ISAACLAB` in `.env` select which pair the repo uses.
-  Update the recreate command + pinned versions in `env_setup.sh` /
-  `.env.example` / `repo-topology.md` to describe the new pair in the same PR
-  as the flip. **Rollback is flipping those three pointers back.**
+- **Cutover is a rename, not a reinstall**: `STRAFER_ISAACLAB_PYTHON`,
+  `CONDA_ENV`, and `ISAACLAB` in `.env` select which pair the repo uses, but
+  because the tagged pair is promoted *into* the canonical names (below), those
+  three strings are identical before and after and there is nothing to flip.
+  Update the recreate command + pinned versions in `.env.example` /
+  `repo-topology.md` (the recipe itself lives in
+  [`source/strafer_lab/README.md` → Install](../../../../source/strafer_lab/README.md#install))
+  to describe the new pair in the same PR as the flip. **Rollback is the rename,
+  the clone move and the editable re-link, all run in reverse** — a pointer
+  flip-back would be a no-op.
 - **One canonical name, renamed at the flip.** Documentation names a single
   Isaac Lab environment by role; only `.env` and the Makefile defaults carry the
   concrete name. The flip renames the tagged environment to `env_isaaclab3` and
@@ -109,23 +114,45 @@ imports the deprecated surface directly again.
 
 ## Acceptance
 
-- [ ] Pinned Isaac Lab version bumped in a **new** env + clone pair built
+- [x] Pinned Isaac Lab version bumped in a **new** env + clone pair built
       alongside the old one; the recreate command + pinned versions (including
-      `rsl-rl-lib==5.4.2` and `onnxscript>=0.7.1`) updated in `env_setup.sh` /
-      `.env.example` / `repo-topology.md`; the new torch version recorded.
+      `rsl-rl-lib==5.4.2` and `onnxscript>=0.7.1`) live in
+      [`source/strafer_lab/README.md` → Install](../../../../source/strafer_lab/README.md#install),
+      with `.env.example` / `repo-topology.md` describing the pair by role; the
+      new torch version recorded (2.11.0+cu130, against 2.10.0+cu130 retired).
+      `env_setup.sh` is a pointer-exporter and carries no pins, so it is not a
+      recipe home — the recipe was relocated to the package README.
 - [ ] The `.env` pointers select the new pair, the old pair is still intact on
-      disk, and flipping the pointers back is demonstrated to restore the old
-      behavior.
-- [ ] `make test-lab` green on the new pair (modulo the known
+      disk, and rollback is demonstrated to restore the old behavior.
+      **Partly met.** The pointers select the new pair and the retired pair is
+      intact and provably usable — a read-only `--video` run on it resolves
+      Isaac Sim 6.0.0.0 / torch 2.10.0+cu130 out of `IsaacLab-retired`. The
+      *demonstration* is outstanding: rollback is a rename, a clone move and an
+      editable re-link run in reverse, and no end-to-end rehearsal has been
+      done. The re-link half is proven in one direction only.
+- [x] `make test-lab` green on the new pair (modulo the known
       [`collision-imu-signal-flaky`](../investigations/collision-imu-signal-flaky.md)
-      flake).
-- [ ] Training smoke + `make sim-bridge` smoke pass; no regression to the
-      roller-bounce / teleop-perf physics or the `--video` render path.
-- [ ] The torch-version delta is recorded against the `.venv_vlm`
-      consolidation question in
-      [`install-docs-consolidation`](../../completed/install-docs-consolidation.md);
-      if the bump changes any env fact, update `repo-topology.md` in the same
-      commit.
+      flake). Kit **487 / 487**, pure **1252 passed / 1 skipped**, `exit=0`. The flake
+      did not appear; imu read 4/4.
+- [x] Training smoke + `make sim-bridge` smoke pass; no regression to the
+      roller-bounce / teleop-perf physics or the `--video` render path. Both smokes
+      pass, and the `--video` path records on both pins. **With one measured
+      exception**: the recorded image is photometrically darker on the new pin
+      (×0.715), which is not a break in the path but is a real change to every RGB
+      calibration downstream of it. It is tracked in
+      [`render-photometric-shift-isaacsim6`](../reliability/render-photometric-shift-isaacsim6.md);
+      the depth observation, which the policy lane consumes, is unmoved.
+- [x] The torch-version delta is recorded against the `.venv_vlm`
+      consolidation question; if the bump changes any env fact, update
+      `repo-topology.md` in the same commit. The lever the brief was filed to
+      measure has moved: the Isaac Lab env now carries **torch 2.11.0+cu130**
+      against `.venv_vlm`'s **2.11 +cu128**, so the two share a minor and differ
+      only in the CUDA build. `repo-topology.md` already states this and needs
+      no edit. The delta is *not* written into
+      [`install-docs-consolidation`](../../completed/install-docs-consolidation.md)
+      — that brief is completed, and completed briefs are records of what was
+      true when they shipped. Whether the narrowed gap is enough to fold
+      `.venv_vlm` remains its own cadence call.
 
 ## Out of scope
 

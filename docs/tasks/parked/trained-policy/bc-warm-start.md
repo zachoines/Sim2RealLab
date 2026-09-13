@@ -23,7 +23,7 @@ Read these before starting:
 - [`context/conventions.md`](../../context/conventions.md)
 - Related: [`harness-architecture`](../../active/harness/harness-architecture.md)
   (the capture matrix this lane draws from) and
-  [`isaac-lab-upgrade`](../../active/tooling/isaac-lab-upgrade.md) (supplies the
+  [`isaac-lab-upgrade`](../../completed/isaac-lab-upgrade.md) (supplies the
   `torchcodec` prerequisite below).
 
 ## Context

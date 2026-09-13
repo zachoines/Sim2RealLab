@@ -217,9 +217,105 @@ ticks over a fixed window, which distinguishes a stall from a slow boot without
 depending on wall-clock alone — a distinction that earned its keep when the freshly
 built environments took 66 s and 21 s for their first boots.
 
+## Correction and follow-up — 2026-09-12
+
+Three things are now known that this record either got wrong or could not say. The measurements
+above stand; what follows sharpens one attribution, adds the fact that decides what to do next,
+and records a hazard the instrument turned out to have.
+
+### The change is new in 6.0.0.1, not in the candidate pin
+
+The sections above contrast "the candidate pin" with "the rollback pin", which reads as though
+the carb interface acquisition inside the internal-session check arrived in 6.0.1.0. It arrived
+one release earlier. Read from the shipped `libomni.kit.app.plugin.so` of all four installed
+pins:
+
+| isaacsim | `getInternalSessionOverride` | `/app/waitForInternalSessionResult` |
+|---|---|---|
+| 6.0.0.0 | absent | absent |
+| 6.0.0.1 | **present** | **present** |
+| 6.0.1.0 | present | present |
+| 6.1.0.0 | present | present |
+
+The first build carrying the new override helper is the first build that stalls, so the marker
+and the onset coincide exactly. The Version ladder section's conclusion — that the change lands
+no later than 6.0.0.1 — was already correct; this makes it exact rather than bounded.
+
+### Isaac Sim 6.1.0.0 relocates the spawn, and the race cannot form there
+
+The open arm in the Version ladder section is closed, and not by the rate measurement that
+section said would be needed.
+
+`AppSettings::init` still starts the same worker with `std::launch::async` in 6.1.0.0, and
+`_checkInternalSession` itself is unchanged — 3 of 259 instructions differ, one of them a
+`__LINE__` constant. What moved is where the worker is started. In 6.0.0.1 and 6.0.1.0 the
+20-instruction spawn sequence sits in the entry block at `init+0x64`, with no intervening
+branch. In 6.1.0.0 it is deleted from there and reinserted at `init+0x1268`, **after**
+`loadCorePlugin()` of `carb.dictionary` and `carb.settings`, with everything between shifted by
+exactly 0x70 bytes — one statement relocated in the source.
+
+That is observable at runtime on every boot, without waiting for a stall. Interposing
+`pthread_create` and reading the process's own mappings at its first thread creation asks
+directly whether the two plugins the deadlock is between were already loaded:
+
+| isaacsim | core plugins loaded at first spawn | boots | verdict |
+|---|---|---|---|
+| 6.0.0.0 | no | 10/10 | exposed ordering, harmless — its worker calls `getenv` and never touches carb |
+| 6.0.0.1 | no | 10/10 | **exposed** |
+| 6.0.1.0 | no | 10/10 | **exposed** |
+| 6.1.0.0 | **yes** | 10/10 | **not exposed** |
+
+Unanimous on every pin. On 6.1.0.0 the deadlock described above cannot form, because both
+plugins are loaded before the second thread exists.
+
+The limit matters and is not a formality: this establishes that **the documented race is
+structurally impossible** at 6.1.0.0. It does not establish that 6.1.0.0 never stalls for some
+other reason. A rate measurement now supports the same direction — in one pass 6.0.0.1 stalled
+7/25 and 6.0.1.0 4/25 while 6.1.0.0 stalled 0/25, Fisher exact two-sided p = 0.0125 against the
+two affected pins pooled — but one pass is one pass.
+
+NVIDIA's Carbonite changelog carries a single candidate acknowledgement,
+`OMPE-98376: omni.kit.app : Fixed a possible rare hang on startup`, the only startup-hang entry
+across 209.x-212.x and in exactly the module involved. Whether the relocation is that fix
+cannot be settled from outside.
+
+### The pre-touch candidate is not implementable, and is retired
+
+The avoidance that follows most directly from the mechanism — acquire the carb settings
+interface on the main thread before `SimulationApp`, leaving the worker no plugin startup to
+drive — cannot be built from Python. After `import isaacsim` the carb framework object exists
+with six plugins loaded, but `carb::settings::ISettings` is not among them, and every
+acquisition entry point raises
+`Failed to acquire interface: carb::settings::ISettings (pluginName: nullptr)`. Kit registers
+that interface during `app.startup()`, the same call that starts the worker, so there is no seam
+between them. Three attempts, three identical failures; the boot never reaches the spawn, so
+there is no ordering to measure. The avoidance can only be made upstream.
+
+### A host upgrade silently broke the rate instrument, and would have read as good news
+
+The host was rebooted on 2026-09-12 with a new kernel, driver and libc, and with
+`fs.inotify.max_user_watches` raised from 65536 — where it had been 99.86% exhausted, so every
+Kit boot failed to create its file-change watches — to 1048576.
+
+The kernel renamed the `wchan` symbol for a futex wait from `futex_wait_queue` (6.11) to
+`futex_do_wait` (7.0). The rate harness matched the old name exactly, so the first post-upgrade
+pass labelled a genuine stall — two threads, 45812 kB, no boot completion — as
+`slow_or_other`. Nothing errored. A harness that stops recognising stalls reports a clean run,
+which is indistinguishable from the defect being fixed.
+
+That pass was discarded rather than patched after the fact, and is deposited with the raw rows
+that show the stall it mislabelled. The classifier now matches the futex wait by prefix and
+reports loudly when a two-thread stall carries an unrecognised `wchan` set. Two things were
+checked and are **not** exposed to this: the boot watchdog detects a stalled boot by absence of
+CPU time and output and never reads `wchan`, and the ordering check above reads mappings.
+
+The stall rate also rose sharply after the upgrade — 1/25 on 6.0.0.1 before, 7/25 after. Whether
+that is the maintenance window or the same unexplained drift the record documents above is not
+established, and the boundary is recorded in the deposit so later comparisons can account for it.
+
 ## Evidence
 
-One deposit, in the private repository
+Two deposits, in the private repository
 `https://github.com/zachoines/Sim2RealLab-Artifacts`.
 
 ### `kit-boot-hang-2026-09-11/` — commit `abe9bd6442e0cee66639e70aba3692ffb91244e2`
@@ -268,4 +364,40 @@ aada077031a32915eca6039609392a9f846ef437fc678608d0bfbf9576de5e2a  scripts/symfra
 794ecd654d4b85d17b46e3632f9f87e62519e3669f0c41ffa99aa76923cad00d  scripts/trace_boot.py
 3a5916ba3205dae06ae570710b8c5db542c9054720d211159d81bdd2afb4bbcf  scripts/trace_boot_s1.py
 c164b1f142b6b4ec06039213bfbcfbe0e9e65248c4bb782ce599382cb31c2c4d  upstream/UPSTREAM-ISSUE-DRAFT.md
+```
+
+### `kit-boot-hang-2026-09-12/` — commit `04ce2fa1ca2e0e79335ccf2a1bdfaace37f3f23d`
+
+Backs the Correction and follow-up section. It holds the spawn-ordering check with its
+interposer, its per-boot rows for all four pins and its verdict at 10 boots each; the
+disassembly excerpts for the spawn at `init+0x64` and its relocation to `init+0x1268`; the
+evidence that the pre-touch candidate cannot be built from Python; and the rate ladder either
+side of the host maintenance window, including the discarded pass whose labels the kernel's
+`wchan` rename invalidated. The superseding upstream draft sits under its `upstream/`. The
+deposit's own `DEPOSIT.md` says which is which. Like the record above, it has no
+`record-files/` tree.
+
+sha256 of every file, paths relative to that deposit directory:
+
+```
+ac1827583b67493d4d058d71b870536d02b94f4beba1f0706b9ca77caf45dffa  canary/aborted/boots-20260912T174552-misclassified.csv
+4e00ab3f93be85ceb769935a4301bca1cf42c367fa7f748b959c085df91f0802  canary/aborted/pass2-posthygiene.console.log
+7b06cb201fe7d4c7601b93330c789babed744eaa1aa4851f76ddaa99b83678c1  canary/boots.csv
+63ac03d52dada892ae5ea64c626c6ba9e6898a06ef1a378751e5519f06b42175  canary/canary_pass.sh
+f5c3ea32363f2e859baa10647337ba01bdd575ec7ebfa7151142fc1134746f41  canary/canary_status.py
+d7da49f7f5933df6c7e33fd6d4d333c9628c86fdc53e875df5854604561b6ce7  canary/HYGIENE.md
+10e8131cc8ef0eacd2290694a4b15f32c7006e8ba9140c24e3ce4cb29a141487  canary/passes.csv
+a7e28ec6d7bf6e3ae527d8ee005a1938be18a46330ba11e7605742657f3900a8  disassembly/disasm-6.0.1.0-spawn-at-entry.txt
+d344631f6023dace4b61ca4fe855d404398f6ec298e16a79f9361b054337d4ab  disassembly/disasm-6.1.0.0-spawn-after-plugin-loads.txt
+3cc858b37163b89bdc7fb28ff41ba915eff8a4ed8a9285addb8b338a1a5f90cf  ordering/arm4-not-implementable.txt
+135e287ccae01d90045f183b1248fcbdd5d7217c4a5e72460cb5ff06fda82584  ordering/boot_arm4.py
+6af8fda3986f3cb326c078113c3e931ccb073ab7ee91ee363420913c6d3d241b  ordering/boot_plain.py
+70797dc38eab585ccc84a4b25692ee65f71bb90825359e9209d5ad3142c64785  ordering/check_pin_ordering.sh
+0f444ce4a485bdf3f63a78d626bf55a7a1c5173d4dc56feb6fcc0ad932a883cc  ordering/ordering-all-pins-10boots.txt
+0e9c10da0655bc75c64796c6dc5004b79df3baa5ffcd792a9236a32ee78bcdfe  ordering/perboot-6.0.0.0.csv
+6bf95393594adb0db4c3ccc01541761227ab9456d436c5579201c1cb03d75ac7  ordering/perboot-6.0.0.1.csv
+396f67f71be44dbc13de9596301c5b6f3aa621ed67b8f09aa56cef1405373e65  ordering/perboot-6.0.1.0.csv
+6929dd6b0bad70886212144c4a769babe7e3e74671207589ae0425515486d322  ordering/perboot-6.1.0.0.csv
+f3168cf30088f895faab5adf275326233770544a4c626b7a664cf39448763af9  ordering/spawnprobe.c
+7fc3666dfd75a6899eb1f4b9fbe66ecbd0566c58dc6d6df6c8e17dea5ace8a11  upstream/UPSTREAM-ISSUE-DRAFT.md
 ```

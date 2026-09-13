@@ -19,7 +19,6 @@ Examples:
 """
 
 import argparse
-import json
 import os
 import time
 from datetime import datetime
@@ -136,6 +135,7 @@ def main() -> None:
     import importlib.metadata as _metadata
 
     import strafer_lab  # noqa: F401  (registers envs)
+    from strafer_lab.isaacsim_compat import anchor_capture_camera
 
     env_cfg = parse_env_cfg(
         args.env,
@@ -177,22 +177,7 @@ def main() -> None:
         recorder = getattr(unwrapped, "video_recorder", None)
         capture = getattr(recorder, "_capture", None) if recorder is not None else None
         if capture is not None:
-            # Isaac Lab renamed these fields (camera_position/camera_target ->
-            # eye/lookat) at v3.0.0-beta2; write whichever pair the installed
-            # version exposes, so the anchor works on both rather than silently
-            # doing nothing on one of them.
-            if hasattr(capture.cfg, "camera_position"):
-                capture.cfg.camera_position = world_eye
-                capture.cfg.camera_target = world_target
-            elif hasattr(capture.cfg, "eye"):
-                capture.cfg.eye = world_eye
-                capture.cfg.lookat = world_target
-            else:
-                raise RuntimeError(
-                    "[play_strafer_navigation] --video: the capture config exposes neither "
-                    "camera_position/camera_target nor eye/lookat, so the recording "
-                    "cannot be anchored on env 0 and would use the recorder's own pose."
-                )
+            anchor_capture_camera(capture, world_eye, world_target)
         unwrapped.sim.set_camera_view(eye=world_eye, target=world_target)
         try:
             from isaaclab_physx.renderers.kit_viewport_utils import set_kit_renderer_camera_view
@@ -203,18 +188,9 @@ def main() -> None:
         except ImportError:
             pass
 
-        # The write above only proves the field exists. Read the pose back off the
-        # stage after the recorder has applied its own config, so a clip that was
-        # filmed from somewhere else fails here instead of being compared later.
-        from strafer_lab.isaacsim_compat import read_back_camera_anchor
-
-        anchor_record = read_back_camera_anchor(unwrapped, world_eye, world_target)
-
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         out_dir = os.path.abspath(os.path.join(args.video_dir, f"play_{timestamp}"))
         os.makedirs(out_dir, exist_ok=True)
-        with open(os.path.join(out_dir, "camera-anchor.json"), "w") as fh:
-            json.dump(anchor_record, fh, indent=2, sort_keys=True)
         env = gym.wrappers.RecordVideo(
             env,
             video_folder=out_dir,

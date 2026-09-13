@@ -43,7 +43,6 @@ its AppLauncher. The checkpoint is a raw rsl_rl training checkpoint
 from __future__ import annotations
 
 import argparse
-import json
 import math
 import re
 import subprocess
@@ -321,6 +320,7 @@ def main() -> int:
 
     import isaaclab_tasks  # noqa: F401
     import strafer_lab.tasks  # noqa: F401  (registers envs)
+    from strafer_lab.isaacsim_compat import anchor_capture_camera
 
     from strafer_lab.sim_in_the_loop.lerobot_recorder import (
         CoverageLeRobotRecorder,
@@ -540,22 +540,7 @@ def main() -> int:
             else viewer.cam_prim_path
         )
         if capture is not None:
-            # Isaac Lab renamed these fields (camera_position/camera_target ->
-            # eye/lookat) at v3.0.0-beta2; write whichever pair the installed
-            # version exposes, so the anchor works on both rather than silently
-            # doing nothing on one of them.
-            if hasattr(capture.cfg, "camera_position"):
-                capture.cfg.camera_position = world_eye
-                capture.cfg.camera_target = world_target
-            elif hasattr(capture.cfg, "eye"):
-                capture.cfg.eye = world_eye
-                capture.cfg.lookat = world_target
-            else:
-                raise RuntimeError(
-                    "[coverage_capture] --video: the capture config exposes neither "
-                    "camera_position/camera_target nor eye/lookat, so the recording "
-                    "cannot be anchored on env 0 and would use the recorder's own pose."
-                )
+            anchor_capture_camera(capture, world_eye, world_target)
         else:
             print(
                 "[coverage_capture] --video: viewport capture handle "
@@ -593,25 +578,6 @@ def main() -> int:
             video_length=video_length,
             disable_logger=True,
         )
-        # Non-strict: the per-step overhead follow re-poses this camera deliberately,
-        # so the setup pose is a starting point rather than a contract. The readback is
-        # still recorded — it is what tells a later comparison which pose frame 0 used.
-        if capture is not None:
-            from strafer_lab.isaacsim_compat import read_back_camera_anchor
-
-            anchor_record = read_back_camera_anchor(
-                base, world_eye, world_target, strict=False
-            )
-            (video_root / "camera-anchor.json").write_text(
-                json.dumps(anchor_record, indent=2, sort_keys=True)
-            )
-            if not anchor_record["matched"]:
-                print(
-                    "[coverage_capture] --video: frame 0 was filmed from "
-                    f"{anchor_record['observed_eye']}, not the requested "
-                    f"{anchor_record['requested_eye']}",
-                    flush=True,
-                )
         print(f"[coverage_capture] recording overhead sweep to: {video_root}", flush=True)
         if not args.video_keep_ceiling:
             _hide_overhead_structure(base)

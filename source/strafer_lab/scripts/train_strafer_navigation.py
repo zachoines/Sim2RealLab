@@ -18,7 +18,6 @@ Usage:
 """
 
 import argparse
-import json
 import math
 import os
 from datetime import datetime
@@ -217,6 +216,7 @@ def main():
 
     # Import strafer_lab to register environments
     import strafer_lab  # noqa: F401
+    from strafer_lab.isaacsim_compat import anchor_capture_camera
 
     env_name = args.env
 
@@ -287,22 +287,7 @@ def main():
         recorder = getattr(unwrapped, "video_recorder", None)
         capture = getattr(recorder, "_capture", None) if recorder is not None else None
         if capture is not None:
-            # Isaac Lab renamed these fields (camera_position/camera_target ->
-            # eye/lookat) at v3.0.0-beta2; write whichever pair the installed
-            # version exposes, so the anchor works on both rather than silently
-            # doing nothing on one of them.
-            if hasattr(capture.cfg, "camera_position"):
-                capture.cfg.camera_position = world_eye
-                capture.cfg.camera_target = world_target
-            elif hasattr(capture.cfg, "eye"):
-                capture.cfg.eye = world_eye
-                capture.cfg.lookat = world_target
-            else:
-                raise RuntimeError(
-                    "[train_strafer_navigation] --video: the capture config exposes neither "
-                    "camera_position/camera_target nor eye/lookat, so the recording "
-                    "cannot be anchored on env 0 and would use the recorder's own pose."
-                )
+            anchor_capture_camera(capture, world_eye, world_target)
         unwrapped.sim.set_camera_view(eye=world_eye, target=world_target)
         try:
             from isaaclab_physx.renderers.kit_viewport_utils import (
@@ -316,18 +301,10 @@ def main():
             )
         except ImportError:
             pass
-        # The write above only proves the field exists. Read the pose back off the
-        # stage after the recorder has applied its own config, so a clip that was
-        # filmed from somewhere else fails here instead of being compared later.
-        from strafer_lab.isaacsim_compat import read_back_camera_anchor
-
-        anchor_record = read_back_camera_anchor(unwrapped, world_eye, world_target)
         print(
             f"[INFO] Recording camera anchored on env_0 at "
             f"world ({world_eye[0]:.1f}, {world_eye[1]:.1f}, {world_eye[2]:.1f}) "
-            f"-> ({world_target[0]:.1f}, {world_target[1]:.1f}, {world_target[2]:.1f}) "
-            f"(read back: eye off {anchor_record['eye_error_m']:.2e} m, "
-            f"target ray off {anchor_record['target_ray_error_m']:.2e} m)"
+            f"-> ({world_target[0]:.1f}, {world_target[1]:.1f}, {world_target[2]:.1f})"
         )
 
     # Wrap with video recorder before RSL-RL wrapper
@@ -344,11 +321,6 @@ def main():
             "disable_logger": True,
         }
         print(f"[INFO] Recording videos to: {video_kwargs['video_folder']}")
-        os.makedirs(video_kwargs["video_folder"], exist_ok=True)
-        anchor_sidecar = os.path.join(video_kwargs["video_folder"], "camera-anchor.json")
-        with open(anchor_sidecar, "w") as fh:
-            json.dump(anchor_record, fh, indent=2, sort_keys=True)
-        print(f"[INFO] Camera anchor readback: {anchor_sidecar}")
         env = gym.wrappers.RecordVideo(env, **video_kwargs)
 
     # RSL-RL wrapper must be last

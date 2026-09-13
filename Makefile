@@ -262,7 +262,9 @@ test-lab: ## Run ALL strafer_lab tests in env_isaaclab3 — Kit suites (run_test
 	@# clean. isaaclab.sh picks its interpreter from VIRTUAL_ENV first and
 	@# CONDA_PREFIX second, so the Kit half runs in whatever env is active —
 	@# hence the activate, and the checks that nothing else is selected and that
-	@# the pure half's interpreter is the same one.
+	@# the pure half's interpreter is the same one. A third check pairs the
+	@# clone: isaaclab.sh exports its own clone's source/isaaclab on PYTHONPATH,
+	@# so an env whose editables point elsewhere splits the two halves silently.
 	@source env_setup.sh && \
 		source $(CONDA_ROOT)/etc/profile.d/conda.sh && \
 		conda activate $(CONDA_ENV) || exit 1; \
@@ -278,6 +280,21 @@ test-lab: ## Run ALL strafer_lab tests in env_isaaclab3 — Kit suites (run_test
 			echo "[test-lab]   Kit half   -> CONDA_ENV=$(CONDA_ENV) (from $(origin CONDA_ENV)), active prefix $$CONDA_PREFIX"; \
 			echo "[test-lab]   pure half  -> STRAFER_ISAACLAB_PYTHON=$$STRAFER_ISAACLAB_PYTHON"; \
 			echo "[test-lab] origin 'environment' means env_setup.sh exported it from .env; 'file' means the Makefile default."; \
+			exit 1; }; \
+		lab_clone="$$(cd "$$(dirname "$(ISAACLAB)")" 2>/dev/null && pwd -P)"; \
+		[ -n "$$lab_clone" ] || { \
+			echo "[test-lab] ISAACLAB=$(ISAACLAB) (from $(origin ISAACLAB)) is not inside a directory that exists."; \
+			exit 1; }; \
+		env_clone="$$("$$STRAFER_ISAACLAB_PYTHON" -c 'import importlib.util as u, os, sys; s = u.find_spec("isaaclab"); sys.exit("unresolvable") if not (s and s.origin) else print(os.path.realpath(os.path.dirname(s.origin) + "/../../.."))' 2>/dev/null)" || { \
+			echo "[test-lab] $$STRAFER_ISAACLAB_PYTHON cannot resolve 'isaaclab', so there is no editable"; \
+			echo "[test-lab] install to pair the clone against. Install Isaac Lab into $(CONDA_ENV) first."; \
+			exit 1; }; \
+		[ "$$env_clone" = "$$lab_clone" ] || { \
+			echo "[test-lab] the two halves would not test the same Isaac Lab clone:"; \
+			echo "[test-lab]   Kit half   -> ISAACLAB=$(ISAACLAB) (from $(origin ISAACLAB)), clone $$lab_clone"; \
+			echo "[test-lab]   pure half  -> $(CONDA_ENV)'s editable 'isaaclab' -> $$env_clone"; \
+			echo "[test-lab] isaaclab.sh puts only its own clone's source/isaaclab on PYTHONPATH, so a split pair"; \
+			echo "[test-lab] imports isaaclab from one clone and isaaclab_tasks/_assets/_rl from the other, silently."; \
 			exit 1; }; \
 		rc=0; \
 		$(ISAACLAB) -p source/strafer_lab/run_tests.py all || rc=1; \

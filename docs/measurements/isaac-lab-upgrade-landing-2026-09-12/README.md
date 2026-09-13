@@ -17,17 +17,18 @@ diff.
 | **rename** — canonical pair after the flip | `env_isaaclab3` + `~/Documents/repos/IsaacLab` → Isaac Sim **6.0.1.0**, torch **2.11.0+cu130**, clone at tag `v3.0.0-beta2.patch1` |
 | **rename** — retired pair | `env_isaaclab3-retired` + `~/Documents/repos/IsaacLab-retired` → Isaac Sim **6.0.0.0**, torch **2.10.0+cu130**, intact and importable |
 | **rename** — editable bindings | **both** environments needed re-linking; the retired one fails *silently* if it is skipped (below) |
-| **rename** — pip in the promoted env | **broken by `conda rename`** and repaired; two pip versions were layered by the clone step (below) |
-| **rename** — console-script shebangs | **no repair needed** — conda 26.1.1 rewrote all 129 correctly |
+| **rename** — pip in the promoted env | **broken by `conda rename`**, reproducibly — 3 of 3 renames of that environment — and repaired each time (below) |
+| **rename** — console-script shebangs | **no repair needed** — 0 stale in either environment after the rename |
 | **Kit app** — telemetry deletion | does **not** ride the `mv`; re-applied to the promoted clone, 2 lines, verified 0 occurrences |
 | **goldens** | **22 of 26 moved, all `contract`**; the 4 layout/depth-obs/palette goldens byte-identical; movement reproduced exactly by dropping `{cmd_kind, element_names}`; **purely additive** |
 | **gate** — contract | **148 / 148** |
 | **gate** — pure | **1252 passed, 1 skipped** (the expected `strafer_inference` skip) |
 | **gate** — Kit suite | **487 / 487, 0 failed, 0 errors — ALL PASSED**, twice; **6 watchdog relaunches** on the first pass and **0** on the second |
 | **gate** — harness smoke | **PASS**, `reloaded: episodes=1 frames=32`, 0 relaunches |
-| **gate** — bridge cadence | reaches `publish 30.00 Hz sim`, no `WARNING` lines |
+| **gate** — bridge cadence | reaches `publish 30.00 Hz sim`, no `WARNING` lines — on the second attempt; the first was killed by its own launch wrapper (below) |
 | **prerequisite the Kit gate exposed** | Stage 3 FINDING 1 (the zero-match contact filter) was still unfixed on `main` and had to be removed to reach 487 |
 | **render anchor** — both pins | **takes on both**, proven by stage readback: retired 0.0 m, canonical 1.8e-15 m |
+| **rollback** | **rehearsed both ways**; the restored pair reproduces **22 / 22** pre-flip contract hashes, and the canonical pair returns to 148 / 148 |
 | **render shift** — matched poses | **CONFIRMED, and larger than the confounded estimate**: luma 87.6 → 62.6, crush 0.0005 → 0.1713; rescale factor **0.715**, not 0.792 |
 
 ## The rename silently repoints the retired environment
@@ -42,7 +43,7 @@ path:
 MAPPING: dict[str, str] = {'isaaclab': '/home/zachoines/Documents/repos/IsaacLab/source/isaaclab/isaaclab'}
 ```
 
-Neither `conda rename` nor `mv` rewrites it. The dispatched sequence renames the old env,
+Neither `conda rename` nor `mv` rewrites it. The planned sequence renames the old env,
 promotes the candidate, then moves `IsaacLab` → `IsaacLab-retired` and
 `IsaacLab-3beta2` → `IsaacLab`. After those two moves:
 
@@ -95,9 +96,13 @@ verified unchanged afterwards; pip is not pinned in `constraints-isaac-lab.txt`.
 retired environment was checked and is unaffected — it carries a single coherent pip
 26.0.1.
 
-The predicted failure in the same area did **not** occur: 129 console scripts in the
-candidate environment's `bin/` did carry a `env_isaaclab3beta2` shebang, and conda
-rewrote every one. Post-rename count of stale shebangs is 0 in both environments.
+The predicted failure in the same area did **not** occur. The candidate environment's
+`bin/` did carry console scripts with a `env_isaaclab3beta2` shebang before the rename —
+counted at the time as 129, though that count was not captured into the transcript and is
+recorded here as an observation rather than as evidence. What *is* in the transcript is the
+number that matters: after the rename, **0** scripts in either environment name a
+prefix that no longer exists, and `bin/pip` in each names its own environment. conda
+rewrote them.
 
 **The rule to carry:** `conda rename` is safe for conda-tracked content and for shebangs,
 but an environment holding a pip-upgraded copy of a conda-tracked package can come out of
@@ -183,6 +188,28 @@ The bridge line, verbatim:
 [sim_in_the_loop] camera cadence: publish 30.00 Hz sim (policy period 30.00 Hz) | frame_skip=3 (derived, derived 3) | bridge tick 120.00 Hz | renders/tick 1.00
 ```
 
+### The bridge gate took two attempts, and the first failure was the harness
+
+The transcript's bridge entry at 21:17 reads `process exited early` / `cadence line NOT
+FOUND`. That is not a bridge result. The bridge runs until interrupted, so it was launched
+in the background by a small wrapper that polled its log for the cadence line and then tore
+it down. The wrapper backgrounded it through `setsid`, which forks when its caller is
+already a process-group leader; the shell's recorded child therefore exited immediately,
+the poll loop read that as the target having exited, and the teardown it then ran killed a
+bridge that was five seconds into an ordinary Kit boot. Its log at that point carries the
+GPU table and the usual RTX and GLFW warnings and no error. The bridge was killed by the
+thing watching it.
+
+The second attempt, at 21:39, launched the target directly and reached the cadence line in
+about twelve seconds. That is the run `gates/sim-bridge-cadence.log` holds and the one the
+table above reports.
+
+Two consequences worth stating rather than tidying away. The cadence log carries **no**
+boot-watchdog accounting line: the watchdog reports at exit, and this run was stopped
+deliberately at the cadence print rather than allowed to finish. And a bridge start is
+therefore not yet a gate that can be run unattended — a wrapper that waits for a line and
+then stops the process is part of the measurement, and this one was wrong the first time.
+
 ### Boot-stall telemetry — 6 relaunches across 14 suites
 
 The canonical pin is the pin with the boot defect, so the watchdog stopped being a no-op
@@ -204,9 +231,9 @@ No suite exhausted its attempts.
 487/487, every suite first-attempt clean. Two passes of the same 14 suites on the same
 host and the same pin therefore produced 6 relaunches and 0. That is the behaviour
 `kit-boot-hang-2026-09-11` describes ("the host's propensity to produce the stall varies by
-more than an order of magnitude over hours"), reproduced here within a single session, and
+more than an order of magnitude over hours"), reproduced here within a single day, and
 it is why neither number is a rate. A clean pass is not evidence the defect is gone; the
-same-session control below is what carries that weight.
+same-day control below is what carries that weight.
 
 The tracked `collision-imu-signal-flaky` flake did not appear: imu read 4/4.
 
@@ -235,12 +262,19 @@ not that the recorder read it. Nothing in the repository could tell the differen
 the reassuring `Recording camera anchored on env_0` line prints the pose the script
 *intended* whether or not the write took, and even when no capture object was found.
 
-So this leg adds a readback. After the write, exactly one render is forced — that call is
-where `IsaacsimKitPerspectiveVideo.render_rgb_array` first builds its annotator and poses
-the camera prim from its own config, so anything read earlier is not the pose the clip was
-filmed from — and then the camera prim's world transform is read off the stage and checked
-two ways: the eye must land on the request, and the view ray must pass through the target.
-The result is written to `camera-anchor.json` beside the MP4.
+So this leg measured it, with a one-off instrument
+(`render/camera_anchor_readback_probe.py` in the deposit). After the write it forces
+exactly one render — that call is where `IsaacsimKitPerspectiveVideo.render_rgb_array`
+first builds its annotator and poses the camera prim from its own config, so anything read
+earlier is not the pose the clip was filmed from — then reads the camera prim's world
+transform off the stage and checks it two ways: the eye must land on the request, and the
+view ray must pass through the target. Each run's answer is `camera-anchor.json`.
+
+The instrument is deposited, not kept. It existed to settle one question, and it has:
+the anchor reaches the recorder on both pins. What stays in the capture path is the part
+that does work every run — the field-pair write, now one shared helper instead of the same
+four-way `hasattr` block in three scripts. A camera that needs looking at again is looked
+at, through the viewport or a remote view, rather than through a permanent probe.
 
 Both pins were filmed with the same command, environment, seed, env count and iteration
 count, and both anchors are now **proven**, not asserted:
@@ -257,8 +291,8 @@ With the framing controlled, the readings:
 
 | clip | mean luma | crush |
 |---|---|---|
-| retired pair, this session | **87.6** | **0.0005** |
-| canonical pair, this session | **62.6** | **0.1713** |
+| retired pair, this run | **87.6** | **0.0005** |
+| canonical pair, this run | **62.6** | **0.1713** |
 | Stage 3's deposited old-pin control, re-measured today | 86.6 | 0.0056 |
 
 The third row is the instrument check: the deposited nine-day-old clip reproduces its
@@ -274,21 +308,70 @@ unanchored new-pin clips read 68.6 and 68.3 luma; anchored on env 0 the new pin 
 **62.6**. The recorder's default pose was flattering the new stack, so removing the
 confound made the shift bigger, not smaller. The disposition's rescale therefore fires,
 but the factor is **0.715** (62.6 / 87.6), not the 0.792 the brief carries — and crush,
-not luma, is the larger violation: 0.171 is 17× the retired pair's and past the tool's own
+not luma, is the larger violation: 0.171 is 343× the retired pair's, 17× the Δ ≤ 0.01
+that would have exonerated the renderer, and past the tool's own
 0.10 bound, while both pins already fail its absolute luma floor of 90.0, so the tool's
 pass/fail verdict cannot separate the stacks and only the numbers can.
 
-Two same-session controls make the comparison sturdier than Stage 3's: the retired-pair
+Two same-day controls make the comparison sturdier than Stage 3's: the retired-pair
 clip was recorded today rather than borrowed from the earlier deposit, and it reads 87.6
-against that deposit's 86.6 — about 1 luma of session-to-session spread on one pin, which
+against that deposit's 86.6 — about 1 luma of run-to-run spread on one pin, which
 is 4% of the 25.0 delta being attributed.
 
-### Boot-stall control, same session, same workload
+### Boot-stall control, same day, same workload
 
 The retired pair recorded its clip in **one attempt, 0 relaunches**; the canonical pair
 needed **1 relaunch** on the identical workload. That is the known-affected control the
 boot-hang record asks for whenever a clean-boot claim is made, and it reproduces the
 pin asymmetry on a non-pytest launch path.
+
+## Rollback, rehearsed both ways
+
+Rollback is not a pointer flip — after the promotion to canonical names the three pointers
+read the same before and after, so flipping them back is a no-op. It is the rename, the
+clone move and the editable re-link, run in reverse. That was rehearsed on 2026-09-13
+rather than asserted.
+
+**Backwards.** `env_isaaclab3` → `env_isaaclab3beta2`, `env_isaaclab3-retired` →
+`env_isaaclab3`, both clones back to their previous names, both environments re-linked.
+The pre-flip state came back exactly:
+
+```
+env_isaaclab3       -> IsaacLab          isaacsim 6.0.0.0  torch 2.10.0+cu130   14 mappings
+env_isaaclab3beta2  -> IsaacLab-3beta2   isaacsim 6.0.1.0  torch 2.11.0+cu130   18 mappings
+```
+
+**The restored pair is demonstrably the pre-bump one.** Two checks, because the weaker one
+alone would not settle it. The contract suite on the restored pair reads **126 passed, 22
+failed** — the exact mirror of the canonical pair's 148, failing on precisely the 22
+contract goldens this change re-froze. That shows the hashes moved; it does not show they
+moved *back to the right values*. So the preimages were recomputed on the restored pair and
+compared against the pre-flip stored goldens: **22 of 22 match**. The restored pair
+reproduces the pre-bump contract exactly, which is the property the upgrade brief preserves
+the old pair for.
+
+**Forwards.** The same four steps in the flip direction, both environments re-linked. The
+canonical state came back, the telemetry deletion is still on the promoted clone (0
+occurrences in both `.kit` files), and the contract gate reads **148 / 148** again. The
+clone-pairing guard's own program resolves the environment's fifteen editables to one root,
+`~/Documents/repos/IsaacLab`.
+
+The host is left in the canonical state. Logs are in the deposit's `rollback-rehearsal/`.
+
+### What the rehearsal added to the pip finding
+
+`conda rename` broke pip **again**, on two of the rehearsal's four renames — and both times
+in whichever environment had just received the *candidate* pair's content, never in the one
+holding the retired pair's. That fits the mechanism exactly: the candidate environment is
+the one carrying a pip-upgraded 26.2.1 over conda's tracked 26.1.2, and the clone step
+re-materialises the conda copy over it every time. The retired environment, whose pip is a
+single coherent 26.0.1, survived all four renames untouched.
+
+So this is reproducible, not a one-off: **three occurrences in three renames of that
+environment.** The repair is mechanical — remove the mixed `pip/` tree and its dist-infos,
+`ensurepip`, reinstall the version that was there — and the rehearsal script now does the
+check and the repair inline after every rename, which is the shape any future rename of a
+pip-heavy environment should take.
 
 ## Scope and limits
 
@@ -297,14 +380,16 @@ pin asymmetry on a non-pytest launch path.
 - **The retired pair was executed, never written to.** No install, upgrade or write
   touched it; the only change to it is the editable re-link that keeps it pointing at its
   own clone, which is what preserves it as a rollback artifact.
-- **Rollback was not rehearsed.** It is written down and its mechanism is now proven in
-  one direction (the re-link repairs a moved clone), but no end-to-end rename-back was
-  performed, so the upgrade brief's acceptance item asking for a demonstrated rollback is
-  not met by this record.
+- **Rollback is rehearsed, but only on an idle host.** Both directions ran with nothing
+  else using either pair. A rollback under load — a training run holding the environment,
+  a Kit process with the clone open — is not covered, and `conda rename` will refuse an
+  environment that is active.
 - **The golden re-freeze is auditable only with the evidence repo.** Neither tool ships
   in this repository, so a reviewer with only `Sim2RealLab` checked out cannot
   independently reproduce the 22 hashes.
-- **`IsaacLab-verify` disappeared mid-session** and this session cannot say how; see
+- **The throwaway rebuild pair no longer exists.** `IsaacLab-verify` and
+  `env_isaaclab3verify` were reclaimed on 2026-09-12; the constrained-rebuild proof they
+  produced stands on its deposited logs in the `-pra-2026-08-26` record. See
   `provenance.md`.
 
 ## Evidence

@@ -7,12 +7,12 @@
 | Host | `gx10-d1d8` — DGX Spark, NVIDIA GB10 (Blackwell), driver 580.173.02 |
 | OS | Ubuntu 24.04.5 LTS, kernel 7.0.0-1019-nvidia, aarch64 |
 | CUDA | 13.0 |
-| Sim2RealLab | `main` @ `66c01a1`, plus the branch under measurement, `task/isaac-lab-landing-flip` |
+| Sim2RealLab | `main` @ `66c01a1`, plus the branch under measurement, `task/isaac-lab-upgrade-landing` |
 
 The driver and kernel both moved since the `-pra-2026-08-26` record (580.82.09 →
 580.173.02, 6.11.0-1014 → 7.0.0-1019). Kernel 7.0 is the release that renamed the
 `futex_wait_queue` wchan to `futex_do_wait`, which is why the boot-stall rate classifier
-had to be re-derived; that work is recorded in `kit-boot-hang-2026-09-12`.
+had to be re-derived; that work is recorded in `kit-boot-hang-2026-09-11`.
 
 ## The Isaac Lab environments in play
 
@@ -37,10 +37,13 @@ not touched: `env_isaaclab3probe-6001` and `env_isaaclab3probe-6100`, the 6.1.0.
 scouting probes.
 
 `~/Documents/repos/IsaacLab-verify` and its `env_isaaclab3verify`, the throwaway rebuild
-pair from the `-pra-2026-08-26` record, no longer exist on this host. The clone was
-present at 2026-09-12 20:00 and gone by 20:09:58; this session did not remove it and
-cannot attribute the removal. It is neither half of either pair and its absence does not
-affect the flip or the rollback.
+pair from the `-pra-2026-08-26` record, were removed on 2026-09-12 at 20:09:58 as
+authorised space reclamation, after inspection: no process held them, no script or `.env`
+referenced them, the clone carried no local-only commits, and its telemetry-arm edits were
+already recorded in that record. The constrained-rebuild proof rests on the logs deposited
+there, not on the tree, so it is unaffected. Neither is half of either pair, and their
+absence does not affect the flip or the rollback. Rebuilding them, if the proof is ever
+wanted live again, is `source/strafer_lab/README.md` § Install against a throwaway prefix.
 
 ## Interpreters
 

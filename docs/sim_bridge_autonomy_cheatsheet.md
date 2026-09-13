@@ -225,3 +225,50 @@ make submit-deploy CMD="go to the chair"
      "{pose: {header: {frame_id: map}, pose: {position: {x: -1.0, y: 0.3}, orientation: {w: 1.0}}}}"'
   ```
   (pick a **reachable** goal — probe first with nav2 `ComputePathToPose`; goals behind the robot / outside the seeded map return "no valid path".)
+
+## Watching the sim — viewport, and remote view from a headless boot
+
+Anything that needs eyes on the render — is the recording camera where it should be, is
+the robot where the logs claim, does the scene look right — is answered by looking at it.
+There is no instrumentation in the capture scripts for this, deliberately.
+
+**On the DGX itself**, with a display attached:
+
+```bash
+make sim-bridge-gui        # Isaac Sim + ROS 2 bridge, viewport open
+```
+
+For a policy rollout rather than the bridge, `play_strafer_navigation.py --viz kit` opens
+the same viewport against a checkpoint.
+
+**From another machine**, with no display and no desktop on the DGX: Isaac Sim's WebRTC
+livestream. Any script that builds its app through `AppLauncher` takes `--livestream 2`,
+which forces headless and serves the viewport instead:
+
+```bash
+# on the DGX
+tools/kit_boot_watchdog.sh --label gui -- \
+  "$ISAACLAB" -p source/strafer_lab/scripts/play_strafer_navigation.py \
+    --env Isaac-Strafer-Nav-RLDepth-Real-Play-v0 --checkpoint <model_step.pt> \
+    --livestream 2
+
+# from the viewing machine
+ssh -L 49100:localhost:49100 <dgx>
+```
+
+then attach the Isaac Sim WebRTC streaming client to `localhost:49100`.
+
+Verified on this host on 2026-09-13, to the point a check can reach without a client
+attached: `--livestream 2` boots clean under the watchdog (21 s, no relaunch),
+`omni.kit.livestream.core`, `.webrtc` and `.app` all start, and the process listens on
+`0.0.0.0:49100`. A client actually attaching and rendering frames has not been exercised
+from here. The port binds to all interfaces, so the tunnel is for not exposing it to the
+LAN rather than for reachability.
+
+Go through the boot watchdog for this as for any Kit launch. An unwrapped launch is
+exactly how the stall bites: a plain `--livestream 2` boot on this host stalled at the
+usual signature — no CPU, no output, `wchan` `futex_do_wait`, RSS ~48 MB — and sat there
+until it was killed, while the wrapped relaunch came up in 21 s.
+
+`x11vnc` and `grdctl` are installed and there is an X display on seat0, so a VNC path
+exists as a fallback; it has not been verified here and nothing is listening on 5900.

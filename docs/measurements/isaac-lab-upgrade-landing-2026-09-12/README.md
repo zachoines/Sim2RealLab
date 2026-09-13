@@ -394,15 +394,17 @@ pip-heavy environment should take.
 
 ## Evidence
 
-### `isaac-lab-upgrade-landing-2026-09-12/` — commit `fe54878c9fe8727e68fbf37694ecadd2908316db`
+### `isaac-lab-upgrade-landing-2026-09-12/` — commit `1855d15bd5926be4785701a5fd8b5a4ee89095fb`
 
-Deposited in the evidence repository; `DEPOSIT.md` there describes each file. The
-flip transcript carries the live capture of both predicted binding failures, the
-two gate logs are the 6-relaunch and 0-relaunch passes over the same tree, and the
-two `camera-anchor.json` readbacks are what make the render comparison valid.
+Deposited in the evidence repository; `DEPOSIT.md` there describes each file. The flip
+transcript carries the live capture of both predicted binding failures; the two gate logs
+are the 6-relaunch and 0-relaunch passes over the same tree; the two `camera-anchor.json`
+readbacks are what make the render comparison valid; and `rollback-rehearsal/` holds both
+directions, including the 22-of-22 pre-flip hash reproduction that is the rollback's
+actual proof.
 
 ```
-72180de1f8b3fd2833a2918f7ddbf3ea7074c42a784908b83ee35c33761935f0  DEPOSIT.md
+28ad52efa9a3b03a743e8e01202a8d40469f6323058252a0f2110222f52b433a  DEPOSIT.md
 4bf83bb7dc33c8dd0ef233a393019d947ccfba617ba666742bec691447f1333c  flip/flip-transcript.log
 c64488615124e49152f59ad5589b67d0d1b3f744628683a57056f2cab3c4a545  flip/relink_editables.sh
 25837c23d9b0dc4d95e385cb959341a5856518ed28e0d7a40e709881c8c6fc26  gates/kit-suite.log
@@ -412,9 +414,16 @@ bcb02cfc6c42fba9e81c784c9a4f26e33d9408cd041c43277b707f9a11013d31  goldens/compar
 98c120453f7eedcec678a1cbd2d287949a20e517170254a56d659ecf1cb117bd  goldens/golden-hashes-newpair.json
 6cde838a0ff64ea9c8e34c525f01ff9bce9484433bad5e6507e1c981cccfd048  render/camera-anchor-newpin.json
 fc5ac9ed8038cdb3b4ef1f6ce834a0edbaeb8bd987b2ef841847ff7a286a9e95  render/camera-anchor-retired.json
+79ccd680d015db24f499d5da431a63fde7b749ec8ea6863fb17d5b9bf23bf8cd  render/camera_anchor_readback_probe.py
 ffe40811b6c32f18a7ce385e17a6ec2b4861b69a8513747e31992e040e22b4fa  render/exposure-readings.txt
 6952719752ba9b1f27b435c86f38c4a75c9b3d9de41eb732e1cd7462cc2b5647  render/g5-train-clip-newpin.mp4
 a06468ebb22904ad05ef0ae079eb305be176a93d53f8be4d09aa28ccbca80351  render/g5-train-clip-retired.mp4
 36df0a159a71283cf693506ebd53006c7965b8c85173a010cae13c8507a9364d  render/watchdog-newpin.txt
 c07a6c7c754fe016d36a6861ecaa65fbbb3296f30593646e2028041068af1579  render/watchdog-retired.txt
+377cf9cef5b7ae1b81d8e5948c4a2acb1f18608f869763adf2a3de3bd5ea14b3  rollback-rehearsal/01-rollback.log
+964226423f370bc629f9a3ab3018067d3fdb33371f7a9769854b29f2d495b7b6  rollback-rehearsal/02-contract-on-restored-old-pair.log
+c37053d1c46fd670b6e7eb50d04d2220b1134fb139e68d3bbfb53eeac9c933b0  rollback-rehearsal/03-preflip-hashes-reproduced.log
+6bbb821a520b302084feabf44c2ad1c4ac483c79fbb5d5212b20037e03f6283f  rollback-rehearsal/04-rollforward.log
+b8214244ad886ec66a93e54c269c1f416d95b650b2fbca26421eed8758a1143f  rollback-rehearsal/05-post-rehearsal-state.log
+c732b9cd090599931f0cacd834aa1befdbb400ab019ef6435acf2f97d1375641  rollback-rehearsal/rehearse.sh
 ```

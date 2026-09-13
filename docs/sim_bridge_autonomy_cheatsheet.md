@@ -241,34 +241,42 @@ make sim-bridge-gui        # Isaac Sim + ROS 2 bridge, viewport open
 For a policy rollout rather than the bridge, `play_strafer_navigation.py --viz kit` opens
 the same viewport against a checkpoint.
 
-**From another machine**, with no display and no desktop on the DGX: Isaac Sim's WebRTC
-livestream. Any script that builds its app through `AppLauncher` takes `--livestream 2`,
-which forces headless and serves the viewport instead:
+**From another machine**, with no display and no desktop on the DGX. Two transports; the
+RTSP one is the one to reach for, because a standard player opens it and the whole session
+fits down an SSH tunnel.
+
+**RTSP → VLC / ffplay.** The RTSP server ships in the Isaac Sim extension cache but the
+Isaac Lab apps do not load it, so it has to be enabled and selected:
 
 ```bash
-# on the DGX
 tools/kit_boot_watchdog.sh --label gui -- \
-  "$ISAACLAB" -p source/strafer_lab/scripts/play_strafer_navigation.py \
-    --env Isaac-Strafer-Nav-RLDepth-Real-Play-v0 --checkpoint <model_step.pt> \
-    --livestream 2
-
-# from the viewing machine
-ssh -L 49100:localhost:49100 <dgx>
+  "$ISAACLAB" -p <script> --livestream 2 \
+  "--kit_args=--enable omni.kit.livestream.rtsp \
+     --/exts/omni.kit.livestream.app/primaryStream/streamType=rtsp"
 ```
 
-then attach the Isaac Sim WebRTC streaming client to `localhost:49100`.
+It serves **`rtsp://<host>:47998/stream`** — note `/stream`; the bare root answers 404.
+Ask for TCP transport and both control and media use that one port, so an ordinary tunnel
+carries it and no firewall rule is needed:
 
-Verified on this host on 2026-09-13, to the point a check can reach without a client
-attached: `--livestream 2` boots clean under the watchdog (21 s, no relaunch),
-`omni.kit.livestream.core`, `.webrtc` and `.app` all start, and the process listens on
-`0.0.0.0:49100`. A client actually attaching and rendering frames has not been exercised
-from here. The port binds to all interfaces, so the tunnel is for not exposing it to the
-LAN rather than for reachability.
+```bash
+ssh -L 47998:localhost:47998 <dgx>                      # on the viewing machine
+ffplay -rtsp_transport tcp rtsp://localhost:47998/stream
+vlc --rtsp-tcp rtsp://localhost:47998/stream
+```
 
-Go through the boot watchdog for this as for any Kit launch. An unwrapped launch is
-exactly how the stall bites: a plain `--livestream 2` boot on this host stalled at the
-usual signature — no CPU, no output, `wchan` `futex_do_wait`, RSS ~48 MB — and sat there
-until it was killed, while the wrapped relaunch came up in 21 s.
+Verified on this host 2026-09-13: the stream negotiates as **h264 1440x900 at 60 fps**, and
+three seconds of it pulled with `ffmpeg -rtsp_transport tcp` decode to a playable file.
+
+**WebRTC.** `--livestream 2` on its own gives the default WebRTC server: **TCP 49100** for
+signalling, **UDP 47998** for media, the UDP port allocated during negotiation rather than
+bound at boot. Because the media is UDP, `ssh -L` cannot carry it — a WebRTC viewer has to
+reach the host directly, and it needs NVIDIA's Isaac Sim WebRTC streaming client rather
+than a browser (this build ships no browser-client extension). Verified only as far as the
+server side: the three livestream extensions start and 49100 listens.
+
+Whichever transport, `ufw` is active on this host, so direct (untunnelled) access needs the
+ports opened deliberately.
 
 `x11vnc` and `grdctl` are installed and there is an X display on seat0, so a VNC path
 exists as a fallback; it has not been verified here and nothing is listening on 5900.

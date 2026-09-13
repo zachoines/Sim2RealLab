@@ -28,7 +28,12 @@ from __future__ import annotations
 
 from typing import Any
 
-__all__ = ["add_labels", "enable_extension", "set_camera_view"]
+__all__ = [
+    "add_labels",
+    "enable_extension",
+    "read_back_camera_anchor",
+    "set_camera_view",
+]
 
 # Path used when a caller does not name a camera, matching the deprecated helper.
 _DEFAULT_CAMERA_PRIM = "/OmniverseKit_Persp"
@@ -257,3 +262,131 @@ def add_labels(
             "Isaac Sim Kit runtime (launch through isaaclab.sh -p)."
         ) from exc
     _legacy(prim, labels, instance_name=instance_name, overwrite=overwrite)
+
+
+def read_back_camera_anchor(
+    env: Any,
+    requested_eye: Any,
+    requested_target: Any,
+    tolerance: float = 1e-3,
+    strict: bool = True,
+) -> dict[str, Any]:
+    """Read back where the video recorder's camera actually ended up.
+
+    Writing ``eye``/``lookat`` (or the pre-3.0.0-beta2 ``camera_position``/
+    ``camera_target``) on the capture config proves only that the field exists. The
+    recorder applies the config itself, on the first render, inside
+    ``IsaacsimKitPerspectiveVideo.render_rgb_array``: the branch that builds the RGB
+    annotator also poses the camera prim from ``cfg``. A pose read before that call is
+    not the pose the clip was filmed from, and a write that landed on a field nothing
+    reads leaves no trace in the logs at all — which is how two pins were compared from
+    different framings and read as a photometric shift.
+
+    So this forces exactly one render, then reads the camera prim's world transform off
+    the stage and checks it against what was asked for. Two things are checked, because
+    position alone does not pin a camera: the eye must land within ``tolerance``, and the
+    view ray from the observed eye along the observed forward must pass through the
+    requested target within ``tolerance``.
+
+    Args:
+        env: The unwrapped environment (the one owning ``video_recorder`` and ``sim``).
+        requested_eye: World-space camera position the caller anchored on.
+        requested_target: World-space point the caller aimed at.
+        tolerance: Metres of slack on both the eye and the target-ray checks.
+        strict: Raise when the observed pose disagrees. Pass ``False`` for a camera the
+            caller re-poses itself every step — the overhead follow in
+            ``coverage_capture`` is the case: there the setup pose is meant to be
+            overridden, so a disagreement is information, not a fault.
+
+    Returns:
+        The anchor record: requested and observed poses, the field pair actually
+        written, the camera prim path, whether the pose matched, and the Isaac Lab
+        version. Callers write this beside the clip so a later comparison can prove the
+        two clips share a framing.
+
+    Raises:
+        RuntimeError: If no capture object is reachable, if the stage has no camera prim
+            at the configured path, or — when ``strict`` — if the observed pose
+            disagrees with the request.
+    """
+    from pxr import Gf, Usd, UsdGeom
+
+    recorder = getattr(env, "video_recorder", None)
+    capture = getattr(recorder, "_capture", None) if recorder is not None else None
+    if capture is None:
+        raise RuntimeError(
+            "--video: no capture object on the environment's video recorder, so the "
+            "recording cannot be anchored and the clip would be filmed from the "
+            "recorder's own default pose. `_capture` is a private Isaac Lab attribute; "
+            "if it has been renamed upstream, this call site needs updating."
+        )
+
+    prim_path = getattr(capture.cfg, "camera_prim_path", _DEFAULT_CAMERA_PRIM)
+    if hasattr(capture.cfg, "eye"):
+        field_pair = "eye/lookat"
+    elif hasattr(capture.cfg, "camera_position"):
+        field_pair = "camera_position/camera_target"
+    else:
+        field_pair = "none"
+
+    # The pose is applied by the recorder, not by the write above, and only on its
+    # first render. Anything read before this call describes the wrong camera.
+    env.render()
+
+    stage = env.sim.stage
+    prim = stage.GetPrimAtPath(prim_path)
+    if not prim or not prim.IsValid():
+        raise RuntimeError(
+            f"--video: no camera prim at {prim_path!r} after the first render, so the "
+            "recorder's pose cannot be read back."
+        )
+
+    xform = UsdGeom.Xformable(prim).ComputeLocalToWorldTransform(Usd.TimeCode.Default())
+    observed_eye = xform.ExtractTranslation()
+    # USD cameras look down their local -Z.
+    forward = xform.TransformDir(Gf.Vec3d(0.0, 0.0, -1.0)).GetNormalized()
+
+    want_eye = Gf.Vec3d(*(float(v) for v in requested_eye))
+    want_target = Gf.Vec3d(*(float(v) for v in requested_target))
+    eye_error = (Gf.Vec3d(*observed_eye) - want_eye).GetLength()
+
+    # Distance from the requested target to the observed view ray.
+    to_target = want_target - Gf.Vec3d(*observed_eye)
+    along = Gf.Dot(to_target, forward)
+    target_error = (to_target - forward * along).GetLength()
+
+    record = {
+        "camera_prim_path": prim_path,
+        "field_pair_written": field_pair,
+        "requested_eye": [float(v) for v in requested_eye],
+        "requested_target": [float(v) for v in requested_target],
+        "observed_eye": [float(v) for v in observed_eye],
+        "observed_forward": [float(v) for v in forward],
+        "eye_error_m": float(eye_error),
+        "target_ray_error_m": float(target_error),
+        "tolerance_m": float(tolerance),
+        "matched": bool(eye_error <= tolerance and target_error <= tolerance),
+        "isaaclab_version": _isaaclab_version(),
+    }
+
+    if not record["matched"] and strict:
+        raise RuntimeError(
+            "--video: the recorder filmed from a different pose than the one anchored "
+            f"on env 0. Requested eye {record['requested_eye']} target "
+            f"{record['requested_target']}; observed eye {record['observed_eye']} "
+            f"forward {record['observed_forward']} (eye off by {eye_error:.4f} m, "
+            f"target ray off by {target_error:.4f} m). The write went to "
+            f"{field_pair!r} on {type(capture.cfg).__name__}. A clip filmed this way "
+            "cannot be compared photometrically against one filmed from the anchor."
+        )
+    return record
+
+
+def _isaaclab_version() -> str:
+    """Version of the installed Isaac Lab, or ``unknown`` if it cannot be determined."""
+    try:
+        import importlib.metadata as _md
+
+        return _md.version("isaaclab")
+    except Exception:
+        return "unknown"

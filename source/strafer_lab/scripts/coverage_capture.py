@@ -43,6 +43,7 @@ its AppLauncher. The checkpoint is a raw rsl_rl training checkpoint
 from __future__ import annotations
 
 import argparse
+import json
 import math
 import re
 import subprocess
@@ -592,6 +593,25 @@ def main() -> int:
             video_length=video_length,
             disable_logger=True,
         )
+        # Non-strict: the per-step overhead follow re-poses this camera deliberately,
+        # so the setup pose is a starting point rather than a contract. The readback is
+        # still recorded — it is what tells a later comparison which pose frame 0 used.
+        if capture is not None:
+            from strafer_lab.isaacsim_compat import read_back_camera_anchor
+
+            anchor_record = read_back_camera_anchor(
+                base, world_eye, world_target, strict=False
+            )
+            (video_root / "camera-anchor.json").write_text(
+                json.dumps(anchor_record, indent=2, sort_keys=True)
+            )
+            if not anchor_record["matched"]:
+                print(
+                    "[coverage_capture] --video: frame 0 was filmed from "
+                    f"{anchor_record['observed_eye']}, not the requested "
+                    f"{anchor_record['requested_eye']}",
+                    flush=True,
+                )
         print(f"[coverage_capture] recording overhead sweep to: {video_root}", flush=True)
         if not args.video_keep_ceiling:
             _hide_overhead_structure(base)

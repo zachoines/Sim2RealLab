@@ -18,6 +18,7 @@ Usage:
 """
 
 import argparse
+import json
 import math
 import os
 from datetime import datetime
@@ -315,10 +316,18 @@ def main():
             )
         except ImportError:
             pass
+        # The write above only proves the field exists. Read the pose back off the
+        # stage after the recorder has applied its own config, so a clip that was
+        # filmed from somewhere else fails here instead of being compared later.
+        from strafer_lab.isaacsim_compat import read_back_camera_anchor
+
+        anchor_record = read_back_camera_anchor(unwrapped, world_eye, world_target)
         print(
             f"[INFO] Recording camera anchored on env_0 at "
             f"world ({world_eye[0]:.1f}, {world_eye[1]:.1f}, {world_eye[2]:.1f}) "
-            f"-> ({world_target[0]:.1f}, {world_target[1]:.1f}, {world_target[2]:.1f})"
+            f"-> ({world_target[0]:.1f}, {world_target[1]:.1f}, {world_target[2]:.1f}) "
+            f"(read back: eye off {anchor_record['eye_error_m']:.2e} m, "
+            f"target ray off {anchor_record['target_ray_error_m']:.2e} m)"
         )
 
     # Wrap with video recorder before RSL-RL wrapper
@@ -335,6 +344,11 @@ def main():
             "disable_logger": True,
         }
         print(f"[INFO] Recording videos to: {video_kwargs['video_folder']}")
+        os.makedirs(video_kwargs["video_folder"], exist_ok=True)
+        anchor_sidecar = os.path.join(video_kwargs["video_folder"], "camera-anchor.json")
+        with open(anchor_sidecar, "w") as fh:
+            json.dump(anchor_record, fh, indent=2, sort_keys=True)
+        print(f"[INFO] Camera anchor readback: {anchor_sidecar}")
         env = gym.wrappers.RecordVideo(env, **video_kwargs)
 
     # RSL-RL wrapper must be last

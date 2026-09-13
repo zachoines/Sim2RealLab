@@ -19,6 +19,7 @@ Examples:
 """
 
 import argparse
+import json
 import os
 import time
 from datetime import datetime
@@ -202,9 +203,18 @@ def main() -> None:
         except ImportError:
             pass
 
+        # The write above only proves the field exists. Read the pose back off the
+        # stage after the recorder has applied its own config, so a clip that was
+        # filmed from somewhere else fails here instead of being compared later.
+        from strafer_lab.isaacsim_compat import read_back_camera_anchor
+
+        anchor_record = read_back_camera_anchor(unwrapped, world_eye, world_target)
+
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         out_dir = os.path.abspath(os.path.join(args.video_dir, f"play_{timestamp}"))
         os.makedirs(out_dir, exist_ok=True)
+        with open(os.path.join(out_dir, "camera-anchor.json"), "w") as fh:
+            json.dump(anchor_record, fh, indent=2, sort_keys=True)
         env = gym.wrappers.RecordVideo(
             env,
             video_folder=out_dir,

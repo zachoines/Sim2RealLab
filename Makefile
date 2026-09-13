@@ -251,6 +251,42 @@ serve-planner: check-nvrtc ## Start LLM planner service on port 8200
 	$(VENV_VLM)/bin/uvicorn strafer_autonomy.planner.app:create_app \
 		--factory --host 0.0.0.0 --port $${PLANNER_PORT:-8200}
 
+# The editable bindings, read from setuptools' finder shims rather than by
+# importing. An inherited PYTHONPATH satisfies an import from any clone, so a
+# resolve-by-import check passes while the editables still name a stale tree —
+# which is exactly the split the guard below exists to catch. The shims carry an
+# absolute path per package and no rename or move rewrites them.
+define EDITABLE_CLONES
+import glob, os, re, sys, sysconfig
+sp = sysconfig.get_paths()["purelib"]
+roots = set()
+for f in glob.glob(os.path.join(sp, "__editable___isaaclab*_finder.py")):
+    for pkg, path in re.findall(r"'([A-Za-z_][\w.]*)':\s*'([^']+)'", open(f).read()):
+        top = pkg.split(".")[0]
+        m = re.match(r"(.*)/source/" + re.escape(top) + r"(?:/|$$)", path)
+        if m:
+            roots.add(os.path.realpath(m.group(1)))
+if not roots:
+    sys.exit("no isaaclab_* editable finders under " + sp)
+print("\n".join(sorted(roots)))
+endef
+export EDITABLE_CLONES
+
+define EDITABLE_CLONES_VERBOSE
+import glob, os, re, sysconfig
+sp = sysconfig.get_paths()["purelib"]
+seen = {}
+for f in glob.glob(os.path.join(sp, "__editable___isaaclab*_finder.py")):
+    for pkg, path in re.findall(r"'([A-Za-z_][\w.]*)':\s*'([^']+)'", open(f).read()):
+        top = pkg.split(".")[0]
+        m = re.match(r"(.*)/source/" + re.escape(top) + r"(?:/|$$)", path)
+        if m:
+            seen.setdefault(os.path.realpath(m.group(1)), set()).add(top)
+for root in sorted(seen):
+    print(root + "  <- " + ", ".join(sorted(seen[root])))
+endef
+export EDITABLE_CLONES_VERBOSE
+
 test-lab: ## Run ALL strafer_lab tests in env_isaaclab3 — Kit suites (run_tests.py) + pure-Python (tests/). The canonical strafer_lab gate.
 	@# Both halves live in env_isaaclab3: the Kit suites need the bespoke
 	@# run_tests.py wrapper (Isaac Sim's os._exit kills pytest's summary),
@@ -285,14 +321,15 @@ test-lab: ## Run ALL strafer_lab tests in env_isaaclab3 — Kit suites (run_test
 		[ -n "$$lab_clone" ] || { \
 			echo "[test-lab] ISAACLAB=$(ISAACLAB) (from $(origin ISAACLAB)) is not inside a directory that exists."; \
 			exit 1; }; \
-		env_clone="$$("$$STRAFER_ISAACLAB_PYTHON" -c 'import importlib.util as u, os, sys; s = u.find_spec("isaaclab"); sys.exit("unresolvable") if not (s and s.origin) else print(os.path.realpath(os.path.dirname(s.origin) + "/../../.."))' 2>/dev/null)" || { \
-			echo "[test-lab] $$STRAFER_ISAACLAB_PYTHON cannot resolve 'isaaclab', so there is no editable"; \
-			echo "[test-lab] install to pair the clone against. Install Isaac Lab into $(CONDA_ENV) first."; \
+		env_clones="$$("$$STRAFER_ISAACLAB_PYTHON" -c "$$EDITABLE_CLONES" 2>&1)" || { \
+			echo "[test-lab] cannot read $(CONDA_ENV)'s isaaclab_* editable bindings:"; \
+			echo "[test-lab]   $$env_clones"; \
 			exit 1; }; \
-		[ "$$env_clone" = "$$lab_clone" ] || { \
+		[ "$$env_clones" = "$$lab_clone" ] || { \
 			echo "[test-lab] the two halves would not test the same Isaac Lab clone:"; \
 			echo "[test-lab]   Kit half   -> ISAACLAB=$(ISAACLAB) (from $(origin ISAACLAB)), clone $$lab_clone"; \
-			echo "[test-lab]   pure half  -> $(CONDA_ENV)'s editable 'isaaclab' -> $$env_clone"; \
+			echo "[test-lab]   pure half  -> $(CONDA_ENV)'s isaaclab_* editables ->"; \
+			"$$STRAFER_ISAACLAB_PYTHON" -c "$$EDITABLE_CLONES_VERBOSE" | sed 's/^/[test-lab]     /'; \
 			echo "[test-lab] isaaclab.sh puts only its own clone's source/isaaclab on PYTHONPATH, so a split pair"; \
 			echo "[test-lab] imports isaaclab from one clone and isaaclab_tasks/_assets/_rl from the other, silently."; \
 			exit 1; }; \

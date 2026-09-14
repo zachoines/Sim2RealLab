@@ -872,6 +872,9 @@ def create_holes_only_noise_cfg(hole_probability: float = 0.05):
     """Create depth noise config with ONLY holes enabled.
 
     Stereo Gaussian noise and frame drops are disabled to isolate hole component.
+    Pinned to ``hole_fill="max"`` so a hole is identifiable by its value against
+    a wall at a known distance; the rate and the jump variance are what these
+    tests measure.
 
     Args:
         hole_probability: Probability of a pixel being set to max_range
@@ -888,6 +891,7 @@ def create_holes_only_noise_cfg(hole_probability: float = 0.05):
         focal_length_px=D555_FOCAL_LENGTH_PX,
         disparity_noise_px=0.0,  # Disabled - no stereo noise
         hole_probability=hole_probability,
+        hole_fill="max",
         min_range=DEPTH_MIN_RANGE,
         max_range=DEPTH_MAX_RANGE,
         frame_drop_prob=0.0,  # Disabled

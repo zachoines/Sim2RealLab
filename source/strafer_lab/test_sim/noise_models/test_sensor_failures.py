@@ -29,6 +29,8 @@ from test_sim.common import (
     DEVICE,
 )
 
+from strafer_shared.constants import DEPTH_HEIGHT, DEPTH_WIDTH
+
 from strafer_lab.tasks.navigation.mdp.noise_models import (
     IMUNoiseModel, IMUNoiseModelCfg,
     EncoderNoiseModel, EncoderNoiseModelCfg,
@@ -243,6 +245,8 @@ def _make_depth_with_failure(failure_prob: float = 0.0) -> DepthNoiseModel:
         max_range=6.0,
         failure_probability=failure_prob,
         latency_steps=0,
+        height=DEPTH_HEIGHT,
+        width=DEPTH_WIDTH,
     )
     return DepthNoiseModel(cfg, N_ENVS, DEVICE)
 
@@ -253,7 +257,7 @@ def test_depth_failure_returns_max_range():
     max_range = model.cfg.max_range
 
     # Flattened depth image: (N_ENVS, H*W)
-    n_pixels = 60 * 80
+    n_pixels = DEPTH_HEIGHT * DEPTH_WIDTH
     data = torch.ones(N_ENVS, n_pixels, device=DEVICE) * 2.0  # 2 metres
     for _ in range(20):
         out = model(data.clone())
@@ -268,7 +272,7 @@ def test_depth_failure_rate_matches_config():
     model = _make_depth_with_failure(failure_prob=RATE_FAIL_PROB)
     max_range = model.cfg.max_range
 
-    n_pixels = 60 * 80
+    n_pixels = DEPTH_HEIGHT * DEPTH_WIDTH
     data = torch.ones(N_ENVS, n_pixels, device=DEVICE) * 2.0
     failures = 0
     total = 0
@@ -311,7 +315,7 @@ def test_rgb_failure_returns_black():
     """With failure_probability=1.0, RGB output must be all zeros (black)."""
     model = _make_rgb_with_failure(failure_prob=HIGH_FAIL_PROB)
 
-    n_pixels = 60 * 80
+    n_pixels = DEPTH_HEIGHT * DEPTH_WIDTH
     data = torch.ones(N_ENVS, n_pixels, device=DEVICE) * 0.5  # mid-grey
     for _ in range(20):
         out = model(data.clone())
@@ -324,7 +328,7 @@ def test_rgb_failure_rate_matches_config():
     """RGB camera failure rate should match configured probability."""
     model = _make_rgb_with_failure(failure_prob=RATE_FAIL_PROB)
 
-    n_pixels = 60 * 80
+    n_pixels = DEPTH_HEIGHT * DEPTH_WIDTH
     data = torch.ones(N_ENVS, n_pixels, device=DEVICE) * 0.5
     failures = 0
     total = 0

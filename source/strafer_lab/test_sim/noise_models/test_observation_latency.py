@@ -24,6 +24,12 @@ Usage:
 import torch
 import numpy as np
 
+# A 2x5 frame keeps these latency tests cheap; the depth noise model needs a
+# real shape because the hole rescue reads a pixel's neighbours.
+_LATENCY_H = 2
+_LATENCY_W = 5
+
+
 from test_sim.common import DEVICE
 
 from strafer_lab.tasks.navigation.mdp.noise_models import (
@@ -75,6 +81,8 @@ def _make_encoder(latency_steps: int = 0) -> EncoderNoiseModel:
 def _make_depth(latency_steps: int = 1) -> DepthNoiseModel:
     """Create a noiseless depth model with configurable latency."""
     cfg = DepthNoiseModelCfg(
+        height=_LATENCY_H,
+        width=_LATENCY_W,
         baseline_m=0.095,
         focal_length_px=673.0,
         disparity_noise_px=0.0,  # no stereo noise
@@ -191,7 +199,7 @@ def test_depth_one_step_latency():
     """
     model = _make_depth(latency_steps=1)
 
-    n_pixels = 10  # small for speed
+    n_pixels = _LATENCY_H * _LATENCY_W  # small for speed
 
     constant = torch.ones(N_ENVS, n_pixels, device=DEVICE) * 3.0
     step_val = torch.ones(N_ENVS, n_pixels, device=DEVICE) * 8.0
@@ -221,7 +229,7 @@ def test_depth_zero_latency_passthrough():
     """Depth camera with latency_steps=0 should return input immediately."""
     model = _make_depth(latency_steps=0)
 
-    n_pixels = 10
+    n_pixels = _LATENCY_H * _LATENCY_W
     data = torch.ones(N_ENVS, n_pixels, device=DEVICE) * 4.0
     out = model(data.clone())
 
@@ -239,7 +247,7 @@ def test_rgb_one_step_latency():
     """RGB camera with latency_steps=1 delays output by exactly one step."""
     model = _make_rgb(latency_steps=1)
 
-    n_pixels = 10
+    n_pixels = _LATENCY_H * _LATENCY_W
     constant = torch.ones(N_ENVS, n_pixels, device=DEVICE) * 0.3
     step_val = torch.ones(N_ENVS, n_pixels, device=DEVICE) * 0.7
 
@@ -266,7 +274,7 @@ def test_rgb_reset_clears_latency_buffer():
     """
     model = _make_rgb(latency_steps=1)
 
-    n_pixels = 10
+    n_pixels = _LATENCY_H * _LATENCY_W
     pre_reset = torch.ones(N_ENVS, n_pixels, device=DEVICE) * 0.9
     post_reset = torch.ones(N_ENVS, n_pixels, device=DEVICE) * 0.1
 

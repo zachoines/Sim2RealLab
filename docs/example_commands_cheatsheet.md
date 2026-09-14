@@ -423,3 +423,59 @@ PYTHONPATH="$STRAFER_ROS2_HUMBLE_PY311_PYTHONPATH${PYTHONPATH:+:$PYTHONPATH}" \
 LD_LIBRARY_PATH="$STRAFER_ROS2_HUMBLE_PY311_LIB${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" \
 $STRAFER_INFINIGEN_PYTHON /tmp/sim_bridge_bench/bench.py
 ```
+
+## Watch the sim from another machine — Isaac Sim livestream
+
+With a display on the DGX, `make sim-bridge-gui` opens the viewport, and
+`play_strafer_navigation.py --viz kit` does the same against a checkpoint. Everything below
+is for a headless boot viewed from elsewhere.
+
+Two transports. Reach for RTSP: a standard player opens it and the whole session fits down
+an SSH tunnel. The RTSP server ships in the Isaac Sim extension cache but the Isaac Lab
+apps do not load it, so it has to be enabled and selected.
+
+```bash
+# on the DGX — any AppLauncher script takes these
+tools/kit_boot_watchdog.sh --label gui -- \
+  "$ISAACLAB" -p <script> --livestream 2 \
+  "--kit_args=--enable omni.kit.livestream.rtsp \
+     --/exts/omni.kit.livestream.app/primaryStream/streamType=rtsp"
+```
+
+```bash
+# on the viewing machine
+ssh -L 47998:localhost:47998 <dgx>
+ffplay -rtsp_transport tcp rtsp://localhost:47998/stream
+vlc --rtsp-tcp rtsp://localhost:47998/stream
+```
+
+The mount is `/stream`; the bare root answers 404. Asking for TCP transport puts control
+and media on the one port, so the tunnel carries it and no firewall rule is needed.
+Verified 2026-09-13: h264 1440x900 at 60 fps, and three seconds pulled with
+`ffmpeg -rtsp_transport tcp` decode to a playable file.
+
+`--livestream 2` on its own gives WebRTC instead: TCP 49100 signalling, UDP 47998 media. The
+media being UDP means `ssh -L` cannot carry it, so a WebRTC viewer must reach the host
+directly, with NVIDIA's Isaac Sim WebRTC client rather than a browser. `ufw` is active on
+this host, so any untunnelled access needs the ports opened deliberately.
+
+**Two flags decide whether the picture is useful.** `--livestream` forces headless, and
+headless leaves `cfg.viewer` unapplied, so:
+
+- `--video` is what aims the camera over env 0 — without it you get Kit's default pose.
+- `--viz kit` is what positions the debug-vis markers — without it they sit at the world
+  origin, off-frame. `play_strafer_navigation.py` and `train_strafer_navigation.py` now
+  request it themselves; other entrypoints still need it passed.
+
+```bash
+tools/kit_boot_watchdog.sh --label gui -- "$ISAACLAB" -p \
+  source/strafer_lab/scripts/play_strafer_navigation.py \
+  --env Isaac-Strafer-Nav-RLDepth-Subgoal-Enriched-Robust-Play-v0 \
+  --checkpoint logs/rsl_rl/strafer_navigation/run_20260727_171735/model_998.pt \
+  --video --livestream 2 \
+  "--kit_args=--enable omni.kit.livestream.rtsp \
+     --/exts/omni.kit.livestream.app/primaryStream/streamType=rtsp"
+```
+
+Go through the boot watchdog as for any Kit launch: an unwrapped launch stalls on this host
+often enough to matter.

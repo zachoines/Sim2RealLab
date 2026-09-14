@@ -77,8 +77,9 @@ the tool's own 0.10 absolute bound — and both pins fail its absolute luma floo
 so the tool's verdict cannot separate the stacks and only the numbers can.
 
 The instrument is deposited with the record rather than kept in the capture scripts: it
-answered its question once, and a live camera check is now a visual one (see the
-sim-bridge cheatsheet's remote-view section).
+answered its question once, and a live camera check is now a visual one — see the
+livestream section at the end of
+[`docs/example_commands_cheatsheet.md`](../../../example_commands_cheatsheet.md).
 
 Recorded in `docs/measurements/isaac-lab-upgrade-landing-2026-09-12/`.
 

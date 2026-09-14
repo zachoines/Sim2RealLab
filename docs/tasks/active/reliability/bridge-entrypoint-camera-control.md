@@ -17,8 +17,8 @@ geometry is caught by looking rather than inferred from topic rates.**
 ## Context bundle
 
 - [`context/repo-topology.md`](../../context/repo-topology.md)
-- [`sim_bridge_autonomy_cheatsheet.md`](../../../sim_bridge_autonomy_cheatsheet.md) — the
-  remote-view section this brief would make apply to the bridge.
+- [`example_commands_cheatsheet.md`](../../../example_commands_cheatsheet.md) — its
+  livestream section is the remote-view path this brief would make apply to the bridge.
 
 ## Context (measured 2026-09-13)
 
@@ -64,8 +64,8 @@ carry three near-identical anchor blocks, and a fourth and fifth need the same t
 - [ ] Verified by looking: a livestreamed bridge run shows the robot, from a pose that was
       asked for. A pose readback is not required — the point of this brief is that the
       picture is the check.
-- [ ] The cheatsheet's remote-view section names the bridge among the watchable
-      entrypoints.
+- [ ] The livestream section of `docs/example_commands_cheatsheet.md` names the bridge
+      among the watchable entrypoints.
 - [ ] If your work invalidates a fact in any referenced context module, package README, or
       guide under `docs/`, update those in the same PR.
 

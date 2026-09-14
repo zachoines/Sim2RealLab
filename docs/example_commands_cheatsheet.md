@@ -98,8 +98,8 @@ tensorboard --logdir ~/Workspace/Sim2RealLab/logs/rsl_rl/strafer_navigation
 ## Evaluate Policy
 ```bash
 $ISAACLAB -p source/strafer_lab/scripts/play_strafer_navigation.py \
-    --env Isaac-Strafer-Nav-RLDepth-Real-Play-v0 \
-    --checkpoint logs/rsl_rl/strafer_navigation/run_20260425_035916/model_999.pt \
+    --env Isaac-Strafer-Nav-RLDepth-Subgoal-Enriched-Robust-Play-v0 \
+    --checkpoint logs/rsl_rl/strafer_navigation/run_20260727_171735/model_998.pt \
     --viz kit --real_time --steps 2000
 ```
 
@@ -142,9 +142,9 @@ this format.
 # Fine-tune a live checkpoint:
 ```bash
 $ISAACLAB -p source/strafer_lab/scripts/train_strafer_navigation.py \
-    --env Isaac-Strafer-Nav-RLDepth-Real-v0 \
+    --env Isaac-Strafer-Nav-RLDepth-Subgoal-Enriched-Robust-v0 \
     --num_envs 128 --max_iterations 6000 \
-    --resume logs/rsl_rl/strafer_navigation/run_20260425_035916/model_999.pt \
+    --resume logs/rsl_rl/strafer_navigation/run_20260727_171735/model_998.pt \
     --seed 1337 \
     --headless --video --video_length 300 --video_interval 30000
 ```
@@ -156,16 +156,16 @@ policy in the Kit viewport. Use the Play variant (8 envs by default).
 ## (a) Headed, watch in the viewport, real-time pacing
 ```bash
 $ISAACLAB -p source/strafer_lab/scripts/play_strafer_navigation.py \
-    --env Isaac-Strafer-Nav-RLDepth-Real-Play-v0 \
-    --checkpoint logs/rsl_rl/strafer_navigation/run_20260425_035916/model_600.pt \
+    --env Isaac-Strafer-Nav-RLDepth-Subgoal-Enriched-Robust-Play-v0 \
+    --checkpoint logs/rsl_rl/strafer_navigation/run_20260727_171735/model_998.pt \
     --viz kit --real_time --steps 2000
 ```
 
 ## (b) Headless rollout that records a single MP4 over env_0
 ```bash
 $ISAACLAB -p source/strafer_lab/scripts/play_strafer_navigation.py \
-    --env Isaac-Strafer-Nav-RLDepth-Real-Play-v0 \
-    --checkpoint logs/rsl_rl/strafer_navigation/run_20260425_035916/model_600.pt \
+    --env Isaac-Strafer-Nav-RLDepth-Subgoal-Enriched-Robust-Play-v0 \
+    --checkpoint logs/rsl_rl/strafer_navigation/run_20260727_171735/model_998.pt \
     --headless --video --video_length 600
 ```
 MP4 lands in `logs/rsl_rl/strafer_navigation/play_videos/play_<timestamp>/`.

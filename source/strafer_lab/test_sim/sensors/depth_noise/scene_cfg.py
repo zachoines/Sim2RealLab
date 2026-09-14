@@ -113,8 +113,6 @@ class DepthNoiseTestSceneCfg(InteractiveSceneCfg):
     d555_imu: ImuCfg = make_d555_imu_cfg()
 
     # Contact sensor on body_link for obstacle collision detection.
-    # No filter_prim_paths_expr: this scene defines no Obstacle_* prim, and a
-    # filter matching zero prims leaves the sensor's filter buffers unbuilt.
     contact_sensor = ContactSensorCfg(
         prim_path="{ENV_REGEX_NS}/Robot/strafer/body_link",
         update_period=0.0,

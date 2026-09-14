@@ -375,6 +375,20 @@ pip-heavy environment should take.
 
 ## Scope and limits
 
+Four small fixes ride this change that the flip did not cause. All four were found by
+watching the new pair over the livestream rather than by reading its logs, and three of
+them made the new pair look broken when it was not: the play script never requested a Kit
+visualizer, so the goal and subgoal markers sat unmoved at the world origin in every run,
+headed or headless; the training script's matching fixup was suppressed for headless runs
+by a guard whose premise no longer holds at v3.0.0-beta2; the command cheatsheet pointed
+four invocations at a run directory that does not exist, for an environment that has never
+been trained here; and the dead contact filter's explanatory comment went with the filter
+it explained. Two larger findings from the same exercise are filed rather than fixed here —
+checkpoint loads still carry no provenance check
+(`training-run-provenance-manifest`), and the two bridge entrypoints have no
+camera-positioning code at all (`bridge-entrypoint-camera-control`).
+
+
 - **6 relaunches is one sample.** It is reported because it is the number this run
   produced, not as a rate. The same caveat the boot-stall record states applies.
 - **The retired pair was executed, never written to.** No install, upgrade or write

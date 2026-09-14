@@ -184,19 +184,11 @@ def main():
     if "NoCam" not in args.env or args.video:
         args.enable_cameras = True
 
-    # On Isaac Lab develop the env-relative video camera (ViewerCfg
-    # origin_type="env" + env_index=0) is only honored when a Kit
-    # visualizer is active, which in turn requires --viz kit AND a
-    # viewport (i.e. NOT --headless). Auto-inject --viz kit when the
-    # user asks for --video without explicitly requesting headless mode;
-    # if they did pass --headless we leave the visualizer disabled and
-    # the recording falls back to a world-frame camera (frames the
-    # whole grid; not env 0). Pick one of:
-    #   --video              -> headed, env-centered video
-    #   --headless           -> headless, no video
-    #   --headless --video   -> headless, world-frame video (off-center
-    #                           on multi-env runs)
-    if args.video and not getattr(args, "visualizer", None) and not args.headless:
+    # Debug-vis markers are positioned only from SimulationContext.update_visualizers(),
+    # which returns early when no visualizer is registered — so without one the goal and
+    # subgoal markers stay at their construction pose, the world origin. A Kit visualizer
+    # dispatches those callbacks headless too, so this is not conditioned on --headless.
+    if args.video and not getattr(args, "visualizer", None):
         args.visualizer = ["kit"]
 
     # Launch the simulator

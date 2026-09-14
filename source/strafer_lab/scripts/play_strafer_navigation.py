@@ -121,6 +121,14 @@ def main() -> None:
     if "NoCam" not in args.env or args.video:
         args.enable_cameras = True
 
+    # Debug-vis markers are positioned only from SimulationContext.update_visualizers(),
+    # which returns early when no visualizer is registered — so without one the goal and
+    # subgoal markers stay at their construction pose, the world origin. A Kit visualizer
+    # dispatches those callbacks headless too, which is what makes them visible over a
+    # livestream.
+    if not getattr(args, "visualizer", None):
+        args.visualizer = ["kit"]
+
     app_launcher = AppLauncher(args)
     simulation_app = app_launcher.app
 

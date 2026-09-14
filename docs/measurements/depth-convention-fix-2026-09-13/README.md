@@ -259,10 +259,10 @@ pair flip.
 | | Enriched-Robust-Play | | Subgoal-Real-Play | |
 |---|---:|---:|---:|---:|
 | | pre-fix | post-fix | pre-fix | post-fix |
-| mean | 0.3518946758 | 0.3272571001 | 0.2839761985 | 0.2621622123 |
-| std | 0.3152281887 | 0.2954513944 | 0.3039665079 | 0.2843566985 |
-| p50 | 0.2103566229 | 0.1945360973 | 0.1600223035 | 0.1491441429 |
-| frac at max | 0.0986631944 | **0.0655590278** | 0.0805462963 | **0.0559710648** |
+| mean | 0.3518946758 | 0.3272594452 | 0.2839761985 | 0.2621633231 |
+| std | 0.3152281887 | 0.2954499923 | 0.3039665079 | 0.2843562256 |
+| p50 | 0.2103566229 | 0.1945356056 | 0.1600223035 | 0.1491441429 |
+| frac at max | 0.0986631944 | **0.0655520833** | 0.0805462963 | **0.0559733796** |
 | frac at min | 0.0583333333 | 0.0583333333 | 0.0416666667 | 0.0416666667 |
 | row band, bottom 3 | 0.1366 0.1326 0.1267 | 0.1039 0.0995 0.0956 | 0.1202 0.1166 0.1122 | 0.0963 0.0923 0.0887 |
 
@@ -348,7 +348,7 @@ None of the paths this record names are in this directory. They are in the
 companion evidence repository `https://github.com/zachoines/Sim2RealLab-Artifacts`,
 a private repository holding the evidence behind these records, under
 `depth-convention-fix-2026-09-13/`, deposited at commit
-`a6011e51cbb83be050f515a4bfee6b9eee571a46`. Two directories there:
+`2fba84913630cc17f53865dfacb34c7873bfde0c`. Two directories there:
 
 - `record-files/` mirrors this one, so a path the prose above names is the same
   path in the deposit. Restoring it into this directory is what makes the
@@ -373,7 +373,7 @@ own deposit for the A/B to re-run — `provenance.md` says which files and where
 sha256 of every deposited file, paths relative to this directory:
 
 ```
-db52dde2db5b5ea0e5f181efa40169d1863edd1c4c545985bf60332131eac635  ab/convention_ab.json
+3ef84e86e64cb5ef0f5f52a59097987222d814223c666e622dac07247d6d3c26  ab/convention_ab.json
 073cbb8593609f870eba0cc2f5e183e62f147f701850ef4f49553c4c6a987c7b  ab/node_obs_rec0.json
 8f344d1f662045056379354d415ae01ef991de0c48ab90b5c6ec981a608aabdb  gates/imu_post_fix_run1.log
 8dc5e8c369f76927a0d9852768d2c7a261d91458d3c763a111477189afa7f381  gates/imu_post_fix_run2.log
@@ -434,10 +434,10 @@ eaa1e30057b24234d3f9077a26a836ed42e2b48204ffaad6f0817e6ffa71e4dc  goldens/before
 2a7e51cd9c4e0d6e2feee951ce2494c757f5df26e51c6dcdc76cb0134e5f4170  goldens/before/preimages/layout-nocam.json
 e3103106608a6e4bf2c7cb4c3d4a5ed96228ab2925b031ced8221fd9a5fe9c4d  probes/convention_ab.py
 69ae2c4dbf711446a77bfb2fc14d939eed5ece410424f87cb6dde3179b9dcf1a  probes/golden_attribution.py
-d8a0baa2d0c0e8f0eefaebb9cc963348541e81662850b3ba65095a3f7042185a  render/postfix_depth_obs_enriched_robust_play.json
-9b560d5f4df72525152f35aebe215955fd4ac0f252b6b99eecf8c2f0b24316d9  render/postfix_depth_obs_enriched_robust_play.npz
-9733b6820cca6ec6f8e61d8ead11b7098ad995c0c3477fc4f691766be5a9880a  render/postfix_depth_obs_subgoal_real_play.json
-9d6df72983a3a27bc52e8bb1a2e68ea3cc40151baae05e2d29c68437a9089a44  render/postfix_depth_obs_subgoal_real_play.npz
+0060264bd38abce3d1172be303065e9cd9e33b546de515169c7ec1b51db2b1b2  render/postfix_depth_obs_enriched_robust_play.json
+fd6c7f4137b0b3e38d206be791b15fe3c32f8e3aa4d507aa36e70417e050ba55  render/postfix_depth_obs_enriched_robust_play.npz
+d9d122bd1c74da3dd40553bf0d116bf8524e04407855631c7a995c972dfdab5e  render/postfix_depth_obs_subgoal_real_play.json
+104415429fe940676936963e817c0ebb6dfd53c59d6ce139bbf1ef38fecb9906  render/postfix_depth_obs_subgoal_real_play.npz
 5d344299804c1284b635582062bdcf6db1fa0dd82e89c64ecbc4c363e0decd3f  render/prefix_depth_obs_enriched_robust_play.json
 db517372877e30326b7d91c78fe30c17fa6183478f6060f2f6d343722eb7bf38  render/prefix_depth_obs_enriched_robust_play.npz
 f8666067d9a36f97e479f5d6ce077529fd834db7c96bdd7de7d3a12af27e8bfe  render/prefix_depth_obs_subgoal_real_play.json

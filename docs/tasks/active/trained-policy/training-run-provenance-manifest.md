@@ -51,6 +51,34 @@ full command line and match run directories to the second. That worked here
 (`kit_20260726_221941.log` ↔ `run_20260726_221955`), but it depends on logs
 living outside the repo, on one machine, and it does not survive a wipe.
 
+**A second, better recovery path exists and is in the repo's own tree.** The
+training stdout logs sitting beside the run directories record the task id
+outright, and the run directory they belong to, a few lines apart:
+
+```
+logs/rsl_rl/strafer_navigation/depth_subgoal_cprime_stdout.log
+:56   Environment: Isaac-Strafer-Nav-RLDepth-Subgoal-Enriched-Robust-v0
+:213  Logging to: .../logs/rsl_rl/strafer_navigation/run_20260812_230811
+```
+
+The same pairing maps the other legs (`depth_subgoal_vfov8045_stdout.log`,
+`depth_subgoal_v2_stdout.log`, `depth_subgoal_v2b_stdout.log`). So provenance for
+historical runs is recoverable **today**, without Kit logs, for any run whose
+stdout was captured — which is stronger than this brief assumed when it was
+filed. Two consequences: the recovery procedure this brief promises to record
+should name these files first, and the manifest work should consider simply
+formalising what the stdout header already prints rather than inventing a new
+schema beside it.
+
+**Why this is not hypothetical.** On 2026-09-13 a checkpoint from
+`run_20260812_230811` was loaded into `Isaac-Strafer-Nav-RLDepth-Real-Play-v0` for a
+visual check. Both sides are 3619-dim observation / 3-dim action, so
+`runner.load()` succeeded in silence; the policy was a rolling-subgoal,
+enriched-scene, robust-DR one being asked to drive a fixed-goal, vanilla,
+realistic env, and it simply performed badly with no diagnostic. The mismatch was
+identified only by reading the stdout log above. A manifest plus a load-time check
+would have caught it at the first line.
+
 ## Acceptance criteria
 
 - [ ] `train_strafer_navigation.py` writes `<log_dir>/train_manifest.json` at run
@@ -66,9 +94,11 @@ living outside the repo, on one machine, and it does not survive a wipe.
       writes, or the field is renamed to make its meaning unambiguous.
 - [ ] `run_sim_in_the_loop.py`'s `--task` help lists **every** registered bridge
       task, including `Isaac-Strafer-Nav-Capture-Bridge-ProcRoom-Enriched-v0`.
-- [ ] A note in the brief (or a context module) records that **Kit logs are the
-      provenance recovery path for runs predating the manifest**, with the
-      matching procedure.
+- [ ] A note in the brief (or a context module) records the **provenance recovery
+      path for runs predating the manifest**, with the matching procedure —
+      naming the in-tree `logs/rsl_rl/**/*_stdout.log` headers first (they carry
+      `Environment: <task id>` and `Logging to: <run dir>`) and the machine-local
+      Kit logs as the fallback.
 - [ ] If your work invalidates a fact in any referenced context module, package
       README, top-level `Readme.md`, or guide under `docs/`, update those in the
       same commit. See

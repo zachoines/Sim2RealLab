@@ -251,6 +251,42 @@ serve-planner: check-nvrtc ## Start LLM planner service on port 8200
 	$(VENV_VLM)/bin/uvicorn strafer_autonomy.planner.app:create_app \
 		--factory --host 0.0.0.0 --port $${PLANNER_PORT:-8200}
 
+# The editable bindings, read from setuptools' finder shims rather than by
+# importing. An inherited PYTHONPATH satisfies an import from any clone, so a
+# resolve-by-import check passes while the editables still name a stale tree —
+# which is exactly the split the guard below exists to catch. The shims carry an
+# absolute path per package and no rename or move rewrites them.
+define EDITABLE_CLONES
+import glob, os, re, sys, sysconfig
+sp = sysconfig.get_paths()["purelib"]
+roots = set()
+for f in glob.glob(os.path.join(sp, "__editable___isaaclab*_finder.py")):
+    for pkg, path in re.findall(r"'([A-Za-z_][\w.]*)':\s*'([^']+)'", open(f).read()):
+        top = pkg.split(".")[0]
+        m = re.match(r"(.*)/source/" + re.escape(top) + r"(?:/|$$)", path)
+        if m:
+            roots.add(os.path.realpath(m.group(1)))
+if not roots:
+    sys.exit("no isaaclab_* editable finders under " + sp)
+print("\n".join(sorted(roots)))
+endef
+export EDITABLE_CLONES
+
+define EDITABLE_CLONES_VERBOSE
+import glob, os, re, sysconfig
+sp = sysconfig.get_paths()["purelib"]
+seen = {}
+for f in glob.glob(os.path.join(sp, "__editable___isaaclab*_finder.py")):
+    for pkg, path in re.findall(r"'([A-Za-z_][\w.]*)':\s*'([^']+)'", open(f).read()):
+        top = pkg.split(".")[0]
+        m = re.match(r"(.*)/source/" + re.escape(top) + r"(?:/|$$)", path)
+        if m:
+            seen.setdefault(os.path.realpath(m.group(1)), set()).add(top)
+for root in sorted(seen):
+    print(root + "  <- " + ", ".join(sorted(seen[root])))
+endef
+export EDITABLE_CLONES_VERBOSE
+
 test-lab: ## Run ALL strafer_lab tests in env_isaaclab3 — Kit suites (run_tests.py) + pure-Python (tests/). The canonical strafer_lab gate.
 	@# Both halves live in env_isaaclab3: the Kit suites need the bespoke
 	@# run_tests.py wrapper (Isaac Sim's os._exit kills pytest's summary),
@@ -262,7 +298,9 @@ test-lab: ## Run ALL strafer_lab tests in env_isaaclab3 — Kit suites (run_test
 	@# clean. isaaclab.sh picks its interpreter from VIRTUAL_ENV first and
 	@# CONDA_PREFIX second, so the Kit half runs in whatever env is active —
 	@# hence the activate, and the checks that nothing else is selected and that
-	@# the pure half's interpreter is the same one.
+	@# the pure half's interpreter is the same one. A third check pairs the
+	@# clone: isaaclab.sh exports its own clone's source/isaaclab on PYTHONPATH,
+	@# so an env whose editables point elsewhere splits the two halves silently.
 	@source env_setup.sh && \
 		source $(CONDA_ROOT)/etc/profile.d/conda.sh && \
 		conda activate $(CONDA_ENV) || exit 1; \
@@ -278,6 +316,22 @@ test-lab: ## Run ALL strafer_lab tests in env_isaaclab3 — Kit suites (run_test
 			echo "[test-lab]   Kit half   -> CONDA_ENV=$(CONDA_ENV) (from $(origin CONDA_ENV)), active prefix $$CONDA_PREFIX"; \
 			echo "[test-lab]   pure half  -> STRAFER_ISAACLAB_PYTHON=$$STRAFER_ISAACLAB_PYTHON"; \
 			echo "[test-lab] origin 'environment' means env_setup.sh exported it from .env; 'file' means the Makefile default."; \
+			exit 1; }; \
+		lab_clone="$$(cd "$$(dirname "$(ISAACLAB)")" 2>/dev/null && pwd -P)"; \
+		[ -n "$$lab_clone" ] || { \
+			echo "[test-lab] ISAACLAB=$(ISAACLAB) (from $(origin ISAACLAB)) is not inside a directory that exists."; \
+			exit 1; }; \
+		env_clones="$$("$$STRAFER_ISAACLAB_PYTHON" -c "$$EDITABLE_CLONES" 2>&1)" || { \
+			echo "[test-lab] cannot read $(CONDA_ENV)'s isaaclab_* editable bindings:"; \
+			echo "[test-lab]   $$env_clones"; \
+			exit 1; }; \
+		[ "$$env_clones" = "$$lab_clone" ] || { \
+			echo "[test-lab] the two halves would not test the same Isaac Lab clone:"; \
+			echo "[test-lab]   Kit half   -> ISAACLAB=$(ISAACLAB) (from $(origin ISAACLAB)), clone $$lab_clone"; \
+			echo "[test-lab]   pure half  -> $(CONDA_ENV)'s isaaclab_* editables ->"; \
+			"$$STRAFER_ISAACLAB_PYTHON" -c "$$EDITABLE_CLONES_VERBOSE" | sed 's/^/[test-lab]     /'; \
+			echo "[test-lab] isaaclab.sh puts only its own clone's source/isaaclab on PYTHONPATH, so a split pair"; \
+			echo "[test-lab] imports isaaclab from one clone and isaaclab_tasks/_assets/_rl from the other, silently."; \
 			exit 1; }; \
 		rc=0; \
 		$(ISAACLAB) -p source/strafer_lab/run_tests.py all || rc=1; \

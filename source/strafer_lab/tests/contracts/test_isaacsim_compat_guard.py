@@ -98,5 +98,10 @@ def test_compat_module_imports_without_a_kit_runtime():
     """It must be importable from the pure suite, i.e. no Kit imports at module scope."""
     import strafer_lab.isaacsim_compat as compat
 
-    for name in ("add_labels", "enable_extension", "set_camera_view"):
+    for name in (
+        "add_labels",
+        "anchor_capture_camera",
+        "enable_extension",
+        "set_camera_view",
+    ):
         assert callable(getattr(compat, name)), f"{name} is not exposed as a callable"

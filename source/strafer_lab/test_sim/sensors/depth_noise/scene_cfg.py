@@ -117,5 +117,4 @@ class DepthNoiseTestSceneCfg(InteractiveSceneCfg):
         prim_path="{ENV_REGEX_NS}/Robot/strafer/body_link",
         update_period=0.0,
         history_length=1,
-        filter_prim_paths_expr=["{ENV_REGEX_NS}/Obstacle_.*"],
     )

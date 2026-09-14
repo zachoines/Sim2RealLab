@@ -28,7 +28,12 @@ from __future__ import annotations
 
 from typing import Any
 
-__all__ = ["add_labels", "enable_extension", "set_camera_view"]
+__all__ = [
+    "add_labels",
+    "anchor_capture_camera",
+    "enable_extension",
+    "set_camera_view",
+]
 
 # Path used when a caller does not name a camera, matching the deprecated helper.
 _DEFAULT_CAMERA_PRIM = "/OmniverseKit_Persp"
@@ -257,3 +262,35 @@ def add_labels(
             "Isaac Sim Kit runtime (launch through isaaclab.sh -p)."
         ) from exc
     _legacy(prim, labels, instance_name=instance_name, overwrite=overwrite)
+
+
+
+def anchor_capture_camera(capture: Any, eye: Any, target: Any) -> None:
+    """Point a video recorder's capture config at a world-frame pose.
+
+    Isaac Lab renamed the capture config's pose fields (``camera_position`` /
+    ``camera_target`` to ``eye`` / ``lookat``) at v3.0.0-beta2. Writing the pair the
+    installed version does not expose sets attributes nothing reads, which leaves the
+    recorder filming from its own default pose with nothing logged.
+
+    Args:
+        capture: The recorder's capture object, whose ``cfg`` carries the pose fields.
+        eye: World-space camera position, as a sequence of three floats.
+        target: World-space point the camera looks at.
+
+    Raises:
+        RuntimeError: If the config exposes neither field pair.
+    """
+    cfg = capture.cfg
+    if hasattr(cfg, "camera_position"):
+        cfg.camera_position = eye
+        cfg.camera_target = target
+    elif hasattr(cfg, "eye"):
+        cfg.eye = eye
+        cfg.lookat = target
+    else:
+        raise RuntimeError(
+            "cannot anchor the recording camera: the capture config exposes neither "
+            "camera_position/camera_target nor eye/lookat, so the clip would be filmed "
+            "from the recorder's own pose."
+        )

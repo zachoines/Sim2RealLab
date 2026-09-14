@@ -121,6 +121,14 @@ def main() -> None:
     if "NoCam" not in args.env or args.video:
         args.enable_cameras = True
 
+    # Debug-vis markers are positioned only from SimulationContext.update_visualizers(),
+    # which returns early when no visualizer is registered — so without one the goal and
+    # subgoal markers stay at their construction pose, the world origin. A Kit visualizer
+    # dispatches those callbacks headless too, which is what makes them visible over a
+    # livestream.
+    if not getattr(args, "visualizer", None):
+        args.visualizer = ["kit"]
+
     app_launcher = AppLauncher(args)
     simulation_app = app_launcher.app
 
@@ -135,6 +143,7 @@ def main() -> None:
     import importlib.metadata as _metadata
 
     import strafer_lab  # noqa: F401  (registers envs)
+    from strafer_lab.isaacsim_compat import anchor_capture_camera
 
     env_cfg = parse_env_cfg(
         args.env,
@@ -176,22 +185,7 @@ def main() -> None:
         recorder = getattr(unwrapped, "video_recorder", None)
         capture = getattr(recorder, "_capture", None) if recorder is not None else None
         if capture is not None:
-            # Isaac Lab renamed these fields (camera_position/camera_target ->
-            # eye/lookat) at v3.0.0-beta2; write whichever pair the installed
-            # version exposes, so the anchor works on both rather than silently
-            # doing nothing on one of them.
-            if hasattr(capture.cfg, "camera_position"):
-                capture.cfg.camera_position = world_eye
-                capture.cfg.camera_target = world_target
-            elif hasattr(capture.cfg, "eye"):
-                capture.cfg.eye = world_eye
-                capture.cfg.lookat = world_target
-            else:
-                raise RuntimeError(
-                    "[play_strafer_navigation] --video: the capture config exposes neither "
-                    "camera_position/camera_target nor eye/lookat, so the recording "
-                    "cannot be anchored on env 0 and would use the recorder's own pose."
-                )
+            anchor_capture_camera(capture, world_eye, world_target)
         unwrapped.sim.set_camera_view(eye=world_eye, target=world_target)
         try:
             from isaaclab_physx.renderers.kit_viewport_utils import set_kit_renderer_camera_view

@@ -32,6 +32,8 @@ from __future__ import annotations
 from isaaclab.utils.configclass import configclass
 from isaaclab.utils.noise import GaussianNoiseCfg
 
+from strafer_shared.constants import DEPTH_NEARFIELD_FILL
+
 # Import custom noise models that generate independent per-environment noise
 from strafer_lab.tasks.navigation.mdp.noise_models import (
     IMUNoiseModelCfg,
@@ -249,14 +251,17 @@ class DepthCameraNoiseCfg:
 
     # Invalid pixels (holes from stereo matching failures)
     hole_probability: float = 0.01
-    """Probability of invalid pixel (set to max_depth)."""
+    """Probability of a pixel the stereo match could not resolve."""
 
     hole_cluster_size: int = 3
     """Average size of hole clusters in pixels."""
 
     # Range limits
-    min_range_m: float = 0.2
-    """Minimum valid depth range in meters. Closer = invalid."""
+    min_range_m: float = DEPTH_NEARFIELD_FILL
+    """Depth in meters below which a reading is treated as unresolvable, and the
+    value written there. It sits below the D555's own 0.4 m floor on purpose:
+    it is the near fill the observation term has already written at those
+    pixels, so the comparison cannot reclassify them."""
 
     max_range_m: float = 6.0
     """Maximum valid depth range in meters. Further = invalid."""

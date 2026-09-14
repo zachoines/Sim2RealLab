@@ -24,6 +24,8 @@ from isaaclab.utils.noise import NoiseModel
 from isaaclab.utils.configclass import configclass
 from isaaclab.utils.noise import NoiseModelCfg, GaussianNoiseCfg
 
+from strafer_shared.constants import DEPTH_HEIGHT, DEPTH_WIDTH
+
 from .hold_process import HoldProcess
 
 if TYPE_CHECKING:
@@ -453,13 +455,17 @@ class EncoderNoiseModelCfg(NoiseModelCfg):
 # Depth Camera Noise Model
 # =============================================================================
 
+TOO_CLOSE_FILLS = ("near", "max")
+HOLE_FILLS = ("median", "near", "max")
+
+
 class DepthNoiseModel(NoiseModel):
     """Depth camera noise model with realistic stereo depth error propagation.
 
     Models:
     - Stereo depth noise using Intel RealSense error propagation formula
-    - Random invalid pixels (holes)
-    - Range limiting
+    - Random invalid pixels (holes), outvoted by their neighbours
+    - Range limiting, saturating the near field
     - Dropped frames
 
     STEREO DEPTH ERROR MODEL (Intel RealSense):
@@ -481,6 +487,18 @@ class DepthNoiseModel(NoiseModel):
     def __init__(self, noise_model_cfg, num_envs: int, device: str):
         super().__init__(noise_model_cfg, num_envs, device)
         self.cfg = noise_model_cfg
+
+        # An unrecognised convention would otherwise fall through to a default
+        # and silently reinstate the behaviour these fields exist to select.
+        if self.cfg.too_close_fill not in TOO_CLOSE_FILLS:
+            raise ValueError(
+                f"too_close_fill must be one of {TOO_CLOSE_FILLS}, got "
+                f"'{self.cfg.too_close_fill}'"
+            )
+        if self.cfg.hole_fill not in HOLE_FILLS:
+            raise ValueError(
+                f"hole_fill must be one of {HOLE_FILLS}, got '{self.cfg.hole_fill}'"
+            )
 
         # Precompute stereo depth noise coefficient: σ_d / (f · B)
         # σ_z = z² · (σ_d / (f · B)) = z² · stereo_coeff
@@ -529,6 +547,78 @@ class DepthNoiseModel(NoiseModel):
             if self._delay_buffer is not None:
                 self._delay_buffer.reset(env_ids)
 
+    def _neighbourhood_median(
+        self, data: torch.Tensor, invalid: torch.Tensor
+    ) -> torch.Tensor:
+        """Median of each invalid pixel's valid 3x3 neighbours.
+
+        Written only at the invalid pixels, which are a few per cent of a
+        frame, so the cost tracks the hole rate rather than the frame size.
+        A pixel on the frame's edge reads the neighbours it actually has.
+        Where a neighbourhood is invalid throughout there is nothing to read
+        and the near fill stands in.
+
+        The median is the lower of the two middle neighbours on an even count,
+        which biases an ambiguous pixel towards the nearer surface.
+        """
+        height, width = self.cfg.height, self.cfg.width
+        flat = data.reshape(-1, height * width)
+        rows = invalid.reshape(flat.shape).nonzero(as_tuple=False)
+        if rows.numel() == 0:
+            return data
+
+        env, pixel = rows[:, 0], rows[:, 1]
+        y, x = pixel // width, pixel % width
+        # The border is padded so every window is the same shape, but the pad
+        # counts as invalid: a replicated cell would let one real neighbour vote
+        # twice and pull an edge pixel's median off its surface.
+        padded = torch.nn.functional.pad(
+            flat.reshape(-1, 1, height, width), (1, 1, 1, 1), mode="replicate"
+        )[:, 0]
+        valid = torch.nn.functional.pad(
+            (~invalid).reshape(-1, 1, height, width).to(data.dtype),
+            (1, 1, 1, 1),
+        )[:, 0]
+
+        step = torch.arange(3, device=data.device)
+        ys = (y[:, None, None] + step[None, :, None]).expand(-1, 3, 3)
+        xs = (x[:, None, None] + step[None, None, :]).expand(-1, 3, 3)
+        envs = env[:, None, None].expand(-1, 3, 3)
+        windows = padded[envs, ys, xs].reshape(-1, 9)
+        weights = valid[envs, ys, xs].reshape(-1, 9)
+
+        # Invalid neighbours sort last, so the index counts only valid ones.
+        candidates, _ = torch.where(
+            weights > 0, windows, torch.full_like(windows, float("inf"))
+        ).sort(dim=-1)
+        count = weights.sum(dim=-1)
+        index = ((count.clamp(min=1).long() - 1) // 2).unsqueeze(-1)
+        median = candidates.gather(-1, index).squeeze(-1)
+        median = torch.where(
+            count > 0, median, torch.full_like(median, self.cfg.min_range)
+        )
+
+        filled = flat.clone()
+        filled[env, pixel] = median
+        return filled.reshape(data.shape)
+
+    def _invalid_fill(self, data: torch.Tensor, invalid: torch.Tensor) -> torch.Tensor:
+        """Depth to write at invalid pixels, per the configured convention.
+
+        ``"median"`` lets a pixel read its neighbourhood, so a stereo failure is
+        outvoted by the surface around it instead of reading as open space. That
+        is the property the deploy reduction has and a per-pixel constant does
+        not; the two are not the same operation, and they part company where a
+        whole neighbourhood is invalid — deployment reads the far clamp there,
+        this takes the near fill. The constants stay selectable so either
+        convention's statistics can be measured.
+        """
+        if self.cfg.hole_fill == "near":
+            return torch.full_like(data, self.cfg.min_range)
+        if self.cfg.hole_fill == "max":
+            return torch.full_like(data, self.cfg.max_range)
+        return self._neighbourhood_median(data, invalid)
+
     def __call__(self, data: torch.Tensor) -> torch.Tensor:
         """Apply depth camera noise to RAW depth in meters.
 
@@ -541,6 +631,13 @@ class DepthNoiseModel(NoiseModel):
         - failure_probability: camera returns max_range for all pixels
         """
         # Data shape: (num_envs, height * width) - flattened depth in METERS
+        if self.cfg.height * self.cfg.width != data.shape[-1]:
+            raise ValueError(
+                f"depth noise cfg declares {self.cfg.height}x{self.cfg.width} "
+                f"but received {data.shape[-1]} pixels; the neighbourhood "
+                "median reads a pixel's neighbours, so the shape has to be the "
+                "frame's own"
+            )
         noisy_data = data.clone()
         max_range = self.cfg.max_range
 
@@ -551,15 +648,17 @@ class DepthNoiseModel(NoiseModel):
         depth_noise = torch.randn_like(noisy_data) * noise_std
         noisy_data = noisy_data + depth_noise
 
-        # Add holes (random invalid pixels) - set to max_range
+        # An invalid pixel reads its neighbourhood rather than a constant, so
+        # an isolated stereo failure cannot present as open space.
         if self.cfg.hole_probability > 0:
             holes = torch.rand_like(noisy_data) < self.cfg.hole_probability
-            noisy_data = torch.where(holes, torch.full_like(noisy_data, max_range), noisy_data)
+            noisy_data = torch.where(holes, self._invalid_fill(noisy_data, holes), noisy_data)
 
         # Apply range limits (in meters)
         noisy_data = torch.clamp(noisy_data, 0.0, max_range)
         too_close = noisy_data < self.cfg.min_range
-        noisy_data = torch.where(too_close, torch.full_like(noisy_data, max_range), noisy_data)
+        near = self.cfg.min_range if self.cfg.too_close_fill == "near" else max_range
+        noisy_data = torch.where(too_close, torch.full_like(noisy_data, near), noisy_data)
 
         # Frame drops (return previous frame)
         if self.cfg.frame_drop_prob > 0 and self._prev_frame is not None:
@@ -641,8 +740,20 @@ class DepthNoiseModelCfg(NoiseModelCfg):
     hole_probability: float = 0.01
 
     # Range limits
-    min_range: float = 0.2  # meters (D555 min range: 0.4m, we allow some margin)
+    # Below the D555's own 0.4 m floor on purpose: this is the near fill, and
+    # too_close_fill decides whether a reading below it takes that value.
+    min_range: float = 0.2
     max_range: float = 6.0  # meters (D555 max range at optimal accuracy)
+
+    # Which value an unresolvable reading takes. Both are selectable so either
+    # convention's statistics can be measured.
+    too_close_fill: str = "near"
+    """Value written below ``min_range``: ``"near"`` (``min_range``, the value
+    the observation term already wrote there) or ``"max"``."""
+
+    hole_fill: str = "median"
+    """Value written at invalid pixels: ``"median"`` of the valid 3x3
+    neighbours, ``"near"``, or ``"max"``."""
 
     # Frame drops
     frame_drop_prob: float = 0.001
@@ -662,9 +773,9 @@ class DepthNoiseModelCfg(NoiseModelCfg):
     hold_burst_run_steps: float = 1.0
     """Mean length of a burst hold run, in control steps."""
 
-    # Image dimensions (for unflattening if needed)
-    height: int = 60
-    width: int = 80
+    # Image dimensions, used to unflatten for the neighbourhood median.
+    height: int = DEPTH_HEIGHT
+    width: int = DEPTH_WIDTH
 
     # Failure modes (for robustness training)
     failure_probability: float = 0.0

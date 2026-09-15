@@ -45,6 +45,25 @@ imports — the test now actually collects, and the pre-existing flakiness
 became visible. The flake is **not** caused by that reorg (the only change
 to the file there is the import line); it ships on `main` too.
 
+### Base rate, measured 2026-09-14
+
+Nine runs of the assertion, four of them on `origin/main` at `d1002a0` in a
+worktree and five on a branch that changes only the depth observation's noise
+convention — a change that cannot reach this test, whose environment is
+`StraferNavCfg_NoCam_Ideal` with `ObsCfg_NoCam_Ideal` and therefore composes no
+depth term and no depth noise model at all:
+
+| tree | runs | failures |
+|---|---:|---:|
+| `origin/main` @ `d1002a0` | 4 | 1 |
+| depth-convention branch | 5 | 3 |
+
+So it fails on `main`, at a rate the two samples cannot distinguish (Fisher's
+exact on 1/4 against 3/5 gives p ≈ 0.5). The failures quote free means of
+15.55, 15.78, 15.81 and 15.85 m/s² against a collision mean printed as 16,
+which is the noise floor this brief describes. The acceptance below asks for
+≥5 consecutive clean runs; that is the right bar, and nothing here moves it.
+
 ## The decision (the investigation)
 
 Measure the collision-vs-free acceleration margin under current physics, then

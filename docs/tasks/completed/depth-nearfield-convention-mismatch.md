@@ -103,7 +103,7 @@ mechanism claim is open (below).
 
 ## The decision — direction B, refined
 
-**Adjudicated: the noise stage emulates what the deploy pipeline OUTPUTS for a
+**Decided: the noise stage emulates what the deploy pipeline OUTPUTS for a
 failed pixel, not what the sensor emits.** `too_close` pixels take the near-fill
 value, which is `min_range` and is the same number the observation term has
 already written at every pixel it filled; holes take the median of their valid
@@ -140,7 +140,7 @@ what has to produce an artifact that does not key on noise signature.
 
 Evidence: [`measurements/depth-convention-fix-2026-09-13`](../../measurements/depth-convention-fix-2026-09-13/README.md).
 
-## Fix directions — as put for adjudication
+## Fix directions — as put for the decision
 
 All three make training and deployment agree; they disagree about which
 convention is the right one and about where parity is enforced.
@@ -209,6 +209,17 @@ Sub-questions the choice has to answer either way:
       after, on the enriched robust env and its realistic sibling — see the
       record's fingerprint section. Reported as the far-clamp share of the frame
       rather than as a rollout return, which is the quantity the rule moves.
+- [x] Two clauses that were pre-registered for the implementing change went
+      unmet, and the record states both as measured deviations rather than as
+      passes. A band of p95 ≤ 0.01 scaled for the node against noise-bearing
+      depth is **unreachable by a correct change**: the node already differs from
+      the *clean* sim referent by p95 0.02004 on reconstruction geometry that no
+      convention touches, and the bisection that defined the band puts
+      p95 > 0.01 on its *material* side, so the clause asks for the non-material
+      side of a threshold clean sim already exceeds. The change takes that pair
+      from 0.96667 to 0.02095, which is convergence onto the floor. And the
+      deployed artifact does **not** return to the rig class on reconciled depth;
+      open item 1 below is why.
 - [x] Retrain scope: **every depth artifact is invalidated**, v1 and v2 both.
       Both trained under the retired convention — v1 at a smaller affected share
       because its pre-enrichment env put less surface inside 0.4 m, but under the
@@ -306,10 +317,35 @@ this is its second collection of evidence.
    one whose body-fixed camera faced a materially different part of the room,
    which fits a content-dependent affected share. No depth was captured for it,
    and goal bearing alone does not separate the set (M2 failed at −107.2°). Not
-   evidence for the fix; a prediction the fix should retire.
+   evidence for the change; a prediction it should retire.
 4. **The last-half-metre parking behaviour is a separate thread.** Both
    artifacts fail to close the final ~0.5 m, v1 included, and that survives this
    fix. It is not in scope here and needs its own brief when someone picks it up.
+5. **This change and [`d555-depth-decode-validity`](../active/trained-policy/d555-depth-decode-validity.md)
+   now disagree about what "invalid" means, and it has to be settled there.**
+   Training writes the *neighbourhood median* at an invalid pixel, so an isolated
+   stereo failure reads as the surface around it. That brief asks for invalid →
+   6.0 m while genuine sub-0.4 m returns keep the fill. Those are different
+   answers to the same pixel class. The deployed node's actual output is what
+   defines truth for the pair, not either brief's preference: today
+   `downsample_depth` rescues non-finite values to 6.0 m and then lets the 8×8
+   block median outvote them, so an isolated failure already reads as the
+   surface and only a saturated block reads far. Whatever that brief lands has to
+   name both cases, and it should decide the camera-failure row at the same time —
+   a failed frame still writes `max_range` at every pixel on the training side,
+   which is the last `max_range`-means-invalid write in the noise model, and the
+   node's counterpart is a zero Twist from the watchdog rather than a cleared
+   frame. Settle it there before either brief ships further.
+6. **The same-pose probe's seed determinism does not survive a pinned-pair
+   change, and that needs its own brief.** The probe anchors on whatever pose the
+   environment spawns the robot at and treats the capture's map coordinates as an
+   offset from it. Room generation at seed 42 moved across the Isaac Lab pair
+   flip, so the robot landed 2 m away facing open space and the clean near-field
+   share of its frame was 0.0000 where the original run's was 0.3786 — an empty
+   denominator for the metric the probe exists to produce. The probe itself is
+   fine; the assumption that a seed reproduces a room is not. A pose-stable sim
+   probe needs a captured scene USD rather than seed determinism, and that is the
+   brief to file.
 
 ## Optional validation, designed and deliberately not run
 

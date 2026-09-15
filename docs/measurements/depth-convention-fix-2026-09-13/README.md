@@ -9,13 +9,13 @@ the far-clamp share of the near-field class falls from 0.4990 to **0.0000**, and
 the noise-bearing depth's distance from the clean observation term collapses from
 p95 0.96667 to **0.00480** scaled.
 
-It also records a result the dispatch pre-registered the other way. Feeding the
+It also records a result that was expected to go the other way. Feeding the
 reconciled depth to the deployed v2 artifact does **not** make it emit the rig
 class; it still commands toward its referent. The reason is measurable here and
 is the attribution record's own open item: v2's command is sensitive to the
 *presence* of realism noise, not to the convention. The stereo Gaussian alone —
 0.029 m, no class structure — already moves the command 52° off the clean
-answer. The convention fix removes the corruption it was adjudicated to remove;
+answer. The change removes the corruption it was chosen to remove;
 it does not by itself put the artifact on the robot's side of the divide, and
 the retrain is what has to.
 
@@ -39,11 +39,19 @@ Holes now take the median of their valid 3×3 neighbours, falling back to
 one the deploy reduction has and a per-pixel constant does not: an isolated
 stereo failure is outvoted by the surface around it instead of presenting as
 open space. It is **not** the same operation as the deploy rescue, and the
-record does not claim it is — §2.1 states where the two diverge.
+record does not claim it is — §1.1 states where the two diverge.
 
 The median is written only at the invalid pixels, so its cost tracks the hole
-rate rather than the frame size: measured 16.8 ms against 58.2 ms per frame at
-1024 envs, bit-identical to the dense formulation. The frame's edge reads the
+rate rather than the frame size. At 1024 envs and `hole_probability` 0.03,
+against the dense formulation that computes a median everywhere: **4.52 ms
+against 53.01 ms on CPU, and 1.84 ms against 18.03 ms on `cuda:0`**, with the
+whole model call at 41.88 ms and 3.30 ms respectively, and the two agreeing bit
+for bit on both devices. Those are the best of twenty wall-clock repeats on an
+otherwise idle host, which is the figure that reproduces — a mean reports
+whatever else was running, and the same script on a loaded host reads the CPU
+sparse path at 7–8 ms.
+
+The frame's edge reads the
 neighbours it actually has; padding the window to keep it square must not let a
 replicated cell vote, or two far neighbours and one near one tie and resolve
 near, moving an edge pixel off its surface.
@@ -63,7 +71,7 @@ fills with rather than a second literal that happens to match: `depth_image`'s
 independent `0.2` literals, so the collision could have returned by editing any
 one of them with every test still green.
 
-### 2.1 Where the two paths still differ, deliberately
+### 1.1 Where the two paths still differ, deliberately
 
 | case | deployment | training, after this change |
 |---|---|---|
@@ -78,20 +86,22 @@ policy that has to avoid what it cannot resolve, and the saturated case needs
 every pixel of a neighbourhood to fail at once (0.03⁹ per pixel at the robust
 tier). Closing the remaining gap is fix direction A, which is not taken here.
 
-### 2.2 A consequence beyond the near field
+### 1.2 A consequence beyond the near field
 
 The hole channel is now numerically much weaker, because a hole on a smooth
 surface is invisible where it used to be a far-clamp spike. With the stereo term
 disabled so only holes move, mean |Δ| from the clean image falls from 0.006854 to
-0.000009 scaled at the realistic tier and from 0.020892 to 0.000049 at the
-robust tier — roughly 760× and 430×. It still moves 0.65 % and 1.92 % of pixels,
-at depth discontinuities where the neighbourhood disagrees with itself, and the
-largest single excursion is 0.056 and 0.654 scaled.
+0.000011 scaled at the realistic tier and from 0.020892 to 0.000052 at the
+robust tier — **637× and 404×**. It still moves 0.65 % and 1.92 % of pixels
+against 1.02 % and 3.09 % before, at depth discontinuities where the
+neighbourhood disagrees with itself.
 
-`hole_probability` is therefore a much weaker randomization knob than it was.
-That follows from the ruling rather than from this implementation, but it is a
-material change to the training distribution outside the class the brief names,
-and the retrain should not assume the knob still carries its old strength.
+`hole_probability` is therefore a much weaker randomization knob than it was —
+by mean absolute difference, 637× at the realistic tier and 404× at the robust
+one. That follows from the decision rather than from this implementation, but it
+is a material change to the training distribution outside the class the brief
+names, and the retrain should not assume the knob still carries its old
+strength.
 
 `hole_cluster_size` on the tier config has no reader and never had one, so holes
 are independent per pixel. It matters more now than it did: a clustered failure
@@ -99,16 +109,18 @@ is the only kind that reaches the near-fill fallback at any realistic rate, and
 also the only kind the deploy reduction cannot outvote. It is left dead rather
 than wired, and named here so it stops reading as coverage that exists.
 
-### 2.3 Two things still write the far clamp
+### 1.3 Two things still write the far clamp
 
 Camera failure does, to every pixel of a failed frame. It is the only
-`max_range`-means-invalid write left in the model, the ruling did not name it,
+`max_range`-means-invalid write left in the model, the decision did not name it,
 and it is untouched here. It is also why the robust tier's far-clamp share of the
 near-field class is not identically zero over a long sample: at
 `failure_probability` 0.001 a whole-frame event lands about once per thousand
-env-steps, measured at 0.000625 over 3 200 env-steps against 0.000000 with
-failures disabled. The 0.0000 in §2's table is the 30-tick sample the A/B ran,
-where no failure event occurred. The convention itself reconciles exactly;
+env-steps, and the share per env-step measures **0.001664** over 1 200 env-steps
+(two whole-frame events) against **0.000000** with failures disabled. The
+realistic tier ships `failure_probability` 0.0, so it is 0.000000 either way. The
+0.0000 in §2's table is the 30-tick sample the A/B ran, where no failure event
+occurred. The convention itself reconciles exactly;
 whether "camera dead" should read as open space is the adjacent question
 [`d555-depth-decode-validity`](../../tasks/active/trained-policy/d555-depth-decode-validity.md)
 owns. Deployment's counterpart is a zero Twist from the watchdog, not a cleared
@@ -117,14 +129,17 @@ frame.
 The observation latency buffer does the other, in the opposite direction: it is
 zero-filled, so the first one to three frames of every episode are 0.0 m
 everywhere, below `min_range` and below anything `downsample_depth` can emit
-(its floor is the near fill). Measured on an already-filled frame: the realistic
-tier reads 21 600 of 28 800 pixels below `min_range` at step 0 and is clean from
-step 2; the robust tier is entirely zero at step 0 and clean from step 3. This
-predates the change and is outside the ruling, but it bounds the near-field
+(its floor is the near fill). Measured on an already-filled frame of 8 envs: the
+realistic tier (`latency_steps` 1, per-env range 0–2) reads 14 400 of 28 800
+pixels below `min_range` at step 0 with 4 of 8 envs entirely zero, 3 600 at step
+1, and is clean from step 2; the robust tier (`latency_steps` 2, range 1–3) is
+entirely zero at step 0, 14 400 at step 1, 3 600 at step 2, and clean from step
+3. This
+predates the change and is outside the decision, but it bounds the near-field
 invariant — the invariant holds of the convention, not of the model's output at
 episode start.
 
-### A stale field the median exposed
+### 1.4 A stale field the median exposed
 
 `DepthNoiseModelCfg.height` / `width` were 60×80. The policy camera is 80×45, so
 the declared shape described 4 800 pixels of a 3 600-pixel frame. Nothing read
@@ -139,7 +154,7 @@ only when the median runs, so a shape that disagrees with reality cannot sit
 inert until a tier with holes reaches it. That check found the same stale 60×80
 in two test fixtures, which are corrected here.
 
-This is why the golden movement is three keys and not the two the dispatch
+This is why the golden movement is three keys and not the two that were
 pre-registered; §3 attributes it.
 
 ---
@@ -173,10 +188,13 @@ The retired arm reproduces the record: 0.5042 against the published 0.4990, and
 p95 = 0.96667 scaled, which is 5.79999 m, the figure the attribution published as
 its paired maximum. That agreement is what licenses reading the reconciled rows.
 
-**The reconciled convention is exactly a no-op on an already-filled image.** The
-two silent rows — noise disabled, one convention each — are bit-identical to
-clean and produce the identical command. Nothing about the fix perturbs a frame
-the term has already filled; it only stops the model from inverting it.
+**The reconciled convention is a no-op on an already-filled image.** The two
+silent rows — noise disabled, one convention each — are identical to each other
+and produce the identical command, and they sit within one float32 ulp of the
+clean referent (max |Δ| 5.96e-08, against an ulp of 1.19e-07 near 1.0; the
+residual is the round trip through metres and back, not the convention). Nothing
+about the change perturbs a frame the term has already filled; it only stops the
+model from inverting it.
 
 **The divergence is gone at both tiers.** Far-clamp share of the near-field
 class 0.0000, and p95 |Δ| from the clean term 0.00480 / 0.00959 scaled. The
@@ -184,9 +202,9 @@ robust tier's larger residual is its doubled disparity noise, not the convention
 its maximum, 0.39943, is a hole whose neighbourhood median legitimately came from
 a nearer surface.
 
-### What the dispatch pre-registered, and what happened
+### What was pre-registered, and what happened
 
-The dispatch's second acceptance clause asked that node-vs-noise-bearing depth
+The second pre-registered clause asked that node-vs-noise-bearing depth
 reach p95 |Δ| ≤ 0.01 scaled. **A correct fix cannot meet that as written.** The
 node's own tick-0 depth differs from the *clean* sim referent by p95 0.02004
 scaled — twice the band — and the attribution record already publishes that
@@ -196,7 +214,7 @@ The convention cannot touch it. Measured: node-vs-noise-bearing p95 goes
 which is the most a convention fix can do. The p50 does sit inside the band, at
 0.005014 → 0.002819 against a clean-referent floor of 0.000587.
 
-The dispatch's third clause asked that v2 now emit the rig class (−79° to −83°)
+The third clause asked that v2 now emit the rig class (−79° to −83°)
 where it previously drove. **It does not.** Reconciled depth gives 30/30 toward
 the referent and 0/30 in the rig class. The decomposition says why: the stereo
 Gaussian alone, with holes and the slam both disabled, already carries the
@@ -209,7 +227,7 @@ minimal sufficient perturbation is 0.029 m of plain Gaussian.
 None of that weakens the fix. The divergence was real, source-level, and 18.89 %
 of every frame; it is removed; clean depth reproduces the rig class 29/30, so the
 reconciled data now sits within 0.0048 of a referent that is on the robot's side.
-What it bounds is the claim: this PR fixes the data, and only a retrain can
+What it bounds is the claim: this change fixes the data, and only a retrain can
 produce an artifact that does not key on noise signature.
 
 ---
@@ -281,9 +299,11 @@ almost none of the movement above.
 
 The attribution's same-pose probe was re-run first, and the run is deposited, but
 it cannot carry the acceptance measurement. It launched and completed on the
-canonical pair in one attempt — every API it touches survives the flip, including
-the `ProxyArray` pose reads its `wp.to_torch` helper rides — and its goal bearing
-reproduces to 0.03° (−8.13° against the record's −8.1°). But it anchors on
+canonical pair — every API it touches survives the flip, including the
+`ProxyArray` pose reads its `wp.to_torch` helper rides — and its goal bearing
+reproduces to 0.03° (−8.13° against the record's −8.1°). Its deposited stdout is
+the probe's own, 280 lines ending at `[probe] DONE`; the boot wrapper's
+accounting, which records one attempt at 88 s, is deposited beside it. But it anchors on
 whatever pose the env spawns the robot at and treats the capture's map
 coordinates as an offset from it, and seed-42 room generation moved across the
 flip. The robot therefore landed at (−2.149, −1.001) instead of (−0.147, −2.172),
@@ -303,22 +323,35 @@ for whoever next needs a pose-stable sim probe.
 
 | gate | result |
 |---|---|
-| depth noise, pure | 6 passed, including a near-field survival test that fails on the pre-fix tree at 0.5003 |
-| near-field parity contract | 4 passed, running here rather than skipping |
+| depth noise, `test_sim/noise_models` | 14 passed, including a near-field survival test that reads 0.5003 crossing against the previous behaviour |
+| depth noise, Kit `test_sim/sensors/depth_noise` | 6 passed |
+| near-field parity contract | 7 passed, running here rather than skipping, and mutation-proven: moving either the tier's floor or the observation term's fill off the shared constant fails it |
 | composition + obs contracts | 148 passed after the re-freeze |
 | temporal texture | 40 passed |
 
-The full `strafer_lab` gate, both halves, on the canonical pair: **Kit 499 of
-499 across 14 suites, pure 1 259 passed and 1 skipped.** The boot watchdog
-relaunched once, in the `rewards` suite — the upstream 6.0.1.0 boot stall, which
-is telemetry rather than a failure.
+The full `strafer_lab` gate, both halves, on the canonical pair: **Kit 498 of
+499 across 14 suites, pure 1 259 passed and 1 skipped.** The one Kit failure is
+the flaky collision assertion discussed below. The boot watchdog relaunched three
+times — the upstream 6.0.1.0 boot stall, which is telemetry rather than a
+failure.
 
-`test_collision_imu_mean_differs_from_free` failed in an earlier full gate and
-does not belong to this change. Its environment is `NoCam_Ideal`, which composes
-no depth term and no depth noise model at all, so nothing in this change can
-reach it; and it fails intermittently either side of the change (one failure and
-one pass after, one pass before). The skipped pure test is a deploy-side alias
-check that needs a sourced ROS 2, which this host does not have.
+`test_collision_imu_mean_differs_from_free` fails intermittently and does not
+belong to this change. It is filed as
+[`collision-imu-signal-flaky`](../../tasks/active/investigations/collision-imu-signal-flaky.md),
+which attributes it to restitution-0 contact physics leaving the collision mean
+on the noise floor, and records that it ships on `main`. Two things separate it
+from this change. Its environment is `StraferNavCfg_NoCam_Ideal` with
+`ObsCfg_NoCam_Ideal`, which composes no depth term and no depth noise model at
+all, so there is no path from a depth observation convention to an IMU
+accelerometer distribution. And it fails on both trees at rates the samples
+cannot distinguish: one failure in four runs of `origin/main` at `d1002a0` in a
+worktree, three in five on this branch. That base rate is deposited with this
+record and added to that brief.
+
+Two gates therefore do not come back clean, and neither is this change's: the
+Kit half reports 498 of 499 for that assertion, and the one skipped pure test is
+a deploy-side alias check that needs a sourced ROS 2, which this host does not
+have.
 
 The near-field survival test was run against the pre-fix noise model to confirm
 it fails there: 0.5003 of an already-filled image reached the far clamp, against
@@ -326,7 +359,20 @@ the brief's predicted ~50 %.
 
 ---
 
-## 7. What this record does not establish
+## 7. Hand-on
+
+For whoever picks up the noise-texture parity step of the retrain planning: with
+the shipped tier latencies the observation latency buffer emits whole frames of
+exact 0.0 for each env's first one to three steps, so the policy sees depth below
+the near fill during warm-up — a value the deploy pipeline cannot produce, and a
+sim-only texture the robot never shows. It is identical on the pre-change tree and
+outside what this change addresses; §1.3 has the counts. It belongs with the
+camera-failure question rather than on its own, since both are about what the
+model emits when it has nothing real to emit.
+
+---
+
+## 8. What this record does not establish
 
 - **That the fix makes v2 deployable.** It does not; §2 measures the opposite,
   and the retrain owns it.
@@ -348,7 +394,7 @@ None of the paths this record names are in this directory. They are in the
 companion evidence repository `https://github.com/zachoines/Sim2RealLab-Artifacts`,
 a private repository holding the evidence behind these records, under
 `depth-convention-fix-2026-09-13/`, deposited at commit
-`2fba84913630cc17f53865dfacb34c7873bfde0c`. Two directories there:
+`a03ebd715a765add03ebbc90b0d4274c94d476c5`. Two directories there:
 
 - `record-files/` mirrors this one, so a path the prose above names is the same
   path in the deposit. Restoring it into this directory is what makes the
@@ -377,8 +423,12 @@ sha256 of every deposited file, paths relative to this directory:
 073cbb8593609f870eba0cc2f5e183e62f147f701850ef4f49553c4c6a987c7b  ab/node_obs_rec0.json
 8f344d1f662045056379354d415ae01ef991de0c48ab90b5c6ec981a608aabdb  gates/imu_post_fix_run1.log
 8dc5e8c369f76927a0d9852768d2c7a261d91458d3c763a111477189afa7f381  gates/imu_post_fix_run2.log
+7703e09e40f0c3fcd290429ad4b26cf5605e00986f89e5abea2ef54dd73c5381  gates/imu_pre_change_worktree_run1.log
+4c401a88152a2a587bbe1cb504180d084d4ab2c6ea89357b45e6c623c68c0883  gates/imu_pre_change_worktree_run2.log
+9eb94fdea047e04fbf6614ac530880d12737933ad79f6691aed23e5aa889294f  gates/imu_pre_change_worktree_run3.log
+4c401a88152a2a587bbe1cb504180d084d4ab2c6ea89357b45e6c623c68c0883  gates/imu_pre_change_worktree_run4.log
 cb020b25b09c7da180e20f3dd980c277621d88f123f566bd43f5437824305067  gates/imu_pre_fix.log
-65e6275f9e7ee8e12bb53a8d2f1509923552285a050f4bc3ff280e2c2d2ca712  gates/test_lab.log
+99d2872c2be303cd2520fdf9c3c60e4016a8b6e9c469a6cbdf91c6c03a949fc8  gates/test_lab.log
 fea6b3f97a092ea0f4556b321550f7ef6f84d9939475efd8384adf1f33f51c51  gates/test_lab_first_pass.log
 c5cb7c7f3750ffb8a26be44d703c442d808e71e05d56ce62933936111bfadb86  goldens/after/hashes.json
 0f1ec0458956793bd69028a9cf74bad77a806bc0585add2998b9d8d0a4aa3e86  goldens/after/preimages/contract-RLDepthEnriched_Real.json
@@ -433,6 +483,7 @@ eaa1e30057b24234d3f9077a26a836ed42e2b48204ffaad6f0817e6ffa71e4dc  goldens/before
 6c4cd4326c0d1ad5efb0737a708c39eadc40ea39802f005841317201c02a8e36  goldens/before/preimages/layout-depth.json
 2a7e51cd9c4e0d6e2feee951ce2494c757f5df26e51c6dcdc76cb0134e5f4170  goldens/before/preimages/layout-nocam.json
 e3103106608a6e4bf2c7cb4c3d4a5ed96228ab2925b031ced8221fd9a5fe9c4d  probes/convention_ab.py
+6cac924d8eccca17e19bd657aa5b108d05fa2cb09222bae7d0dcbcd010868af7  probes/convention_side_effects.py
 69ae2c4dbf711446a77bfb2fc14d939eed5ece410424f87cb6dde3179b9dcf1a  probes/golden_attribution.py
 0060264bd38abce3d1172be303065e9cd9e33b546de515169c7ec1b51db2b1b2  render/postfix_depth_obs_enriched_robust_play.json
 fd6c7f4137b0b3e38d206be791b15fe3c32f8e3aa4d507aa36e70417e050ba55  render/postfix_depth_obs_enriched_robust_play.npz
@@ -442,6 +493,7 @@ d9d122bd1c74da3dd40553bf0d116bf8524e04407855631c7a995c972dfdab5e  render/postfix
 db517372877e30326b7d91c78fe30c17fa6183478f6060f2f6d343722eb7bf38  render/prefix_depth_obs_enriched_robust_play.npz
 f8666067d9a36f97e479f5d6ce077529fd834db7c96bdd7de7d3a12af27e8bfe  render/prefix_depth_obs_subgoal_real_play.json
 33d4bf8536cd6dda6777f203b2c964709a3f0a9a9013656c6d70ffa363c7e8cc  render/prefix_depth_obs_subgoal_real_play.npz
+3c2886f0f629d5e894be334c5caa2382f8ceed4eab052d2f6949a1cec7b42c87  side-effects/convention_side_effects.json
 ```
 
 sha256 of every file in `postflip-anchor-probe/`:
@@ -452,5 +504,6 @@ sha256 of every file in `postflip-anchor-probe/`:
 93f07003d19394626b3d763f5a74b505248d53da5c9a5f52cbed4021e8c33fa4  gym_obs.jsonl
 c02d0ae59a13905597b06bfab5a8489a22ca853cbd0dab5b0e9f58f48e56c222  meta.json
 d849e28655f93426e1f81cfcf10652b5492d6f6b4703eca8f3a4cf2925384db8  probe_stdout_postflip.log
+20239d7fb87a363f92261831c5b8ecfa55679e0e0b144d0ad7d7f31eadb47258  probe_watchdog_accounting.log
 ```
 

@@ -24,7 +24,7 @@ from isaaclab.utils.noise import NoiseModel
 from isaaclab.utils.configclass import configclass
 from isaaclab.utils.noise import NoiseModelCfg, GaussianNoiseCfg
 
-from strafer_shared.constants import DEPTH_HEIGHT, DEPTH_WIDTH
+from strafer_shared.constants import DEPTH_HEIGHT, DEPTH_NEARFIELD_FILL, DEPTH_WIDTH
 
 from .hold_process import HoldProcess
 
@@ -742,7 +742,7 @@ class DepthNoiseModelCfg(NoiseModelCfg):
     # Range limits
     # Below the D555's own 0.4 m floor on purpose: this is the near fill, and
     # too_close_fill decides whether a reading below it takes that value.
-    min_range: float = 0.2
+    min_range: float = DEPTH_NEARFIELD_FILL
     max_range: float = 6.0  # meters (D555 max range at optimal accuracy)
 
     # Which value an unresolvable reading takes. Both are selectable so either

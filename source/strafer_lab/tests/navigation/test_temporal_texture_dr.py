@@ -271,12 +271,13 @@ class TestHoldProcess:
 # ---------------------------------------------------------------------------
 
 
-def _depth_cfg(height: int = 8, width: int = 8, **overrides):
+def _depth_cfg(height: int = 4, width: int = 16, **overrides):
     """Robust-tier depth noise over a toy frame.
 
     The frame shape is declared because the hole rescue reads a pixel's
-    neighbours, so it needs the real image dimensions rather than the
-    policy camera's.
+    neighbours, so it needs the real image dimensions rather than the policy
+    camera's. Deliberately not square, so a transposed declaration cannot
+    satisfy the model's pixel-count check unnoticed.
     """
     cfg = get_depth_noise(ROBUST_TRAINING_CONTRACT)
     cfg.height = height
@@ -412,8 +413,8 @@ class TestDepthStreamTexture:
         start this policy is most sensitive to."""
         torch.manual_seed(15)
         cfg = _depth_cfg(
-            height=4,
-            width=4,
+            height=2,
+            width=8,
             frame_drop_prob=0.0,
             latency_steps=0,
             latency_steps_range=None,
@@ -458,8 +459,8 @@ class TestDepthStreamTexture:
         resets, so the mask is all-true and the two spellings agree."""
         torch.manual_seed(17)
         cfg = _depth_cfg(
-            height=4,
-            width=4,
+            height=2,
+            width=8,
             frame_drop_prob=0.0,
             latency_steps=0,
             latency_steps_range=None,
@@ -497,8 +498,8 @@ class TestDepthStreamTexture:
         zero instead."""
         torch.manual_seed(16)
         cfg = _depth_cfg(
-            height=4,
-            width=4,
+            height=2,
+            width=8,
             frame_drop_prob=0.0,
             latency_steps=0,
             latency_steps_range=None,

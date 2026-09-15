@@ -99,13 +99,36 @@ def test_the_threshold_sits_on_the_value_the_pipeline_writes():
     """The near fill and the noise model's floor are one number.
 
     This is the coincidence that made the comparison a coin flip, and writing
-    the fill value back is what makes it harmless. If the two ever diverge,
-    the convention needs restating rather than retuning.
+    the fill value back is what makes it harmless. If the two ever diverge, the
+    convention needs restating rather than retuning.
+
+    Asserted against the values the shipped tiers actually assemble, not against
+    a class default: the tier config overrides the model's own floor, so a
+    default that agreed would say nothing about what training runs on.
     """
-    assert DEPTH_NEARFIELD_FILL == DepthNoiseModelCfg().min_range, (
-        "the value the observation term writes and the depth the noise model "
-        "treats as unresolvable must be the same number"
+    import inspect
+
+    from strafer_lab.tasks.navigation.mdp.observations import depth_image
+    from strafer_lab.tasks.navigation.sim_real_cfg import (
+        REAL_ROBOT_CONTRACT,
+        ROBUST_TRAINING_CONTRACT,
+        get_depth_noise,
     )
+
+    term_fill = inspect.signature(depth_image).parameters["nearfield_fill"].default
+    assert term_fill == DEPTH_NEARFIELD_FILL, (
+        f"the observation term fills the near field with {term_fill}, not the "
+        f"shared constant {DEPTH_NEARFIELD_FILL}"
+    )
+
+    for name, contract in (("real", REAL_ROBOT_CONTRACT),
+                           ("robust", ROBUST_TRAINING_CONTRACT)):
+        floor = get_depth_noise(contract).min_range
+        assert floor == term_fill, (
+            f"the {name} tier treats {floor} as unresolvable while the "
+            f"observation term writes {term_fill} at those pixels; the "
+            f"comparison would reclassify the class the term created"
+        )
 
 
 def test_the_shipped_noise_models_declare_the_policy_frame():

@@ -187,7 +187,7 @@ p95 of the residual's high-pass. Rig class is off-goal in [−83°, −79°].
 No arm's mean off-goal moves more than 3.2° across the 7 seeds. Four rows have
 a seed-dependent rig count: the two smallest-σ rows, which straddle the
 boundary, and the post-noise 3×3 median and bilinear σ_d 0.08 rows, which reach
-1 of 30 on a single seed each. `probes/candidate_sweep.py`.
+1 of 30 on some seeds. `probes/candidate_sweep.py`.
 
 **A post-noise 3×3 median is harmful, not neutral.** It lowers per-pixel texture
 as intended, but it *raises* the residual from clean — p95 0.004804 → 0.005319,
@@ -474,7 +474,7 @@ reported and the survivorship rule stated.
 |---|---|---|
 | contract gate — `test_sim/noise_models`, `test_sim/env/test_composition_contract.py`, `test_sim/env/test_obs_contract.py`, `tests/contracts/test_depth_nearfield_parity.py` | **222 passed**, 0 failed, 0 skipped, 180.6 s | boot watchdog, attempt 2 after a boot stall, 190 s wall |
 | temporal texture — `tests/navigation/test_temporal_texture_dr.py` | **46 passed** (40 before), 5.3 s | pure, no Kit |
-| delay buffer alone — `test_sim/noise_models/test_delay_buffer.py --noconftest` | **16 passed**, 2.7 s | pure; the module the six moved assertions live in |
+| delay buffer alone — `test_sim/noise_models/test_delay_buffer.py --noconftest` | **16 passed**, 2.7 s | no Kit; the module the six moved assertions live in. Not GPU-free — `test_sim.common.DEVICE` is `cuda:0` |
 | mutation check — the new warm-up class against `9c4d674` | **4 failed, 2 passed** | the two passes are the non-regression guards |
 | mutation check — `test_sim/noise_models/test_delay_buffer.py` against `9c4d674` | **12 failed, 4 passed** | the six rewritten assertions plus the six parameter combinations of the case that gained them (§7.1) |
 

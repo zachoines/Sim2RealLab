@@ -109,8 +109,10 @@ range(1, 8) if s != 7]`, which never yields 8, so the count is one fewer than
 the flag reads; `sweep/candidate_sweep.json` records the list it actually used.
 Seed 7 is the convention A/B's seed, kept first so the overlapping rows are
 directly comparable with that record. Four rows have a seed-dependent rig
-count — the two smallest-σ rows and two that reach 1 of 30 on one seed each —
-which is why §4 quotes every row as a range.
+count — the two smallest-σ rows and two that reach 1 of 30 on some seeds —
+which is why §4 quotes every row as a range. The deposit stores each row's
+`rig_min` and `rig_max` and not a per-seed list, so how many seeds a row moves on
+is deliberately not stated.
 
 `probes/texture_structure.py` and `probes/sensor_commensurability.py` use fixed
 seeds (7 and 0). The median-of-64 attenuation factor is a 4×10⁵-draw Monte Carlo

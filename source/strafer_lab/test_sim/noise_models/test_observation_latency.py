@@ -288,9 +288,9 @@ def test_rgb_reset_clears_latency_buffer():
     # After reset, feed new value. The first output should NOT be pre_reset.
     out = model(post_reset.clone())
 
-    # The DelayBuffer fills with zeros after reset, so the first output
-    # is the zero-initialized buffer value (not the pre-reset value).
-    # The key assertion is that it's NOT the pre-reset value.
+    # The DelayBuffer stands in the first post-reset frame, so the first
+    # output is that frame rather than the pre-reset value. The key assertion
+    # is the same one either way: it is NOT the pre-reset value.
     assert not torch.allclose(out, pre_reset, atol=1e-3), (
         f"RGB: reset did not clear latency buffer. "
         f"Output still matches pre-reset value {pre_reset[0, 0].item()}"

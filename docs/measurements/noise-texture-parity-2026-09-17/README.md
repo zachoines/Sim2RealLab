@@ -472,8 +472,9 @@ reported and the survivorship rule stated.
 
 | gate | result | notes |
 |---|---|---|
-| contract gate — `test_sim/noise_models`, `test_sim/env/test_composition_contract.py`, `test_sim/env/test_obs_contract.py`, `tests/contracts/test_depth_nearfield_parity.py` | **222 passed**, 0 failed, 0 skipped, 176.4 s | boot watchdog, attempt 1, 185 s wall |
-| temporal texture — `tests/navigation/test_temporal_texture_dr.py` | **46 passed** (40 before), 5.0 s | pure, no Kit |
+| contract gate — `test_sim/noise_models`, `test_sim/env/test_composition_contract.py`, `test_sim/env/test_obs_contract.py`, `tests/contracts/test_depth_nearfield_parity.py` | **222 passed**, 0 failed, 0 skipped, 180.6 s | boot watchdog, attempt 2 after a boot stall, 190 s wall |
+| temporal texture — `tests/navigation/test_temporal_texture_dr.py` | **46 passed** (40 before), 5.3 s | pure, no Kit |
+| delay buffer alone — `test_sim/noise_models/test_delay_buffer.py --noconftest` | **16 passed**, 2.7 s | pure; the module the six moved assertions live in |
 | mutation check — the new warm-up class against `9c4d674` | **4 failed, 2 passed** | the two passes are the non-regression guards |
 | mutation check — `test_sim/noise_models/test_delay_buffer.py` against `9c4d674` | **12 failed, 4 passed** | the six rewritten assertions plus the six parameter combinations of the case that gained them (§7.1) |
 
@@ -497,13 +498,22 @@ LD_PRELOAD=/lib/aarch64-linux-gnu/libgomp.so.1 <env_isaaclab3 python> -m pytest 
 this change moves none: the composition snapshot hashes the configuration object
 and no configuration field is added.
 
-The watchdog is not decoration here. Run without it, the same contract
-invocation stalled: the pytest tree accumulated **0 s of CPU time over 32
-minutes** and wrote no output past the launcher's first Kit warnings — the
-6.0.1.0 boot-stall signature the wrapper exists to detect
-([`kit-boot-hang-2026-09-11`](../kit-boot-hang-2026-09-11/README.md)). Through
-the wrapper the same suite completed on the first attempt in 185 s. Anyone
-re-running §9 should use the wrapper rather than concluding the suite is slow.
+The watchdog is not decoration here, and this record's own gate run shows why.
+Run without it, the contract invocation stalled: the pytest tree accumulated
+**0 s of CPU time over 32 minutes** and wrote no output past the launcher's
+first Kit warnings — the 6.0.1.0 boot-stall signature the wrapper exists to
+detect ([`kit-boot-hang-2026-09-11`](../kit-boot-hang-2026-09-11/README.md)).
+Through the wrapper, the run this table reports caught the same stall in flight
+and recovered from it:
+
+```
+attempt 1: STALLED during boot at 61s (rss=66724kB, no CPU or output for 60s) -> relaunching
+attempt 2: exit=0 wall=190s
+```
+
+Anyone re-running §9 should use the wrapper rather than concluding the suite is
+slow; the stall is intermittent, so a clean first attempt proves nothing either
+way.
 
 ## 10. Hand-on
 
@@ -566,7 +576,7 @@ repository:
 |---|---|
 | repository | `https://github.com/zachoines/Sim2RealLab-Artifacts` (private) |
 | deposit directory | `noise-texture-parity-2026-09-17/record-files/` |
-| deposit commit | `726b2c44fba92dd2c4c2d39a3280b2c59d01754a` |
+| deposit commit | `c1323bd35d29b30a65f76d71449f65997720a03d` |
 
 The deposit mirrors this record's own directory, so the paths this README names
 resolve unchanged after restoring it:
@@ -588,10 +598,12 @@ grep -E '^[0-9a-f]{64}  ' DEPOSIT.md | sha256sum -c -
 sha256 of every file in the deposit:
 
 ```
-74aca9e7cf2d7bbd7b1e7c3cf962c38b8720b198db42ca16176349aab75bf24f  gates/gate_contracts.xml
-9a5190d894511e47e0ffbf7919b9d9bb80cac97616cf699de0375b62b06627d0  gates/gate_temporal.xml
-638403561ffdecda8110a1321057d80bbf2e92f2106e6950e934ba731fd6fcce  gates/mutation_premutation.log
-65a26a98c54365ac7e3e2f2c02da81fa33860de5ac766a103b616106edbc7efd  gates/watchdog_contracts.log
+ab37d8003aa8c1fbd81cdf315fafd46b1ad75ba54f9a66ec62be3fa437006c12  gates/gate_contracts.xml
+007b88b15dd96f604624047a966a06ee2a05da1dd64a8270d7a82a4a2c173359  gates/gate_delaybuffer.xml
+7430441048eed0f1cd54bf333e94178677c6542fe08da24fc395dad2be4ecbdf  gates/gate_temporal.xml
+e0d69ff0a75c2bc0835aa59d4327616ba640139fa69470feb271f43ccd8b4180  gates/mutation_delaybuffer.log
+b98e9cfdafbe076754a4692df268ffa2d8fc9f51e19f40f429d4d7c315ed33fb  gates/mutation_premutation.log
+394795e0711f18a890db2b2f9fe2bff054f90abd24ce740677651d5b3369b131  gates/watchdog_contracts.log
 11e7888982b3f6b0b29f8233bbb51dc8d38099921e642e88364bbe254ab9278d  probes/candidate_sweep.py
 5a1fe593b2b4488df7b650ba75b795176e056955cd5bc5303f9c65daa2dd4b57  probes/capture_provenance.py
 050042b674fd41bcbb00d2478a7ccb1d835d154fc998da51cdb6aa39054286b3  probes/delay_warmup.py

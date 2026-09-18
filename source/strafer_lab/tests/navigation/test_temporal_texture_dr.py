@@ -536,8 +536,8 @@ class TestPerEnvDepthLatency:
             emitted.append(buffer(torch.full((64, 1), float(step))).squeeze(-1).clone())
         emitted = torch.stack(emitted)
 
-        # Past the zero-filled warm-up, env e reads the frame it wrote
-        # ``delays[e]`` steps ago.
+        # Past the warm-up, env e reads the frame it wrote ``delays[e]``
+        # steps ago.
         for env in range(64):
             lag = int(delays[env])
             step = 30
@@ -560,13 +560,101 @@ class TestPerEnvDepthLatency:
     def test_the_fixed_path_is_unchanged_without_a_range(self):
         buffer = DelayBuffer(4, 1, 2, DEVICE)
         emitted = [buffer(torch.full((4, 1), float(s))).squeeze(-1) for s in range(10)]
-        # Two zero-filled warm-up steps, then a clean two-step shift.
+        # The warm-up repeats frame 0, then a clean two-step shift. Frame 0 is
+        # 0.0 here, so this sequence alone cannot tell the repeat from the
+        # zero fill it replaced — ``test_the_warm_up_repeats_the_first_frame``
+        # is the one that separates them.
         assert [float(e[0]) for e in emitted] == [0.0, 0.0, 0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0]
 
     def test_a_zero_latency_with_no_range_stays_a_passthrough(self):
         buffer = DelayBuffer(4, 1, 0, DEVICE)
         data = torch.rand(4, 1)
         assert torch.equal(buffer(data), data)
+
+
+# ---------------------------------------------------------------------------
+# The latency warm-up
+# ---------------------------------------------------------------------------
+
+
+class TestLatencyWarmUp:
+    """A delayed observation is a past frame, never a value nothing emits.
+
+    The ring starts and resets zeroed, so a slot read before it has been
+    written used to return 0.0 across the whole vector. No source on either
+    side of the boundary produces that: the depth term floors at the near
+    fill, and ``downsample_depth`` writes the same fill below its near clip.
+    These pin the first frame standing in for the unwritten ring instead.
+    """
+
+    def test_the_warm_up_repeats_the_first_frame(self):
+        """The discriminating case: a first frame that is not itself zero."""
+        buffer = DelayBuffer(4, 1, 2, DEVICE)
+        emitted = [
+            float(buffer(torch.full((4, 1), 5.0 + s)).squeeze(-1)[0]) for s in range(6)
+        ]
+        # Frame 0 is 5.0, so the warm-up reads 5.0 where the zero fill read 0.0.
+        assert emitted == [5.0, 5.0, 5.0, 6.0, 7.0, 8.0]
+
+    @pytest.mark.parametrize(
+        "contract", [REAL_ROBOT_CONTRACT, ROBUST_TRAINING_CONTRACT], ids=["real", "robust"]
+    )
+    def test_no_emission_is_a_depth_no_source_can_produce(self, contract):
+        """Through the production model at the shipped latencies.
+
+        The floor the assertion uses is the model's own ``min_range``, which
+        is the shared constant the observation term and the deploy reduction
+        both fill with.
+        """
+        cfg = get_depth_noise(contract)
+        torch.manual_seed(31)
+        model = DepthNoiseModel(cfg, 8, DEVICE)
+        model.reset(None)
+        frames = torch.rand(6, 8, cfg.height * cfg.width) * 4.0 + 1.0
+        for step in range(6):
+            out = model(frames[step])
+            assert out.min() >= cfg.min_range, (
+                f"step {step} emitted {float(out.min())} < "
+                f"the near fill {cfg.min_range}"
+            )
+
+    def test_a_partial_reset_primes_only_the_envs_it_cleared(self):
+        """The envs that kept running keep the ring history they were mid-way
+        through; priming all of them would shorten their latency by a frame."""
+        buffer = DelayBuffer(4, 1, 2, DEVICE)
+        for step in range(6):
+            buffer(torch.full((4, 1), 10.0 + step))
+
+        buffer.reset(torch.tensor([0, 1], device=DEVICE))
+        out = buffer(torch.full((4, 1), 100.0)).squeeze(-1)
+
+        # The reset pair reads its own new frame; the untouched pair reads the
+        # frame it wrote two steps back, exactly as if no reset had happened.
+        assert float(out[0]) == 100.0 and float(out[1]) == 100.0
+        assert float(out[2]) == 14.0 and float(out[3]) == 14.0
+
+    def test_priming_leaves_the_rng_stream_untouched(self):
+        """The #219 precedent: the stand-in reads no random numbers, so a
+        tier's noise draws keep both their order and their values."""
+        torch.manual_seed(22)
+        buffer = DelayBuffer(64, 8, 2, DEVICE)
+        before = torch.get_rng_state()
+        buffer.reset(None)
+        buffer.reset(torch.arange(32))
+        for step in range(50):
+            buffer(torch.full((64, 8), float(step)))
+        assert torch.equal(torch.get_rng_state(), before)
+
+    def test_the_drawn_latencies_are_unchanged_by_priming(self):
+        """A range-bearing buffer draws the same per-env delays it always did,
+        so the mean-preserving band the contract tiers ship is untouched."""
+        torch.manual_seed(17)
+        buffer = DelayBuffer(256, 1, 2, DEVICE, delay_steps_range=(1, 3))
+        drawn = buffer._delays.clone()
+
+        torch.manual_seed(17)
+        reference = torch.randint(1, 4, (256,), device=DEVICE)
+        assert torch.equal(drawn, reference)
 
 
 # ---------------------------------------------------------------------------

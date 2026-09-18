@@ -46,8 +46,7 @@ class DelayBuffer:
 
     Stores past observations and returns delayed observations based on
     the configured latency (in control steps). Until an env's ring has been
-    written it holds that env's first frame since its own reset, so the
-    warm-up returns a real observation rather than zeros.
+    written it holds that env's first frame since its own reset.
 
     With ``delay_steps_range`` the latency is drawn per environment at every
     reset instead of being one number shared by the whole batch, so the policy
@@ -96,12 +95,6 @@ class DelayBuffer:
                 (num_envs,), delay_steps, dtype=torch.long, device=device
             )
             self._env_index = torch.arange(num_envs, device=device)
-            # A slot read before the ring has been written returns 0.0, which
-            # no source on either side of the boundary can produce: the depth
-            # term floors at the near fill and the deploy reduction writes it
-            # too. The first frame an env delivers after its reset fills the
-            # whole ring instead, so the warm-up emits a repeat of a live
-            # frame — the emission the drop and hold paths already produce.
             self._primed = torch.zeros(num_envs, dtype=torch.bool, device=device)
             self._needs_prime = True
             if self._delay_range is not None:
@@ -151,7 +144,7 @@ class DelayBuffer:
 
         ring = self._max_delay + 1
 
-        # Fill an unwritten ring with the live frame (see __init__). Only the
+        # Fill an unwritten ring with the live frame. Only the
         # envs a reset actually cleared are primed, so a partial reset cannot
         # overwrite the in-flight history of the envs that kept running. The
         # host-side flag keeps this off the steady-state path rather than

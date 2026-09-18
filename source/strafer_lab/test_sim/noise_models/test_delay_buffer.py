@@ -47,9 +47,7 @@ def test_delay_buffer_exact_delay(delay_steps):
         inputs.append(data.clone())
         outputs.append(buffer(data).clone())
 
-    # Until the ring has been written the buffer stands in the first frame,
-    # rather than the zeros it used to return — 0.0 is a reading no sensor
-    # produces, and the warm-up is the one place the policy could meet it.
+    # Until the ring has been written the buffer stands in the first frame.
     for i in range(delay_steps):
         torch.testing.assert_close(
             outputs[i],
@@ -68,12 +66,11 @@ def test_delay_buffer_exact_delay(delay_steps):
 
 
 def test_delay_buffer_reset_clears_history():
-    """Verify reset() clears buffer history.
+    """No pre-reset frame is readable after a reset.
 
-    The assertion is that no pre-reset frame can be read afterwards. It used to
-    be that the output is zero, which is a weaker claim about a stronger
-    behaviour: zero is also what an unwritten buffer returns, so it could not
-    tell "the history is gone" from "nothing has arrived yet".
+    Asserted against the history rather than against zero: zero is also what an
+    unwritten buffer returns, so it cannot separate a cleared history from an
+    empty one.
     """
     delay_steps = 2
     buffer = DelayBuffer(num_envs=NUM_ENVS, obs_size=3, delay_steps=delay_steps, device=DEVICE)
@@ -129,9 +126,9 @@ def test_delay_buffer_per_env_reset():
     output2 = buffer(third_data)
 
     # The reset envs read their own new frame; the rest are untouched and still
-    # read the frame they wrote a step ago. The second assertion is the one
-    # that matters: standing in the incoming frame must not reach across into
-    # the envs that kept running, or their latency silently shortens.
+    # read the frame they wrote a step ago. Standing in the incoming frame must
+    # not reach across into the envs that kept running, or their latency
+    # silently shortens.
     torch.testing.assert_close(
         output2[:10],
         third_data[:10],
@@ -167,6 +164,8 @@ def test_delay_buffer_device_batch_size(num_envs, device):
     # The warm-up stands in data1, and the third output is data1 by delay.
     assert out1.device.type == device.split(":")[0]
     assert out1.shape == (num_envs, obs_size)
+    torch.testing.assert_close(out1, data1)
+    torch.testing.assert_close(out2, data1)
     torch.testing.assert_close(out3, data1)
 
 

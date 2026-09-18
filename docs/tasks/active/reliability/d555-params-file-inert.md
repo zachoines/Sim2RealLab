@@ -78,6 +78,21 @@ another setting the repo believes it controls and does not.
       [`conventions.md`'s user-facing documentation maintenance section](../../context/conventions.md#user-facing-documentation-maintenance)
       for the surface list and trigger heuristics.
 
+## Investigation pointers
+
+- `source/strafer_ros/strafer_perception/config/d555_params.yaml` — the file
+  itself, including the header that offers it as a `--params-file`.
+- `source/strafer_ros/strafer_perception/launch/perception.launch.py` — the
+  `rs_launch.py` include and its `launch_arguments` dict; it pins the depth and
+  colour profiles and `global_time_enabled`, and nothing else.
+- `source/strafer_ros/strafer_perception/setup.py` — the `data_files` entry that
+  installs the file to `share/`, which is what makes it look live.
+- `source/strafer_ros/strafer_inference/test/test_inference_config.py` — the
+  idiom for asserting a launch-time value, already used to pin the depth topic.
+- [`completed/d555-invalid-pixel-statistics.md`](../../completed/d555-invalid-pixel-statistics.md),
+  the "Measurement 2026-08-04" setup paragraph — the citation that rests on this
+  file being loaded.
+
 ## Out of scope
 
 - **Deciding whether any filter should be on.** They should stay off — the

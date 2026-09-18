@@ -115,7 +115,7 @@ the driver publishes `16UC1`
 - [ ] The filter and auto-exposure state during the capture recorded as read
       back off the running node, not as read out of the unloaded params file.
 - [ ] A recommendation against
-      [`noise-texture-parity-2026-09-17`](../../../measurements/noise-texture-parity-2026-09-17/README.md) §10
+      [`noise-texture-parity-2026-09-17`](../../../measurements/noise-texture-parity-2026-09-17/README.md) §8
       gate (B): the training term's injected σ at 80×45 is within [0.5×, 2.0×] of
       the measured post-reduction σ below 3.5 m and [0.33×, 3.0×] above it, or it
       is not. **`disparity_noise_px = 0.08` may already pass, in which case the
@@ -127,6 +127,30 @@ the driver publishes `16UC1`
       same commit. See
       [`conventions.md`'s user-facing documentation maintenance section](../../context/conventions.md#user-facing-documentation-maintenance)
       for the surface list and trigger heuristics.
+
+## Investigation pointers
+
+- `source/strafer_ros/strafer_inference/strafer_inference/obs_pipeline.py:76-84`
+  — the reduction this brief measures either side of: the `isfinite` rescue, the
+  8×8 block median over `reshape(45,8,80,8)`, the near-field fill and the clip.
+  Run it offline on the bagged frames rather than reimplementing it.
+- [`completed/d555-invalid-pixel-statistics.md`](../../completed/d555-invalid-pixel-statistics.md)
+  §4 — the raw per-pixel σ table this extends, and §5 for the sub-0.4 m
+  behaviour that makes the near-fill contract load-bearing. Its "Out of scope"
+  section holds the parked 640×360-render option and its revisit trigger.
+- `source/strafer_ros/strafer_perception/launch/perception.launch.py` — the
+  `rs_launch.py` include whose explicit argument dict carries no
+  `--params-file`, which is why the filter state has to be read off the running
+  node.
+- `source/strafer_lab/strafer_lab/tasks/navigation/mdp/noise_models.py`,
+  `DepthNoiseModel.__call__` — where σ_z is injected, at `cfg.height`×`cfg.width`
+  = 45×80, with `torch.randn_like` and no reduction stage.
+- `source/strafer_shared/strafer_shared/constants.py` — `DEPTH_*` and
+  `PERCEPTION_*`, for the 8×8 ratio and the fill/clip constants both sides share.
+- [`noise-texture-parity-2026-09-17`](../../../measurements/noise-texture-parity-2026-09-17/README.md)
+  §6 for the commensurability algebra and the crossover-ρ table, and its
+  deposited `probes/sensor_commensurability.py` for the arithmetic in runnable
+  form.
 
 ## Out of scope
 
@@ -143,4 +167,4 @@ the driver publishes `16UC1`
   brief's acceptance.
 - **Anything about the retrain.** The retrain is not held on this
   ([`noise-texture-parity-2026-09-17`](../../../measurements/noise-texture-parity-2026-09-17/README.md)
-  §9 records why).
+  §11 records why).

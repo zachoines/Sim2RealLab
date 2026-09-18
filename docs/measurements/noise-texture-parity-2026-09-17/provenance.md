@@ -9,8 +9,8 @@ captured_date: 2026-09-17
 | probes, gates | `gx10-d1d8` (DGX Spark, aarch64 GB10) | 7.0.0-1019-nvidia | 580.173.02 |
 
 Everything in [`README.md`](README.md) was produced on this host. No robot was
-involved, and that is one of the record's findings rather than a limitation of
-the session: there is no real-sensor depth in either repository to read.
+involved, and that is one of the record's findings rather than a limit of the
+measurement: there is no real-sensor depth in either repository to read.
 
 ## Trees
 
@@ -103,11 +103,14 @@ latency ranges the record quotes are the ones the contracts actually carry.
 
 ## Seeds and what depends on them
 
-`probes/candidate_sweep.py` runs every arm over 8 seeds (7 first, then 1–6 and
-8) and reports `mean off-goal` and the rig count as ranges. Seed 7 is the
-convention A/B's seed, kept first so the overlapping rows are directly
-comparable with that record. The two smallest-σ rows are the only ones whose rig
-count moves across seeds; §4 quotes them as ranges for that reason.
+`probes/candidate_sweep.py` runs every arm over **7** seeds: 7 first, then 1
+through 6. `--seeds 8` is the bound on the generator `[7] + [s for s in
+range(1, 8) if s != 7]`, which never yields 8, so the count is one fewer than
+the flag reads; `sweep/candidate_sweep.json` records the list it actually used.
+Seed 7 is the convention A/B's seed, kept first so the overlapping rows are
+directly comparable with that record. Four rows have a seed-dependent rig
+count — the two smallest-σ rows and two that reach 1 of 30 on one seed each —
+which is why §4 quotes every row as a range.
 
 `probes/texture_structure.py` and `probes/sensor_commensurability.py` use fixed
 seeds (7 and 0). The median-of-64 attenuation factor is a 4×10⁵-draw Monte Carlo

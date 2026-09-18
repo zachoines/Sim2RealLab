@@ -80,7 +80,7 @@ Re-traced from the subscription to the observation vector:
 |---|---|---|
 | 1 | subscribe `/d555/depth/image_rect_raw` | `inference_node.py:182`, `:507` |
 | 2 | encoding gate, `32FC1` or drop | `:801-806` |
-| 3 | `np.frombuffer` + reshape, no filtering | `:807-809` |
+| 3 | `np.frombuffer` + reshape, no filtering | `:808-810` |
 | 4 | `isfinite` rescue → `max_depth` | `obs_pipeline.py:76` |
 | 5 | **8×8 block median**, `reshape(45,8,80,8)` | `:77-80` |
 | 6 | near-field fill below the near clip | `:81-83` |
@@ -138,11 +138,13 @@ separates them.**
 
 ### 3.1 Three statistics that mislead on these frames
 
-- **The constant fill class dilutes any frame-level figure.** Left in, it
-  inflates the capture's residual p95 from 0.012597 to 0.027569 while *raising*
-  training's (0.004577 → 0.005684), because training carries no constant mass of
-  its own. The "capture residual is 4.2× the stereo Gaussian's" figure published
-  earlier in this line is **2.2× on valid pixels**.
+- **The constant fill class dilutes any frame-level figure, and in opposite
+  directions.** Left in, it *inflates* the capture's residual p95 — 0.012597 on
+  valid pixels against 0.027569 whole-frame — while *deflating* training's,
+  0.005684 against 0.004577, because training carries no constant mass of its
+  own. Excluding the class therefore moves the two figures toward each other:
+  the "capture residual is 4.2× the stereo Gaussian's" figure published earlier
+  in this line is **2.2× on valid pixels**.
 - **A plain `std` is meaningless on a mostly-exactly-zero distribution.** On mid
   and far pixels the static roughness std gives train/capture ratios of 1.11×
   and 1.05× — reading as agreement where the per-pixel texture differs by three
@@ -157,8 +159,8 @@ separates them.**
 Each arm's depth is spliced into the node's own tick-0 observation and run
 through v2@998 on CPU, which is the design
 [`depth-convention-fix-2026-09-13`](../depth-convention-fix-2026-09-13/README.md)
-used. Production noise model, production deploy reduction. 8 seeds; `mean
-off-goal` is the range across them and `rig` the min–max of 30. `rhp95` is the
+used. Production noise model, production deploy reduction. 7 seeds — 7, then
+1 through 6; `mean off-goal` is the range across them and `rig` the min–max of 30. `rhp95` is the
 p95 of the residual's high-pass. Rig class is off-goal in [−83°, −79°].
 
 | candidate | p95 \|res\| | rhp95 | mean off-goal | rig |
@@ -182,8 +184,10 @@ p95 of the residual's high-pass. Rig class is off-goal in [−83°, −79°].
 | reduction-emulated σ_d 0.16, bilinear | 0.005225 | 0.005307 | −54.85 … −52.30° | 0–0 |
 | bilinear upsample bias control, **no noise** | 0.002941 | 0.003012 | −93.12° | 0–0 |
 
-No arm's mean off-goal moves more than 3.2° across the 8 seeds, and only the two
-smallest-σ rows change their rig count. `probes/candidate_sweep.py`.
+No arm's mean off-goal moves more than 3.2° across the 7 seeds. Four rows have
+a seed-dependent rig count: the two smallest-σ rows, which straddle the
+boundary, and the post-noise 3×3 median and bilinear σ_d 0.08 rows, which reach
+1 of 30 on a single seed each. `probes/candidate_sweep.py`.
 
 **A post-noise 3×3 median is harmful, not neutral.** It lowers per-pixel texture
 as intended, but it *raises* the residual from clean — p95 0.004804 → 0.005319,
@@ -294,7 +298,12 @@ raw σ · √(ρ + (1−ρ)·π/128), where ρ is the within-block spatial corre
 | 2.5–3.5 m | 15.5 mm | 2.43 → 15.50 mm | 11.26 mm | 0.516 | 0.0173 → 0.1101 |
 | 3.5–5.5 m | 87.1 mm | 13.64 → 87.10 mm | 25.34 mm | 0.062 | 0.0431 → 0.2750 |
 
-`probes/sensor_commensurability.py`.
+`probes/sensor_commensurability.py`. The attenuation here uses the **asymptotic**
+π/128 rather than the measured k² = 0.154796², which is the closed form the
+crossover algebra inverts. The difference is immaterial to every reading this
+table supports: the crossover ρ move by ≤ 0.001 and the ρ = 0 column by about
+1 %, both far inside the interval the argument turns on. §4 uses the measured
+factor, where it is the quantity under test rather than an algebraic convenience.
 
 **ρ is measured nowhere, and it decides the sign.** The σ_d that would reproduce
 the real sensor's post-reduction noise spans 0.017–0.043 px at ρ = 0 and
@@ -406,11 +415,17 @@ The third one's second assertion — that the envs which did **not** reset still
 read the frame they wrote a step ago — is unchanged and is the one that catches
 the mistake this fix could have made. Its first assertion moved.
 
-`test_delay_buffer_device_batch_size` and `test_delay_buffer_preserves_signal_content`
-pass unaltered, as do both zero-latency passthroughs and every test in
-`test_observation_latency.py`; two comments there described the warm-up as
-zero-filled and are corrected. Nothing else in the 222-test contract gate moved,
-which is the evidence for the no-golden-movement claim above.
+`test_delay_buffer_device_batch_size` gains two assertions rather than changing
+one: it described a warm-up its assertions never reached, and now checks the
+first two emissions as well as the third. That makes it discriminating too, so
+the module fails **12** against the previous behaviour — the six above plus this
+one's six parameter combinations — where it failed 6 before the addition.
+
+`test_delay_buffer_preserves_signal_content` passes unaltered, as do both
+zero-latency passthroughs and every test in `test_observation_latency.py`; two
+comments there described the warm-up as zero-filled and are corrected. Nothing
+else in the 222-test contract gate moved, which is the evidence for the
+no-golden-movement claim above.
 
 ## 8. Pre-registered acceptance for a future noise-parity change
 
@@ -460,6 +475,7 @@ reported and the survivorship rule stated.
 | contract gate — `test_sim/noise_models`, `test_sim/env/test_composition_contract.py`, `test_sim/env/test_obs_contract.py`, `tests/contracts/test_depth_nearfield_parity.py` | **222 passed**, 0 failed, 0 skipped, 176.4 s | boot watchdog, attempt 1, 185 s wall |
 | temporal texture — `tests/navigation/test_temporal_texture_dr.py` | **46 passed** (40 before), 5.0 s | pure, no Kit |
 | mutation check — the new warm-up class against `9c4d674` | **4 failed, 2 passed** | the two passes are the non-regression guards |
+| mutation check — `test_sim/noise_models/test_delay_buffer.py` against `9c4d674` | **12 failed, 4 passed** | the six rewritten assertions plus the six parameter combinations of the case that gained them (§7.1) |
 
 Commands, from the repository root:
 
@@ -523,10 +539,19 @@ Recommended and not filed, for whoever owns the next step:
   not held on this, and nothing here predicts it will pass a mission gate.
 - **Whether the real D555, once decoded, puts v2 near its rig class.** There are
   no real-camera inference runs to ask.
-- **Whether the mission-gate failure has a depth-distribution cause at all.**
-  That run had no real sensor and no real actuator in the loop, and its own
-  record attributes the command-tracking deficit to modelled actuation
-  parameters.
+- **Whether the mission-gate failure has a depth-*distribution* cause.** Depth
+  **content** is already established as causal, and this record does not disturb
+  that: in
+  [`goal-a-attribution-2026-08-22`](../goal-a-attribution-2026-08-22/README.md)
+  depth is the only field whose substitution moves the command — every non-depth
+  field swapped to its clean-sim value moves it by at most 0.570°, while depth
+  moves it 95.8° and in both directions (node depth spliced into a
+  noise-bearing sim row gives −82.58°, and noise-bearing depth spliced into the
+  node row gives +13.51°, against the node's own −82.30°). What is open is
+  whether the noise **distribution** is the part that matters, and that question
+  is weakened from the other side too: the run had no real sensor and no real
+  actuator in the loop, and its own record attributes the command-tracking
+  deficit to modelled actuation parameters.
 - **What the RealSense wrapper defaulted its filters to** during the 2026-08-04
   capture. The package is not installed on this host and the params file that
   claimed to set them was not loaded.
@@ -541,7 +566,7 @@ repository:
 |---|---|
 | repository | `https://github.com/zachoines/Sim2RealLab-Artifacts` (private) |
 | deposit directory | `noise-texture-parity-2026-09-17/record-files/` |
-| deposit commit | `fdf0f8afc1d36669dd79c7ee512164a15fc8644d` |
+| deposit commit | `726b2c44fba92dd2c4c2d39a3280b2c59d01754a` |
 
 The deposit mirrors this record's own directory, so the paths this README names
 resolve unchanged after restoring it:
@@ -567,7 +592,7 @@ sha256 of every file in the deposit:
 9a5190d894511e47e0ffbf7919b9d9bb80cac97616cf699de0375b62b06627d0  gates/gate_temporal.xml
 638403561ffdecda8110a1321057d80bbf2e92f2106e6950e934ba731fd6fcce  gates/mutation_premutation.log
 65a26a98c54365ac7e3e2f2c02da81fa33860de5ac766a103b616106edbc7efd  gates/watchdog_contracts.log
-f96aef3dc8b4e5a6b438cd65a4effea4d724d81089cc3010a7d6408e7d995ce1  probes/candidate_sweep.py
+11e7888982b3f6b0b29f8233bbb51dc8d38099921e642e88364bbe254ab9278d  probes/candidate_sweep.py
 5a1fe593b2b4488df7b650ba75b795176e056955cd5bc5303f9c65daa2dd4b57  probes/capture_provenance.py
 050042b674fd41bcbb00d2478a7ccb1d835d154fc998da51cdb6aa39054286b3  probes/delay_warmup.py
 8adc3dc911d2213b95be919ae1eff25f4026d798fc939087963d8b8ec1c669ba  probes/reduction_attenuation.py

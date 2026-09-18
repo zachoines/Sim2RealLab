@@ -1,0 +1,90 @@
+# Load the D555 params file, or delete it and pin the filters in the launch
+
+**Type:** task (deploy runtime — config hygiene)
+**Owner:** Jetson
+**Priority:** P2 — nothing is broken today, because the wrapper's defaults
+happen to agree with the file. It is P2 rather than P3 because the file is
+already being cited as evidence in merged measurement records, and because a
+`realsense2_camera` version bump could change the defaults silently.
+**Estimate:** S (one launch argument list, or one deletion plus the same list)
+**Branch:** `task/d555-params-file-inert`
+
+## Story
+
+As the **deploy depth path**, I need **the camera's post-processing filter state
+fixed by something that is actually read**, so that **"no smoothing reaches the
+policy" is a property of the configuration rather than a property of whichever
+wrapper version is installed.**
+
+## Context bundle
+
+- [context/repo-topology.md](../../context/repo-topology.md)
+- [context/conventions.md](../../context/conventions.md)
+- [context/branching-and-prs.md](../../context/branching-and-prs.md)
+
+## Context
+
+`source/strafer_ros/strafer_perception/config/d555_params.yaml` sets
+`decimation_filter.enable`, `spatial_filter.enable`, `temporal_filter.enable`
+and `hole_filling_filter.enable` to `false`, and its header offers itself as a
+`--params-file`. **No launch file, compose service, Dockerfile or entrypoint
+loads it.** `perception.launch.py` includes `rs_launch.py` with an explicit
+`launch_arguments` dict carrying no `--params-file`, and pins only the depth and
+colour profiles plus `global_time_enabled`. A repo-wide grep finds the filename
+only in its own header comment. It is installed to `share/` by `setup.py`, so it
+looks live.
+
+The filters are therefore off by wrapper default, which is the same outcome by a
+different mechanism — and the difference matters twice.
+
+First, the deploy depth path's one guarantee is that it applies no spatial
+smoothing: the only spatial operator between the sensor and the policy is the
+8×8 block median in `obs_pipeline.downsample_depth`
+([`noise-texture-parity-2026-09-17`](../../../measurements/noise-texture-parity-2026-09-17/README.md) §2).
+If a wrapper bump turned the spatial filter on, that guarantee would break with
+nothing in the repo changing and no test failing.
+
+Second, the file is already load-bearing in prose.
+[`d555-invalid-pixel-statistics.md`](../../completed/d555-invalid-pixel-statistics.md)
+justifies its per-pixel σ table as the sensor's **raw** structure on the grounds
+that "post-processing filters are disabled in `d555_params.yaml`". That
+justification is void as written, so the filter state during that capture is
+unverified — and a temporal filter, had one been on, would have biased those σ
+figures **down**. The record wants the correction either way; this brief is the
+fix that stops it recurring.
+
+The same file also sets `depth_module.enable_auto_exposure: true`, equally
+inert. AE is on by driver default, so the behaviour is unchanged, but it is
+another setting the repo believes it controls and does not.
+
+## Acceptance criteria
+
+- [ ] The four post-processing filters and `depth_module.enable_auto_exposure`
+      are set by something that is read at launch: either `d555_params.yaml`
+      passed as `--params-file`, or the file deleted and the same values passed
+      as explicit `launch_arguments` in `perception.launch.py`. Pick one; do not
+      leave both.
+- [ ] If the file is kept, its header stops describing a usage that is not the
+      usage. If it is deleted, `setup.py`'s `data_files` entry goes with it.
+- [ ] A test asserts the filter state the launch requests, in the same idiom as
+      the existing inference-config assertions
+      (`test_inference_config.py` pins the depth topic this way). A launch-arg
+      assertion is enough; no camera needed.
+- [ ] Verified against the running node on hardware: the requested values are
+      the values the node reports.
+- [ ] If your work invalidates a fact in any referenced context module, package
+      README, top-level `Readme.md`, or guide under `docs/`, update those in the
+      same commit. See
+      [`conventions.md`'s user-facing documentation maintenance section](../../context/conventions.md#user-facing-documentation-maintenance)
+      for the surface list and trigger heuristics.
+
+## Out of scope
+
+- **Deciding whether any filter should be on.** They should stay off — the
+  training distribution carries no spatial smoothing, and the deploy reduction is
+  the only spatial operator the policy's observation is built around. This brief
+  makes the existing choice explicit, not different.
+- **Correcting the 2026-08-04 record's prose.** Tracked separately; this brief
+  removes the cause, not the citation.
+- **The depth QoS setting**, which has its own by-default-not-by-contract
+  history.

@@ -47,12 +47,12 @@ def test_delay_buffer_exact_delay(delay_steps):
         inputs.append(data.clone())
         outputs.append(buffer(data).clone())
 
-    # First delay_steps outputs should be zeros (buffer was empty)
+    # Until the ring has been written the buffer stands in the first frame.
     for i in range(delay_steps):
         torch.testing.assert_close(
             outputs[i],
-            torch.zeros_like(outputs[i]),
-            msg=f"Output {i} should be zeros (buffer warming up)",
+            inputs[0],
+            msg=f"Output {i} should be the first frame (buffer warming up)",
         )
 
     # After warming up, output should be exactly delay_steps behind input
@@ -66,26 +66,38 @@ def test_delay_buffer_exact_delay(delay_steps):
 
 
 def test_delay_buffer_reset_clears_history():
-    """Verify reset() clears buffer history."""
+    """No pre-reset frame is readable after a reset.
+
+    Asserted against the history rather than against zero: zero is also what an
+    unwritten buffer returns, so it cannot separate a cleared history from an
+    empty one.
+    """
     delay_steps = 2
     buffer = DelayBuffer(num_envs=NUM_ENVS, obs_size=3, delay_steps=delay_steps, device=DEVICE)
 
-    # Fill buffer with non-zero data
-    for _ in range(delay_steps + 1):
-        data = torch.randn(NUM_ENVS, 3, device=DEVICE)
+    # Fill the buffer with history that is identifiable and cannot recur.
+    history = []
+    for step in range(delay_steps + 1):
+        data = torch.full((NUM_ENVS, 3), -100.0 - step, device=DEVICE)
+        history.append(data.clone())
         buffer(data)
 
-    # Reset buffer
     buffer.reset()
 
-    # After reset, outputs should be zeros again
+    # After the reset the buffer stands in the incoming frame, and no step of
+    # the pre-reset history can be read at any point in the new episode.
     test_data = torch.ones(NUM_ENVS, 3, device=DEVICE)
-    output = buffer(test_data)
-    torch.testing.assert_close(
-        output,
-        torch.zeros_like(output),
-        msg="After reset, delayed output should be zeros",
-    )
+    for step in range(delay_steps + 1):
+        output = buffer(test_data)
+        torch.testing.assert_close(
+            output,
+            test_data,
+            msg=f"Step {step} after reset should read the post-reset frame",
+        )
+        for age, stale in enumerate(history):
+            assert not torch.allclose(output, stale), (
+                f"Step {step} after reset read pre-reset history (age {age})"
+            )
 
 
 def test_delay_buffer_per_env_reset():
@@ -113,11 +125,14 @@ def test_delay_buffer_per_env_reset():
     third_data = fill_data + 200
     output2 = buffer(third_data)
 
-    # Reset envs should get zeros, others should get second_data
+    # The reset envs read their own new frame; the rest are untouched and still
+    # read the frame they wrote a step ago. Standing in the incoming frame must
+    # not reach across into the envs that kept running, or their latency
+    # silently shortens.
     torch.testing.assert_close(
         output2[:10],
-        torch.zeros(10, obs_size, device=DEVICE),
-        msg="Reset env outputs should be zeros",
+        third_data[:10],
+        msg="Reset env outputs should be their own post-reset frame",
     )
     torch.testing.assert_close(
         output2[10:],
@@ -146,9 +161,11 @@ def test_delay_buffer_device_batch_size(num_envs, device):
     out2 = buffer(data2)
     out3 = buffer(data3)
 
-    # First 2 outputs should be zeros, third should be data1
+    # The warm-up stands in data1, and the third output is data1 by delay.
     assert out1.device.type == device.split(":")[0]
     assert out1.shape == (num_envs, obs_size)
+    torch.testing.assert_close(out1, data1)
+    torch.testing.assert_close(out2, data1)
     torch.testing.assert_close(out3, data1)
 
 

@@ -45,6 +45,27 @@ Nothing currently bridges the gap. `depth_downsampler` does convert
 consumes 640×360 and runs its own `downsample_depth` (which asserts the
 full-resolution shape).
 
+#### What that blocks beyond deployment
+
+The consequence reaches further than "the policy cannot run on hardware", and
+it was not written down here until
+[`noise-texture-parity-2026-09-17`](../../../measurements/noise-texture-parity-2026-09-17/README.md)
+looked for real-sensor depth and found none. **Every depth inference on record
+in either repository was made on Isaac-bridge depth** — 4 387 (2026-08-02),
+24 892 (the [2026-08-17 mission gate](../../../measurements/goal-a-rig-gate-2026-08-17/README.md)),
+1 799 (the [2026-08-22 capture](../../../measurements/goal-a-attribution-2026-08-22/README.md)).
+There are no real-camera runs, and the encoding gate means there can be none
+until this lands.
+
+So the depth-subgoal line has no train-versus-real depth comparison available to
+it at all. Anything phrased as "the robot's depth" in that line means the node's
+pipeline run on renderer depth, which is a much weaker statement than it reads
+as — the 2026-08-22 capture is arithmetically excluded from being 16UC1-derived
+(0.19 % of its interior values land on the 0.5 mm grid a median of 64 integer
+millimetres must produce, i.e. the continuous-float chance rate). Closing this
+item is what makes the comparison possible, so its priority is not only the
+deployment blocker.
+
 ### 2. A decode alone would invert the invalid convention
 
 This is the part that must not be missed, because it fails **quietly**.

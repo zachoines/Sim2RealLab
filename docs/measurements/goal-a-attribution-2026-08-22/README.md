@@ -10,7 +10,7 @@ from it. The divergence between those two is a **convention mismatch in the
 near field**, and it is measurable in the source before any policy is involved.
 
 Nothing here is a fix. The defect and the fix directions are carried by
-[`depth-nearfield-convention-mismatch`](../../tasks/active/trained-policy/depth-nearfield-convention-mismatch.md).
+[`depth-nearfield-convention-mismatch`](../../tasks/completed/depth-nearfield-convention-mismatch.md).
 
 Setup, digests, interpreter and the machine-local inputs: [`provenance.md`](provenance.md).
 

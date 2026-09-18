@@ -98,7 +98,7 @@ The defect stands exactly as measured above, but it did not produce the gate
 result: the hypothesis that a duty-cycled admission rule starved the policy of a
 fresh referent is **refuted**, not merely unsupported. The gate is attributed to
 a near-field depth convention mismatch —
-[`depth-nearfield-convention-mismatch`](../trained-policy/depth-nearfield-convention-mismatch.md),
+[`depth-nearfield-convention-mismatch`](../../completed/depth-nearfield-convention-mismatch.md),
 record [`goal-a-attribution-2026-08-22`](../../../measurements/goal-a-attribution-2026-08-22/README.md).
 The stale-subgoal counter reads 0 across all 1 799 ticks of the replayed mission,
 the off-goal command precedes any staleness (first inference, referent still

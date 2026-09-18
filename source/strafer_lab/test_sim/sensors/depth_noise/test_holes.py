@@ -10,9 +10,11 @@ Uses the dedicated test scene with a wall at known distance (2.0m) to provide
 stable pixels at a known depth, enabling precise hole detection testing.
 
 HOLE NOISE MODEL:
-Each pixel independently becomes a "hole" (set to max_range) with probability p
-at each timestep. This models real depth camera behavior where stereo matching
-or ToF measurement fails for certain pixels.
+Each pixel independently becomes a "hole" with probability p at each timestep.
+This models real depth camera behavior where stereo matching or ToF measurement
+fails for certain pixels. These tests pin the fill to max_range so a hole is
+identifiable by its value against a wall at a known distance; the rate and the
+jump variance are what they measure, not the value written.
 
 ANALYTICAL DERIVATION:
 With only holes enabled, at each timestep a pixel is either:

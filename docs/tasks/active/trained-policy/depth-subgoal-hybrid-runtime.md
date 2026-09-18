@@ -43,7 +43,7 @@
 > **Attributed 2026-08-22 — the runtime is exonerated and the behavioural half
 > is blocked on a training-side fix.** Record:
 > [`measurements/goal-a-attribution-2026-08-22`](../../../measurements/goal-a-attribution-2026-08-22/README.md);
-> defect: [`depth-nearfield-convention-mismatch`](depth-nearfield-convention-mismatch.md).
+> defect: [`depth-nearfield-convention-mismatch`](../../completed/depth-nearfield-convention-mismatch.md).
 > The candidates left open above are **refuted**, not merely unsupported: the
 > replay reproduces the robot's own commands offline (not the TensorRT path), the
 > off-goal command is in the first inference (not the recurrent horizon), and the

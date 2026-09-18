@@ -20,6 +20,7 @@ if TYPE_CHECKING:
     from isaaclab.sensors import TiledCamera, Camera, Imu
 import warp as wp
 
+from strafer_shared.constants import DEPTH_MAX, DEPTH_MIN, DEPTH_NEARFIELD_FILL
 from strafer_shared.mecanum_kinematics import INVERSE_KINEMATIC_MATRIX
 
 from .subgoal_drift import drift_referent
@@ -613,9 +614,9 @@ def last_action(env: ManagerBasedEnv) -> torch.Tensor:
 def depth_image(
     env: ManagerBasedEnv,
     sensor_cfg: SceneEntityCfg,
-    max_depth: float = 6.0,
-    nearfield_clip: float = 0.4,
-    nearfield_fill: float = 0.2,
+    max_depth: float = DEPTH_MAX,
+    nearfield_clip: float = DEPTH_MIN,
+    nearfield_fill: float = DEPTH_NEARFIELD_FILL,
 ) -> torch.Tensor:
     """Get flattened depth image from D555 camera in RAW meters.
 

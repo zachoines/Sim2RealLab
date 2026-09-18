@@ -1,5 +1,8 @@
 # Reconcile the near-field depth convention training writes with the one deployment writes
 
+**Status:** Shipped 2026-09-13 in `fe510df` (DGX).
+**PR:** https://github.com/zachoines/Sim2RealLab/pull/219
+
 **Type:** bug (train/deploy parity, depth observation)
 **Owner:** DGX (`strafer_lab` depth pipeline; the training-side decision is the
 whole of it)
@@ -22,10 +25,10 @@ the same thing**, so that **a pixel the camera cannot resolve does not read
 
 ## Context bundle
 
-- [context/repo-topology.md](../../context/repo-topology.md)
-- [context/conventions.md](../../context/conventions.md)
-- [context/branching-and-prs.md](../../context/branching-and-prs.md)
-- [context/env-composition-contract.md](../../context/env-composition-contract.md)
+- [context/repo-topology.md](../context/repo-topology.md)
+- [context/conventions.md](../context/conventions.md)
+- [context/branching-and-prs.md](../context/branching-and-prs.md)
+- [context/env-composition-contract.md](../context/env-composition-contract.md)
 
 ## Context — the defect
 
@@ -34,21 +37,21 @@ Two sources write opposite values into the same pixels.
 **Training.** The observation term fills the near field first: every pixel
 closer than `nearfield_clip` = 0.4 m becomes `nearfield_fill` = 0.2 m, then the
 image is clamped to [0, 6.0]
-([`observations.py:613-678`](../../../../source/strafer_lab/strafer_lab/tasks/navigation/mdp/observations.py#L613)).
+([`observations.py:613-678`](../../../source/strafer_lab/strafer_lab/tasks/navigation/mdp/observations.py#L613)).
 The realism noise model then runs on that output and slams everything below
 `min_range` to `max_range`
-([`noise_models.py:561-562`](../../../../source/strafer_lab/strafer_lab/tasks/navigation/mdp/noise_models.py#L561)),
+([`noise_models.py:561-562`](../../../source/strafer_lab/strafer_lab/tasks/navigation/mdp/noise_models.py#L561)),
 with holes written the same way
-([`:555-557`](../../../../source/strafer_lab/strafer_lab/tasks/navigation/mdp/noise_models.py#L555))
+([`:555-557`](../../../source/strafer_lab/strafer_lab/tasks/navigation/mdp/noise_models.py#L555))
 and `min_range` = 0.2 m / `max_range` = 6.0 m as defaults no config overrides
-([`:644-645`](../../../../source/strafer_lab/strafer_lab/tasks/navigation/mdp/noise_models.py#L644),
-[`sim_real_cfg.py:258-262`](../../../../source/strafer_lab/strafer_lab/tasks/navigation/sim_real_cfg.py#L258)).
+([`:644-645`](../../../source/strafer_lab/strafer_lab/tasks/navigation/mdp/noise_models.py#L644),
+[`sim_real_cfg.py:258-262`](../../../source/strafer_lab/strafer_lab/tasks/navigation/sim_real_cfg.py#L258)).
 
 **Deployment.** `downsample_depth` rescues non-finite values to 6.0, takes the
 8×8 block median, applies the identical nearfield rule — `DEPTH_MIN` 0.4 →
 `DEPTH_NEARFIELD_FILL` 0.2 — and clamps
-([`obs_pipeline.py:44-85`](../../../../source/strafer_ros/strafer_inference/strafer_inference/obs_pipeline.py#L44),
-[`constants.py:99-134`](../../../../source/strafer_shared/strafer_shared/constants.py#L99)).
+([`obs_pipeline.py:44-85`](../../../source/strafer_ros/strafer_inference/strafer_inference/obs_pipeline.py#L44),
+[`constants.py:99-134`](../../../source/strafer_shared/strafer_shared/constants.py#L99)).
 There is no `too_close` stage. The node therefore agrees exactly with the
 **clean** training term — both write the same float32 `0.03333334` — and
 disagrees with what the training policy actually saw.
@@ -72,7 +75,7 @@ inverts is the near-obstacle signal the observation term deliberately created.
 
 v2 (`model_998`) learned those statistics as load-bearing; v1 (`model_500`) did
 not. Full evidence chain, with the analysis scripts and their outputs:
-[`measurements/goal-a-attribution-2026-08-22`](../../../measurements/goal-a-attribution-2026-08-22/README.md).
+[`measurements/goal-a-attribution-2026-08-22`](../../measurements/goal-a-attribution-2026-08-22/README.md).
 
 The offline replay reproduces the robot's own commands from its own captured
 observations to mean absolute differences of 3.6e-4 / 2.2e-4 / 4.7e-4 across
@@ -98,11 +101,49 @@ claim; a specificity probe that would have isolated the slammed pixel class from
 "near-field depth content" in general did **not** separate, so the narrower
 mechanism claim is open (below).
 
-## Fix directions — for adjudication, none implemented here
+## The decision — direction B, refined
 
-Pick before spending a retrain. All three make training and deployment agree;
-they disagree about which convention is the right one and about where parity is
-enforced.
+**Decided: the noise stage emulates what the deploy pipeline OUTPUTS for a
+failed pixel, not what the sensor emits.** `too_close` pixels take the near-fill
+value, which is `min_range` and is the same number the observation term has
+already written at every pixel it filled; holes take the median of their valid
+3×3 neighbours, falling back to the near fill where the neighbourhood is invalid
+too. Both are selectable — `too_close_fill`, `hole_fill` — with the new values as
+defaults, so the pre-fix statistics stay reproducible for the A/B. `min_range`
+stays 0.2.
+
+The reasoning, against the three directions below. (B) was taken because the
+collision disappears *by construction* rather than by retuning: writing the fill
+value at a threshold placed on the fill value makes the comparison idempotent, so
+no pixel is left below `min_range` and nothing can be reclassified. The refinement
+— holes to a neighbourhood median rather than to a constant — is the third
+sub-question below answered in the affirmative: the node's rescue is a reduction,
+not a constant, and matching the reduction is closer to parity than matching
+either literal. (A) remains the stronger answer to future drift and is explicitly
+not taken; it also covers the 8×8 block median, which training still does not
+perform, so that half of the divergence is open. (C) was rejected because it
+trains the policy to ignore a signal the near field is supposed to carry.
+
+A latent defect surfaced during implementation and is fixed with it:
+`DepthNoiseModelCfg.height`/`width` were 60×80 against a 45×80 frame. Nothing
+read them, so the error was inert; a neighbourhood median has to unflatten, so it
+could not stay inert. They now come from `strafer_shared.constants`, and a shape
+mismatch raises.
+
+**What the fix does not do.** Measured after the fact: feeding the reconciled
+depth to v2 does not make it emit the rig class — it still commands toward its
+referent. The stereo Gaussian alone, 0.029 m with no class structure, already
+carries the command 52° off the clean answer. So the artifact's sensitivity is to
+the presence of realism noise, not to the convention, which is open item 1 below
+measured directly. The divergence this brief names is removed; the retrain is
+what has to produce an artifact that does not key on noise signature.
+
+Evidence: [`measurements/depth-convention-fix-2026-09-13`](../../measurements/depth-convention-fix-2026-09-13/README.md).
+
+## Fix directions — as put for the decision
+
+All three make training and deployment agree; they disagree about which
+convention is the right one and about where parity is enforced.
 
 **(A) Route the training depth through deploy-equivalent post-processing.**
 Pair the term with the deploy reduction the way `enrich_depth` equivalence is
@@ -139,38 +180,65 @@ Sub-questions the choice has to answer either way:
   noise model writes 6.0 per pixel with no such reduction. Matching the node's
   median-rescue is closer to parity than matching either constant.
 - **Which pixel classes exist.** Deployment currently cannot distinguish
-  *invalid* from *too close*; [`d555-depth-decode-validity`](d555-depth-decode-validity.md)
+  *invalid* from *too close*; [`d555-depth-decode-validity`](../active/trained-policy/d555-depth-decode-validity.md)
   is the brief that gives it an explicit validity mask, and it asks for invalid →
   6.0 m while genuine sub-0.4 m returns keep the fill. Whatever this brief lands
   must agree with that split, or the two fixes will fight.
 
 ## Acceptance criteria
 
-- [ ] One convention, stated once, for what the near field means, and both the
+- [x] One convention, stated once, for what the near field means, and both the
       training path and `obs_pipeline.downsample_depth` produce it. The decision
       and its rationale are recorded in the brief before the code lands.
-- [ ] The threshold collision cannot recur: no comparison in the depth pipeline
-      has its threshold at a value the pipeline itself writes, or if one does,
-      a test asserts the intended split and fails when the two coincide.
-- [ ] A unit test drives the training noise model with an image the observation
+- [x] The threshold collision cannot recur — by the second route, not the
+      first. The threshold is *still* the value the pipeline writes, deliberately:
+      `test_the_threshold_sits_on_the_value_the_pipeline_writes` asserts the two
+      are one number, and `test_nearfield_fill_survives_the_model` asserts the
+      class survives whole, failing on the pre-fix tree at 0.5003. The coincidence
+      is made harmless rather than avoided, which is why the pinning test asserts
+      survival rather than a split.
+- [x] A unit test drives the training noise model with an image the observation
       term has already filled and asserts the surviving near-field share matches
-      the chosen convention — the current tree would read ~50% crossing, so the
-      test must fail before the fix.
-- [ ] A parity test feeds one image through both paths and asserts they agree on
-      the near-field class, so the two conventions cannot drift apart silently
-      again.
-- [ ] The affected share is measured on the training distribution, not on one
-      pose: report the fraction of pixels the rule rewrites per frame over a
-      representative rollout of the enriched robust env, before and after.
-- [ ] Retrain scope stated explicitly: which artifacts are invalidated, and
-      whether v1 is affected (it trained under the same rule, at a smaller share).
-- [ ] If your work invalidates a fact in any referenced context module, package
-      README, top-level `Readme.md`, or guide under `docs/`, update those in the
-      same commit. See
-      [`conventions.md`'s user-facing documentation maintenance section](../../context/conventions.md#user-facing-documentation-maintenance)
+      the chosen convention. Verified failing on the pre-fix noise model at
+      **0.5003** of the frame, against the predicted ~50%.
+- [x] A parity test feeds one image through both paths and asserts they agree on
+      the near-field class. `tests/contracts/test_depth_nearfield_parity.py`; it
+      reaches the rclpy-free `obs_pipeline` by path so it runs on the training
+      host rather than skipping there.
+- [x] The affected share is measured on the training distribution, before and
+      after, on the enriched robust env and its realistic sibling — see the
+      record's fingerprint section. Reported as the far-clamp share of the frame
+      rather than as a rollout return, which is the quantity the rule moves.
+- [x] Two clauses that were pre-registered for the implementing change went
+      unmet, and the record states both as measured deviations rather than as
+      passes. A band of p95 ≤ 0.01 scaled for the node against noise-bearing
+      depth is **unreachable by a correct change**: the node already differs from
+      the *clean* sim referent by p95 0.02004 on reconstruction geometry that no
+      convention touches, and the bisection that defined the band puts
+      p95 > 0.01 on its *material* side, so the clause asks for the non-material
+      side of a threshold clean sim already exceeds. The change takes that pair
+      from 0.96667 to 0.02095, which is convergence onto the floor. And the
+      deployed artifact does **not** return to the rig class on reconciled depth;
+      open item 1 below is why.
+- [x] Retrain scope: **every depth artifact is invalidated**, v1 and v2 both.
+      Both trained under the retired convention — v1 at a smaller affected share
+      because its pre-enrichment env put less surface inside 0.4 m, but under the
+      same rule, so neither is a valid artifact for the reconciled observation.
+      The nocam family is untouched, having no depth term. The magnitude under
+      v1's own env is still unmeasured and unmeasurable from the artifacts; it
+      needs a Kit run on the pre-enrichment tree, which the retired pin no longer
+      makes convenient.
+- [x] Source docstrings and comments asserting the retired convention are
+      corrected in the same commit — `sim_real_cfg.py`'s "closer = invalid" and
+      hole docstring, the noise model's class docstring and `min_range` comment,
+      and the Kit hole suite's derivation block. The keyword sweep the conventions
+      section prescribes comes back empty on every context module, package README,
+      the top-level `Readme.md` and every non-exempt guide under `docs/`. See
+      [`conventions.md`'s user-facing documentation maintenance section](../context/conventions.md#user-facing-documentation-maintenance)
       for the surface list and trigger heuristics.
-- [ ] No regression in the workflows the touched code supports — the depth
-      golden set and the navigation CPU suite are the relevant smoke tests.
+- [x] No regression: the composition contracts re-freeze with the movement
+      attributed to the three changed keys and both layout goldens held, and the
+      full `strafer_lab` gate passes. See the record's gate section.
 
 ## Training provenance — what armed it between v1 and v2
 
@@ -216,7 +284,7 @@ pre-enrichment tree. Neither run saved a config: `logs/rsl_rl/*/git/` is empty
 for all three run directories, the checkpoints carry only `iter` and state
 dicts, and the TensorBoard files carry no hyperparameter records. The per-run
 stdout logs are the only surviving statement of what was run, and they are
-machine-local. [`training-run-provenance-manifest`](training-run-provenance-manifest.md)
+machine-local. [`training-run-provenance-manifest`](../active/trained-policy/training-run-provenance-manifest.md)
 is the brief that would have made this recoverable instead of reconstructed;
 this is its second collection of evidence.
 
@@ -249,10 +317,35 @@ this is its second collection of evidence.
    one whose body-fixed camera faced a materially different part of the room,
    which fits a content-dependent affected share. No depth was captured for it,
    and goal bearing alone does not separate the set (M2 failed at −107.2°). Not
-   evidence for the fix; a prediction the fix should retire.
+   evidence for the change; a prediction it should retire.
 4. **The last-half-metre parking behaviour is a separate thread.** Both
    artifacts fail to close the final ~0.5 m, v1 included, and that survives this
    fix. It is not in scope here and needs its own brief when someone picks it up.
+5. **This change and [`d555-depth-decode-validity`](../active/trained-policy/d555-depth-decode-validity.md)
+   now disagree about what "invalid" means, and it has to be settled there.**
+   Training writes the *neighbourhood median* at an invalid pixel, so an isolated
+   stereo failure reads as the surface around it. That brief asks for invalid →
+   6.0 m while genuine sub-0.4 m returns keep the fill. Those are different
+   answers to the same pixel class. The deployed node's actual output is what
+   defines truth for the pair, not either brief's preference: today
+   `downsample_depth` rescues non-finite values to 6.0 m and then lets the 8×8
+   block median outvote them, so an isolated failure already reads as the
+   surface and only a saturated block reads far. Whatever that brief lands has to
+   name both cases, and it should decide the camera-failure row at the same time —
+   a failed frame still writes `max_range` at every pixel on the training side,
+   which is the last `max_range`-means-invalid write in the noise model, and the
+   node's counterpart is a zero Twist from the watchdog rather than a cleared
+   frame. Settle it there before either brief ships further.
+6. **The same-pose probe's seed determinism does not survive a pinned-pair
+   change, and that needs its own brief.** The probe anchors on whatever pose the
+   environment spawns the robot at and treats the capture's map coordinates as an
+   offset from it. Room generation at seed 42 moved across the Isaac Lab pair
+   flip, so the robot landed 2 m away facing open space and the clean near-field
+   share of its frame was 0.0000 where the original run's was 0.3786 — an empty
+   denominator for the metric the probe exists to produce. The probe itself is
+   fine; the assumption that a seed reproduces a room is not. A pose-stable sim
+   probe needs a captured scene USD rather than seed determinism, and that is the
+   brief to file.
 
 ## Optional validation, designed and deliberately not run
 
@@ -271,14 +364,15 @@ that lands the real fix.
 
 ## Out of scope
 
-- Any change to `noise_models.py`, `observations.py` or `obs_pipeline.py` in
-  this brief's own PR — the fix direction is unadjudicated.
+- `observations.py` and `obs_pipeline.py`. The fix lands entirely in
+  `noise_models.py`: the observation term and the deploy pipeline already agreed
+  with each other, and the noise stage is the only thing that disagreed.
 - The retrain itself, and the choice of which checkpoints it starts from.
 - The 16UC1 decode and validity mask
-  ([`d555-depth-decode-validity`](d555-depth-decode-validity.md)) — adjacent and
+  ([`d555-depth-decode-validity`](../active/trained-policy/d555-depth-decode-validity.md)) — adjacent and
   must agree with whatever lands here, but separately owned.
 - The subgoal-generator clock and cadence-report defects from the same gate
-  ([`subgoal-generator-sim-clock-freshness`](../reliability/subgoal-generator-sim-clock-freshness.md),
-  [`cadence-report-window-never-resets`](../reliability/cadence-report-window-never-resets.md)),
+  ([`subgoal-generator-sim-clock-freshness`](../active/reliability/subgoal-generator-sim-clock-freshness.md),
+  [`cadence-report-window-never-resets`](../active/reliability/cadence-report-window-never-resets.md)),
   both measured non-causal for this failure and both still worth fixing.
 - The last-half-metre parking behaviour.

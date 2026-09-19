@@ -289,3 +289,39 @@ same session. The signed left-strafe bias is policy-owned.
   minimising it, but at 64× the policy-camera render cost against an env-count
   ceiling far below what training uses, to remove a term already an order below
   the trained noise envelope. Revisit trigger recorded on the bench brief.
+
+---
+
+## Amendment, 2026-09-18 — the budget half of the rejection is re-measured
+
+The rejection above rests on "64× the policy-camera render cost against an
+env-count ceiling far below what training uses". Both halves were measured on
+2026-09-18, on the canonical Isaac Sim 6.0.1.0 / Isaac Lab v3.0.0-beta2.patch1
+pair the repository moved to after this brief shipped, at v2's own env count of
+96 and against the shipped 80×45.
+
+| | shipped 80×45 | 640×360 plus the block median in the term |
+|---|---:|---:|
+| iteration time, steady state | 90.04 s | 103.00 s |
+| wall clock for 1 000 iterations | 25.0 h | 28.6 h |
+| peak process memory | 46 748 MiB | 54 993 MiB |
+| largest env count completing one iteration | 192 | 192 |
+
+**The end-to-end cost is 1.14×, not 64×**, and the env-count ceiling is the same
+for both arms. The pixel count is indeed 64× and the collection half of an
+iteration does grow, by 1.39×; it is simply not what an iteration is made of.
+The PPO update dominates and does not change, because the observation is still
+3 600 wide after the reduction. The ceiling is set by host memory that the
+camera resolution barely moves — both arms are killed at 384 environments.
+
+The rejection therefore does not survive on its stated grounds. The option is
+still not taken, for a different reason: rendering at native resolution and
+reducing in the term only helps if the noise injected before the reduction has
+the right spatial correlation, and the within-block correlation of real sensor
+depth is measured nowhere. Injecting i.i.d. noise at 640×360 and then medianing
+attenuates it 6.46×, which under-injects by that factor if the real field is
+correlated. That measurement is
+[`real-d555-depth-texture-capture`](../active/trained-policy/real-d555-depth-texture-capture.md).
+
+Numbers, arms and the scratch patch:
+[`depth-noise-coverage-2026-09-18`](../../measurements/depth-noise-coverage-2026-09-18/README.md) §8.

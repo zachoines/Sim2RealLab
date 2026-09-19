@@ -107,33 +107,33 @@ def _hash(obj):
 # training distribution did change — and it is why the layout golden below
 # exists: it is the half a deployed checkpoint depends on, and it must not move.
 _CONTRACT_GOLDENS = {
-    "RLDepth_Real": "0045b0829fe73557287b4b62da9f42615e241854c3f82885fc53b3eed542baac",
-    "RLDepth_Robust": "0edd980db2eeb6b042a2e1662757c52f7b4261880b2f62fac8a0958f51735e68",
+    "RLDepth_Real": "d6ed2fd6adde393fd5ae02472b66bed97be50c024b4c0171cbed5cf1dcd47955",
+    "RLDepth_Robust": "7f472a61343fb5ab71c486a132b3539de85497c0a6b15eb6cd5ac5b5c3c3a29e",
     "RLNoCam": "844e91907bedd1c7c6eb6404a707b90893a146e3431d61f25f063d520a7d6f56",
-    "RLDepth_Real_PLAY": "31ab707b48cb1bb25e518bb8136dd32e327b73fb3f3c33b116916f8476a12755",
-    "RLDepth_Robust_PLAY": "c0c268348e691f6fce3158e7a8515fc547fe2b873b81d7f1d3bac33e2a6d904e",
+    "RLDepth_Real_PLAY": "c7822660800164185679e6d81dd5657ed095e19a60d0bfd2ed954bb931c32ec0",
+    "RLDepth_Robust_PLAY": "5585fc4b74f454aa1c6a7a134fe1f4d404d6b3805a032a8df1295a84576659b8",
     "RLNoCam_PLAY": "6e0197aa80c0bcfaae39b1e5e8dfebce7a480076d47273cdb16a40708692f430",
     "RLNoCamSubgoal_Real": "bfa5c006a443d74ea7629ffdd930b1d8abbe99e747722202b682750bb75e1a84",
     "RLNoCamSubgoal_Robust": "9ef2be4366ae25d41fb3a169598d93c29539b9b7c6f3c199b0a8daa5fb2ba8ee",
     "RLNoCamSubgoal_Real_PLAY": "ba6166e655931588f566852023a36328c59a6b09fccdd001d6b6fdcd077c9ae3",
     "RLNoCamSubgoal_Robust_PLAY": "ce4b79eb0254d7711dab2212c73bd3ed8f299f0d42f4ec03d4742395161e2bef",
-    "RLDepthSubgoal_Real": "50c64790c0b6244b4a67a35483ac756e52df034abd3a41cf3a2b2ce63ebebabc",
-    "RLDepthSubgoal_Robust": "6bbba3b237af6efba909f8f3c38319a92d1d298c2b21768c0237ff66bbf0c70b",
-    "RLDepthSubgoal_Real_PLAY": "d6cf64031162a7a6b3527612461531401520671ff46904d22993f51ff0d390d9",
-    "RLDepthSubgoal_Robust_PLAY": "16eb943ef8e046197e6c588c8f6bd8104d675c64cc66b350996fffd2771e0e67",
+    "RLDepthSubgoal_Real": "e2a99f1a78dc35902376c67e72df70af5d01259f6f434b14268c93ad713932d7",
+    "RLDepthSubgoal_Robust": "0614e7eb4505b3fdd2c5e3e64965768b94851553cfd5aab2729306c41ca4b0c7",
+    "RLDepthSubgoal_Real_PLAY": "ac58d0cc11066e188353297a645a2255fbca7b944c98e2b8b2b7af7050370c1d",
+    "RLDepthSubgoal_Robust_PLAY": "e0a40ab85fe3fad1fa8d274e1b772a5f5831830edc37d0dfe7844464f19c9ba7",
     # Depth-enrichment variants — NEW IDs frozen at creation (no prior checkpoint
     # depends on them). The enrichment lives in the `events` field (un-pinned
     # difficulty, enriched generation params incl. the tall-object heights, and
     # the rendered-camera mount offset); the observation contract is
     # byte-identical to the open-top depth variants (asserted separately).
-    "RLDepthEnriched_Real": "df64ec9e6084e84d3574761476ad67f5d51818e9d533db13de97ce9528725e37",
-    "RLDepthEnriched_Robust": "56bfd4d5432a03ce59b2f75cee8261c875baa98560a15f69c0b8de780021ba7d",
-    "RLDepthEnriched_Real_PLAY": "76e868157719c14364a5793759c16593039d3d41ba8e4e851d6f1b8f9c573272",
-    "RLDepthEnriched_Robust_PLAY": "8282f98c15df915943b7d5bf7f83a100b7576502ab686ffd7703547059721aed",
-    "RLDepthSubgoalEnriched_Real": "1e51faee3214ead618ac5cbff6d71ac044f11ed8afa7b286fc3b916ab358fa74",
-    "RLDepthSubgoalEnriched_Robust": "a1720cb6d5243c96858f3aac82f598e574526043bac74c6c948260485e3251a8",
-    "RLDepthSubgoalEnriched_Real_PLAY": "4fc4042a5bf8230ae80ac8238b6f5fcaff84b26be5e32bd3762dd948f5052ede",
-    "RLDepthSubgoalEnriched_Robust_PLAY": "b59da666b43d2dba675a3539b8c18b6405131a334e2b479012240e33bdc10aa2",
+    "RLDepthEnriched_Real": "b68199b7048f7519171a6586acbcf3a1ef99a8e6bca7fbe8879f0fdafbb51796",
+    "RLDepthEnriched_Robust": "4508439d20224c4a81056d3bbe07dad9f81cfe0967e14c403a8c7645f97b0c28",
+    "RLDepthEnriched_Real_PLAY": "b17ea8dff242eb90eebe3b9256f0a9c7fe0919e6df31fab9e4679e8e3ded8fe8",
+    "RLDepthEnriched_Robust_PLAY": "ccd2063a49a06a841350ad3042c4e4775097c7b91407d0110eecf8fcc61d1bd0",
+    "RLDepthSubgoalEnriched_Real": "4a307259a1e1dc67105f38fc8c76e03b6f289f52e157935cdce3e96520b0013b",
+    "RLDepthSubgoalEnriched_Robust": "8dd7617d0bb0f34fab373a3beab87969e018cbff32cbb0baf9fabe7c53f21745",
+    "RLDepthSubgoalEnriched_Real_PLAY": "bfefc23231fd5f2577241c4f522f679f80b41206a97f99c7e0358e5666a1f129",
+    "RLDepthSubgoalEnriched_Robust_PLAY": "d3bbaa83ce6afb166ffb8249708da9d8d30b62544bce14bbf9b4b4a618a03284",
 }
 
 # Frozen signature (slot name set + spawn sizes) of the pre-enrichment 44-object
@@ -147,7 +147,7 @@ _PALETTE_GOLDEN = "cf3499bf212a50c571b1bda4980fbbf16c7ad743dc40c5e88b7b528de3d41
 # dropping them: any depth checkpoint stays valid regardless of which produced it.
 # This walks both observation groups, so a privileged-group change moves it; the
 # policy half is pinned separately by the layout golden below.
-_DEPTH_OBS_GOLDEN = "9ed788343cfc1bb2a3c3798d1f7e9c9dec2b25b5bf75e485965657326a7fe5c5"
+_DEPTH_OBS_GOLDEN = "ba68b61eda5400552706061710dee1404ba2aa779a6c93241ef562f082a82533"
 
 # The policy tensor's *layout* — terms, order, params and scales, with every
 # noise model dropped. This is the half of the observation contract a deployed

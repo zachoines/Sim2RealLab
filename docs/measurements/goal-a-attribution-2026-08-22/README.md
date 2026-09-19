@@ -566,3 +566,41 @@ host — it needs a Kit run on the pre-enrichment tree. So the direction of the
 change is argued from the enrichment parameters above, and its magnitude is not
 measured. `training-run-provenance-manifest` is the brief that would have made
 this recoverable rather than reconstructed.
+
+---
+
+## Amendment, 2026-09-18 — what the depth field was carrying
+
+The causal result stands exactly as recorded. Depth is the field that controls
+the command; every non-depth field moves it by at most 0.570° and depth alone
+moves it by 95.8°, in both directions. Nothing below is changed.
+
+What has moved is the reading of *why*. This record and the ones after it
+described the two depth arms as noise-bearing and clean, which framed the
+difference as the presence of the training noise term. The 2026-09-17 texture
+measurement narrows that
+([`noise-texture-parity-2026-09-17`](../noise-texture-parity-2026-09-17/README.md)
+§5): v2's off-goal command is its response to a field that is **far and
+per-pixel featureless**. A uniform 5.5 m wall with no noise on it scores 30 / 30
+in the same class. Per-pixel texture of any kind pulls the command back toward
+the referent; low-frequency structure pushes it past the class in the other
+direction. So the discriminating property is not that one arm carries noise but
+that the other arm's field has no per-pixel variation at the scale the encoder
+reads.
+
+Two things follow for anyone citing this record.
+
+- The rig gate's 0 of 6 is best read as **"no near obstacle detected"** — the
+  artifact's featureless-far-field response, emitted because the deploy path's
+  8×8 block median delivers a field with next to no per-pixel texture, not
+  because a noise amplitude was mismatched.
+- The depth the "node" arm carries is **Isaac Sim bridge depth** run through the
+  node's pipeline, not D555 depth; the real driver publishes `16UC1` and the
+  node drops every such frame. The bisection is therefore between two sim
+  fields that differ in spatial structure, which is what makes the featureless
+  reading available at all. See the 2026-09-17 record §1.
+
+No trained artifact is an acceptance gate for a training distribution, so the
+"v2 lands in the rig class" criterion that later work built on this result is
+retired; the coverage question it was standing in for is owned by
+[`depth-noise-coverage-band`](../../tasks/completed/trained-policy/depth-noise-coverage-band.md).

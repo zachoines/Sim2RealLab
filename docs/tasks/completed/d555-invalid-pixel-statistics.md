@@ -383,3 +383,76 @@ code, not from where the camera pointed.
 invalid-mask contract carried through the reduction, rather than relying on
 `isfinite`. Recommend the node take an explicit validity mask alongside depth,
 so neither sentinel convention is load-bearing.
+
+---
+
+## Amendment, 2026-09-18 — the filter state behind §4's σ table is unverified
+
+§4 is introduced as the sensor's **raw** structure on the strength of one
+sentence in the setup: "Post-processing filters are disabled in
+`d555_params.yaml`". Nothing loads that file. No launch file, compose service,
+Dockerfile or entrypoint reads it, and a repo-wide search finds the name only in
+documentation and in the file's own header; `setup.py` installs it to `share/`,
+which is what makes it look live. See
+[`d555-params-file-inert`](../active/reliability/d555-params-file-inert.md).
+
+The filters therefore ran at whatever the driver defaults to during the
+2026-08-04 capture, which is not recorded. The measured numbers stand as
+measured — they are what that stream delivered — but the word "raw" is not
+evidenced, and the σ table cannot be assumed to be pre-filter. The temporal
+filter in particular reduces per-pixel temporal σ, which is exactly the quantity
+§4 reports, so the true raw σ is bounded below by the table rather than equal
+to it.
+
+Two consequences for anything reading this record:
+
+- The band σ figures remain the best available real-sensor measurement and are
+  still the right input to a commensurability argument; they are a lower bound
+  on the raw quantity, not a point estimate of it.
+- Re-running the capture with the filter state pinned and recorded is part of
+  [`real-d555-depth-texture-capture`](../active/trained-policy/real-d555-depth-texture-capture.md),
+  which needs the same bag for the within-block correlation ρ.
+
+No number above is changed.
+
+---
+
+## Amendment, 2026-09-18 — the parked 640×360 option, re-costed
+
+§Out of scope parks the training-lane zero-drift option and records a revisit
+trigger: "if this brief's measurement shows the real-sensor reduction residual
+is materially larger than sim's, the option re-enters the retrain conversation."
+That trigger has never been evaluated, because the measurement it names — the
+real sensor's residual either side of the reduction — does not exist. It is
+[`real-d555-depth-texture-capture`](../active/trained-policy/real-d555-depth-texture-capture.md).
+
+What has been evaluated is the **budget** the option was parked on. Measured
+2026-09-18 on the canonical Isaac Sim 6.0.1.0 pair at v2's env count of 96:
+rendering the policy camera at 640×360 and taking the deploy block median inside
+the observation term costs **about 1.1×** the wall clock of the shipped 80×45
+arm — 1.144× as measured, 1.11× once the learning phase's own drift is held
+constant — with the collection phase, the one the change touches, at a firm
+**1.39×**, and peak process memory at 1.18×.
+
+So the "64× the policy-camera render cost" figure is a pixel count, not a cost:
+the PPO update dominates an iteration and does not change at all, because the
+observation is still 3 600 wide after the reduction. **The option is no longer
+parked on budget.**
+
+Three limits on that, all from the same measurement. It holds **at 96
+environments only**: the two arms do not scale together above it, and at 192 the
+640×360 arm is 4.7× slower entirely within the phase that does identical work,
+at a lower sampled peak memory, for a reason the measurement does not establish.
+Both arms are killed at 384 during USD scene construction, before any render
+product exists — a scene-memory ceiling, not a camera one. And the arm that was
+benched injects the tier's noise **after** the reduction at 80×45, so it prices
+"render at 640×360, reduce in the term, noise as today" and not the
+raw-resolution injection this brief parked.
+
+That last point is why the option stays parked on the same missing measurement
+as the revisit trigger: without the within-block correlation, i.i.d. noise
+injected at native resolution is attenuated 6.46× by the median and
+under-injects by that factor if the real field is correlated.
+
+Numbers and the scratch patch:
+[`depth-noise-coverage-2026-09-18`](../../measurements/depth-noise-coverage-2026-09-18/README.md) §8.

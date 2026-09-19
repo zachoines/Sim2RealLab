@@ -497,6 +497,15 @@ class DepthNoiseModel(NoiseModel):
     good stereo matching algorithms). This quadratic depth dependence matches
     real RealSense behavior much better than linear models.
 
+    RESOLUTION AXIS. f is the native-resolution focal length (673 px at 1280
+    wide), so σ_z is a native-disparity quantity, but it is drawn i.i.d. per
+    80x45 policy pixel with no reduction stage. The deploy path instead takes a
+    median of 64 native pixels per policy pixel, which attenuates an i.i.d.
+    field 6.46x and a perfectly correlated one not at all. Whether σ_d is
+    therefore to be read as native or as already post-reduction-equivalent
+    turns on the within-block correlation of real sensor depth, which no
+    capture has measured; both readings are consistent with the shipped value.
+
     Reference: Intel RealSense documentation on depth quality and error propagation
     https://openaccess.thecvf.com/content_cvpr_2017_workshops/w15/papers/Keselman_Intel_RealSense_Stereoscopic_CVPR_2017_paper.pdf
     """
@@ -519,9 +528,30 @@ class DepthNoiseModel(NoiseModel):
 
         # Precompute stereo depth noise coefficient: σ_d / (f · B)
         # σ_z = z² · (σ_d / (f · B)) = z² · stereo_coeff
-        self._stereo_coeff = self.cfg.disparity_noise_px / (
-            self.cfg.focal_length_px * self.cfg.baseline_m
-        )
+        self._focal_baseline = self.cfg.focal_length_px * self.cfg.baseline_m
+        self._stereo_coeff = self.cfg.disparity_noise_px / self._focal_baseline
+
+        # With disparity_noise_px_range the subpixel noise is drawn per
+        # environment at every reset instead of being one number shared by the
+        # whole batch, so the policy sees a texture *distribution* on the
+        # modality rather than one amplitude it can key on. The fixed path is
+        # unchanged when no range is given, down to the bit.
+        self._disparity_range = self.cfg.disparity_noise_px_range
+        self._env_coeff = None
+        if self._disparity_range is not None:
+            low, high = sorted(self._disparity_range)
+            if low <= 0.0:
+                raise ValueError(
+                    "disparity_noise_px_range is drawn log-uniformly and both "
+                    f"ends must be positive, got {self.cfg.disparity_noise_px_range}. "
+                    "A low end of 0.002 already reaches a field far smoother "
+                    "than the deploy path delivers."
+                )
+            self._disparity_range = (low, high)
+            # Held in double and cast at use: a draw landing on a band end then
+            # divides exactly as the scalar path's Python float does, so the
+            # band is a reparameterisation rather than a second model.
+            self._env_coeff = torch.zeros(num_envs, 1, dtype=torch.float64, device=device)
 
         # Store previous frame for drops
         self._prev_frame = None
@@ -549,6 +579,31 @@ class DepthNoiseModel(NoiseModel):
         self._latency_steps = self.cfg.latency_steps
         self._latency_steps_range = self.cfg.latency_steps_range
 
+        # Drawn last, after every other per-env parameter above has taken its
+        # own draw, so adding the band does not move theirs. A band pinned to
+        # one value then reproduces the fixed path from the same seed.
+        if self._disparity_range is not None:
+            self._sample_disparity(None)
+
+    def _sample_disparity(self, env_ids: Sequence[int] | None):
+        """Draw the per-env subpixel disparity noise from the configured band.
+
+        Log-uniform: σ_d is a scale parameter, and a uniform draw over a band
+        spanning two decades puts almost all of its mass in the loud decade.
+        The closed form is exact at a pinned band, so the band stays a
+        reparameterisation of the fixed path.
+        """
+        low, high = self._disparity_range
+        count = self._num_envs if env_ids is None else len(env_ids)
+        if count == 0:
+            return
+        drawn = torch.rand(count, 1, dtype=torch.float64, device=self._device)
+        drawn = low * (high / low) ** drawn / self._focal_baseline
+        if env_ids is None:
+            self._env_coeff.copy_(drawn)
+        else:
+            self._env_coeff[env_ids] = drawn
+
     def reset(self, env_ids: Sequence[int] | None = None):
         """Reset frame drop state, hold state, and delay buffer."""
         self._hold.reset(env_ids)
@@ -563,6 +618,10 @@ class DepthNoiseModel(NoiseModel):
             self._has_prev_frame[env_ids] = False
             if self._delay_buffer is not None:
                 self._delay_buffer.reset(env_ids)
+
+        # Last, for the reason ``__init__`` draws it last.
+        if self._disparity_range is not None:
+            self._sample_disparity(env_ids)
 
     def _neighbourhood_median(
         self, data: torch.Tensor, invalid: torch.Tensor
@@ -661,7 +720,9 @@ class DepthNoiseModel(NoiseModel):
         # Stereo depth noise: σ_z = z² · σ_d / (f · B)
         # This is the physically correct error propagation for stereo depth cameras.
         # Noise increases with z² (quadratic), not linearly.
-        noise_std = noisy_data.square() * self._stereo_coeff
+        coeff = (self._stereo_coeff if self._env_coeff is None
+                 else self._env_coeff.to(noisy_data.dtype))
+        noise_std = noisy_data.square() * coeff
         depth_noise = torch.randn_like(noisy_data) * noise_std
         noisy_data = noisy_data + depth_noise
 
@@ -752,6 +813,11 @@ class DepthNoiseModelCfg(NoiseModelCfg):
     baseline_m: float = 0.095  # Stereo baseline in meters (95mm for D555)
     focal_length_px: float = 673.0  # Focal length in pixels at native resolution
     disparity_noise_px: float = 0.08  # Subpixel disparity noise (typical: 0.05-0.1)
+
+    disparity_noise_px_range: tuple[float, float] | None = None
+    """Per-env subpixel disparity noise band [min, max], drawn log-uniformly at
+    reset. Both ends must be positive. None keeps the fixed
+    ``disparity_noise_px`` for every env."""
 
     # Holes (invalid pixels from stereo matching failures)
     hole_probability: float = 0.01

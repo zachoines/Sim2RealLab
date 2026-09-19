@@ -295,7 +295,7 @@ grid in §7, and `depth_noise` re-ran 6/6 after the fix.
 |---|---|
 | repository | https://github.com/zachoines/Sim2RealLab-Artifacts |
 | deposit directory | `deploy-resolution-depth-2026-09-19/record-files/` |
-| deposit commit | `29c5e305bf8f11ea0b858b4f890113dc9fa95a4c` |
+| deposit commit | `171bcceb90d1bbf106b556c5b57a45f99f38673c` |
 
 Restore into this record's directory with:
 

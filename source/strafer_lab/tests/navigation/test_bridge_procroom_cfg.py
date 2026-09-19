@@ -20,6 +20,7 @@ import pytest
 
 # Importing the package triggers the gym.register() calls.
 import strafer_lab.tasks  # noqa: F401
+from strafer_shared.constants import PERCEPTION_HEIGHT, PERCEPTION_WIDTH
 
 _TASK = "Isaac-Strafer-Nav-Capture-Bridge-ProcRoom-v0"
 
@@ -54,12 +55,15 @@ def test_resolves_to_procroom_bridge_cfg_and_depth_runner():
 # ---------------------------------------------------------------------------
 
 
-def test_policy_camera_is_80x45_with_depth(cfg):
-    """The 80x45 policy camera survives pruning so the gym-dump / obs shape
-    matches training (the bridge stack's depth_policy token reads it)."""
+def test_policy_camera_renders_the_deploy_resolution_with_depth(cfg):
+    """The policy camera survives pruning so the gym-dump / obs shape matches
+    training (the bridge stack's depth_policy token reads it).
+
+    It renders the deploy stream's resolution; the observation term reduces to
+    the 80x45 policy grid, so the obs shape is unchanged by the render."""
     cam = cfg.scene.d555_camera
     assert cam is not None
-    assert (cam.width, cam.height) == (80, 45)
+    assert (cam.width, cam.height) == (PERCEPTION_WIDTH, PERCEPTION_HEIGHT)
     assert "distance_to_image_plane" in list(cam.data_types)
 
 
@@ -114,8 +118,11 @@ def test_scene_class_keeps_both_cameras_and_procroom_replication():
     )
 
     scene = StraferSceneCfg_ProcRoomPerception(num_envs=1, env_spacing=10.0)
-    assert scene.d555_camera.width == 80
-    assert scene.d555_camera_perception.width == 640
+    # Both render the deploy resolution, so they are told apart by prim path,
+    # not by size.
+    assert scene.d555_camera.width == PERCEPTION_WIDTH
+    assert scene.d555_camera_perception.width == PERCEPTION_WIDTH
+    assert scene.d555_camera.prim_path != scene.d555_camera_perception.prim_path
     assert hasattr(scene, "room_primitives")
     # ProcRoom rooms are per-env replicated primitives, so physics replicates.
     assert scene.replicate_physics is True

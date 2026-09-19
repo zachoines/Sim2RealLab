@@ -70,6 +70,16 @@ def _cfg_live(contract, **overrides) -> DepthNoiseModelCfg:
     return cfg
 
 
+def _cfg_fixed(contract, **overrides) -> DepthNoiseModelCfg:
+    """The tier's fixed-amplitude path: as shipped, with any band cleared.
+
+    A tier that ships a band is on the drawn path by default, so the arm a
+    band is compared against has to name the clearing rather than rely on the
+    tier not having one.
+    """
+    return _cfg_live(contract, disparity_noise_px_range=None, **overrides)
+
+
 def _frames(seed: int = 3) -> torch.Tensor:
     generator = torch.Generator(device="cpu").manual_seed(seed)
     return torch.rand(NUM_ENVS, PIXELS, generator=generator) * 5.5 + 0.3
@@ -91,11 +101,19 @@ def _emit(cfg: DepthNoiseModelCfg, data: torch.Tensor, steps: int = 6,
 
 class TestTheNeutralPath:
     @pytest.mark.parametrize("tier", list(TIERS), ids=list(TIERS))
-    def test_no_band_is_bit_identical_to_the_fixed_amplitude(self, tier):
+    def test_a_cleared_band_is_bit_identical_to_the_fixed_amplitude(self, tier):
+        """Clearing the band returns the tier to its fixed amplitude exactly.
+
+        This is what lets a tier carry a band without the band being load
+        bearing for anything else: the drawn path and the fixed path differ
+        only in the amplitude, so an arm that clears it reproduces the
+        pre-band bits.
+        """
         data = _frames()
+        sigma = TIERS[tier].sensors.depth_camera.disparity_noise_px
         assert torch.equal(
-            _emit(_cfg_live(TIERS[tier]), data),
-            _emit(_cfg_live(TIERS[tier], disparity_noise_px_range=None), data),
+            _emit(_cfg_fixed(TIERS[tier]), data),
+            _emit(_cfg_fixed(TIERS[tier], disparity_noise_px=sigma), data),
         )
 
     @pytest.mark.parametrize("tier", list(TIERS), ids=list(TIERS))
@@ -103,23 +121,31 @@ class TestTheNeutralPath:
         """Construction and reset must leave the generator where the fixed path
         leaves it, or every downstream draw in the episode shifts."""
         torch.manual_seed(29)
-        fixed = DepthNoiseModel(_cfg_live(TIERS[tier]), NUM_ENVS, DEVICE)
+        fixed = DepthNoiseModel(_cfg_fixed(TIERS[tier]), NUM_ENVS, DEVICE)
         fixed.reset(None)
         fixed.reset(torch.arange(3))
         after_fixed = torch.get_rng_state().clone()
 
         torch.manual_seed(29)
         neutral = DepthNoiseModel(
-            _cfg_live(TIERS[tier], disparity_noise_px_range=None), NUM_ENVS, DEVICE)
+            _cfg_fixed(TIERS[tier]), NUM_ENVS, DEVICE)
         neutral.reset(None)
         neutral.reset(torch.arange(3))
         assert torch.equal(after_fixed, torch.get_rng_state())
 
-    def test_the_shipped_tiers_declare_no_band(self):
-        """The band is wired to nothing until a training run turns it on."""
-        for contract in TIERS.values():
-            assert contract.sensors.depth_camera.disparity_noise_px_range is None
-            assert get_depth_noise(contract).disparity_noise_px_range is None
+    def test_each_shipped_tier_declares_the_band_it_trains_on(self):
+        """Robust draws over the band; realistic stays on one amplitude.
+
+        The tiers are named individually rather than looped over, because the
+        thing worth catching is one tier acquiring the other's law.
+        """
+        realistic = REAL_ROBOT_CONTRACT.sensors.depth_camera
+        assert realistic.disparity_noise_px_range is None
+        assert get_depth_noise(REAL_ROBOT_CONTRACT).disparity_noise_px_range is None
+
+        robust = ROBUST_TRAINING_CONTRACT.sensors.depth_camera
+        assert robust.disparity_noise_px_range == BAND
+        assert get_depth_noise(ROBUST_TRAINING_CONTRACT).disparity_noise_px_range == BAND
 
 
 class TestTheBandIsAReparameterisation:
@@ -141,7 +167,7 @@ class TestTheBandIsAReparameterisation:
         data = _frames()
         contract = TIERS[tier]
         sigma = contract.sensors.depth_camera.disparity_noise_px
-        fixed = _emit(_cfg_live(contract), data)
+        fixed = _emit(_cfg_fixed(contract), data)
         pinned = _emit(_cfg_live(contract, disparity_noise_px=0.5,
                                  disparity_noise_px_range=(sigma, sigma)), data)
         assert torch.equal(fixed, pinned)

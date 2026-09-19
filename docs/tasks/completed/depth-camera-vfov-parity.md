@@ -300,19 +300,25 @@ env-count ceiling far below what training uses". Both halves were measured on
 pair the repository moved to after this brief shipped, at v2's own env count of
 96 and against the shipped 80×45.
 
-| | shipped 80×45 | 640×360 plus the block median in the term |
+| at 96 environments | shipped 80×45 | 640×360 plus the block median in the term |
 |---|---:|---:|
+| collection time, steady state | 25.49 s | 35.48 s (**1.39×**) |
 | iteration time, steady state | 90.04 s | 103.00 s |
 | wall clock for 1 000 iterations | 25.0 h | 28.6 h |
 | peak process memory | 46 748 MiB | 54 993 MiB |
-| largest env count completing one iteration | 192 | 192 |
 
-**The end-to-end cost is 1.14×, not 64×**, and the env-count ceiling is the same
-for both arms. The pixel count is indeed 64× and the collection half of an
-iteration does grow, by 1.39×; it is simply not what an iteration is made of.
-The PPO update dominates and does not change, because the observation is still
-3 600 wide after the reduction. The ceiling is set by host memory that the
-camera resolution barely moves — both arms are killed at 384 environments.
+**The end-to-end cost is about 1.1× at v2's environment count, not 64×.** The
+firm figure is the collection ratio, 1.39×, since collection is the phase the
+change touches; the iteration ratio reads 1.144× as measured and 1.11× once the
+learning phase's drift is held constant, and that phase does identical work in
+both arms because the observation is still 3 600 wide after the reduction.
+
+Two limits on that number. It is established **at 96 environments only** — the
+two arms do not scale together above it, and at 192 the 640×360 arm is 4.7×
+slower in a phase that does identical work, for a reason this measurement does
+not establish. And the arm benched injects the tier's noise **after** the
+reduction, at 80×45, so it prices "render at 640×360, reduce in the term, noise
+as today" rather than the raw-resolution injection this option was parked on.
 
 The rejection therefore does not survive on its stated grounds. The option is
 still not taken, for a different reason: rendering at native resolution and

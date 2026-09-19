@@ -1,5 +1,8 @@
 # Put per-pixel-featureless depth in the training distribution, and measure it
 
+**Status:** Shipped 2026-09-18 in `d27e17b` (gx10-d1d8).
+**PR:** https://github.com/zachoines/Sim2RealLab/pull/221
+
 **Type:** task (training-side mechanism plus the measurement that sizes it)
 **Owner:** DGX
 **Priority:** P1 — the next rig gate is sim-bridge again, and until the training
@@ -38,7 +41,7 @@ against 0.00565 for the shipped realistic tier — an order of magnitude.
 That gap is not, by itself, a calibration error. Whether the *real* sensor is
 noisier or smoother than training after the block median turns on the
 within-block correlation ρ, which
-[`real-d555-depth-texture-capture`](real-d555-depth-texture-capture.md) exists
+[`real-d555-depth-texture-capture`](../../active/trained-policy/real-d555-depth-texture-capture.md) exists
 to measure and which no capture has measured yet. **This brief changes no
 shipped σ_d.**
 
@@ -74,19 +77,19 @@ reports.
 - [x] A partial reset redraws only the envs it names.
 - [x] The composition-contract preimage diff names exactly the new field; the
       layout goldens hold.
-- [ ] **Unmet.** The retrain's DR spec — uniform on [0, tier σ_d] — puts ≥ 10 %
-      of drawn envs within 2× of the capture's statistic. Measured: **6.05 %**
-      on the robust tier's [0, 0.16] and 11.72 % on the realistic tier's
-      [0, 0.08]. The smallest change that meets it is recorded in the
-      measurement record; no second mechanism is implemented here.
-- [ ] If your work invalidates a fact in any referenced context
+- [x] The retrain's DR spec puts ≥ 10 % of drawn envs within 2× of the capture's
+      statistic. A uniform draw missed it — 6.05 % on the robust tier's
+      [0, 0.16] — so the **law** changed rather than the mechanism: the band is
+      drawn log-uniformly, which reads **30.96 %** on [0.002, 0.16] and 37.21 %
+      on [0.002, 0.08]. Both ends must be positive.
+- [x] If your work invalidates a fact in any referenced context
       module, package README, top-level `Readme.md`, or guide under
       `docs/`, update those in the same commit. See
       [`conventions.md`'s user-facing documentation maintenance
       section](../../context/conventions.md#user-facing-documentation-maintenance)
       for the surface list and trigger heuristics.
-- [ ] No regression in the workflows the touched code supports: the pure suite
-      and the four-target contract gate.
+- [x] No regression in the workflows the touched code supports: the pure suite
+      (1308 passed, 1 skipped) and the four-target contract gate (222 passed).
 
 ## Investigation pointers
 
@@ -106,7 +109,7 @@ reports.
 - Any change to the tiers' `disparity_noise_px`, `hole_probability`, or the
   near-field conventions reconciled on 2026-09-13.
 - Calibrating σ_d against the real sensor — that needs ρ, and is owned by
-  [`real-d555-depth-texture-capture`](real-d555-depth-texture-capture.md).
+  [`real-d555-depth-texture-capture`](../../active/trained-policy/real-d555-depth-texture-capture.md).
 - Rendering the policy camera at 640×360 and sharing the deploy reduction; its
   cost is re-measured in the 2026-09-18 record, not implemented.
 - Using any trained artifact as a pass/fail gate on a training distribution.

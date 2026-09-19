@@ -429,18 +429,30 @@ real sensor's residual either side of the reduction — does not exist. It is
 What has been evaluated is the **budget** the option was parked on. Measured
 2026-09-18 on the canonical Isaac Sim 6.0.1.0 pair at v2's env count of 96:
 rendering the policy camera at 640×360 and taking the deploy block median inside
-the observation term costs **1.14×** the wall clock of the shipped 80×45 arm
-(90.04 → 103.00 s per iteration; 25.0 → 28.6 h for 1 000 iterations) and
-**1.18×** peak process memory. Both arms complete one iteration at 192
-environments and both are killed at 384, so the env-count ceiling is identical
-and is set by host memory rather than by the camera.
+the observation term costs **about 1.1×** the wall clock of the shipped 80×45
+arm — 1.144× as measured, 1.11× once the learning phase's own drift is held
+constant — with the collection phase, the one the change touches, at a firm
+**1.39×**, and peak process memory at 1.18×.
 
 So the "64× the policy-camera render cost" figure is a pixel count, not a cost:
-collection grows 1.39× and the PPO update, which dominates the iteration, does
-not change at all. **The option is no longer parked on budget.** It stays parked
-on the same missing measurement as the revisit trigger — without the within-block
-correlation, i.i.d. noise injected at native resolution is attenuated 6.46× by
-the median and under-injects by that factor if the real field is correlated.
+the PPO update dominates an iteration and does not change at all, because the
+observation is still 3 600 wide after the reduction. **The option is no longer
+parked on budget.**
+
+Three limits on that, all from the same measurement. It holds **at 96
+environments only**: the two arms do not scale together above it, and at 192 the
+640×360 arm is 4.7× slower entirely within the phase that does identical work,
+at a lower sampled peak memory, for a reason the measurement does not establish.
+Both arms are killed at 384 during USD scene construction, before any render
+product exists — a scene-memory ceiling, not a camera one. And the arm that was
+benched injects the tier's noise **after** the reduction at 80×45, so it prices
+"render at 640×360, reduce in the term, noise as today" and not the
+raw-resolution injection this brief parked.
+
+That last point is why the option stays parked on the same missing measurement
+as the revisit trigger: without the within-block correlation, i.i.d. noise
+injected at native resolution is attenuated 6.46× by the median and
+under-injects by that factor if the real field is correlated.
 
 Numbers and the scratch patch:
 [`depth-noise-coverage-2026-09-18`](../../measurements/depth-noise-coverage-2026-09-18/README.md) §8.

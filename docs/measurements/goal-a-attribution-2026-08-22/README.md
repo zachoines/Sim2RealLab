@@ -603,4 +603,4 @@ Two things follow for anyone citing this record.
 No trained artifact is an acceptance gate for a training distribution, so the
 "v2 lands in the rig class" criterion that later work built on this result is
 retired; the coverage question it was standing in for is owned by
-[`depth-noise-coverage-band`](../../tasks/active/trained-policy/depth-noise-coverage-band.md).
+[`depth-noise-coverage-band`](../../tasks/completed/trained-policy/depth-noise-coverage-band.md).

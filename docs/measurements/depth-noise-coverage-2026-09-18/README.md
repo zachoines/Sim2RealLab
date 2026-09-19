@@ -16,8 +16,8 @@ policy camera at the deploy resolution, on the canonical Isaac Sim pair, because
 that rejection was made in 2026-08-01 on a version that is no longer installed.
 
 **No shipped σ_d, hole rate or near-field convention changes here.** Three of the
-dispatch's pre-registered readings did not survive measurement; §10 says which,
-with the numbers, rather than quietly applying them.
+pre-registered readings did not survive measurement; §10 says which, with the
+numbers, rather than quietly applying them.
 
 Everything is CPU except §8's training arms and §9's contract gate. Setup,
 digests and machine-local inputs: [`provenance.md`](provenance.md).
@@ -36,7 +36,7 @@ optionally against a `reference` frame so the statistic describes a residual
 rather than the frame. It is numpy-only, so the deploy lane can import it; the
 training lane reaches it the same way.
 
-Three decisions inside it are load-bearing, and on each the dispatch's prose and
+Three decisions inside it are load-bearing, and on each the brief's prose and
 its acceptance criterion asked for different things. The acceptance criterion
 won — it is the one with measurements behind it — and each decision is pinned by
 a test that a plausible alternative fails.
@@ -131,13 +131,13 @@ Residual statistic per band at the anchor pose, normalised:
 
 | band | n | capture | σ_d = 0.16 | σ_d = 0.08 | σ_d = 0.008 | σ_d matching the capture |
 |---|---:|---:|---:|---:|---:|---:|
-| 0.4–1.0 m | 190 | 0.00000106 | 0.00050617 | 0.00025308 | 0.00002531 | **0.000335** |
+| 0.4–1.0 m | 190 | 0.00000106 | 0.00050617 | 0.00025308 | 0.00002531 | **0.000334** |
 | 1.0–1.5 m | 76 | 0.00000025 | 0.00106130 | 0.00053065 | 0.00005307 | **0.0000377** |
 | 1.5–2.5 m | 535 | 0.00007582 | 0.00366820 | 0.00183407 | 0.00018341 | **0.00331** |
 | 2.5–3.5 m | 613 | 0.00025481 | 0.00846310 | 0.00423155 | 0.00042315 | **0.00482** |
 | 3.5–5.5 m | 766 | 0.00145854 | 0.01566937 | 0.00783469 | 0.00078344 | **0.0149** |
 
-The per-band matching σ_d spans a factor of **395**. The training term's texture
+The per-band matching σ_d spans a factor of **about 400** (398 unrounded). The training term's texture
 follows z² by construction; the capture's does not follow it at all — it is near
 zero out to 2.5 m and then rises. So a single σ_d, at any value, is either far
 too loud in the near field or far too quiet in the far field. That is an
@@ -145,20 +145,29 @@ independent argument for a **distribution** over σ_d rather than a better point
 estimate of it, and it does not depend on the calibration question the real
 sensor still owns.
 
-## 5. At σ_d = 0 the rest of the tier contributes no spatial texture at all
+## 5. At σ_d = 0 nothing else textures a frame
 
-With `disparity_noise_px = 0` and the rest of a tier active — holes, frame
-drops, stream holds, camera failures — the valid-only high-pass p95 is **exactly
-0.00000000 on every one of the 30 frames**, on both the realistic and the robust
-tier. The ratio to the capture is **0.0000**, so the pre-registered
+With `disparity_noise_px = 0` and a tier's remaining terms configured — holes,
+frame drops, stream holds, camera failures — the valid-only high-pass p95 is
+**exactly 0.00000000 on every one of the 30 frames**, on both the realistic and
+the robust tier. The ratio to the capture is **0.0000**, so the pre-registered
 "within 2× of the capture's" check **fails**.
 
+Configured is not fired, and the two halves of the claim rest on different
+evidence. The probe makes one forward call over a 30-environment batch, so the
+frame-drop and stream-hold terms *cannot* fire — both re-emit a previous frame
+and there is none — and the 0.001 camera-failure term fired on none of the 30.
+**The hole term is the one this measures**, and it contributes nothing.
+**The temporal terms are excluded by reasoning rather than by this measurement**,
+and the reasoning is short: a repeated frame is a frame that already passed
+through this statistic, and a failed frame is uniform at the far clamp. Neither
+adds per-pixel texture; both are visible only across time.
+
 The finding the check was there to produce: **no term other than the stereo
-Gaussian carries any spatial high-pass at the 95th percentile.** Frame drops and
-holds are temporal — they repeat a frame, they do not texture one. The hole term
-is spatial but too sparse to reach a 95th percentile: at the shipped rates it
-touches 1 % and 3 % of pixels, and the p95 of 2180 valid pixels is the 109th
-largest, so a hole rate below ~5 % cannot move it.
+Gaussian carries any spatial high-pass at the 95th percentile.** The hole term
+is spatial but too sparse to reach one: at the shipped rates it touches 1 % and
+3 % of pixels, and the p95 of 2180 valid pixels is the 109th largest, so a hole
+rate below ~5 % cannot move it.
 
 | hole rate | valid-only p95 | ratio to capture | frames with any non-zero |
 |---:|---:|---:|---:|
@@ -179,15 +188,23 @@ covered, and over-covered, rather than approximated.
 
 `disparity_noise_px_range: tuple[float, float] | None = None` on
 `DepthNoiseModelCfg` and on the contract-level depth camera cfg, drawn per
-environment at reset exactly as `DelayBuffer.delay_steps_range` draws the
-latency. `None` restores current behaviour.
+environment at reset as `DelayBuffer.delay_steps_range` draws the latency.
+`None` restores current behaviour.
+
+The draw is **log-uniform**, `low · (high/low)^u` with `u ~ U[0,1)`. σ_d is a
+scale parameter and the band of interest spans two decades; a uniform draw over
+[0.002, 0.16] puts 99 % of its environments above 0.002 and only 1 % in the
+quiet decade the deploy path actually occupies. Both ends must be positive, and
+a band naming zero is refused rather than clamped — clamping would make the low
+end a different law. §5 shows σ_d = 0 is strictly *more* featureless than the
+capture, so nothing is lost: a low end of 0.002 already reaches a field a
+quarter as textured.
 
 | pre-registered property | result |
 |---|---|
-| neutral output bit-identical to `main`, 6 frames, both tiers, CPU | **yes** |
-| `torch.get_rng_state()` bit-equal to `main`'s after construction and two resets | **yes** |
-| the same on CUDA | **yes** (device-matched within the build; the suite stays CPU-only) |
-| a band pinned to either end reproduces the fixed σ_d output | **yes**, `max|diff| = 0` at σ_d 0.0, 0.08 and 0.16, both devices |
+| neutral output bit-identical to `main`, 6 frames, both tiers | **yes**, CPU and CUDA |
+| `torch.get_rng_state()` bit-equal to `main`'s after construction and two resets | **yes**, CPU and CUDA |
+| a band pinned to one value reproduces the fixed σ_d output | **yes**, `max\|diff\| = 0`, **temporal terms live**, both tiers and both devices |
 | a partial reset redraws only the envs it names | **yes** |
 | the preimage diff names exactly the new field | **yes** — see below |
 | layout goldens hold | **yes** |
@@ -196,22 +213,21 @@ The coefficient is held in double and cast at use, so a draw landing on a band
 end divides exactly as the scalar path's Python float does; without that the two
 paths differ in the last bit and the band stops being a reparameterisation.
 
-**What "reparameterisation" does and does not cover.** The band-end equality
-above holds with the tier's temporal terms stilled. Left live, the two arms
-diverge by up to 0.25 m, and the reason is worth recording because it is
-inherent to adding any per-env draw rather than specific to this one: the band
-samples at construction and at every reset, *before* the hold process and the
-latency band sample theirs, so switching it on shifts those other per-env
-parameters even when its own value is pinned. The noise term itself is
-unchanged — that is what `max|diff| = 0` says — but a run with the band on is
-not frame-comparable with one without it. `None` is what protects the existing
-tiers from that, and it does: output and RNG state are bit-identical to `main`.
+**Sampling order is part of the claim.** The band draws **last** — at the end of
+construction and at the end of `reset`, after the hold process and the delay
+buffer have taken their own per-env draws. Drawn earlier it would shift theirs,
+and a pinned band would then differ from the fixed path by up to 0.25 m with the
+temporal terms live, even though the noise term itself was identical. Drawn
+last, the hold-process parameters are unchanged by the band's presence and a
+pinned band reproduces the fixed path bit-for-bit **with the temporal terms
+live**, on both tiers and both devices. A test pins the order.
 
-Two smaller facts the same probe settled. Constructing a `DepthNoiseModel`
-already consumed CPU randomness before this change — the hold process draws its
-per-env parameters there — so "construction is quiet" was never true on the
-fixed path either. And on CUDA those draws land on the device generator, so
-`torch.get_rng_state()` reads unchanged there whatever the configuration; the
+One fact the same probe settled and that the ordering has to accommodate:
+constructing a `DepthNoiseModel` already consumed CPU randomness before this
+change, because the hold process draws its per-env parameters there. So two arms
+are only comparable if the build is seeded as well as the run; the probe and the
+suite both do that. On CUDA those draws land on the device generator, so
+`torch.get_rng_state()` reads unchanged there whatever the configuration — the
 CPU comparison is the one with teeth.
 
 **Composition contract.** Diffed by field name against the stored preimages, the
@@ -228,132 +244,184 @@ layout serializer drops any attribute named `noise` at every depth. Nothing
 else changed, so the pre-registered STOP did not fire. This is the same
 17-golden shape the 2026-09-13 convention fix recorded.
 
-## 7. The DR spec misses its floor, and the proposed remedy moves it the wrong way
+## 7. The draw law, and the floor it now clears
 
 Pre-registered spec: uniform on [0, tier σ_d], with a floor of **≥ 10 %** of
 drawn environments landing within 2× of the capture's statistic. The within-2×
 window is σ_d ∈ [0.00367, 0.01469], from §2's linear law.
 
-| band | measured share within 2× | analytic | share below the window | floor |
-|---|---:|---:|---:|:---:|
-| robust tier, uniform [0, 0.16] | **6.05 %** | 6.89 % | 2.34 % | **missed** |
-| realistic tier, uniform [0, 0.08] | 11.72 % | 13.78 % | 4.49 % | met |
+**Uniform misses that floor**, and by a margin that widens as the band widens,
+because a uniform draw over a band spanning two decades puts almost nothing in
+the quiet one. Measured over 1024 draws through the production model:
 
-The robust tier is v2's, so the tier the retrain would start from is the one
-that misses.
+| draw | measured | analytic | floor ≥ 10 % |
+|---|---:|---:|:---:|
+| uniform [0, 0.16] — the robust tier's, and v2's | 6.05 % | 6.89 % | **missed** |
+| uniform [0, 0.08] — the realistic tier's | 11.72 % | 13.78 % | met |
+| **log-uniform [0.002, 0.16] — shipped** | **30.96 %** | 31.64 % | **met** |
+| **log-uniform [0.002, 0.08] — shipped** | **37.21 %** | 37.58 % | **met** |
 
-**The pre-registered remedy does not work.** A point mass at 0.0 adds weight
-strictly *below* the window — 2.34 % of draws are already there — so a point mass
-of weight w multiplies the share by (1 − w): at w = 0.1 the robust tier's 6.05 %
-becomes 5.45 %. It improves coverage of the featureless end, which §5 shows is
-already over-covered, at the cost of the number the floor is about.
+**The remedy pre-registered for a uniform miss — a point mass at 0.0 — moves the
+number the wrong way.** The window's lower edge is σ_d = 0.00367, and a point
+mass at zero adds weight strictly *below* it, where 2.34 % of uniform draws
+already sit. A point mass of weight w multiplies the share by (1 − w): at
+w = 0.10 the robust tier's 6.05 % becomes 5.45 %. It improves coverage of the
+featureless end, which §5 shows is already over-covered, at the cost of the
+quantity the floor is about.
 
-The smallest change that meets the floor is to draw **log-uniformly** rather
-than uniformly, which costs one line at the draw and no new mechanism:
+The change actually made is the **law**, not a second mechanism: one line at the
+sampler, the same single `torch.rand` per environment, no new configuration
+field, and therefore no golden movement beyond §6's. A pinned band is exact
+under the closed form, so the reparameterisation property is unaffected.
 
-| draw | share within 2× |
-|---|---:|
-| uniform [0, 0.16] | 6.89 % |
-| uniform [0, 0.08] | 13.78 % |
-| log-uniform [0.001, 0.16] | 27.32 % |
-| **log-uniform [0.002, 0.16]** | **31.64 %** |
+One pre-registered figure needed correcting rather than confirming: the analytic
+share was given as ln 4 / ln 80 = 31.64 % for **both** shipped bands. That is
+right for [0.002, 0.16], whose ends differ by a factor of 80; [0.002, 0.08]
+differs by a factor of 40, so its analytic share is ln 4 / ln 40 = **37.58 %**,
+and the measurement agrees at 37.21 %. Both clear the floor either way.
 
-Log-uniform [0.002, 0.16] still reaches a field a quarter as textured as the
-capture's at its low end, so it does not trade the featureless coverage away.
-**Nothing here is implemented**: the band ships uniform, wired into no tier, and
-the retrain leg chooses the draw with these numbers in front of it.
+## 8. Rendering at the deploy resolution costs about 1.1x at 96 environments
 
-## 8. Rendering at the deploy resolution costs 1.14×, not 64×
-
-On 2026-08-01 the option of rendering the policy camera at 640×360 and sharing
-the deploy path's block reduction was rejected on budget, at "64× the
+On 2026-08-01 the option of rendering the policy camera at 640x360 and sharing
+the deploy path's block reduction was rejected on budget, at "64x the
 policy-camera render cost", on Isaac Sim 6.0.0.0 with the old Isaac Lab pin.
 That pin is retired. Re-costed on the canonical pair, on a scratch branch that
-is deposited and never merged: the camera at 640×360, a torch 8×8 block median
+is deposited and never merged: the camera at 640x360, a torch 8x8 block median
 inside `depth_image` ordered exactly as `downsample_depth` has it, against the
-shipped 80×45. The median is byte-exact against the deploy function on a random
-field with infinities in it.
+shipped 80x45. The median is byte-exact against the deploy function over 20
+random fields carrying frustum-cull infinities and a sub-near patch.
 
-Both arms: v2's env count (96), 8 iterations, `--headless`, through the boot
-watchdog, GPU idle before each boot, every boot succeeding on attempt 1.
-Steady state is iterations 2–8; iteration 1 carries the warm-up.
+### What was actually benched
 
-| | shipped 80×45 | direction A 640×360 | ratio |
+The arm injects the tier's stereo noise **after** the reduction, at 80x45 —
+`ObsTerm(noise=...)` wraps the term's output, and `DepthNoiseModel` asserts an
+80x45 frame. So the number below is the cost of **"render at 640x360,
+block-median in the term, inject noise at 80x45 as today"**. That is the
+configuration a retrain would use, and it makes the *clean* training field
+identical to bridge depth by construction. It is **not** the form §8's
+pre-registered decision was written against — raw-resolution noise synthesised
+at 640x360 with the right within-block correlation and then reduced — which was
+not run, and which is the form that needs ρ.
+
+The arm also renders a 640x360 RGB channel the policy never reads, because the
+composed scene's camera carries `rgb` alongside depth. That inflates it; the
+shipped 80x45 arm renders the same unused channel at 1/64 the pixels.
+
+### The numbers, at v2's environment count
+
+Both arms: 96 environments, 8 iterations, `--headless`, through the boot
+watchdog, GPU idle before each boot, both booting on attempt 1. Steady state is
+iterations 2-8; iteration 1 carries the warm-up.
+
+| | shipped 80x45 | 640x360 + median in term | ratio |
 |---|---:|---:|---:|
-| iteration time, steady state | **90.04 s** | **103.00 s** | **1.144×** |
-| collection time, steady state | 25.49 s | 35.48 s | 1.392× |
-| peak process memory | 46 748 MiB | 54 993 MiB | 1.176× |
-| peak system used | 73 339 MiB | 79 174 MiB | 1.080× |
-| wall clock for 1 000 iterations | **25.0 h** | **28.6 h** | **1.144×** |
+| collection time, steady state | 25.49 s | 35.48 s | **1.392x** |
+| learning time, steady state | 64.55 s | 67.52 s | 1.046x |
+| iteration time, steady state | 90.04 s | 103.00 s | 1.144x |
+| peak process memory | 46 748 MiB | 54 993 MiB | 1.176x |
+| peak system used | 73 339 MiB | 79 174 MiB | 1.080x |
 
-v2 itself ran 998 iterations in about 26.1 h at this env count, so the baseline
-arm reproduces the run it is standing in for.
+**The firm number is the collection ratio, 1.39x** — collection is the phase the
+change touches. The iteration ratio's third digit is not firm: the learning
+phase does identical work in both arms (the observation is 3 600 wide either
+way) yet drifts from 80 s to 56 s and rebounds within each run, a spread of
+about 10 % of an iteration. Pairwise per-iteration ratios run **1.05-1.31**, and
+holding the learning phase at the baseline mean gives **1.11x**. So the honest
+statement is **1.11-1.14x, call it about 1.1x**, for a 64x pixel count.
 
-The cost is small because the render is not the iteration. Collection is 28 % of
-an iteration and the render is part of that; the PPO update dominates and is
-untouched, since the observation is still 3 600 wide after the reduction. A 64×
-pixel count buys a 1.39× collection and a 1.14× iteration.
+For a v2-equivalent 1 000-iteration run that is 25.0 h against 28.6 h at the
+measured 1.144x, or 27.8 h at 1.11x. v2 itself ran 998 iterations in about
+26.1 h at this env count, so the baseline arm reproduces the run it stands in
+for.
 
-**Where it does cost something is the env-count ceiling**, and there the two
-arms are equal:
+**This is established at 96 environments only.** It should not be carried to a
+larger environment count without measuring there — see below.
 
-| env count | shipped 80×45 | direction A 640×360 |
+### Above 96 environments the two arms do not scale together
+
+| env count | shipped 80x45 | 640x360 + median in term |
 |---:|---|---|
 | 96 | 90.0 s/iteration | 103.0 s/iteration |
-| 192 | fits, 246.8 s/iteration, 122 223 MiB system | fits, 1 168.3 s/iteration, 114 183 MiB system |
-| 384 | killed | killed |
+| 192 | completes, **246.8 s** (2.74x its 96-env time) | completes, **1 168.3 s** (11.3x) |
+| 384 | killed in scene construction | killed in scene construction |
 
-Both arms top out at 192 environments and both are killed at 384, so the
-ceiling is set by host memory the camera resolution barely moves. At 192 both
-are already saturating a 124 543 MiB host and thrashing — the baseline's
-iteration time triples and direction A's grows eleven-fold — so 192 is a ceiling
-in the sense of "completes one iteration", not a usable operating point for
-either arm.
+At 192 the gap is **4.7x**, and it is **entirely in the learning phase**:
+collection is 48.2 s against 69.7 s (1.45x, in line with 96), while learning is
+198.6 s against 1 098.6 s. The learning phase does identical work in the two
+arms. Worse for a memory explanation, the 640x360 arm's sampled peak system
+memory at 192 is **lower** than the baseline's (114 183 against 122 223 MiB).
 
-**Pre-registered decision.** Direction A enters the retrain only if the
-wall-clock ratio is ≤ 2× **and** the within-block correlation ρ has been
-measured. The ratio is 1.144×, so the budget condition is met and the
-2026-08-01 rejection does not survive on its own terms. ρ has **not** been
-measured — that is
+**So the cause of the 192-environment slowdown is not established by this
+measurement**, and the earlier reading — that the ceiling is identical and set
+by host memory the camera barely moves — is not supported. What can be said:
+both arms complete one iteration at 192 and neither at 384; nothing between 96
+and 192 was measured; and the 384 failures are not a camera fact — both die
+during USD scene construction 49-51 s into Kit, with no render product ever
+created and no training loop entered, killed at the host's memory limit.
+A scene-memory ceiling, reached before the camera matters.
+
+### Pre-registered decision
+
+Direction A enters the retrain only if the wall-clock ratio is ≤ 2x **and** the
+within-block correlation ρ has been measured. The ratio is about 1.1x at 96
+environments, so the budget condition is met and the 2026-08-01 rejection does
+not survive on its own terms. ρ has **not** been measured — that is
 [`real-d555-depth-texture-capture`](../../tasks/active/trained-policy/real-d555-depth-texture-capture.md),
-unexecuted — and without it, raw-resolution noise cannot be synthesised
-correctly: injecting i.i.d. noise at 640×360 and then medianing attenuates it
-6.46×, which under-injects by that factor if the real sensor's noise is
-correlated inside a block. **So direction A does not enter the retrain, on the
-ρ condition alone.** It is not implemented here, and the scratch branch is
+unexecuted — and without it raw-resolution noise cannot be synthesised
+correctly: injecting i.i.d. noise at 640x360 and then medianing attenuates it
+6.46x, under-injecting by that factor if the real field is correlated.
+**So direction A as pre-registered does not enter the retrain, on the ρ
+condition alone.** Nothing is implemented here and the scratch branch is
 deposited rather than merged.
 
 ## 9. Gates
 
 | gate | result | notes |
 |---|---|---|
-| pure suite — `source/strafer_lab/tests/` | **1302 passed, 1 skipped**, 104.4 s | 1265 passed, 1 skipped before; +21 statistic, +16 band |
-| contract gate — `test_sim/noise_models`, `test_sim/env/test_composition_contract.py`, `test_sim/env/test_obs_contract.py`, `tests/contracts/test_depth_nearfield_parity.py` | **222 passed**, 0 failed, 0 skipped, 176.6 s | boot watchdog, **attempt 1, no relaunch**, 186 s wall |
+| pure suite — `source/strafer_lab/tests/` | **1308 passed, 1 skipped**, 104.5 s | 1265 passed, 1 skipped before; +21 statistic, +22 band |
+| contract gate — `test_sim/noise_models`, `test_sim/env/test_composition_contract.py`, `test_sim/env/test_obs_contract.py`, `tests/contracts/test_depth_nearfield_parity.py` | **222 passed**, 0 failed, 0 skipped, 176.9 s | boot watchdog, **attempt 1, no relaunch**, 189 s wall |
 | temporal texture — `tests/navigation/test_temporal_texture_dr.py` | **46 passed** | unchanged by this work |
-| mutation check — percentile 95 → 90 | **3 failed** | `TestThePercentile::test_the_statistic_is_the_95th_percentile_of_the_absolute_highpass` |
-| mutation check — near-field exclusion dropped | **5 failed** | `TestTheNearFieldExclusion::test_the_fill_class_is_excluded_by_default` |
-| mutation check — border replicate → zero pad | **4 failed** | `TestTheBorderRule::test_the_border_is_replicated_not_shrunk` |
-| mutation check — border replicate → reflect | **2 failed** | the same named test |
+| composition goldens, recomputed Kit-free | **25 of 25 reproduce** | the draw law and the sampling order are not configuration fields, so no golden moves beyond §6's re-freeze |
 
-Each mutation was applied to the shipped module, the suite run, and the module
-restored; the baseline is 21 passed either side.
+Mutation checks. Each was applied to the shipped module, the suite run, and the
+module restored; the restored baselines are 21 and 22 passed.
+
+| mutation | result | the named test that caught it |
+|---|---|---|
+| percentile 95 → 90 | 3 failed | `TestThePercentile::test_the_statistic_is_the_95th_percentile_of_the_absolute_highpass` |
+| near-field exclusion dropped | 5 failed | `TestTheNearFieldExclusion::test_the_fill_class_is_excluded_by_default` |
+| border replicate → zero pad | 4 failed | `TestTheBorderRule::test_the_border_is_replicated_not_shrunk` |
+| border replicate → reflect | 2 failed | the same named test |
+| draw law log-uniform → uniform | 2 failed | `TestTheDrawLaw::test_the_draw_is_log_uniform_not_uniform` |
+| positivity guard removed | 3 failed | `TestTheBandIsAReparameterisation::test_a_non_positive_end_is_refused` |
+| band drawn before the hold process | 2 failed | `TestTheBandIsAReparameterisation::test_a_pinned_band_matches_the_fixed_path_with_the_temporal_terms_live` |
+
+**Watchdog accounting.** Every gate and both 96-environment training arms booted
+on attempt 1. Two boot stalls occurred in the environment-count search: one on a
+first version of that harness which passed `--attempts 1` and so reported a
+stall as a failure to fit — the harness was corrected and the run repeated — and
+one on the corrected baseline 384-environment probe, which relaunched and
+completed on attempt 2. Every attempt line is deposited.
 
 ## 10. What the pre-registration got wrong
 
-Five readings were pre-registered. Three did not survive measurement, and are
-recorded here rather than quietly applied.
+Five pre-registered readings did not survive measurement, and are recorded here
+rather than quietly applied. Two of the five were this record's own, corrected
+in its fix round rather than by a later reader.
 
 | pre-registered | measured | why |
 |---|---|---|
 | the statistic is read over **interior** pixels, and reproduces the deposit to four significant figures | cannot both hold | the deposit replicates the border and counts every pixel; dropping the border reads 0.00050021 against 0.00052390 (§1) |
-| σ_d\* ≈ 0.008 | **0.004** on the mandated scope | 0.008 is the whole-frame answer; the pre-registration compared a whole-frame training figure with a valid-only capture figure. The *matching* σ_d is 0.00735, which 0.008 estimates well (§2) |
-| if uniform misses the 10 % floor, a point mass at 0.0 is the smallest fix | it lowers the number | the point mass adds weight strictly below the window; log-uniform raises it from 6.89 % to 31.64 % (§7) |
+| σ_d\* ≈ 0.008 | **0.004** on the mandated scope | 0.008 is the whole-frame answer; the pre-registration compared a whole-frame training figure with a valid-only capture figure. The *matching* σ_d is 0.00741 (§2) |
+| if uniform misses the 10 % floor, a point mass at 0.0 is the smallest fix | it lowers the number | the point mass adds weight strictly below the window; changing the *law* to log-uniform raises it from 6.89 % to 31.64 % and is what shipped (§7) |
+| log-uniform's analytic share is ln 4 / ln 80 for both shipped bands | right for one of them | [0.002, 0.16] spans a factor of 80 and reads 31.64 %; [0.002, 0.08] spans 40 and reads 37.58 % (§7) |
+| the 640×360 arm costs 1.14× and the env ceiling is camera-independent | **1.11–1.14× at 96 envs**, and the ceiling claim is withdrawn | the two arms do not scale together above 96 envs, the 192-env gap is entirely in a phase doing identical work, and the 384-env kills happen in scene construction before any render (§8) |
 
-Two more held: the σ_d = 0 check produced the finding it was there to produce
-(§5), and the preimage diff named exactly the new field with the layout goldens
-holding (§6).
+Two held: the σ_d = 0 check produced the finding it was there to produce (§5),
+and the preimage diff named exactly the new field — at two paths, ×16 and ×1 —
+with the layout goldens holding (§6).
 
-Three of the dispatch's own document references did not resolve.
+Three of the pre-registered document references did not resolve.
 `depth-camera-vfov-parity.md` has no "Out of scope" section and never uses the
 phrase "direction A"; the 640×360 rejection and its revisit trigger are in
 `d555-invalid-pixel-statistics.md` §Out of scope, which is where §8's amendment
@@ -374,13 +442,13 @@ repository:
 |---|---|
 | repository | `https://github.com/zachoines/Sim2RealLab-Artifacts` (private) |
 | deposit directory | `depth-noise-coverage-2026-09-18/record-files/` |
-| deposit commit | `f3777ce7928050163e7f4814d0ed750c92f19f5e` |
+| deposit commit | `6e1d523ccc4ff8a1962ba8f3197b2037fb1bf0a8` |
 
 A second, smaller deposit at
 `goal-a-attribution-2026-08-22/same-pose-probe-notes-2026-09-18/` carries the
-note on that capture's NaN prefix, in the same commit. It is a sibling of the
-2026-08-22 deposit rather than a file inside it, because that deposit is
-referenced by a merged record and is immutable.
+note on that capture's NaN prefix. It is a sibling of the 2026-08-22 deposit
+rather than a file inside it, because that deposit is referenced by a merged
+record and is immutable.
 
 The deposit mirrors this record's own directory, so the paths this README names
 resolve unchanged after restoring it:
@@ -403,9 +471,17 @@ sha256 of every file in the deposit:
 
 ```
 bb8d30c4ba542b998286d9648a7f5835e901e2a947d3a7c0ac6754fbb659cb83  bench/bench_direction_a.sh
+aac2125965671c7bec62fca25c2c4438debad1875efd8bdb0d97bd6464b500a8  bench/ceiling_baseline_192.log
+f28ffe04b9d0d332667cccf4cfb78797883a0b48431497ce9ac3a4dd9d3e80ca  bench/ceiling_baseline_384.log
 79e2ad168bf94ddd95be329c3f7f008de05849cf2e0b8fb3059cafa5bc0d84e4  bench/ceiling_baseline.out
+c3b838419d8374eca513fb348f693cbdd3c729e8b23bbeb47b0fe949486dd243  bench/ceiling_directionA_192.log
+c0b1913bfae907cbe97870f997796df5231a82817c0a6991fecda56d64f98cb4  bench/ceiling_directionA_384.log
 76e0469ee1976120b1033350f7547bf5297b8d9f14d5be5fb5ba181035e7e9c5  bench/ceiling_directionA.out
 664f2c7fadefd24dacc216238f9e4e4c2a7c26e4553b9fc8ce23e4f0340a1a21  bench/ceiling_direction_a.sh
+e0c644ec703423cf20738365b2a17d38fc36b8d975e09d369f34269f985982a4  bench/ceilmem_baseline_192.txt
+7e07d9bba9e8ad613a64a27a924257205b0aed1bf5b8acf81360f271f338c4cb  bench/ceilmem_baseline_384.txt
+07ee623195e5a6a90eeac006a70829783b9d1385e9580f2c80175cdaa8104319  bench/ceilmem_directionA_192.txt
+17966ca3b95f8f577b6acecf3ed55d3c5ccfcb33f7acf39077d7410d79be4961  bench/ceilmem_directionA_384.txt
 10e73652e6808037301d5cadf46e93f001c41cfd90354842dcacfbc976eeb41b  bench/ceilwd_baseline_192.log
 4f217f57d931349092a716db534b731c3844e004e73cc8fb7d42b141cae3a87f  bench/ceilwd_baseline_384.log
 17e0770ed9b29d636e600e6f6af73cd9d299a15bc878641deb59d045ff9095a4  bench/ceilwd_directionA_192.log
@@ -425,18 +501,21 @@ bbe963c1dbb0e52f889b14cc537d7231b4459150e4eb7228c97c8ad026d5fa02  coverage/band/
 bbe963c1dbb0e52f889b14cc537d7231b4459150e4eb7228c97c8ad026d5fa02  coverage/band/main_cuda.npz
 1bd87f0399baa1c375f3c34344d4e0feb84e0d9433a91386869c3f8db7d996cd  coverage/capture_frame_texture.json
 c87f70b7aabd956b213a4f3b01f7a5f66a56e9aec71c8a21b4e21ad1e7013517  coverage/coverage_curve.json
-12e146031f47deeb8880bcc2541626e6425e9f0ebdcb7ab3395ca92a5ef442e0  coverage/dr_share.json
+a1c8274caac1449773f002f95ec840d3ae6009f306ed036b0e0b318dedc2963f  coverage/dr_share.json
+267abc06b06c743db8f004ee41616f1cd319d0075f3b68c801b045b248061b2b  coverage/median_equivalence.json
 127f2fd839ce464e67b2d21febf75c7e5dfc9cb8aa8a5f47b22cd8696b834a0b  coverage/samepose_replay.json
 36dc5b6dc0f1c9e8b6d0caab47462085c08a22d8099ee1779dde082ceb3402a6  coverage/texture_statistic_acceptance.json
-a44617abcdb0c8df304d28a1263acb8f1fabd6c19681781f3ef38633467346fb  gates/gate_contracts.xml
-729a20636b75e645b9d5eedc9adc4ddb96b9dbcdf4857de34913fc55cac4be0c  gates/gate_new_suites.log
-0c5f20e1552256b47f2efa315936401704e99ae0e47b704f71a9d16d7c0d71b4  gates/gate_new_suites.xml
-9d58afedce0c578f66c7215986f62726dee1c261873f589253a9649b3561286f  gates/gate_pure.log
-ac9518b3e9a13314bee6b72f5ade6cca8158cd44c2ecd0c534ace1fe1a2e60c8  gates/gate_pure.xml
-a4b693dc390ab58bb5a229716889928eeacf973b7ed782a355ddf53b19f102b7  gates/gate_temporal.log
-d6b0cf0607e800c9f80ce765d751dd57cab1827c52995c8b84b2c646363076fb  gates/gate_temporal.xml
-1a3815d093023d614ec6ec2f8ffb1bea55a7e0facee79cc018d7e8fa7d75500a  gates/mutation_texture_statistic.log
-be6b40216ee3bb22e1d7eb1c9f0b5b2c76c2d51ee139a2deabae564c9b823a03  gates/watchdog_contracts.log
+be6b40216ee3bb22e1d7eb1c9f0b5b2c76c2d51ee139a2deabae564c9b823a03  gates/gate_contracts_kit_console.log
+c603fcea526112411fa78294111fcaa78a02505b28392485b6056cf9822cfb2f  gates/gate_contracts_stdout.log
+ea051b81d476f007d84c87650ebe394d63b37a2ebd1b0c9b1528cddff3f8ba4d  gates/gate_contracts.xml
+cb2c36ed96b5dfaef8f5d5d06cd0b746baedd8553e1df52abebf4c455d8f4353  gates/gate_new_suites.log
+53337e8733ef6bc32fdce9998eaf7f6a77b63b2a8cdfc37fbc41d6f98aba84d6  gates/gate_new_suites.xml
+bf1ccd7d50ca962842bbc4e0b68a582771f1adbbe54082449fe7be7702a7fdd2  gates/gate_pure.log
+d2c54dd30ad01743c87648287c64ee0ce56b657f275a85ef215fc0e9e0b94a8c  gates/gate_pure.xml
+abb575e230bc8c2edc87235eeb9988b7a0ec1d7a095f270149bb9b5df6e695cd  gates/gate_temporal.log
+c3577940cf2755d0989ebfad53fa207eebc2214050315f8a714a6a99116e6de8  gates/gate_temporal.xml
+3d8dc83d5515d1685be269b943d3ef2999e89e0c6851f7a17f922e92bcb87b42  gates/mutation_disparity_band.log
+7aa3e4aeee3a22f9cdb359f7c4192009ceaa298e0b8d9397ca2fa3264e653b05  gates/mutation_texture_statistic.log
 8712ee4207ce68192557b154420caa7dfb40991f25c8fad42cb4221af7a6a7ab  goldens/after/hashes.json
 022a41e4807c2876400735c71219a6b69ae4eabc4988472e9e6d41502c9c7e31  goldens/after/preimages/contract-RLDepthEnriched_Real.json
 57029c366aa3400627e06ad530168d12ba8376bc14650147109408b5a3895220  goldens/after/preimages/contract-RLDepthEnriched_Real_PLAY.json
@@ -489,11 +568,12 @@ c88e515ea9fda493ab9ef81040561e499d26865d143f7e51cfcc42e24cd0be8d  goldens/before
 b605f785f5a4ec301034ce73e5279e274f3b86faf05952c8005f2b5103097e65  goldens/before/preimages/depth_obs-RLDepth_Real.json
 6c4cd4326c0d1ad5efb0737a708c39eadc40ea39802f005841317201c02a8e36  goldens/before/preimages/layout-depth.json
 2a7e51cd9c4e0d6e2feee951ce2494c757f5df26e51c6dcdc76cb0134e5f4170  goldens/before/preimages/layout-nocam.json
-1985749d5074eb969bcac9a95adc9fefc6ca82b4fb53dc0f477370ce55ae1e09  probes/band_equivalence.py
+a6b45a2e1ba521fc430359693eafd2707fad07216ed2a8ec9d8cc4b6334be437  probes/band_equivalence.py
 53724edbbabf77d1bcc8a502950c726c36e5c634c2ccb6b366453b14d0eb736f  probes/capture_frame_texture.py
 4ee96c8cc6029be47f44d3d2bf12ae694e945fb5a1cb90b091cf2e337f712dd0  probes/coverage_curve.py
-0202a54f08c642fe9c136906cdf6476bb69a7ed98f0c52fa7e5124d30459db63  probes/dr_share.py
+6249f84d3fd61649071eb6460d3402b2089a4ba13f23565a11ad9ab1c1cf5b90  probes/dr_share.py
 3b49094679c88771c1088e33a6cd3891da8570d7d589fa8d61db2b95f2fb050b  probes/golden_attribution.py
+a2438b687164db12bb5766e12636b3c0f291300037ed37e5d358898c5c1c8088  probes/median_equivalence.py
 d44ca113e9cc3f8d6cc9a72694ef1830501bbe2318f99ab62bc9b1f5ff55ba95  probes/samepose_replay.py
 517130f1d7d14e7a47d65e94fe8d54f9782422ace1c8a322949cea3f1017b178  probes/texture_statistic_acceptance.py
 ```

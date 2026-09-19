@@ -42,6 +42,36 @@ _DEPTH_BLOCK_H = PERCEPTION_HEIGHT // DEPTH_HEIGHT
 _DEPTH_BLOCK_W = PERCEPTION_WIDTH // DEPTH_WIDTH
 
 
+def reduce_depth_to_policy_grid(depth: torch.Tensor) -> torch.Tensor:
+    """Reduce a deploy-resolution depth field to the policy grid, or pass it on.
+
+    The deploy node's block median, as ``obs_pipeline.downsample_depth`` has
+    it. The mean of the two middle values is numpy's even-count median, which
+    ``torch.median`` (lower-middle) is not, and on a block straddling a depth
+    discontinuity the two differ by the size of the discontinuity.
+
+    Takes and returns ``(N, H, W, C)``. A field already on the policy grid is
+    returned unchanged, which is what keeps a camera cfg built at the policy
+    dimensions usable without a cfg field selecting it.
+
+    Non-finite values sort to one end, so a block reduces to one only when
+    most of it is non-finite. The observation term resolves them first, to
+    match the deploy node; the capture path does not, so a fully culled block
+    still records as culled.
+    """
+    if depth.shape[1:3] != (PERCEPTION_HEIGHT, PERCEPTION_WIDTH):
+        return depth
+    blocks = depth.reshape(
+        depth.shape[0], DEPTH_HEIGHT, _DEPTH_BLOCK_H,
+        DEPTH_WIDTH, _DEPTH_BLOCK_W, -1,
+    ).permute(0, 1, 3, 5, 2, 4).reshape(
+        depth.shape[0], DEPTH_HEIGHT, DEPTH_WIDTH, -1,
+        _DEPTH_BLOCK_H * _DEPTH_BLOCK_W,
+    )
+    half = _DEPTH_BLOCK_H * _DEPTH_BLOCK_W // 2
+    return blocks.sort(dim=-1).values[..., half - 1:half + 1].mean(dim=-1)
+
+
 # Cache the torch-tensor form of the inverse mecanum kinematic matrix
 # keyed by (device, dtype). The matrix maps wheel angular velocities
 # [FL, FR, RL, RR] (rad/s) -> body twist [vx, vy, omega] (m/s, m/s, rad/s).
@@ -678,22 +708,9 @@ def depth_image(
         depth
     )
 
-    # Reduce a deploy-resolution render to the policy grid with the deploy
-    # node's block median, ordered as ``obs_pipeline.downsample_depth`` has
-    # it: after the non-finite rescue, before the nearfield fill. The mean of
-    # the two middle values is numpy's even-count median, which
-    # ``torch.median`` (lower-middle) is not. A field already on the policy
-    # grid passes through.
-    if depth.shape[1:3] == (PERCEPTION_HEIGHT, PERCEPTION_WIDTH):
-        blocks = depth.reshape(
-            depth.shape[0], DEPTH_HEIGHT, _DEPTH_BLOCK_H,
-            DEPTH_WIDTH, _DEPTH_BLOCK_W, -1,
-        ).permute(0, 1, 3, 5, 2, 4).reshape(
-            depth.shape[0], DEPTH_HEIGHT, DEPTH_WIDTH, -1,
-            _DEPTH_BLOCK_H * _DEPTH_BLOCK_W,
-        )
-        half = _DEPTH_BLOCK_H * _DEPTH_BLOCK_W // 2
-        depth = blocks.sort(dim=-1).values[..., half - 1:half + 1].mean(dim=-1)
+    # Ordered as obs_pipeline.downsample_depth has it: after the non-finite
+    # rescue, before the nearfield fill.
+    depth = reduce_depth_to_policy_grid(depth)
 
     # Nearfield fill: pixels closer than D555's min range get a saturated
     # low value instead of their actual depth.  This prevents the policy

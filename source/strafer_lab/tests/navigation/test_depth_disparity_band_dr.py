@@ -266,8 +266,12 @@ class TestTheContractPlumbing:
     def test_the_contract_field_reaches_the_noise_model(self, tier):
         contract = TIERS[tier]
         band = (0.002, contract.sensors.depth_camera.disparity_noise_px)
+        # The contracts are module-level singletons, so the restore has to put
+        # back what was there rather than the pre-band default: a tier that
+        # ships a band would otherwise lose it for the rest of the process.
+        shipped = contract.sensors.depth_camera.disparity_noise_px_range
         contract.sensors.depth_camera.disparity_noise_px_range = band
         try:
             assert get_depth_noise(contract).disparity_noise_px_range == band
         finally:
-            contract.sensors.depth_camera.disparity_noise_px_range = None
+            contract.sensors.depth_camera.disparity_noise_px_range = shipped

@@ -647,6 +647,11 @@ def create_robust_training_contract() -> SimRealContractCfg:
                 baseline_m=0.095,
                 focal_length_px=673.0,
                 disparity_noise_px=0.16,  # 2x typical for robust training
+                # Drawn per env at reset, log-uniform over the band. No
+                # single sigma matches the deploy field's texture at every
+                # depth, so the tier spans the range the per-band matches
+                # cover rather than picking one of them.
+                disparity_noise_px_range=(0.002, 0.16),
                 hole_probability=0.03,  # 3x typical
                 frame_drop_probability=0.01,  # 10x typical
                 # Held to the realistic tier's law entirely, burst included.

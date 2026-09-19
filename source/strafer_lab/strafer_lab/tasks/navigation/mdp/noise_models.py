@@ -497,6 +497,15 @@ class DepthNoiseModel(NoiseModel):
     good stereo matching algorithms). This quadratic depth dependence matches
     real RealSense behavior much better than linear models.
 
+    RESOLUTION AXIS. f is the native-resolution focal length (673 px at 1280
+    wide), so σ_z is a native-disparity quantity, but it is drawn i.i.d. per
+    80x45 policy pixel with no reduction stage. The deploy path instead takes a
+    median of 64 native pixels per policy pixel, which attenuates an i.i.d.
+    field 6.46x and a perfectly correlated one not at all. Whether σ_d is
+    therefore to be read as native or as already post-reduction-equivalent
+    turns on the within-block correlation of real sensor depth, which no
+    capture has measured; both readings are consistent with the shipped value.
+
     Reference: Intel RealSense documentation on depth quality and error propagation
     https://openaccess.thecvf.com/content_cvpr_2017_workshops/w15/papers/Keselman_Intel_RealSense_Stereoscopic_CVPR_2017_paper.pdf
     """
@@ -519,9 +528,24 @@ class DepthNoiseModel(NoiseModel):
 
         # Precompute stereo depth noise coefficient: σ_d / (f · B)
         # σ_z = z² · (σ_d / (f · B)) = z² · stereo_coeff
-        self._stereo_coeff = self.cfg.disparity_noise_px / (
-            self.cfg.focal_length_px * self.cfg.baseline_m
-        )
+        self._focal_baseline = self.cfg.focal_length_px * self.cfg.baseline_m
+        self._stereo_coeff = self.cfg.disparity_noise_px / self._focal_baseline
+
+        # With disparity_noise_px_range the subpixel noise is drawn per
+        # environment at every reset instead of being one number shared by the
+        # whole batch, so the policy sees a texture *distribution* on the
+        # modality rather than one amplitude it can key on. The fixed path is
+        # unchanged when no range is given, down to the bit.
+        self._disparity_range = self.cfg.disparity_noise_px_range
+        self._env_coeff = None
+        if self._disparity_range is not None:
+            low, high = self._disparity_range
+            self._disparity_range = (max(0.0, min(low, high)), max(0.0, max(low, high)))
+            # Held in double and cast at use: a draw landing on a band end then
+            # divides exactly as the scalar path's Python float does, so the
+            # band is a reparameterisation rather than a second model.
+            self._env_coeff = torch.zeros(num_envs, 1, dtype=torch.float64, device=device)
+            self._sample_disparity(None)
 
         # Store previous frame for drops
         self._prev_frame = None
@@ -549,9 +573,24 @@ class DepthNoiseModel(NoiseModel):
         self._latency_steps = self.cfg.latency_steps
         self._latency_steps_range = self.cfg.latency_steps_range
 
+    def _sample_disparity(self, env_ids: Sequence[int] | None):
+        """Draw the per-env subpixel disparity noise from the configured band."""
+        low, high = self._disparity_range
+        count = self._num_envs if env_ids is None else len(env_ids)
+        if count == 0:
+            return
+        drawn = torch.rand(count, 1, dtype=torch.float64, device=self._device)
+        drawn = (drawn * (high - low) + low) / self._focal_baseline
+        if env_ids is None:
+            self._env_coeff.copy_(drawn)
+        else:
+            self._env_coeff[env_ids] = drawn
+
     def reset(self, env_ids: Sequence[int] | None = None):
         """Reset frame drop state, hold state, and delay buffer."""
         self._hold.reset(env_ids)
+        if self._disparity_range is not None:
+            self._sample_disparity(env_ids)
         if env_ids is None:
             self._prev_frame = None
             self._frame_dropped.zero_()
@@ -661,7 +700,9 @@ class DepthNoiseModel(NoiseModel):
         # Stereo depth noise: σ_z = z² · σ_d / (f · B)
         # This is the physically correct error propagation for stereo depth cameras.
         # Noise increases with z² (quadratic), not linearly.
-        noise_std = noisy_data.square() * self._stereo_coeff
+        coeff = (self._stereo_coeff if self._env_coeff is None
+                 else self._env_coeff.to(noisy_data.dtype))
+        noise_std = noisy_data.square() * coeff
         depth_noise = torch.randn_like(noisy_data) * noise_std
         noisy_data = noisy_data + depth_noise
 
@@ -752,6 +793,10 @@ class DepthNoiseModelCfg(NoiseModelCfg):
     baseline_m: float = 0.095  # Stereo baseline in meters (95mm for D555)
     focal_length_px: float = 673.0  # Focal length in pixels at native resolution
     disparity_noise_px: float = 0.08  # Subpixel disparity noise (typical: 0.05-0.1)
+
+    disparity_noise_px_range: tuple[float, float] | None = None
+    """Per-env subpixel disparity noise band [min, max], sampled at reset. None
+    keeps the fixed ``disparity_noise_px`` for every env."""
 
     # Holes (invalid pixels from stereo matching failures)
     hole_probability: float = 0.01

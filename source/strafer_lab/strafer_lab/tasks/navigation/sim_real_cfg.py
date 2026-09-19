@@ -249,6 +249,12 @@ class DepthCameraNoiseCfg:
     disparity_noise_px: float = 0.08
     """Subpixel disparity noise (typical: 0.05-0.1 pixels)."""
 
+    disparity_noise_px_range: tuple[float, float] | None = None
+    """Per-env subpixel disparity noise band [min, max], sampled at reset. None
+    keeps the fixed ``disparity_noise_px`` for every env. A band reaching 0
+    puts per-pixel-featureless depth in the training distribution, which the
+    deploy path's block median produces and a fixed σ_d never does."""
+
     # Invalid pixels (holes from stereo matching failures)
     hole_probability: float = 0.01
     """Probability of a pixel the stereo match could not resolve."""
@@ -815,6 +821,7 @@ def get_depth_noise(contract: SimRealContractCfg) -> DepthNoiseModelCfg | None:
         baseline_m=cfg.baseline_m,
         focal_length_px=cfg.focal_length_px,
         disparity_noise_px=cfg.disparity_noise_px,
+        disparity_noise_px_range=cfg.disparity_noise_px_range,
         hole_probability=cfg.hole_probability,
         min_range=cfg.min_range_m,
         max_range=cfg.max_range_m,

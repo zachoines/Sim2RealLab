@@ -539,13 +539,19 @@ class DepthNoiseModel(NoiseModel):
         self._disparity_range = self.cfg.disparity_noise_px_range
         self._env_coeff = None
         if self._disparity_range is not None:
-            low, high = self._disparity_range
-            self._disparity_range = (max(0.0, min(low, high)), max(0.0, max(low, high)))
+            low, high = sorted(self._disparity_range)
+            if low <= 0.0:
+                raise ValueError(
+                    "disparity_noise_px_range is drawn log-uniformly and both "
+                    f"ends must be positive, got {self.cfg.disparity_noise_px_range}. "
+                    "A low end of 0.002 already reaches a field far smoother "
+                    "than the deploy path delivers."
+                )
+            self._disparity_range = (low, high)
             # Held in double and cast at use: a draw landing on a band end then
             # divides exactly as the scalar path's Python float does, so the
             # band is a reparameterisation rather than a second model.
             self._env_coeff = torch.zeros(num_envs, 1, dtype=torch.float64, device=device)
-            self._sample_disparity(None)
 
         # Store previous frame for drops
         self._prev_frame = None
@@ -573,14 +579,26 @@ class DepthNoiseModel(NoiseModel):
         self._latency_steps = self.cfg.latency_steps
         self._latency_steps_range = self.cfg.latency_steps_range
 
+        # Drawn last, after every other per-env parameter above has taken its
+        # own draw, so adding the band does not move theirs. A band pinned to
+        # one value then reproduces the fixed path from the same seed.
+        if self._disparity_range is not None:
+            self._sample_disparity(None)
+
     def _sample_disparity(self, env_ids: Sequence[int] | None):
-        """Draw the per-env subpixel disparity noise from the configured band."""
+        """Draw the per-env subpixel disparity noise from the configured band.
+
+        Log-uniform: σ_d is a scale parameter, and a uniform draw over a band
+        spanning two decades puts almost all of its mass in the loud decade.
+        The closed form is exact at a pinned band, so the band stays a
+        reparameterisation of the fixed path.
+        """
         low, high = self._disparity_range
         count = self._num_envs if env_ids is None else len(env_ids)
         if count == 0:
             return
         drawn = torch.rand(count, 1, dtype=torch.float64, device=self._device)
-        drawn = (drawn * (high - low) + low) / self._focal_baseline
+        drawn = low * (high / low) ** drawn / self._focal_baseline
         if env_ids is None:
             self._env_coeff.copy_(drawn)
         else:
@@ -589,8 +607,6 @@ class DepthNoiseModel(NoiseModel):
     def reset(self, env_ids: Sequence[int] | None = None):
         """Reset frame drop state, hold state, and delay buffer."""
         self._hold.reset(env_ids)
-        if self._disparity_range is not None:
-            self._sample_disparity(env_ids)
         if env_ids is None:
             self._prev_frame = None
             self._frame_dropped.zero_()
@@ -602,6 +618,10 @@ class DepthNoiseModel(NoiseModel):
             self._has_prev_frame[env_ids] = False
             if self._delay_buffer is not None:
                 self._delay_buffer.reset(env_ids)
+
+        # Last, for the reason ``__init__`` draws it last.
+        if self._disparity_range is not None:
+            self._sample_disparity(env_ids)
 
     def _neighbourhood_median(
         self, data: torch.Tensor, invalid: torch.Tensor
@@ -795,8 +815,9 @@ class DepthNoiseModelCfg(NoiseModelCfg):
     disparity_noise_px: float = 0.08  # Subpixel disparity noise (typical: 0.05-0.1)
 
     disparity_noise_px_range: tuple[float, float] | None = None
-    """Per-env subpixel disparity noise band [min, max], sampled at reset. None
-    keeps the fixed ``disparity_noise_px`` for every env."""
+    """Per-env subpixel disparity noise band [min, max], drawn log-uniformly at
+    reset. Both ends must be positive. None keeps the fixed
+    ``disparity_noise_px`` for every env."""
 
     # Holes (invalid pixels from stereo matching failures)
     hole_probability: float = 0.01

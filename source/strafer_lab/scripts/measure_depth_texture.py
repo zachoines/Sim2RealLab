@@ -130,8 +130,6 @@ def main() -> int:
     parser.add_argument("capture", type=Path, help="jsonl / jsonl.gz / json / npz capture")
     parser.add_argument("--reference", type=Path, default=None,
                         help="describe the residual against this capture instead")
-    parser.add_argument("--json", type=Path, default=None,
-                        help="also write the per-frame statistics here")
     args = parser.parse_args()
 
     frames = load_frames(args.capture)
@@ -145,9 +143,6 @@ def main() -> int:
     print(f"=== {args.capture}"
           + (f"  vs  {args.reference}" if args.reference else "") + " ===")
     report(result)
-    if args.json:
-        args.json.write_text(json.dumps(result, indent=1) + "\n")
-        print(f"\nwrote {args.json}")
     return 0
 
 

@@ -6,12 +6,16 @@ path's 8x8 block median produces frames with next to none, and a policy that
 only ever saw one amplitude can read its presence as a feature of simulation.
 ``disparity_noise_px_range`` draws the amplitude per environment at reset, the
 way the observation latency band already does, so the distribution reaches down
-to the featureless field the deploy path actually delivers.
+to the near-featureless field the deploy path actually delivers.
+
+The draw is log-uniform. σ_d is a scale parameter spanning two decades of
+interest, and a uniform draw over such a band puts almost all of its mass in the
+loud decade; both ends must therefore be positive.
 
 The band is a reparameterisation, not a second model: these tests pin that
 leaving it unset changes nothing at all — not the output bits, not the RNG
 state — and that a band pinned to a single value reproduces the fixed path for
-that value exactly.
+that value, temporal terms live or stilled.
 
 Pure torch on CPU — no Isaac Sim, no Kit boot. The same equivalences on CUDA are
 measured in the record rather than gated here, so the suite needs no device.
@@ -36,6 +40,7 @@ DEVICE = "cpu"
 HEIGHT, WIDTH = 4, 16
 PIXELS = HEIGHT * WIDTH
 NUM_ENVS = 8
+BAND = (0.002, 0.16)
 TIERS = {"realistic": REAL_ROBOT_CONTRACT, "robust": ROBUST_TRAINING_CONTRACT}
 
 
@@ -43,15 +48,23 @@ def _cfg(contract, **overrides) -> DepthNoiseModelCfg:
     """A tier's depth noise over a toy frame, with the temporal terms stilled.
 
     Drops, holds and latency all replay a previous frame, which would mask the
-    per-frame amplitude this suite is about.
+    per-frame amplitude most of this suite is about. ``_cfg_live`` keeps them.
     """
-    cfg = get_depth_noise(contract)
-    cfg.height, cfg.width = HEIGHT, WIDTH
+    cfg = _cfg_live(contract, **overrides)
     cfg.frame_drop_prob = 0.0
     cfg.failure_probability = 0.0
     cfg.hold_fraction_range = (0.0, 0.0)
     cfg.latency_steps = 0
     cfg.latency_steps_range = None
+    for key, value in overrides.items():
+        setattr(cfg, key, value)
+    return cfg
+
+
+def _cfg_live(contract, **overrides) -> DepthNoiseModelCfg:
+    """The tier as shipped, over a toy frame."""
+    cfg = get_depth_noise(contract)
+    cfg.height, cfg.width = HEIGHT, WIDTH
     for key, value in overrides.items():
         setattr(cfg, key, value)
     return cfg
@@ -63,9 +76,16 @@ def _frames(seed: int = 3) -> torch.Tensor:
 
 
 def _emit(cfg: DepthNoiseModelCfg, data: torch.Tensor, steps: int = 6,
-          seed: int = 11) -> torch.Tensor:
+          build_seed: int = 5, run_seed: int = 11) -> torch.Tensor:
+    """Both phases seeded, so two arms are compared from the same state.
+
+    Construction already consumed randomness before this field existed — the
+    hold process draws its per-env parameters there — so an arm built after
+    another one starts from a different point unless the build is seeded too.
+    """
+    torch.manual_seed(build_seed)
     model = DepthNoiseModel(cfg, NUM_ENVS, DEVICE)
-    torch.manual_seed(seed)
+    torch.manual_seed(run_seed)
     return torch.stack([model(data.clone()) for _ in range(steps)])
 
 
@@ -74,21 +94,26 @@ class TestTheNeutralPath:
     def test_no_band_is_bit_identical_to_the_fixed_amplitude(self, tier):
         data = _frames()
         assert torch.equal(
-            _emit(_cfg(TIERS[tier]), data),
-            _emit(_cfg(TIERS[tier], disparity_noise_px_range=None), data),
+            _emit(_cfg_live(TIERS[tier]), data),
+            _emit(_cfg_live(TIERS[tier], disparity_noise_px_range=None), data),
         )
 
     @pytest.mark.parametrize("tier", list(TIERS), ids=list(TIERS))
     def test_no_band_draws_no_randomness_of_its_own(self, tier):
-        """Construction and reset must leave the generator where they found it,
-        or every downstream draw in the episode shifts."""
-        cfg = _cfg(TIERS[tier], disparity_noise_px_range=None)
+        """Construction and reset must leave the generator where the fixed path
+        leaves it, or every downstream draw in the episode shifts."""
         torch.manual_seed(29)
-        before = torch.get_rng_state().clone()
-        model = DepthNoiseModel(cfg, NUM_ENVS, DEVICE)
-        model.reset(None)
-        model.reset(torch.arange(3))
-        assert torch.equal(before, torch.get_rng_state())
+        fixed = DepthNoiseModel(_cfg_live(TIERS[tier]), NUM_ENVS, DEVICE)
+        fixed.reset(None)
+        fixed.reset(torch.arange(3))
+        after_fixed = torch.get_rng_state().clone()
+
+        torch.manual_seed(29)
+        neutral = DepthNoiseModel(
+            _cfg_live(TIERS[tier], disparity_noise_px_range=None), NUM_ENVS, DEVICE)
+        neutral.reset(None)
+        neutral.reset(torch.arange(3))
+        assert torch.equal(after_fixed, torch.get_rng_state())
 
     def test_the_shipped_tiers_declare_no_band(self):
         """The band is wired to nothing until a training run turns it on."""
@@ -98,7 +123,7 @@ class TestTheNeutralPath:
 
 
 class TestTheBandIsAReparameterisation:
-    @pytest.mark.parametrize("sigma", [0.0, 0.08, 0.16])
+    @pytest.mark.parametrize("sigma", [0.002, 0.08, 0.16])
     def test_a_band_pinned_to_one_value_reproduces_that_fixed_amplitude(self, sigma):
         data = _frames()
         fixed = _emit(_cfg(REAL_ROBOT_CONTRACT, disparity_noise_px=sigma), data)
@@ -108,40 +133,77 @@ class TestTheBandIsAReparameterisation:
                             disparity_noise_px_range=(sigma, sigma)), data)
         assert torch.equal(fixed, pinned)
 
+    @pytest.mark.parametrize("tier", list(TIERS), ids=list(TIERS))
+    def test_a_pinned_band_matches_the_fixed_path_with_the_temporal_terms_live(self, tier):
+        """The band draws after every other per-env parameter, so switching it
+        on does not move the hold process's or the delay buffer's draws. Pinned
+        to the tier's own value it is invisible from the same seed."""
+        data = _frames()
+        contract = TIERS[tier]
+        sigma = contract.sensors.depth_camera.disparity_noise_px
+        fixed = _emit(_cfg_live(contract), data)
+        pinned = _emit(_cfg_live(contract, disparity_noise_px=0.5,
+                                 disparity_noise_px_range=(sigma, sigma)), data)
+        assert torch.equal(fixed, pinned)
+
     def test_a_reversed_band_is_read_as_the_interval_it_names(self):
         data = _frames()
-        forward = _emit(_cfg(REAL_ROBOT_CONTRACT,
-                             disparity_noise_px_range=(0.0, 0.16)), data)
+        forward = _emit(_cfg(REAL_ROBOT_CONTRACT, disparity_noise_px_range=BAND), data)
         reversed_ = _emit(_cfg(REAL_ROBOT_CONTRACT,
-                               disparity_noise_px_range=(0.16, 0.0)), data)
+                               disparity_noise_px_range=BAND[::-1]), data)
         assert torch.equal(forward, reversed_)
 
-    def test_a_negative_end_cannot_produce_a_negative_amplitude(self):
+    @pytest.mark.parametrize("band", [(0.0, 0.16), (-0.05, 0.16), (0.0, 0.0)])
+    def test_a_non_positive_end_is_refused(self, band):
+        """A log-uniform draw has no zero end. Silently clamping one would turn
+        the band into a different law at its low end."""
+        with pytest.raises(ValueError, match="positive"):
+            DepthNoiseModel(
+                _cfg(REAL_ROBOT_CONTRACT, disparity_noise_px_range=band),
+                NUM_ENVS, DEVICE)
+
+
+class TestTheDrawLaw:
+    def test_the_draw_is_log_uniform_not_uniform(self):
+        """Over [0.001, 0.1] the two laws disagree on the median by 5x: the
+        log-uniform median is the geometric mean 0.01, the uniform one 0.0505."""
+        torch.manual_seed(53)
+        low, high = 0.001, 0.1
         model = DepthNoiseModel(
-            _cfg(REAL_ROBOT_CONTRACT, disparity_noise_px_range=(-0.05, 0.0)),
-            NUM_ENVS, DEVICE)
-        assert model._disparity_range == (0.0, 0.0)
-        assert torch.all(model._env_coeff == 0.0)
+            _cfg(REAL_ROBOT_CONTRACT, disparity_noise_px_range=(low, high)),
+            4096, DEVICE)
+        sigma = model._env_coeff * model._focal_baseline
+        median = float(sigma.median())
+        assert median == pytest.approx((low * high) ** 0.5, rel=0.05)
+        assert median != pytest.approx(0.5 * (low + high), rel=0.5)
+
+    def test_each_decade_of_the_band_gets_equal_weight(self):
+        """The property the law is chosen for: a band spanning two decades puts
+        half its environments in each, where a uniform draw puts 9% in the
+        quiet one."""
+        torch.manual_seed(59)
+        model = DepthNoiseModel(
+            _cfg(REAL_ROBOT_CONTRACT, disparity_noise_px_range=(0.001, 0.1)),
+            4096, DEVICE)
+        sigma = (model._env_coeff * model._focal_baseline).ravel()
+        lower_decade = float((sigma < 0.01).to(torch.float64).mean())
+        assert lower_decade == pytest.approx(0.5, abs=0.03)
 
 
 class TestThePerEnvDraw:
     def test_each_env_draws_its_own_amplitude_inside_the_band(self):
         torch.manual_seed(31)
-        low, high = 0.0, 0.16
+        low, high = BAND
         model = DepthNoiseModel(
-            _cfg(REAL_ROBOT_CONTRACT, disparity_noise_px_range=(low, high)),
-            512, DEVICE)
+            _cfg(REAL_ROBOT_CONTRACT, disparity_noise_px_range=BAND), 512, DEVICE)
         sigma = model._env_coeff * model._focal_baseline
         assert sigma.min() >= low and sigma.max() <= high
         assert sigma.unique().numel() > 400  # a draw per env, not one shared
-        # Uniform on the band: the mean sits at its midpoint.
-        assert float(sigma.mean()) == pytest.approx(0.5 * (low + high), abs=0.01)
 
     def test_a_partial_reset_redraws_only_the_envs_it_names(self):
         torch.manual_seed(37)
         model = DepthNoiseModel(
-            _cfg(REAL_ROBOT_CONTRACT, disparity_noise_px_range=(0.0, 0.16)),
-            NUM_ENVS, DEVICE)
+            _cfg(REAL_ROBOT_CONTRACT, disparity_noise_px_range=BAND), NUM_ENVS, DEVICE)
         before = model._env_coeff.clone()
 
         reset_ids = torch.tensor([1, 4, 6])
@@ -153,33 +215,31 @@ class TestThePerEnvDraw:
     def test_a_full_reset_redraws_every_env(self):
         torch.manual_seed(41)
         model = DepthNoiseModel(
-            _cfg(REAL_ROBOT_CONTRACT, disparity_noise_px_range=(0.0, 0.16)),
-            NUM_ENVS, DEVICE)
+            _cfg(REAL_ROBOT_CONTRACT, disparity_noise_px_range=BAND), NUM_ENVS, DEVICE)
         before = model._env_coeff.clone()
         model.reset(None)
         assert not torch.equal(before, model._env_coeff)
 
-    def test_an_env_drawn_near_zero_carries_less_texture_than_one_drawn_high(self):
+    def test_an_env_drawn_quiet_carries_less_texture_than_one_drawn_loud(self):
         """The point of the band: the batch spans amplitudes, so a policy sees
-        featureless depth and textured depth in the same update."""
+        near-featureless depth and textured depth in the same update."""
         torch.manual_seed(43)
         data = torch.full((2, PIXELS), 4.0)
-        cfg = _cfg(REAL_ROBOT_CONTRACT, hole_probability=0.0,
-                   disparity_noise_px_range=(0.0, 0.16))
-        model = DepthNoiseModel(cfg, 2, DEVICE)
+        model = DepthNoiseModel(
+            _cfg(REAL_ROBOT_CONTRACT, hole_probability=0.0,
+                 disparity_noise_px_range=BAND), 2, DEVICE)
         with torch.no_grad():
-            model._env_coeff[0] = 0.0
-            model._env_coeff[1] = 0.16 / model._focal_baseline
+            model._env_coeff[0] = BAND[0] / model._focal_baseline
+            model._env_coeff[1] = BAND[1] / model._focal_baseline
         emitted = model(data.clone())
-        assert torch.equal(emitted[0], data[0])
-        assert float(emitted[1].std()) > 0.0
+        assert float(emitted[0].std()) < float(emitted[1].std()) / 10.0
 
 
 class TestTheContractPlumbing:
     @pytest.mark.parametrize("tier", list(TIERS), ids=list(TIERS))
     def test_the_contract_field_reaches_the_noise_model(self, tier):
         contract = TIERS[tier]
-        band = (0.0, contract.sensors.depth_camera.disparity_noise_px)
+        band = (0.002, contract.sensors.depth_camera.disparity_noise_px)
         contract.sensors.depth_camera.disparity_noise_px_range = band
         try:
             assert get_depth_noise(contract).disparity_noise_px_range == band

@@ -26,9 +26,9 @@ from strafer_shared.constants import (
     DEPTH_WIDTH,
 )
 
-# The bands the 2026-08-04 real-D555 measurement reports its sigma table in, in
-# metres. A pixel is binned by its own depth, so the quadratic depth dependence
-# of stereo error does not average across the frame.
+# Depth bands, in metres, matching the sensor's own error table. A pixel is
+# binned by its own depth, so the quadratic depth dependence of stereo error
+# does not average across the frame.
 DEPTH_TEXTURE_BANDS = (
     (0.4, 1.0),
     (1.0, 1.5),
@@ -57,8 +57,8 @@ def median3x3(frame: np.ndarray) -> np.ndarray:
     """3x3 median of ``frame``, border replicated.
 
     Replication keeps every pixel in the statistic. Dropping the border instead
-    would drop 246 of 3600 pixels and move the percentile off the value the
-    2026-09-17 texture table reports.
+    would exclude the frame's outermost ring and move the percentile, so the
+    two rules are not interchangeable.
     """
     image = _as_frame(frame)
     padded = np.pad(image, 1, mode="edge")

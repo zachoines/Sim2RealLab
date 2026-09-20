@@ -86,7 +86,7 @@ a throughput premise that #221 measured dead (≈1.1× at 96 environments, not t
       [`conventions.md`'s user-facing documentation maintenance
       section](../../context/conventions.md#user-facing-documentation-maintenance)
       for the surface list and trigger heuristics.
-- [x] No regression: pure suite 1356 passed / 1 skipped, composition contracts
+- [x] No regression: pure suite 1358 passed / 1 skipped, composition contracts
       269, full Kit suite 499 with one failure — the filed P3 flake
       `collision-imu-signal-flaky`, which the deposit shows failing on
       2026-09-13 and 2026-09-14, before this branch.

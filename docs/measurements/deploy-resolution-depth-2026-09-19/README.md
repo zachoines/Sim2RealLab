@@ -361,7 +361,7 @@ All at the measurement head, after the corrections in §7.
 
 | suite | result |
 |---|---|
-| pure python (`tests/`) | 1356 passed, 1 skipped |
+| pure python (`tests/`) | 1358 passed, 1 skipped |
 | full Kit suite (`run_tests.py`) | 499 tests, **1 failure**, 0 errors |
 | composition contracts (`test_sim/env`) | 269 passed |
 | byte-equality mutation | fails 3414/3600, as required |
@@ -398,7 +398,7 @@ reason §8 gives.
 |---|---|
 | repository | https://github.com/zachoines/Sim2RealLab-Artifacts |
 | deposit directory | `deploy-resolution-depth-2026-09-19/record-files/` |
-| deposit commit | `5910c921464290c4d8501325e5a4a6f08d7fead7` |
+| deposit commit | `52dc79116521f5f2a4abbcf61e9ed6418698e087` |
 
 Restore into this record's directory with:
 
@@ -468,8 +468,8 @@ b87f9f53552225dc0cf02b0c26de65b9d68030c33420c535967ed99ca9cdeaad  gates/gate_env
 7851fc33a7f38f084179611a50d7eb8e065ad0098babcfa136b946298607a3ed  gates/gate_kit_all_wd.log
 7851fc33a7f38f084179611a50d7eb8e065ad0098babcfa136b946298607a3ed  gates/gate_kit_all_wd.log.attempt1
 eb5de8f24dc65ecebcffc3c92ac5bc8253312897f764078990b8d2c21137d133  gates/gate_navigation.log
-389dc162a46b2b9c42d741ea1aee45ed9aeb2eb0b03d7037f6658fa51cf55c65  gates/gate_pure.log
-79ed8df8223a81a84d569d3cac3394d52cd0d011a7c4578764c020756694d17b  gates/gate_pure.xml
+38fc19eeff49d84708c3f9981fdff1e5468658d21560d17c6c10224c9711e956  gates/gate_pure.log
+161f8ee7acb2fecb83c14549c614fd08beeecc31909e9519b75375c4ac180af2  gates/gate_pure.xml
 d6bc8cf7f63f441c44ff08b7b1d9cf996a59ebdd854fc2d91da7a467575bbc89  gates/gate_rerun3.log
 f826b3a0d8d49bab15aa7ae661a69e1511ddad9713048fa67426b1cd1604f4b3  gates/gate_rerun3_wd.log
 f826b3a0d8d49bab15aa7ae661a69e1511ddad9713048fa67426b1cd1604f4b3  gates/gate_rerun3_wd.log.attempt1

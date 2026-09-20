@@ -33,11 +33,12 @@ RGB render product per environment that no observation term reads. At 96
 environments it is rendered 96 times per step and consumed zero times.
 
 Two things are known and bound the question. The depth annotator does not pass
-through DLSS — measured: `antialiasing_mode` "DLSS" against "Off" leaves
-`distance_to_image_plane` bit-identical over 3600 pixels while the colour
-channel's mean moves, so the upscaler's cost is the colour channel's alone. And
-the full render change costs 1.128× per iteration at 96 environments, which is
-the figure this channel sits inside.
+through DLSS — measured on `sim.render.antialiasing_mode`, where "Off" emits no
+DLSS log lines and shifts the colour mean by about 2.8 while
+`distance_to_image_plane` stays bit-identical over 3600 pixels — so the
+upscaler's cost is the colour channel's alone. And the full render change costs
+1.128× per iteration at 96 environments, which is the figure this channel sits
+inside.
 
 What is not known is its share of that, or whether the viewport tolerates its
 absence headless — the contract's claim is that clips go black and the headed

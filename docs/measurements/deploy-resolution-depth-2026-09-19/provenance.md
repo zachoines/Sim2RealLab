@@ -17,8 +17,9 @@ captured_date: 2026-09-19
 |---|---|
 | base commit | `b6975f5a4483b0e4519600f221b6d047dc1cea3d` (the #221 merge) |
 | branch | `task/deploy-resolution-depth` |
-| measurement head | `7a8778c4a9e545f5b399d05f81e9ccde74ccd78a` |
-| mutation arm | a detached worktree at the measurement head, `torch.median` substituted for the even-count median; the live tree was verified clean afterwards |
+| first-pass head | `7a8778c4a9e545f5b399d05f81e9ccde74ccd78a` |
+| measurement head | `be9efd2` and later, on the same branch — see the boot table below |
+| mutation arms | detached worktrees: `torch.median` substituted for the even-count median, one composition golden broken for the exit-code arms, and the reduction removed from the proximity penalty; the live tree was verified clean after each |
 | legacy-render arm | no tree change — the pre-change 80×45 camera is built in the probe's scratch cfg alongside the shipped one |
 
 ## Interpreter
@@ -41,6 +42,24 @@ resolve there rather than into an editable install pointing elsewhere.
 Kit-booting work ran through `tools/kit_boot_watchdog.sh`, one actor at a time,
 with `nvidia-smi --query-compute-apps` confirmed empty before each boot and the
 GPU released afterwards.
+
+## Which tree each boot ran on
+
+| boot | tree |
+|---|---|
+| first-pass contracts, navigation, pure, `run_tests.py all`, `depth_noise` re-run | `7a8778c` |
+| training smoke, export, exported-artifact rollout | `7a8778c` |
+| first drift probe (withdrawn) | `7a8778c` |
+| exit-code arms A and B | detached worktree at `069a852`, one golden broken |
+| drift re-measurement (`drift2/`) | `069a852` |
+| DLSS arms, first attempt (superseded) | `069a852` |
+| DLSS arms through `RenderCfg` (`dlss3/`) | `be9efd2` |
+| final pure suite, `run_tests.py all`, `run_tests.py env` | `6840405` |
+
+The first-pass gate artifacts `gates/gate_contracts.xml` and
+`gates/gate_navigation.log` are kept as the record of what that pass ran; the
+final-head results are `gates/kit_xml/test_results_env.xml` and
+`gates/gate_pure.xml`.
 
 ## Inputs read from other records
 
@@ -67,5 +86,6 @@ not in the model registry — they are a path check, not a trained artifact.
 | `smoke/export/depth_subgoal_v3_smoke.onnx` | see `DEPOSIT.md` |
 | `smoke/runs/run_20260919_174852/model_19.pt` | see `DEPOSIT.md` |
 
-`DEPOSIT.md` carries the sha256 of every one of the 111 deposited files; the
-record's evidence section cites the deposit commit that fixes those bytes.
+`DEPOSIT.md` carries the sha256 of every one of the 174 deposited files, and the
+record's evidence section lists the same digests and cites the deposit commit
+that fixes those bytes.

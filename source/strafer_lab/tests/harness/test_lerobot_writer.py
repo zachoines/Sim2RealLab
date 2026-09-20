@@ -71,16 +71,18 @@ class TestBuildFeatures:
         assert feats["observation.images.perception"]["dtype"] == "video"
         assert feats["observation.images.perception"]["shape"] == (360, 640, 3)
 
-    def test_policy_cam_optional(self):
+    def test_the_deprecated_policy_cam_bool_adds_no_colour_column(self):
+        """Neither setting of the bool produces a second colour column.
+
+        It existed to record the policy camera's colour at a smaller grid. At
+        one render resolution that column would be a byte-duplicate of the
+        perception one, so the token folds and the schema carries one.
+        """
         no_policy = build_features(capture_policy_cam=False)
         with_policy = build_features(capture_policy_cam=True)
         assert "observation.images.policy" not in no_policy
-        assert "observation.images.policy" in with_policy
-        # The rgb-policy DEBUG video is bottom-padded to an EVEN height for h264
-        # (80x45 -> 80x46); the depth-policy obs sidecar stays exactly 80x45.
-        assert with_policy["observation.images.policy"]["shape"] == (
-            DEPTH_HEIGHT + DEPTH_HEIGHT % 2, DEPTH_WIDTH, 3,
-        )
+        assert "observation.images.policy" not in with_policy
+        assert with_policy == no_policy
 
     def test_state_action_dims(self):
         feats = build_features()
@@ -95,9 +97,16 @@ class TestBuildFeatures:
         assert "observation.images.perception" in feats
         assert "observation.images.policy" not in feats
 
-    def test_cameras_required_grows_to_policy_rgb(self):
+    def test_a_requested_policy_rgb_folds_into_the_perception_column(self):
+        """``rgb_policy`` names the same image as ``rgb_full``.
+
+        Both cameras render one resolution and share mount, intrinsics and
+        clipping, so a stack naming the policy colour channel resolves to the
+        perception column rather than growing a duplicate of it.
+        """
         feats = build_features(cameras_required=("rgb_full", "rgb_policy"))
-        assert "observation.images.policy" in feats
+        assert "observation.images.policy" not in feats
+        assert feats == build_features(cameras_required=("rgb_full",))
 
     def test_depth_tokens_add_no_lerobot_column(self):
         """Depth modalities ride as sidecars, never as a LeRobot column."""
@@ -114,7 +123,7 @@ class TestBuildFeatures:
         assert build_features(capture_policy_cam=False) == build_features(
             cameras_required=("rgb_full",))
         assert build_features(capture_policy_cam=True) == build_features(
-            cameras_required=("rgb_full", "rgb_policy"))
+            cameras_required=("rgb_full",))
 
 
 class TestStackValidation:
@@ -202,7 +211,7 @@ class TestRoundTrip:
             fps=8,
             capture_git_sha="deadbeef",
             scene_metadata_hash="hash123",
-            cameras_required=("rgb_full", "rgb_policy", "depth_full"),
+            cameras_required=("rgb_full", "depth_full"),
             operator_handle="z",
             session_id="20260524_120000",
         ) as writer:
@@ -225,7 +234,6 @@ class TestRoundTrip:
                     achieved_vel=[1.0, 0.0, 0.0],
                     action=[1.0, 0.0, 0.0],
                     rgb_perception=_make_rgb(360, 640),
-                    rgb_policy=_make_rgb(DEPTH_HEIGHT, DEPTH_WIDTH),
                     depth_m=_make_depth(360, 640, base_m=2.0 + t * 0.1),
                 )
 
@@ -245,7 +253,8 @@ class TestRoundTrip:
         # Sample shape/typing
         sample = reloaded[0]
         assert "observation.images.perception" in sample
-        assert "observation.images.policy" in sample
+        # No policy colour column: rgb_policy folds into rgb_full.
+        assert "observation.images.policy" not in sample
         assert "observation.state" in sample
         assert "action" in sample
         # Images are CHW tensors by LeRobot convention
@@ -635,7 +644,7 @@ class TestPolicyDepthSidecar:
             fps=8,
             capture_git_sha="x",
             scene_metadata_hash="y",
-            cameras_required=("rgb_full", "rgb_policy", "depth_full", "depth_policy"),
+            cameras_required=("rgb_full", "depth_full", "depth_policy"),
         ) as writer:
             writer.begin_episode(
                 mission_text="t",
@@ -650,7 +659,6 @@ class TestPolicyDepthSidecar:
                     achieved_vel=[0.0] * 3,
                     action=[0.0] * 3,
                     rgb_perception=_make_rgb(360, 640),
-                    rgb_policy=_make_rgb(DEPTH_HEIGHT, DEPTH_WIDTH),
                     depth_m=_make_depth(360, 640, base_m=2.0),
                     depth_policy_m=_make_depth(DEPTH_HEIGHT, DEPTH_WIDTH, base_m=1.25),
                 )
@@ -674,7 +682,7 @@ class TestPolicyDepthSidecar:
             fps=8,
             capture_git_sha="x",
             scene_metadata_hash="y",
-            cameras_required=("rgb_full", "rgb_policy", "depth_full"),
+            cameras_required=("rgb_full", "depth_full"),
         ) as writer:
             writer.begin_episode(
                 mission_text="t",
@@ -688,7 +696,6 @@ class TestPolicyDepthSidecar:
                 achieved_vel=[0.0] * 3,
                 action=[0.0] * 3,
                 rgb_perception=_make_rgb(360, 640),
-                rgb_policy=_make_rgb(DEPTH_HEIGHT, DEPTH_WIDTH),
                 depth_m=_make_depth(360, 640),
             )
             writer.end_episode()

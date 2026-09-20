@@ -88,10 +88,12 @@ class TestTier1DispatchPath:
         assert "--output" in argv and "/tmp/test_dataset_doesnotexist" in argv
         # fps + vcodec defaults flow through.
         assert "--fps" in argv and "--vcodec" in argv
-        # The resolved sensor stack is forwarded. The default
-        # --capture-policy-cam=True resolves to perception + policy RGB.
+        # The resolved sensor stack is forwarded. The deprecated
+        # --capture-policy-cam resolves to the perception RGB either way: at
+        # one render resolution the policy camera's colour channel is the
+        # perception camera's image.
         assert "--sensors" in argv
-        assert argv[argv.index("--sensors") + 1] == "rgb_full,rgb_policy"
+        assert argv[argv.index("--sensors") + 1] == "rgb_full"
 
     def test_no_capture_policy_cam_resolves_to_rgb_only(self):
         runner = _StubRunner()
@@ -163,8 +165,15 @@ class TestSensorStackResolution:
         ) == ("rgb_full", "depth_policy")
 
     def test_none_falls_back_to_bool(self):
+        """The deprecated bool resolves either way to the perception RGB.
+
+        It selected a second colour column when the policy camera rendered a
+        smaller image. At one resolution that column would duplicate the
+        perception one, so both settings resolve to the same stack and the
+        flag survives as a no-op rather than as a failure.
+        """
         assert capture.resolve_sensor_stack(None, capture_policy_cam=True) == (
-            "rgb_full", "rgb_policy")
+            "rgb_full",)
         assert capture.resolve_sensor_stack(None, capture_policy_cam=False) == (
             "rgb_full",)
 

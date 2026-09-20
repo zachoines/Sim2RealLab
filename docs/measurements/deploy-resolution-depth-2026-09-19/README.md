@@ -387,7 +387,7 @@ reason §8 gives.
 |---|---|
 | repository | https://github.com/zachoines/Sim2RealLab-Artifacts |
 | deposit directory | `deploy-resolution-depth-2026-09-19/record-files/` |
-| deposit commit | `171bcceb90d1bbf106b556c5b57a45f99f38673c` |
+| deposit commit | `b836a47c21bdf8704a6e35b9eb37ba9b0f76f392` |
 
 Restore into this record's directory with:
 
@@ -404,6 +404,6 @@ cd Sim2RealLab-Artifacts/deploy-resolution-depth-2026-09-19/record-files
 grep -E '^[0-9a-f]{64}  ' DEPOSIT.md | sha256sum -c -
 ```
 
-The deposit's `DEPOSIT.md` carries the sha256 of all 111 files. The inputs this
+The deposit's `DEPOSIT.md` carries the sha256 of all 163 files. The inputs this
 record reads from other records are cited in `provenance.md` by their own
 deposits, and are not re-deposited here.

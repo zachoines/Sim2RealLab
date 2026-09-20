@@ -18,8 +18,11 @@ Set on a variant; `_ComposedStraferNavEnvCfg.__post_init__` materializes the
 standard manager cfgs from them.
 
 - **`SensorStackCfg(cameras_required=...)`** — tuple over `rgb_full` /
-  `depth_full` (640×360 perception camera) and `rgb_policy` / `depth_policy`
-  (80×60 policy camera). Drives which camera prims render **and** which image
+  `depth_full` (perception camera) and `rgb_policy` / `depth_policy` (policy
+  camera). Both cameras render 640×360 and differ in prim path and channel set;
+  the depth observation term reduces the policy camera's depth to the 80×45
+  policy grid, and `rgb_policy` folds into `rgb_full` on the capture side,
+  being the same image. Drives which camera prims render **and** which image
   observation terms the policy gets. An empty tuple is camera-free.
 - **`SceneSourceCfg(kind=...)`** — `plane` / `infinigen` / `procroom` / `none`.
   The seam that makes a foreign USD a parameter, not a subclass. Its

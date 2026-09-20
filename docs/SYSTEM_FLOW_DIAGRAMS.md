@@ -310,7 +310,7 @@ flowchart TB
         SceneUSD[("Assets/generated/scenes/<br/>scene_NN/scene.usdc")]
         Robot["StraferRobot<br/>ArticulationCfg"]
         Camera["d555_camera_perception<br/>640×360 RGB + depth"]
-        PolicyCam["d555_camera<br/>80×60 RGB"]
+        PolicyCam["d555_camera<br/>640×360 RGB+depth"]
 
         Picker["TeleopMissionPicker<br/>reads USD customData"]
         Writer["StraferLeRobotWriter<br/>LeRobot v3 + sidecars"]
@@ -337,7 +337,7 @@ flowchart TB
 
     Camera -->|RGB uint8| Writer
     Camera -->|depth float32 m| Writer
-    PolicyCam -->|RGB uint8 80x60| Writer
+    PolicyCam -->|depth reduced to 80x45| Writer
 
     Writer --> Dataset
     Writer --> DepthSidecar

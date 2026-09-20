@@ -31,6 +31,17 @@ field selecting it.
 There is no switch. 640×360 and 80×45 are both 16:9, so RTX derives the same
 vertical FOV for either and the 8× block ratio is exact in both axes.
 
+The two resolutions do get different post-processing, as a consequence of their
+size rather than as a separate choice: Isaac Lab defaults `antialiasing_mode` to
+DLSS at Performance, so the deploy-resolution product is configured for it while
+an 80×45 product is skipped as below the 64×64 floor. **That does not reach the
+depth annotator.** Rendering the same seeded scene at the same pose under
+`antialiasing_mode` "DLSS" and "Off" leaves `distance_to_image_plane`
+bit-identical over five frames and 3600 policy pixels, while the colour
+channel's mean moves — so the knob took effect and depth does not pass through
+the upscaler. §4's comparison is unaffected by it, and the cost DLSS carries
+belongs to the colour channel alone.
+
 The 2026-08-01 rejection of the higher-resolution render in
 `depth-camera-vfov-parity` is amended by §5 below, on budget. §4 measures the
 drift term that rejection estimated but never measured, and confirms it.
@@ -197,7 +208,10 @@ above it and nothing between 96 and 192 was measured.
 No NaN appears anywhere in the run. Peak system memory was 87810 MiB of 124543
 (#221's arm: 79174 MiB). The per-process figure is not comparable to #221's — it
 was sampled by a different method here and undercounts — so only the system
-figure is offered.
+figure is offered. The sampler matched on `train_strafer_navigation.py`, a
+pattern its own command line contains, so it never exited on its own; the series
+runs about 700 s past the smoke and into the export boot, and the peaks above are
+taken over the training window.
 
 The first boot stalled and the watchdog relaunched it:
 
@@ -206,8 +220,12 @@ The first boot stalled and the watchdog relaunched it:
 [kit-boot-watchdog smoke] attempt 2: exit=0 wall=1990s
 ```
 
-Six further relaunches occurred across the Kit suites. The stall is
-`kit-boot-hang-2026-09-11`, unchanged by this record.
+Seventeen relaunches occurred in all across this record's boots, every one the
+same stall: `kit-boot-hang-2026-09-11`, unchanged here. Sixteen carry a resident
+size of 48–66 MB; the export boot's stalled at **521 916 kB**, far past the
+others, which is a different point in the boot reaching the same parked state
+and is not otherwise accounted for. One suite (`commands`) exhausted all three
+attempts and was re-run.
 
 The export path runs on the smoke checkpoint: `obs_dim` 3619, `action_dim` 3,
 `is_recurrent` true, ONNX and TorchScript written with a sidecar. The exported
@@ -245,64 +263,113 @@ real-D555 capture and is untouched.
 
 ## 7. What the change broke, and what that says
 
-The policy camera's consumers assumed its render *was* the policy grid. Four
+The policy camera's consumers assumed its render *was* the policy grid. Five
 places did, and none were pre-registered:
 
-- The sim-in-the-loop capture adapter fed the raw render to the LeRobot writer,
-  which validates the policy streams at 80×45 — so any bridge or teleop capture
+- The **sim-in-the-loop capture** adapter fed the raw render to the LeRobot
+  writer, which validates the policy streams at 80×45 — so any bridge capture
   session would have raised on its first recorded frame. It now reduces through
   the same operator, which was lifted out of the observation term so there is
   one definition rather than two. Non-finite values are left alone for the
   capture, which records raw metres, so a fully culled block still records as
   culled.
-- `rgb_policy` has no reduction. At the deploy resolution it is the perception
-  camera's image, so the adapter now says that rather than letting the writer
-  fail on a shape.
-- The depth-noise integration suite built its geometric wall mask from the
+- The **teleop capture** did the same thing on its *default* invocation, which
+  is worse: `--capture-policy-cam` defaults on, so a session with no flags
+  requested the policy colour channel, launched Kit, loaded the scene and then
+  died on frame one. It reduces the depth the same way.
+- **`rgb_policy` has no reduction.** At one render resolution the policy
+  camera's colour channel is the perception camera's image, so the token folds
+  into `rgb_full` where stacks are normalised. Folding rather than refusing
+  keeps the deprecated flag and any stored stack working. The LeRobot schema
+  loses a colour column that would have been a byte-duplicate of the one it
+  keeps.
+- The **depth-noise integration suite** built its geometric wall mask from the
   camera's own resolution and indexed the depth observation with it — 230400
   against 3600. The mask belongs on the grid the observation lives on.
-- The perception-camera contract asserted the two cameras differ in size. They
-  now differ in prim path and channel set alone.
+- The **perception-camera contract** asserted the two cameras differ in size.
+  They differ in prim path and channel set alone. That contract also belonged to
+  no `run_tests.py` suite and had never executed; its assertions need no Kit
+  boot, so it moved to the pure tree.
 
-Two of these were caught only by the Kit suites, which the pure suite cannot
-reach. That is the lesson worth keeping: a change invisible to every
-composition golden still had four consumers, and the goldens said nothing about
-any of them.
+Only the Kit suites could see two of these, and the pure suite could not see any
+of them before the move. That is the lesson worth keeping: a change invisible to
+every composition golden still had five consumers, and the goldens said nothing
+about any of them.
 
-`depth_obstacle_proximity_penalty` reads the raw policy camera and so now
-computes over 230400 pixels rather than 3600. It ships inert (`weight=0.0`) and
-its cost is already inside the 101.6 s above, so nothing is changed for it here;
-its referent does become finer, which matters only if it is ever re-enabled.
+`depth_obstacle_proximity_penalty` reads the camera directly and its docstring
+is about what the policy senses, so it reduces too — restoring the referent it
+had before the render changed. **It is not inside the cost in §5**: it ships
+inert at `weight=0.0`, and Isaac Lab's reward manager skips zero-weight terms
+before calling them, so it never ran during the smoke. What re-enabling it would
+cost is unpriced, which the retrain brief records. The reduction is applied at
+that call site rather than inside the shared function, whose contract is the
+observation's: the penalty's geometry is resolution-general and is exercised on
+grids of any size.
 
 ## 8. A gate that cannot fail
 
-Running the composition contracts as raw `pytest test_sim/env` reports exit 0
-**regardless of failures**. Measured: with one golden deliberately broken, the
-suite recorded 9 failures in its junit XML and exited 0. The cause is
-`test_sim/conftest.py`'s `os._exit` teardown, which also truncates the terminal
-summary, so neither the exit code nor the printed tail shows the failure.
+Running the Isaac Sim suites as raw `pytest test_sim/...` reports exit 0
+**regardless of failures**. Measured in a detached worktree with one golden
+deliberately broken, two arms differing in one kwarg:
 
-`run_tests.py` is immune — it reads the junit XML rather than the exit code,
+| arm | teardown | junit failures | process exit |
+|---|---|---|---|
+| A | `simulation_app.close()` | 1 | **0** |
+| B | `simulation_app.close(exit_code=exitstatus)` | 1 | **1** |
+
+The attribution is the shutdown, not the teardown's own `os._exit`. That call
+passes pytest's own status and is correct — a Kit-free mimic of the same
+teardown exits 1. `SimulationApp.close` takes `exit_code: int = 0`, and with
+`/app/fastShutdown` enabled Kit terminates the process before the `finally`
+reaches `os._exit`. Isaac Sim documents exactly this: "Process exit status to
+preserve when fast shutdown terminates the process. Nonzero values flush stdio
+and exit with the supplied status before Kit's fast-shutdown path can replace it
+with 0."
+
+The truncated terminal summary is a **separate** effect of the same teardown and
+survives the fix: the session hook runs before the terminal reporter's, so the
+failure lines are never printed. Arm B exits 1 and still prints nothing after the
+progress bar.
+
+`run_tests.py` is immune and always has been — it decides from the junit XML,
 which is what #214 hardened it to do, and it correctly reported this record's
-`depth_noise` failures. The exposure is any gate invoked as raw pytest against
-`test_sim/`, including through the boot watchdog, which faithfully propagates
-the 0. Every contract figure in this record was read from the XML for that
-reason. This is not introduced here and nothing is changed for it; it is
-recorded because a gate invoked as raw pytest through the watchdog produces a
-false green.
+`depth_noise` failures. The exposure is every invocation that is not
+`run_tests.py`, including one wrapped in the boot watchdog, which propagates the
+false 0 faithfully. Every contract figure in this record was read from the XML
+for that reason.
+
+The symptom has been on record since 2026-08-23: the Isaac Lab stage-3 record
+logged a run showing 22 failures followed by `### pytest exit=0` and read that
+exit code as evidence the bare invocation was healthy, listing "the invocation"
+among the causes it excluded. Nothing is changed for it here; the fix and its
+proof are filed as `kit-suite-exit-code-false-green`.
 
 ## 9. Gates
 
+All at the measurement head, after the corrections in §7.
+
 | suite | result |
 |---|---|
-| pure python (`tests/`) | 1312 passed, 1 skipped |
-| navigation (band + temporal) | 339 passed |
+| pure python (`tests/`) | 1355 passed, 1 skipped |
+| full Kit suite (`run_tests.py`) | 499 tests, **1 failure**, 0 errors |
 | composition contracts (`test_sim/env`) | 269 passed |
-| full Kit suite (`run_tests.py all`) | 499 passed, 6 relaunches |
-| byte-equality mutation | fails on 3414/3600 pixels, as required |
+| byte-equality mutation | fails 3414/3600, as required |
+| exit-code arms (§8) | A exits 0 on 1 failure, B exits 1 |
 
-The full Kit suite first reported 497/499; the two failures were the wall-mask
-grid in §7, and `depth_noise` re-ran 6/6 after the fix.
+The one Kit failure is `test_collision_imu_mean_differs_from_free`, which is the
+filed P3 flake `collision-imu-signal-flaky`: restitution-0 contact physics
+leaves the collision mean riding the free-motion noise floor. It reproduced
+twice here and it is not this change's — the deposit's preserved failure XMLs
+carry the same test failing on 2026-09-13 and 2026-09-14, before this branch
+existed, and nothing here touches the IMU path.
+
+Two further first-run results were not this change's either and are recorded
+rather than hidden. `commands` exhausted all three boot attempts and produced no
+XML; re-run, 8/8. `noise_models` failed one hole-fill assertion once and passed
+67/67 on re-run — the module is docstring-only in this branch's diff.
+
+Every Kit figure is read from the junit XML rather than an exit code, for the
+reason §8 gives.
 
 ## 10. What is not claimed
 

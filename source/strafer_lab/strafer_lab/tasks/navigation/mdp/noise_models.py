@@ -500,8 +500,8 @@ class DepthNoiseModel(NoiseModel):
     RESOLUTION AXIS. f is the native-resolution focal length (673 px at 1280
     wide), so σ_z is a native-disparity quantity, but it is drawn i.i.d. per
     80x45 policy pixel, after the reduction rather than before it. Training and
-    deployment now share the reduction -- a median of 64 native pixels per
-    policy pixel -- so the clean fields agree; what this model adds is injected
+    deployment share the reduction -- a median of 64 native pixels per policy
+    pixel -- so the clean fields agree; what this model adds is injected
     downstream of it. A median attenuates an i.i.d. native field 6.46x and a
     perfectly correlated one not at all, so whether σ_d is to be read as native
     or as already post-reduction-equivalent still turns on the within-block

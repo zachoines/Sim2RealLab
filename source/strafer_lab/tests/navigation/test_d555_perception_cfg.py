@@ -10,12 +10,12 @@ parameters (focal length, aperture, mount offset, clipping range, update
 rate) as the policy camera — so a single physical D555 at deployment
 serves both pipelines without recalibration.
 
-Isaac Sim is launched by the root ``test_sim/conftest.py``; these tests only
+These are cfg assertions over ``strafer_shared`` constants and the camera
+factory, so they need no Kit boot and live with the pure suite; they only
 construct dataclasses and inspect their attributes. They do not instantiate
 a full env.
 """
 
-# --- Imports (Isaac Sim launched by root conftest.py) ---
 
 import pytest
 

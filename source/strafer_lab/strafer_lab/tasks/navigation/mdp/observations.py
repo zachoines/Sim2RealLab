@@ -52,15 +52,25 @@ def reduce_depth_to_policy_grid(depth: torch.Tensor) -> torch.Tensor:
 
     Takes and returns ``(N, H, W, C)``. A field already on the policy grid is
     returned unchanged, which is what keeps a camera cfg built at the policy
-    dimensions usable without a cfg field selecting it.
+    dimensions usable without a cfg field selecting it. Any other resolution
+    raises: passing one through would put an unreduced field in the
+    observation, where it reads as a silently wider tensor rather than a fault.
 
     Non-finite values sort to one end, so a block reduces to one only when
     most of it is non-finite. The observation term resolves them first, to
     match the deploy node; the capture path does not, so a fully culled block
     still records as culled.
     """
-    if depth.shape[1:3] != (PERCEPTION_HEIGHT, PERCEPTION_WIDTH):
+    shape = tuple(depth.shape[1:3])
+    if shape == (DEPTH_HEIGHT, DEPTH_WIDTH):
         return depth
+    if shape != (PERCEPTION_HEIGHT, PERCEPTION_WIDTH):
+        raise ValueError(
+            f"depth field is {shape[0]}x{shape[1]}; only "
+            f"{PERCEPTION_HEIGHT}x{PERCEPTION_WIDTH} (reduced here) and "
+            f"{DEPTH_HEIGHT}x{DEPTH_WIDTH} (already the policy grid) are "
+            f"accepted"
+        )
     blocks = depth.reshape(
         depth.shape[0], DEPTH_HEIGHT, _DEPTH_BLOCK_H,
         DEPTH_WIDTH, _DEPTH_BLOCK_W, -1,

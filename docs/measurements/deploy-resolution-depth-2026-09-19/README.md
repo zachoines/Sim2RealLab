@@ -32,9 +32,8 @@ There is no switch. 640×360 and 80×45 are both 16:9, so RTX derives the same
 vertical FOV for either and the 8× block ratio is exact in both axes.
 
 The 2026-08-01 rejection of the higher-resolution render in
-`depth-camera-vfov-parity` is amended by §5 below: its throughput premise is
-dead, and §4 shows its accuracy premise was wrong in the opposite direction from
-the one it assumed.
+`depth-camera-vfov-parity` is amended by §5 below, on budget. §4 measures the
+drift term that rejection estimated but never measured, and confirms it.
 
 ## 2. The two reductions are the same operator, bit for bit
 
@@ -47,8 +46,8 @@ different operator, not a rounding difference.
 Over 120 independent random 640×360 float32 fields — plain, and carrying +inf,
 NaN, −inf, a block straddling the near clip, and all of those at once — the
 training term and `downsample_depth` agree on every one of 3600 policy pixels,
-on every field. The dispatch's expectation was 20 trials; the probe runs six
-edge classes × 20.
+on every field. The plan expected 20 trials; the probe runs six edge classes
+× 20.
 
 The divergence the test exists to catch is the even-count median. numpy averages
 the two middle of 64; `torch.median` returns the lower-middle. Substituting
@@ -101,52 +100,78 @@ revert of the render resolution, and the term would then quietly stop reducing.
 That is why the camera resolution and the exact 8× ratio are pinned by an
 assertion in the new contract test rather than left to the hashes.
 
-## 4. The reduction drift is not small — it is the dominant term
+## 4. The reduction drift, measured with both cameras pointed the same way
 
-The 2026-08-01 rejection estimated the drift between the two renders as "an
-order below the noise envelope". It is not.
+The pre-change render and the reduced deploy-resolution render are compared from
+the same environment at the same tick, over **30 distinct poses** — the robot is
+driven with random actions and a frame pair taken every 8 steps.
 
-Both fields are read from the same environment at the same tick, from two
-cameras on the same body link with the same intrinsics, offset and clipping,
-differing in resolution and prim path alone — so no scene, pose or seed
-difference is in the comparison. Both then go through the observation term's own
-stages, so the comparison is between observations. Figures are normalised
-(metres ÷ `DEPTH_MAX`), and residuals bin each pixel by the surface it is on.
+**The first attempt at this measurement was confounded and its figures are
+withdrawn.** The enriched tiers carry `jitter_d555_camera_prim`, which consumes
+the sampled mount offset and writes it onto the shipped camera prim alone
+(`sensor_name="d555_camera"`). The scratch comparison camera never received it,
+so the two cameras differed by a rotation of up to the tier's mount band — 3° per
+axis on robust — and not by resolution alone. Checking that the two cfgs matched
+was not enough; an event rewrote one prim's pose after construction.
 
-| band (m) | new vs old, median p95 | pixels | the capture's own residual, for scale |
-|---|---|---|---|
-| 0.4–1.0 | 0.000100 | 800 | 0.00000106 |
-| 1.0–1.5 | 0.005874 | 338 | 0.00000025 |
-| 1.5–2.5 | 0.041863 | 704 | 0.00007583 |
-| 2.5–3.5 | 0.017535 | 793 | 0.00025480 |
-| 3.5–5.5 | 0.019509 | 921 | 0.00145850 |
+The probe now points the comparison prim with the same shipped function, and
+carries a third camera left deliberately unpointed so the confound's size is
+measured rather than asserted. Figures are normalised (metres ÷ `DEPTH_MAX`);
+residuals bin each pixel by the surface it is on.
 
-Whole frame, 0.018343. The two fields are **not** close: only 0.56 % of policy
-pixels are bit-identical, and the largest single-pixel difference over 30 frames
-is 0.351 normalised — 2.1 m. The per-band figures are stable across all 30
-frames (the maximum and the median agree to three significant figures), so this
-is structure, not noise: it is concentrated at depth discontinuities, where a
-single ray per policy pixel lands on whichever surface it happens to hit while a
-median of 64 returns the majority one. 81 % of the residual's high-pass is
-exactly zero, which is the same statement.
+| band (m) | drift, median p95 | the capture's own residual | ratio | the confound, for scale |
+|---|---|---|---|---|
+| 0.4–1.0 | 2.98e-08 | 1.06e-06 | 0.028× | 6.13e-05 |
+| 1.0–1.5 | 1.84e-06 | 2.48e-07 | 7.407× | 1.88e-03 |
+| 1.5–2.5 | 2.18e-06 | 7.58e-05 | 0.029× | 2.21e-03 |
+| 2.5–3.5 | 6.34e-05 | 2.55e-04 | 0.249× | 1.17e-02 |
+| 3.5–5.5 | 3.46e-04 | 1.46e-03 | 0.238× | 3.00e-02 |
 
-The pre-change field also carried **less** per-pixel texture than the reduced
-one: 0.000432 against 0.002389 on the same frame. The old render was not a
-smoothed version of the deploy field; it was a differently-aliased one.
+Whole frame, **1.69e-06** — about 310× below the 0.000524 the plan named, and
+below the capture's own residual in four of the five bands. The 1.0–1.5 m band
+reads 7.4× the capture's, but that is the smallest capture figure of the five
+(2.5e-07, essentially zero), so the ratio there carries little. Mean |Δ| across
+the frame is **1.9 mm**.
 
-Two pre-registrations fail here and are reported rather than met:
+**The confound was 67× the drift** on mean |Δ| (2.1e-02 against 3.2e-04
+normalised), which is why the withdrawn figures read as large.
+
+The drift is small in aggregate but **not uniformly small**: the median
+worst-pixel difference in a frame is 0.70 m and the largest over 30 frames is
+2.47 m, with 26 of 30 frames carrying at least one pixel past 6 cm. That is the
+expected signature of a sampling change at depth discontinuities — a single ray
+per policy pixel lands on whichever surface it hits, where a median of 64 returns
+the majority one — and it is confined to edges: only 11.3 % of pixels are
+bit-identical, yet the typical difference is a millimetre or two.
+
+The two fields also carry almost the same per-pixel texture on their own
+(0.000194 reduced against 0.000168 direct), so the reduction is not adding
+structure.
+
+**This confirms the 2026-08-01 estimate rather than overturning it.** That
+rejection called the reduction's drift contribution "a term already an order
+below the trained noise envelope" without measuring it; measured, it is further
+below than that. (Its separate "~0.8 mm at 6 m, an order below the depth-noise
+envelope" sentence is about the gap between two *reduction variants*, not this
+drift.) So this record fills a measurement gap; §5 is what amends the rejection,
+on budget.
+
+What that means for the change is not a weaker case but a different one. The
+argument was never that the old field was badly wrong — it is that the gate runs
+the artifact on the deploy field, and making training's clean field identical by
+construction removes the question rather than bounding it. The measurement says
+the change is faithful and safe, not that it was urgent.
+
+Two further notes on what was not obtained:
 
 - *New-vs-capture at the matched pose* was not obtainable. The 2026-08-22 anchor
   pose cannot be re-rendered — seed-42 room generation moved across the Isaac
-  Sim pair flip — so new-vs-old is reported alone, as the dispatch allowed.
-- *"≤ 0.000524 in every band"* is not a coherent threshold. 0.000524 is a
-  whole-frame valid-only figure over 2180 pixels; the capture's own per-band
-  residuals span 0.00000025 to 0.00145854, so the far band's baseline already
-  exceeds it. The per-band figures above are reported descriptively, against the
-  per-band capture column, and no pass/fail is claimed from them.
-
-None of this is a defect in the change. It is the measurement of what the change
-does, and it is larger than the noise question that motivated looking.
+  Sim pair flip — so new-vs-old is reported alone.
+- *"≤ 0.000524 in every band"* was not a coherent threshold, and this is the
+  plan's own scope error rather than a measurement problem: 0.000524 is a
+  whole-frame valid-only texture statistic over 2180 pixels, used as a per-band
+  drift ceiling. The per-band figures are reported descriptively against the
+  capture's per-band column, and no pass or fail is claimed from them.
 
 ## 5. Cost: 1.128× at 96 environments
 
@@ -263,8 +288,8 @@ which is what #214 hardened it to do, and it correctly reported this record's
 `test_sim/`, including through the boot watchdog, which faithfully propagates
 the 0. Every contract figure in this record was read from the XML for that
 reason. This is not introduced here and nothing is changed for it; it is
-recorded because the dispatch's own gate instruction would have produced a false
-green.
+recorded because a gate invoked as raw pytest through the watchdog produces a
+false green.
 
 ## 9. Gates
 

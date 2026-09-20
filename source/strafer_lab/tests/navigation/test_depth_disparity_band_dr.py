@@ -23,6 +23,8 @@ measured in the record rather than gated here, so the suite needs no device.
 
 from __future__ import annotations
 
+import hashlib
+
 import pytest
 import torch
 
@@ -42,6 +44,15 @@ PIXELS = HEIGHT * WIDTH
 NUM_ENVS = 8
 BAND = (0.002, 0.16)
 TIERS = {"realistic": REAL_ROBOT_CONTRACT, "robust": ROBUST_TRAINING_CONTRACT}
+
+# The bits each tier's depth noise produces with its band cleared -- the path
+# the tier ran before it carried one. Frozen literals, because a tier that
+# ships a band has no live fixed arm to compare against. Re-freeze by name when
+# a depth-noise parameter on that tier changes deliberately.
+_FIXED_PATH_FINGERPRINTS = {
+    "realistic": "3d0d224c8e2fb5411a8472bd549cd05eeaa15af17c64761d986a894e56fdd3a7",
+    "robust": "9401dc6518c944fe56f4f810cd5161b742094b379859f8594116e4016127ead1",
+}
 
 
 def _cfg(contract, **overrides) -> DepthNoiseModelCfg:
@@ -101,37 +112,45 @@ def _emit(cfg: DepthNoiseModelCfg, data: torch.Tensor, steps: int = 6,
 
 class TestTheNeutralPath:
     @pytest.mark.parametrize("tier", list(TIERS), ids=list(TIERS))
-    def test_a_cleared_band_is_bit_identical_to_the_fixed_amplitude(self, tier):
-        """Clearing the band returns the tier to its fixed amplitude exactly.
+    def test_a_cleared_band_reproduces_the_fixed_paths_own_bits(self, tier):
+        """Clearing the band returns the tier to the amplitude it had before one.
 
-        This is what lets a tier carry a band without the band being load
-        bearing for anything else: the drawn path and the fixed path differ
-        only in the amplitude, so an arm that clears it reproduces the
-        pre-band bits.
+        Pinned against a stored fingerprint rather than against another arm of
+        the same cfg: a tier that ships a band has no live fixed arm to compare
+        with, and comparing a cfg with itself would pass whatever the band did.
+        The fingerprint moves when the tier's other depth-noise parameters move,
+        and is re-frozen by name when they do.
         """
-        data = _frames()
-        sigma = TIERS[tier].sensors.depth_camera.disparity_noise_px
-        assert torch.equal(
-            _emit(_cfg_fixed(TIERS[tier]), data),
-            _emit(_cfg_fixed(TIERS[tier], disparity_noise_px=sigma), data),
+        digest = hashlib.sha256(
+            _emit(_cfg_fixed(TIERS[tier]), data=_frames()).numpy().tobytes()
+        ).hexdigest()
+        assert digest == _FIXED_PATH_FINGERPRINTS[tier], (
+            f"the {tier} tier's cleared-band output moved; if a depth-noise "
+            f"parameter changed deliberately, re-freeze this fingerprint"
         )
 
     @pytest.mark.parametrize("tier", list(TIERS), ids=list(TIERS))
-    def test_no_band_draws_no_randomness_of_its_own(self, tier):
-        """Construction and reset must leave the generator where the fixed path
-        leaves it, or every downstream draw in the episode shifts."""
-        torch.manual_seed(29)
-        fixed = DepthNoiseModel(_cfg_fixed(TIERS[tier]), NUM_ENVS, DEVICE)
-        fixed.reset(None)
-        fixed.reset(torch.arange(3))
-        after_fixed = torch.get_rng_state().clone()
+    def test_a_live_band_is_an_extra_draw_and_a_cleared_one_is_not(self, tier):
+        """The band is the only randomness the field adds.
 
-        torch.manual_seed(29)
-        neutral = DepthNoiseModel(
-            _cfg_fixed(TIERS[tier]), NUM_ENVS, DEVICE)
-        neutral.reset(None)
-        neutral.reset(torch.arange(3))
-        assert torch.equal(after_fixed, torch.get_rng_state())
+        Stated against a live band rather than against a second copy of the
+        cleared cfg, which would pass whatever the band did. Clearing it has to
+        leave the generator where the pre-band code left it, or every later
+        draw in the episode lands somewhere else.
+        """
+        def rng_after(cfg):
+            torch.manual_seed(29)
+            model = DepthNoiseModel(cfg, NUM_ENVS, DEVICE)
+            model.reset(None)
+            model.reset(torch.arange(3))
+            return torch.get_rng_state().clone()
+
+        cleared = rng_after(_cfg_fixed(TIERS[tier]))
+        banded = rng_after(_cfg_live(TIERS[tier], disparity_noise_px_range=BAND))
+        assert not torch.equal(cleared, banded), (
+            "a live band consumed no randomness, so clearing it cannot be what "
+            "returns the generator to where the pre-band code left it"
+        )
 
     def test_each_shipped_tier_declares_the_band_it_trains_on(self):
         """Robust draws over the band; realistic stays on one amplitude.

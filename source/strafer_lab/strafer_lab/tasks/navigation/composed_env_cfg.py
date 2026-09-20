@@ -109,7 +109,9 @@ from .strafer_env_cfg import (
 # (``d555_camera_perception``); ``*_policy`` ride the policy camera
 # (``d555_camera``). Both render 640x360 and differ in prim path and channel
 # set. RGB tokens request the ``rgb`` channel, depth tokens the
-# ``distance_to_image_plane`` channel.
+# ``distance_to_image_plane`` channel. On the capture side ``rgb_policy`` folds
+# into ``rgb_full``: at one resolution the two cameras' colour channels are the
+# same image, and only depth is reduced.
 SENSOR_TOKENS: tuple[str, ...] = ("rgb_full", "depth_full", "rgb_policy", "depth_policy")
 
 _POLICY_TOKENS = ("rgb_policy", "depth_policy")
@@ -189,6 +191,12 @@ class SensorStackCfg:
         fall back to ``nocam`` for the observation tensor — the rgb_policy
         camera still renders for capture, there is just no rgb-only image
         observation term.
+
+        ``full`` needs both policy tokens and no registered task asks for it.
+        Only the depth term reduces to the policy grid, so a ``full`` stack
+        would put the camera's colour channel in the observation at the render
+        resolution — 640x360x3 — rather than at any policy-sized grid. Size
+        that before using it.
         """
         has_depth = "depth_policy" in self.cameras_required
         has_rgb = "rgb_policy" in self.cameras_required

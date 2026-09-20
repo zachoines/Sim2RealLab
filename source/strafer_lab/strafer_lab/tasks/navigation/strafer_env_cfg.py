@@ -345,17 +345,19 @@ class StraferSceneCfg_InfinigenPerception(InteractiveSceneCfg):
     Same Infinigen room geometry and global-prim layout as
     :class:`StraferSceneCfg_Infinigen` but with both cameras present:
 
-    - ``d555_camera`` (80x45) — the RL policy camera, kept for parity with
-      the training scenes so the deployed model sees the same input shape.
+    - ``d555_camera`` — the RL policy camera, kept for parity with the
+      training scenes so the deployed model sees the same input shape. It
+      renders the deploy resolution; ``mdp.observations.depth_image`` reduces
+      its depth to the 80x45 policy grid.
     - ``d555_camera_perception`` (640x360) — the perception data-collection
       camera used by Replicator bbox extraction, gamepad teleop capture, and
       the Isaac Sim ROS2 bridge. Consumers access it via
       ``env.scene["d555_camera_perception"].data.output["rgb"]`` /
       ``["distance_to_image_plane"]``.
 
-    This scene is intentionally NOT used in RL training. At 640x360 Isaac
-    Sim caps parallel envs at ~1-8 (vs. 256+ at 80x45), so this scene is
-    reserved for data collection and ROS bridge work.
+    This scene is reserved for data collection and ROS bridge work: it
+    carries a second full-resolution camera and the bridge graph, not because
+    the resolution bounds the env count.
 
     See :class:`StraferSceneCfg_Infinigen` for why ``replicate_physics`` is
     disabled.
@@ -388,9 +390,8 @@ class StraferSceneCfg_InfinigenPerception(InteractiveSceneCfg):
         init_state=AssetBaseCfg.InitialStateCfg(rot=(0.866, 0.0, 0.5, 0.0)),  # 60° from vertical
     )
 
-    # Policy camera (80x45) — kept so the perception env matches the
-    # deployed observation shape; cheap to render alongside the perception
-    # camera when only 1-8 envs are active.
+    # Policy camera — kept so the perception env matches the deployed
+    # observation shape.
     d555_camera: TiledCameraCfg = make_d555_camera_cfg(
         data_types=("rgb", "distance_to_image_plane"),
     )
@@ -1189,8 +1190,8 @@ _PROCROOM_DEPTH_TRAIN_NUM_ENVS = 64
 _PROCROOM_NOCAM_PLAY_NUM_ENVS = 50
 _PROCROOM_DEPTH_PLAY_NUM_ENVS = 8
 _PROCROOM_ENV_SPACING = 10.0
-# The perception scene renders the 640x360 camera, which caps parallel envs at
-# ~1-8 — do not raise this to the policy-camera count.
+# The perception scene carries a second full-resolution camera and the
+# bridge graph, and runs one env at a time for that reason.
 _PROCROOM_PERCEPTION_TRAIN_NUM_ENVS = 1
 
 
@@ -1368,10 +1369,10 @@ class _BaseStraferNavEnvCfg(ManagerBasedRLEnvCfg):
         _apply_default_nav_runtime(self)
 
 
-# Perception data-collection envs run at 640x360 and therefore cap parallel
-# env count at 1-8. Start at 1 — the Isaac Sim ROS2 bridge and gamepad
-# teleop are both single-env workflows. The play override below can bump
-# this for batch captures.
+# Perception data-collection envs carry a second full-resolution camera and
+# the bridge graph. Start at 1 — the Isaac Sim ROS2 bridge and gamepad teleop
+# are both single-env workflows. The play override below can bump this for
+# batch captures.
 _INFINIGEN_PERCEPTION_TRAIN_NUM_ENVS = 1
 
 
@@ -1517,17 +1518,18 @@ class StraferSceneCfg_ProcRoomPerception(InteractiveSceneCfg):
     Same procedural-room geometry and per-env layout as
     :class:`StraferSceneCfg_ProcRoom`, but with both cameras present:
 
-    - ``d555_camera`` (80x45) — the RL policy camera, kept so the deployed
+    - ``d555_camera`` — the RL policy camera, kept so the deployed
       observation shape matches training (the bridge stack's ``depth_policy``
-      token reads it).
+      token reads it). It renders the deploy resolution and its depth is
+      reduced to the 80x45 policy grid.
     - ``d555_camera_perception`` (640x360 RGB + depth) — the perception camera
       the Isaac Sim ROS2 bridge streams as ``/d555/color/...`` and
       ``/d555/depth/...``. Consumers access it via
       ``env.scene["d555_camera_perception"].data.output[...]``.
 
-    Reserved for the ROS bridge / data collection, not RL training — at 640x360
-    Isaac Sim caps parallel envs at ~1-8. ``replicate_physics`` stays at its
-    default: ProcRoom rooms are per-env replicated primitives.
+    Reserved for the ROS bridge / data collection: it carries a second
+    full-resolution camera and the bridge graph. ``replicate_physics`` stays at
+    its default: ProcRoom rooms are per-env replicated primitives.
     """
 
     terrain = TerrainImporterCfg(
@@ -1549,9 +1551,8 @@ class StraferSceneCfg_ProcRoomPerception(InteractiveSceneCfg):
         spawn=sim_utils.DomeLightCfg(intensity=2000.0, color=(0.8, 0.8, 0.8)),
     )
 
-    # Policy camera (80x45) — kept so the perception env matches the deployed
-    # observation shape; cheap to render alongside the perception camera at the
-    # 1-8 env counts this scene runs at.
+    # Policy camera — kept so the perception env matches the deployed
+    # observation shape.
     d555_camera: TiledCameraCfg = make_d555_camera_cfg(
         data_types=("rgb", "distance_to_image_plane"),
     )
@@ -1650,8 +1651,8 @@ class StraferSceneCfg_ProcRoomPerceptionEnriched(StraferSceneCfg_ProcRoomPercept
     The ceiling shades the single global DomeLight out of the room, so the
     force-included RGB render (debug video / the bridge perception camera) goes
     dim; a per-env sphere light under the ceiling restores it, and depth is
-    geometry-only and unaffected. Only the 1-8-env perception path carries this
-    light. The 64-env depth path's policy camera still force-includes an rgb
+    geometry-only and unaffected. Only the single-env perception path carries
+    this light. The depth path's policy camera still force-includes an rgb
     channel (so the viewport/--video pipeline comes up) but gets no fill light —
     under enclosure its debug RGB is lit only by what reaches the room past the
     walls, which leaves the overhead recording legible and the floor dark. The

@@ -141,10 +141,9 @@ class IsaacLabEnvAdapter(EnvAdapter):
         self._cameras_required = tuple(cameras_required)
         if "rgb_policy" in self._cameras_required:
             raise ValueError(
-                "rgb_policy names the policy camera's colour channel at the "
-                "80x45 policy grid, which no longer exists: the policy camera "
-                "renders the deploy resolution and only its depth is reduced. "
-                "Use rgb_full, which is the same image.",
+                "rgb_policy has no reduction: the policy camera renders the "
+                "deploy resolution and only its depth is reduced to the policy "
+                "grid. Use rgb_full, which is the same image.",
             )
         self._perception_key = perception_sensor_key
         self._policy_key = policy_sensor_key

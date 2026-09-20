@@ -74,7 +74,9 @@ VALID_MISSION_SOURCES = sorted({m for _, m in VALID_COMBINATIONS})
 # Sensor-stack tokens shared with the env composition's SensorStackCfg and the
 # LeRobot writer's build_features — one ``cameras_required`` vocabulary so the
 # rendered cameras and the recorded columns cannot drift. ``*_full`` ride the
-# 640x360 perception camera, ``*_policy`` the 80x60 policy camera.
+# 640x360 perception camera, ``*_policy`` the policy camera. Both render the
+# same resolution; ``depth_policy`` is reduced to the 80x45 policy grid on the
+# way to the writer, and ``rgb_policy`` folds into ``rgb_full``.
 SENSOR_TOKENS: tuple[str, ...] = ("rgb_full", "depth_full", "rgb_policy", "depth_policy")
 
 # Named presets that resolve to a cameras_required tuple. RGB-only is the
@@ -102,7 +104,10 @@ def resolve_sensor_stack(
     ``--capture-policy-cam`` bool so existing invocations keep working.
     """
     if spec is None:
-        return ("rgb_full", "rgb_policy") if capture_policy_cam else ("rgb_full",)
+        # rgb_policy folds into rgb_full (see _normalize_cameras_required):
+        # both cameras render the deploy resolution and the colour channel is
+        # the same image.
+        return ("rgb_full",)
     spec = spec.strip()
     if spec in SENSOR_PRESETS:
         tokens: tuple[str, ...] = SENSOR_PRESETS[spec]
@@ -248,9 +253,10 @@ def _build_parser() -> argparse.ArgumentParser:
         "--capture-policy-cam",
         action=argparse.BooleanOptionalAction,
         default=True,
-        help="Deprecated — prefer --sensors. Capture the 80×60 policy camera "
-             "alongside the 640×360 perception camera. Used only when "
-             "--sensors is omitted.",
+        help="Deprecated — prefer --sensors. Both cameras render the same "
+             "resolution, so the policy camera's colour channel is the "
+             "perception camera's image and this flag records rgb_full either "
+             "way. Used only when --sensors is omitted.",
     )
     parser.add_argument(
         "--vcodec",

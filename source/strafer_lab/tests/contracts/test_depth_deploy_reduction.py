@@ -127,7 +127,7 @@ def test_the_reduction_is_byte_identical_to_the_deploy_pipeline():
     could miss them; the constructed straddle and bracket blocks guarantee at
     least two such blocks per trial.
     """
-    rng = np.random.default_rng(20260919)
+    rng = np.random.default_rng(7919)
     for trial in range(_TRIALS):
         raw = _rendered_field(rng)
         expected = obs_pipeline.downsample_depth(raw)
@@ -169,7 +169,7 @@ def test_the_even_count_median_is_what_makes_the_two_agree():
     sensitive to the one choice it exists to pin, rather than passing because
     both sides happen to be smooth.
     """
-    rng = np.random.default_rng(20260919)
+    rng = np.random.default_rng(7919)
     raw = _rendered_field(rng)
     expected = obs_pipeline.downsample_depth(raw)
 

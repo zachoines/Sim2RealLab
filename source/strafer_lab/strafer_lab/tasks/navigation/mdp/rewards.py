@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING
 
 import torch
 
+from .observations import reduce_depth_to_policy_grid
 from .proc_room import OBJECT_SIZES, ROBOT_HALF_WIDTH
 
 if TYPE_CHECKING:
@@ -809,6 +810,9 @@ def depth_obstacle_proximity_penalty(
         torch.full_like(depth, max_depth),
         depth,
     )
+    # The camera renders the deploy resolution; this term is about what the
+    # policy senses, so it reduces to the policy grid as the observation does.
+    depth = reduce_depth_to_policy_grid(depth)
     depth = torch.clamp(depth, 0.0, max_depth)
 
     num_envs, height, width = depth.shape[0], depth.shape[1], depth.shape[2]

@@ -387,7 +387,7 @@ reason §8 gives.
 |---|---|
 | repository | https://github.com/zachoines/Sim2RealLab-Artifacts |
 | deposit directory | `deploy-resolution-depth-2026-09-19/record-files/` |
-| deposit commit | `b836a47c21bdf8704a6e35b9eb37ba9b0f76f392` |
+| deposit commit | `c6eb91310c7d8f56888ae93518d0c90e36505cac` |
 
 Restore into this record's directory with:
 

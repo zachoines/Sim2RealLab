@@ -10,12 +10,12 @@ parameters (focal length, aperture, mount offset, clipping range, update
 rate) as the policy camera — so a single physical D555 at deployment
 serves both pipelines without recalibration.
 
-Isaac Sim is launched by the root ``test_sim/conftest.py``; these tests only
+These are cfg assertions over ``strafer_shared`` constants and the camera
+factory, so they need no Kit boot and live with the pure suite; they only
 construct dataclasses and inspect their attributes. They do not instantiate
 a full env.
 """
 
-# --- Imports (Isaac Sim launched by root conftest.py) ---
 
 import pytest
 
@@ -87,11 +87,13 @@ class TestPerceptionCameraResolution:
     def test_height(self, perception_cfg):
         assert perception_cfg.height == 360
 
-    def test_resolution_differs_from_policy(self, perception_cfg, policy_cfg):
-        assert perception_cfg.width != policy_cfg.width
-        assert perception_cfg.height != policy_cfg.height
-        assert perception_cfg.width > policy_cfg.width
-        assert perception_cfg.height > policy_cfg.height
+    def test_resolution_matches_the_policy_camera(self, perception_cfg, policy_cfg):
+        """Both cameras render the deploy stream, so they differ in prim path
+        and channel set alone. The policy's 80x45 grid is produced by the
+        observation term's reduction, not by a smaller render."""
+        assert perception_cfg.width == policy_cfg.width
+        assert perception_cfg.height == policy_cfg.height
+        assert perception_cfg.prim_path != policy_cfg.prim_path
 
 
 class TestPerceptionCameraDataTypes:
@@ -169,7 +171,7 @@ class TestInfinigenPerceptionSceneCfg:
     def test_has_policy_camera(self, scene_cfg):
         """Policy camera is kept so the deployed obs shape matches training."""
         assert hasattr(scene_cfg, "d555_camera")
-        assert scene_cfg.d555_camera.width < 640  # policy resolution
+        assert scene_cfg.d555_camera.width == 640  # the deploy render
 
     def test_has_perception_camera(self, scene_cfg):
         assert hasattr(scene_cfg, "d555_camera_perception")

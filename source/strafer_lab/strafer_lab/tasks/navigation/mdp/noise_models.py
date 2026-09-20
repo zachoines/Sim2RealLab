@@ -499,12 +499,14 @@ class DepthNoiseModel(NoiseModel):
 
     RESOLUTION AXIS. f is the native-resolution focal length (673 px at 1280
     wide), so σ_z is a native-disparity quantity, but it is drawn i.i.d. per
-    80x45 policy pixel with no reduction stage. The deploy path instead takes a
-    median of 64 native pixels per policy pixel, which attenuates an i.i.d.
-    field 6.46x and a perfectly correlated one not at all. Whether σ_d is
-    therefore to be read as native or as already post-reduction-equivalent
-    turns on the within-block correlation of real sensor depth, which no
-    capture has measured; both readings are consistent with the shipped value.
+    80x45 policy pixel, after the reduction rather than before it. Training and
+    deployment share the reduction -- a median of 64 native pixels per policy
+    pixel -- so the clean fields agree; what this model adds is injected
+    downstream of it. A median attenuates an i.i.d. native field 6.46x and a
+    perfectly correlated one not at all, so whether σ_d is to be read as native
+    or as already post-reduction-equivalent still turns on the within-block
+    correlation of real sensor depth, which no capture has measured; both
+    readings are consistent with the shipped value.
 
     Reference: Intel RealSense documentation on depth quality and error propagation
     https://openaccess.thecvf.com/content_cvpr_2017_workshops/w15/papers/Keselman_Intel_RealSense_Stereoscopic_CVPR_2017_paper.pdf

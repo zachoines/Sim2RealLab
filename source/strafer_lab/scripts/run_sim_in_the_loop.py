@@ -379,7 +379,9 @@ def _parse_args() -> argparse.Namespace:
         default=None,
         help="Harness mode: per-session sensor stack as a comma-separated "
              "token list over rgb_full,depth_full,rgb_policy,depth_policy. "
-             "The env renders and the writer records exactly this stack. "
+             "The env renders and the writer records this stack, except that "
+             "rgb_policy folds into rgb_full -- at one render resolution the "
+             "two cameras' colour channels are the same image. "
              "Defaults to the task's own stack (the bridge capture env "
              "ships rgb_full,depth_full,depth_policy). rgb_full + "
              "depth_full are mandatory unless --no-camera-bridge: the "

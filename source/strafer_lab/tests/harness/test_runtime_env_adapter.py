@@ -56,3 +56,32 @@ class TestSourceValidation:
                 cmd_vel_source=lambda: ((0.0, 0.0, 0.0), (0.0, 0.0, 0.0)),
                 action_source=lambda: torch.zeros(1, 3),
             )
+
+
+class TestThePolicyColourToken:
+    """Who folds `rgb_policy` and who refuses it, and in that order.
+
+    The capture stacks fold it into `rgb_full` where they are normalised, so a
+    stack that has been through that path never reaches the adapter carrying
+    it. The adapter refuses it outright, which is what a caller that bypassed
+    the normaliser gets. Both halves are asserted because the fold is what
+    makes the refusal unreachable in normal use.
+    """
+
+    def test_the_adapter_refuses_it(self):
+        with pytest.raises(ValueError, match="rgb_policy"):
+            _adapter(
+                action_source=lambda: torch.zeros((1, 3)),
+                cameras_required=("rgb_full", "rgb_policy"),
+            )
+
+    def test_a_normalised_stack_never_carries_it(self):
+        from strafer_lab.tools.lerobot_writer import _normalize_cameras_required
+
+        folded = _normalize_cameras_required(
+            ("rgb_full", "rgb_policy", "depth_policy"), None,
+        )
+        assert "rgb_policy" not in folded
+        assert "rgb_full" in folded
+        # So the adapter accepts what the normaliser produces.
+        _adapter(action_source=lambda: torch.zeros((1, 3)), cameras_required=folded)

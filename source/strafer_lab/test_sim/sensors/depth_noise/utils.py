@@ -542,12 +542,18 @@ def get_geometric_wall_mask(env, device: str = "cuda:0") -> torch.Tensor:
         device: Torch device
 
     Returns:
-        Boolean tensor of shape (height * width,) where True = wall pixel
+        Boolean tensor of shape (DEPTH_HEIGHT * DEPTH_WIDTH,) where True = wall
+        pixel — the grid the depth OBSERVATION lives on, which is what the mask
+        indexes. The camera renders the deploy resolution and the observation
+        term reduces it; a mask built at the render resolution would be 64x too
+        long. Both resolutions are 16:9 with the same aperture, so the derived
+        FOV is the same and the geometry below is unchanged by the choice.
     """
-    # Get camera config
+    from strafer_shared.constants import DEPTH_HEIGHT, DEPTH_WIDTH
+
     camera = env.scene["d555_camera"]
-    height = camera.cfg.height
-    width = camera.cfg.width
+    height = DEPTH_HEIGHT
+    width = DEPTH_WIDTH
 
     # Get camera intrinsics from spawn config
     spawn_cfg = camera.cfg.spawn

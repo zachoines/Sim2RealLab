@@ -296,7 +296,7 @@ picker (numeric index; Ctrl-D quits cleanly).
 | `--no-target-marker` | (marker on) | Suppress the green debug-draw sphere at the active target's position. Marker is operator-only (debug-draw is outside Replicator's render product) so it never enters captured frames; this flag is just for visual quiet |
 | `--capture-rate-hz 8` | matches `--fps` | Writer sample rate, decoupled from the env step rate. Env still steps every sim tick; writer only calls `add_frame` every `round(env_step_hz / capture_rate_hz)` ticks. Raise env_step_hz for smoother viewport without inflating dataset sample count |
 | `--no-pip-window` | (PIP on) | Suppress the cv2 first-person preview window |
-| `--no-capture-policy-cam` | (policy cam on) | Drop the 80×60 policy camera (RGB + depth sidecar). Smaller dataset, but downstream policies that mirror the RL observation pipeline need it |
+| `--no-capture-policy-cam` | (policy cam on) | Deprecated; prefer `--sensors`. Both cameras render one resolution, so the policy camera's colour channel is the perception camera's image and this flag records `rgb_full` either way. The `depth_policy` token still records the reduced 80×45 depth sidecar |
 | `--operator-handle <name>` | none | Stamped on every episode for multi-operator runs |
 | `--target-label-filter chair table` | none | Narrow the picker list |
 | `--max-steps-per-episode 1500` | 1500 | Auto-close cap (logs `outcome=failed`) |

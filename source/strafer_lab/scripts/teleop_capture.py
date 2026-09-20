@@ -92,14 +92,16 @@ def _build_parser() -> argparse.ArgumentParser:
         type=str, default=None,
         help="Per-session sensor stack as a comma-separated token list over "
         "rgb_full,depth_full,rgb_policy,depth_policy. The writer records "
-        "exactly this stack. Falls back to --capture-policy-cam when omitted.",
+        "exactly this stack; rgb_policy folds into rgb_full, which is the same "
+        "image. Falls back to --capture-policy-cam when omitted.",
     )
     parser.add_argument(
         "--capture-policy-cam",
         action=argparse.BooleanOptionalAction, default=True,
-        help="Deprecated — prefer --sensors. Capture the 80×60 policy camera "
-        "alongside the 640×360 perception camera. Used only when --sensors "
-        "is omitted.",
+        help="Deprecated — prefer --sensors. Both cameras render the same "
+        "resolution, so the policy camera's colour channel is the perception "
+        "camera's image and this flag records rgb_full either way. Used only "
+        "when --sensors is omitted.",
     )
     parser.add_argument(
         "--operator-handle", type=str, default=None,
@@ -230,6 +232,9 @@ import strafer_lab.tasks  # noqa: F401 — registers Strafer envs
 from isaaclab.envs.common import ViewerCfg
 from isaaclab_tasks.utils.parse_cfg import load_cfg_from_registry
 
+from strafer_lab.tasks.navigation.mdp.observations import (
+    reduce_depth_to_policy_grid,
+)
 from strafer_lab.tools.gamepad_reader import GamepadReader
 from strafer_lab.tools.phase_profiler import PhaseProfiler
 from strafer_lab.tools.lerobot_writer import (
@@ -911,7 +916,7 @@ def main() -> int:
     # cameras_required was resolved + applied to the env above; read only the
     # camera channels the declared stack records.
     needs_policy = (
-        "rgb_policy" in cameras_required or "depth_policy" in cameras_required
+        "depth_policy" in cameras_required
     )
     perception_camera = scene.sensors["d555_camera_perception"]
     policy_camera = scene.sensors.get("d555_camera") if needs_policy else None
@@ -1318,13 +1323,18 @@ def main() -> int:
                 rgb_policy = None
                 depth_policy_m = None
                 if policy_camera is not None:
-                    if "rgb_policy" in cameras_required:
-                        rgb_policy = _rgb_to_uint8_hwc(
-                            policy_camera.data.output["rgb"],
-                        )
                     if "depth_policy" in cameras_required:
+                        # The policy camera renders the deploy resolution; the
+                        # capture records what the policy consumes, so it
+                        # reduces as the observation term does.
                         depth_policy_m = _depth_to_float32_hw(
-                            policy_camera.data.output["distance_to_image_plane"],
+                            reduce_depth_to_policy_grid(
+                                _as_torch(
+                                    policy_camera.data.output[
+                                        "distance_to_image_plane"
+                                    ]
+                                )
+                            ),
                         )
                 achieved = _achieved_vel(unwrapped)
                 pose_after, _ = _robot_pose(unwrapped)

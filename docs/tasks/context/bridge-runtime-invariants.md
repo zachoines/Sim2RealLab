@@ -75,7 +75,7 @@ verbatim (with an off-policy warning at startup).
 
 | Camera | Resolution | Bridged? | Consumer |
 |--------|------------|----------|----------|
-| `d555_camera` (policy) | 80×60 | NO | RL policy depth observation only — never leaves the env |
+| `d555_camera` (policy) | 640×360 | NO | RL policy depth observation only — never leaves the env; the observation term reduces it to the 80×45 policy grid |
 | `d555_camera_perception` | 640×360 | YES | VLM grounding, RTAB-Map, depthimage_to_laserscan, goal projection, RViz/Foxglove |
 
 640×360 is **locked to the real D555 native rate** (see

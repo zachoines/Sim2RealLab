@@ -20,13 +20,66 @@ if TYPE_CHECKING:
     from isaaclab.sensors import TiledCamera, Camera, Imu
 import warp as wp
 
-from strafer_shared.constants import DEPTH_MAX, DEPTH_MIN, DEPTH_NEARFIELD_FILL
+from strafer_shared.constants import (
+    DEPTH_HEIGHT,
+    DEPTH_MAX,
+    DEPTH_MIN,
+    DEPTH_NEARFIELD_FILL,
+    DEPTH_WIDTH,
+    PERCEPTION_HEIGHT,
+    PERCEPTION_WIDTH,
+)
 from strafer_shared.mecanum_kinematics import INVERSE_KINEMATIC_MATRIX
 
 from .subgoal_drift import drift_referent
 
 # XYZW quaternion component indices (Isaac Lab 3.0 convention)
 QX, QY, QZ, QW = 0, 1, 2, 3
+
+# Exact integer block ratio between the rendered depth field and the
+# policy grid. The deploy node reduces by the same ratio.
+_DEPTH_BLOCK_H = PERCEPTION_HEIGHT // DEPTH_HEIGHT
+_DEPTH_BLOCK_W = PERCEPTION_WIDTH // DEPTH_WIDTH
+
+
+def reduce_depth_to_policy_grid(depth: torch.Tensor) -> torch.Tensor:
+    """Reduce a deploy-resolution depth field to the policy grid, or pass it on.
+
+    The deploy node's block median, as ``obs_pipeline.downsample_depth`` has
+    it. The mean of the two middle values is numpy's even-count median, which
+    ``torch.median`` (lower-middle) is not, and on a block straddling a depth
+    discontinuity the two differ by the size of the discontinuity.
+
+    Takes and returns ``(N, H, W, C)``. A field already on the policy grid is
+    returned unchanged, which is what keeps a camera cfg built at the policy
+    dimensions usable without a cfg field selecting it. Any other resolution
+    raises: passing one through would put an unreduced field in the
+    observation, where it reads as a silently wider tensor rather than a fault.
+
+    Non-finite values sort to one end, so a block reduces to one only when
+    most of it is non-finite. The observation term resolves them first, to
+    match the deploy node; the capture path does not, so a fully culled block
+    still records as culled.
+    """
+    shape = tuple(depth.shape[1:3])
+    if shape == (DEPTH_HEIGHT, DEPTH_WIDTH):
+        return depth
+    if shape != (PERCEPTION_HEIGHT, PERCEPTION_WIDTH):
+        raise ValueError(
+            f"depth field is {shape[0]}x{shape[1]}; only "
+            f"{PERCEPTION_HEIGHT}x{PERCEPTION_WIDTH} (reduced here) and "
+            f"{DEPTH_HEIGHT}x{DEPTH_WIDTH} (already the policy grid) are "
+            f"accepted"
+        )
+    blocks = depth.reshape(
+        depth.shape[0], DEPTH_HEIGHT, _DEPTH_BLOCK_H,
+        DEPTH_WIDTH, _DEPTH_BLOCK_W, -1,
+    ).permute(0, 1, 3, 5, 2, 4).reshape(
+        depth.shape[0], DEPTH_HEIGHT, DEPTH_WIDTH, -1,
+        _DEPTH_BLOCK_H * _DEPTH_BLOCK_W,
+    )
+    half = _DEPTH_BLOCK_H * _DEPTH_BLOCK_W // 2
+    return blocks.sort(dim=-1).values[..., half - 1:half + 1].mean(dim=-1)
 
 
 # Cache the torch-tensor form of the inverse mecanum kinematic matrix
@@ -624,7 +677,13 @@ def depth_image(
     1. Noise is applied to physical depth values (enables depth-dependent noise)
     2. Normalization happens via ObsTermCfg.scale parameter (Isaac Lab standard)
 
-    Pipeline: RAW meters → nearfield fill → noise → scale (1/max_depth) → [0, 1]
+    Pipeline: RAW meters → block median → nearfield fill → noise → scale
+    (1/max_depth) → [0, 1]
+
+    The camera renders at the deploy stream's resolution and this term
+    reduces it to the policy grid with the deploy node's block median, so
+    the clean training field is the deploy field by construction. The noise
+    term downstream sees the policy grid either way.
 
     Nearfield handling:
         The real D555 camera cannot resolve depth below ~0.4m.  In sim the near
@@ -658,6 +717,10 @@ def depth_image(
         torch.full_like(depth, max_depth),
         depth
     )
+
+    # Ordered as obs_pipeline.downsample_depth has it: after the non-finite
+    # rescue, before the nearfield fill.
+    depth = reduce_depth_to_policy_grid(depth)
 
     # Nearfield fill: pixels closer than D555's min range get a saturated
     # low value instead of their actual depth.  This prevents the policy

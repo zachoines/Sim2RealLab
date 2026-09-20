@@ -12,7 +12,8 @@ Four axis configurations drive the composition:
 
 - :class:`SensorStackCfg` — ``cameras_required`` over the tokens
   ``rgb_full`` / ``depth_full`` (the 640x360 perception camera channels) and
-  ``rgb_policy`` / ``depth_policy`` (the 80x45 policy camera channels). The
+  ``rgb_policy`` / ``depth_policy`` (the policy camera's channels; it renders
+  the same resolution and the observation term reduces the depth). The
   selected tokens decide which camera prims the scene renders and which image
   observation terms the policy receives.
 - :class:`SceneSourceCfg` — where the world geometry comes from (plane,
@@ -104,10 +105,13 @@ from .strafer_env_cfg import (
 # Axis vocabularies
 # ---------------------------------------------------------------------------
 
-# Sensor-stack tokens. ``*_full`` ride the 640x360 perception camera
-# (``d555_camera_perception``); ``*_policy`` ride the 80x45 policy camera
-# (``d555_camera``). RGB tokens request the ``rgb`` channel, depth tokens the
-# ``distance_to_image_plane`` channel.
+# Sensor-stack tokens. ``*_full`` ride the perception camera
+# (``d555_camera_perception``); ``*_policy`` ride the policy camera
+# (``d555_camera``). Both render 640x360 and differ in prim path and channel
+# set. RGB tokens request the ``rgb`` channel, depth tokens the
+# ``distance_to_image_plane`` channel. On the capture side ``rgb_policy`` folds
+# into ``rgb_full``: at one resolution the two cameras' colour channels are the
+# same image, and only depth is reduced.
 SENSOR_TOKENS: tuple[str, ...] = ("rgb_full", "depth_full", "rgb_policy", "depth_policy")
 
 _POLICY_TOKENS = ("rgb_policy", "depth_policy")
@@ -151,7 +155,7 @@ class SensorStackCfg:
             )
         return tuple(t for t in SENSOR_TOKENS if t in seen)
 
-    # -- policy camera (80x45) ------------------------------------------------
+    # -- policy camera ---------------------------------------------------------
 
     def has_policy_camera(self) -> bool:
         return any(t in self.cameras_required for t in _POLICY_TOKENS)
@@ -187,6 +191,12 @@ class SensorStackCfg:
         fall back to ``nocam`` for the observation tensor — the rgb_policy
         camera still renders for capture, there is just no rgb-only image
         observation term.
+
+        ``full`` needs both policy tokens and no registered task asks for it.
+        Only the depth term reduces to the policy grid, so a ``full`` stack
+        would put the camera's colour channel in the observation at the render
+        resolution — 640x360x3 — rather than at any policy-sized grid. Size
+        that before using it.
         """
         has_depth = "depth_policy" in self.cameras_required
         has_rgb = "rgb_policy" in self.cameras_required
@@ -438,7 +448,7 @@ def _prune_scene_cameras(scene, sensors: SensorStackCfg) -> None:
     policy: the RTX viewport / ``--video`` colour pipeline needs an rgb render
     product to come up, independent of what the observation reads.
     """
-    # Policy camera (80x45): rgb (for the viewport) unioned with observed channels.
+    # Policy camera: rgb (for the viewport) unioned with observed channels.
     if sensors.has_policy_camera():
         if hasattr(scene, "d555_camera"):
             data_types = sensors.policy_data_types()

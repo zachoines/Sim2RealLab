@@ -7,18 +7,18 @@ scene.
 Two camera configurations coexist:
 
 - **Policy camera** (`make_d555_camera_cfg`, prim path ``d555_camera``):
-  80x45 RGB + depth (16:9, matching the real D555 stream's vertical FOV;
-  see ``strafer_shared.constants.DEPTH_HEIGHT``). Consumed by the RL policy's
-  observation pipeline.
-  This is the original config and is used by every ``StraferSceneCfg*``
-  scene class that feeds the navigation policy.
+  640x360 RGB + depth. Consumed by the RL policy's observation pipeline,
+  which reduces it to the 80x45 policy grid with the deploy node's block
+  median. Used by every ``StraferSceneCfg*`` scene class that feeds the
+  navigation policy.
 
 - **Perception camera** (`make_d555_perception_camera_cfg`, prim path
-  ``d555_camera_perception``): 640x360 RGB + depth. Used ONLY by
-  perception data collection, Replicator bbox extraction, and the
-  Isaac Sim ROS2 bridge. Never instantiated in an RL training env —
-  at 640x360 Isaac Sim can only render 1-8 parallel envs, so mixing
-  it with the RL policy's large env counts would wreck throughput.
+  ``d555_camera_perception``): 640x360 RGB + depth. Used by perception data
+  collection, Replicator bbox extraction, and the Isaac Sim ROS2 bridge.
+
+Both render at the deploy stream's resolution, which is 16:9 like the
+80x45 policy grid, so RTX derives the same vertical FOV for either and the
+8x block ratio is exact.
 
 Source of truth for real hardware specs: :mod:`strafer_shared.constants`.
 Every value that mirrors a real-world D555 property — native capture
@@ -56,9 +56,7 @@ from strafer_shared.constants import (
     D555_FOCAL_LENGTH_MM,
     D555_HORIZONTAL_APERTURE_MM,
     D555_RENDER_FAR_CLIP_M,
-    DEPTH_HEIGHT,
     DEPTH_SIM_CLIP_NEAR,
-    DEPTH_WIDTH,
     IMU_UPDATE_PERIOD_S,
     PERCEPTION_HEIGHT,
     PERCEPTION_WIDTH,
@@ -120,19 +118,24 @@ D555_PERCEPTION_DATA_TYPES: tuple[str, ...] = ("rgb", "distance_to_image_plane")
 
 
 def make_d555_camera_cfg(*, data_types: tuple[str, ...]) -> TiledCameraCfg:
-    """Create the standard Strafer D555 camera config (80x45, policy input).
+    """Create the standard Strafer D555 camera config (640x360, policy input).
 
-    80x45 is 16:9, so Isaac Sim's resolution-derived (square-pixel) vertical FOV
-    is 56.4 deg — matching the real D555 / perception camera. (RTX ignores the
-    authored ``vertical_aperture``; resolution is the only lever — see
-    ``strafer_shared.constants.DEPTH_HEIGHT``.)
+    Renders at the deploy stream's resolution;
+    ``mdp.observations.depth_image`` reduces it to the 80x45 policy grid with
+    the deploy node's 8x8 block median, so the observation the policy consumes
+    is the deploy field rather than a separately rendered one.
+
+    640x360 and 80x45 are both 16:9, so Isaac Sim's resolution-derived
+    (square-pixel) vertical FOV is 56.4 deg either way — matching the real
+    D555. (RTX ignores the authored ``vertical_aperture``; resolution is the
+    only lever — see ``strafer_shared.constants.DEPTH_HEIGHT``.)
     """
 
     return TiledCameraCfg(
         prim_path=D555_CAMERA_PRIM_PATH,
         update_period=CAMERA_UPDATE_PERIOD_S,
-        height=DEPTH_HEIGHT,
-        width=DEPTH_WIDTH,
+        height=PERCEPTION_HEIGHT,
+        width=PERCEPTION_WIDTH,
         data_types=list(data_types),
         spawn=sim_utils.PinholeCameraCfg(
             focal_length=D555_FOCAL_LENGTH_MM,
@@ -151,8 +154,8 @@ def make_d555_perception_camera_cfg() -> TiledCameraCfg:
     """Create the Strafer D555 perception camera config (640x360, RGB + depth).
 
     Used for Replicator bbox extraction, perception data collection, and the
-    Isaac Sim ROS2 bridge. NOT for RL training — the higher resolution caps
-    parallel env count at ~1-8.
+    Isaac Sim ROS2 bridge. Distinct from the policy camera only in prim path
+    and channel set — both render at this resolution.
 
     All physical parameters (focal length, aperture, clipping range, mount
     offset, update rate) are imported from :mod:`strafer_shared.constants`

@@ -121,7 +121,9 @@ def _pad_rgb_to_video_height(rgb: np.ndarray) -> np.ndarray:
 # env render set and this writer's schema are both driven from one
 # ``cameras_required`` tuple so the rendered cameras and the recorded columns
 # cannot drift. ``*_full`` ride the 640x360 perception camera, ``*_policy``
-# the 80x45 policy camera; RGB tokens are LeRobot video columns, depth tokens
+# the policy camera, whose depth the observation term reduces to 80x45 and
+# whose colour is the perception camera's image; RGB tokens are LeRobot video
+# columns, depth tokens
 # ride as 16UC1 PNG sidecars.
 CAMERA_TOKENS: tuple[str, ...] = ("rgb_full", "depth_full", "rgb_policy", "depth_policy")
 
@@ -135,12 +137,22 @@ def _normalize_cameras_required(
     ``capture_policy_cam`` is the deprecated bool that only ever toggled the
     policy RGB video column; it maps to a ``cameras_required`` tuple when no
     explicit stack is given.
+
+    ``rgb_policy`` folds into ``rgb_full``. Both cameras render the deploy
+    resolution and share mount, intrinsics and clipping, so the policy camera's
+    colour channel is the perception camera's image; only the depth channel
+    still differs, by the reduction the observation term applies. Folding
+    rather than refusing keeps the deprecated flag and any stored stack
+    working.
     """
     if capture_policy_cam is not None and cameras_required is None:
-        cameras_required = ("rgb_full", "rgb_policy") if capture_policy_cam else ("rgb_full",)
+        cameras_required = ("rgb_full",)
     if cameras_required is None:
         cameras_required = ("rgb_full",)
     requested = set(cameras_required)
+    if "rgb_policy" in requested:
+        requested.discard("rgb_policy")
+        requested.add("rgb_full")
     unknown = requested - set(CAMERA_TOKENS)
     if unknown:
         raise ValueError(

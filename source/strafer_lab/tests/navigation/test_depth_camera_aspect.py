@@ -13,6 +13,8 @@ from __future__ import annotations
 
 from fractions import Fraction
 
+import pytest
+
 from strafer_shared.constants import (
     DEPTH_HEIGHT,
     DEPTH_WIDTH,
@@ -30,4 +32,46 @@ def test_policy_and_perception_cameras_share_aspect_ratio():
         f"{PERCEPTION_WIDTH}x{PERCEPTION_HEIGHT} (={perception_aspect}) aspect ratios "
         "differ: the policy render would span a different vertical FOV than the "
         "sensor stream deployment feeds it. Keep both aspect ratios equal."
+    )
+
+
+# The composition rebuilds the policy camera rather than inheriting the scene
+# class's, so the factory is not the seam that decides what is rendered. Every
+# composed variant carrying a policy camera is checked against the resolution
+# the observation term's reduction is gated on.
+_POLICY_CAMERA_VARIANTS = (
+    "StraferNavCfg_RLDepth_Real",
+    "StraferNavCfg_RLDepth_Robust",
+    "StraferNavCfg_RLDepth_Real_PLAY",
+    "StraferNavCfg_RLDepth_Robust_PLAY",
+    "StraferNavCfg_RLDepthSubgoal_Real",
+    "StraferNavCfg_RLDepthSubgoal_Robust",
+    "StraferNavCfg_RLDepthSubgoal_Real_PLAY",
+    "StraferNavCfg_RLDepthSubgoal_Robust_PLAY",
+    "StraferNavCfg_RLDepthEnriched_Real",
+    "StraferNavCfg_RLDepthEnriched_Robust",
+    "StraferNavCfg_RLDepthEnriched_Real_PLAY",
+    "StraferNavCfg_RLDepthEnriched_Robust_PLAY",
+    "StraferNavCfg_RLDepthSubgoalEnriched_Real",
+    "StraferNavCfg_RLDepthSubgoalEnriched_Robust",
+    "StraferNavCfg_RLDepthSubgoalEnriched_Real_PLAY",
+    "StraferNavCfg_RLDepthSubgoalEnriched_Robust_PLAY",
+)
+
+
+@pytest.mark.parametrize("variant", _POLICY_CAMERA_VARIANTS)
+def test_composed_variants_render_the_reductions_input(variant):
+    """The rendered resolution is what the reduction is gated on.
+
+    The composition goldens cannot reach this: the contract serializer takes
+    only ``num_envs`` and ``env_spacing`` off the scene, so a camera resolution
+    change moves no hash. Without this assertion the render and the reduction
+    could drift apart and the term would pass the field through unreduced.
+    """
+    from strafer_lab.tasks.navigation import composed_env_cfg as composed
+
+    cam = getattr(composed, variant)().scene.d555_camera
+    assert (cam.height, cam.width) == (PERCEPTION_HEIGHT, PERCEPTION_WIDTH), (
+        f"{variant} renders {cam.height}x{cam.width}; the reduction is gated "
+        f"on {PERCEPTION_HEIGHT}x{PERCEPTION_WIDTH}"
     )

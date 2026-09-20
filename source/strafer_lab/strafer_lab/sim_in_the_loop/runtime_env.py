@@ -40,6 +40,9 @@ from __future__ import annotations
 from typing import Any, Callable, Sequence
 
 from strafer_lab.sim_in_the_loop.harness import EnvAdapter, FrameBundle
+from strafer_lab.tasks.navigation.mdp.observations import (
+    reduce_depth_to_policy_grid,
+)
 from strafer_shared.constants import MAX_ANGULAR_VEL, MAX_LINEAR_VEL
 
 
@@ -136,6 +139,12 @@ class IsaacLabEnvAdapter(EnvAdapter):
         self._cmd_vel_source = cmd_vel_source
         self._action_source = action_source
         self._cameras_required = tuple(cameras_required)
+        if "rgb_policy" in self._cameras_required:
+            raise ValueError(
+                "rgb_policy has no reduction: the policy camera renders the "
+                "deploy resolution and only its depth is reduced to the policy "
+                "grid. Use rgb_full, which is the same image.",
+            )
         self._perception_key = perception_sensor_key
         self._policy_key = policy_sensor_key
         self._robot_key = robot_sensor_key
@@ -226,8 +235,15 @@ class IsaacLabEnvAdapter(EnvAdapter):
             if "rgb_policy" in self._cameras_required:
                 rgb_policy_np = self._to_uint8_hwc(policy_camera.data.output["rgb"])
             if "depth_policy" in self._cameras_required:
+                # The policy camera renders the deploy resolution; the capture
+                # records what the policy consumes, so it reduces the same way
+                # the observation term does.
                 depth_policy_np = self._to_float32_hw(
-                    policy_camera.data.output["distance_to_image_plane"],
+                    reduce_depth_to_policy_grid(
+                        self._to_torch(
+                            policy_camera.data.output["distance_to_image_plane"]
+                        )
+                    ),
                 )
 
         lin_b = self._to_torch(robot.data.root_lin_vel_b)[0].detach().cpu().tolist()

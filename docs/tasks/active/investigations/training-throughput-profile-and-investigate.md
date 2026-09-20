@@ -59,7 +59,7 @@ not attributed across:
 | Suspect phase | Why it matters |
 |---|---|
 | `sim.step` (PhysX) | Scales with `num_envs` and collision complexity. Procroom adds furniture clutter vs. the cleaner standard envs. |
-| `sim.render` (GPU) | TiledCamera (80×60 policy cam) renders per env per step. At `num_envs=256` this is non-trivial GPU bandwidth. |
+| `sim.render` (GPU) | TiledCamera (policy cam, 640×360 since the observation term reduces) renders per env per step. At `num_envs=256` this is non-trivial GPU bandwidth. |
 | IsaacLab manager loop | Observation / event / termination / reward dispatch every step. At high env counts the per-env cost amortizes but the per-step Python overhead remains. |
 | Policy forward (`act`) | rsl_rl's per-step action sampling. CPU-GPU sync; potentially blocks on PhysX queueing if streams are entangled. |
 | Policy backward + optimizer step | PPO update phase. Runs once per `num_steps_per_env` collection cycle. |
@@ -75,7 +75,7 @@ sub-briefs second.
 
 ### What's known *without* measurement, and what's deliberately NOT acted on
 
-- At `num_envs=256+` with the 80×60 policy camera, GPU rendering
+- At `num_envs=256+` with the policy camera at the deploy resolution, GPU rendering
   is *probably* a significant fraction of wall time — but
   "probably" is not actionable.
 - The IsaacLab manager loop at 20 ms per step amortizes to

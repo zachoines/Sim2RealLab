@@ -55,6 +55,7 @@ GPU released afterwards.
 | DLSS arms, first attempt (superseded) | `069a852` |
 | DLSS arms through `RenderCfg` (`dlss3/`) | `be9efd2` |
 | final pure suite, `run_tests.py all`, `run_tests.py env` | `6840405` |
+| round-two pure suite and `run_tests.py env` | `f2f9cd1` |
 
 The first-pass gate artifacts `gates/gate_contracts.xml` and
 `gates/gate_navigation.log` are kept as the record of what that pass ran; the
@@ -86,6 +87,6 @@ not in the model registry — they are a path check, not a trained artifact.
 | `smoke/export/depth_subgoal_v3_smoke.onnx` | see `DEPOSIT.md` |
 | `smoke/runs/run_20260919_174852/model_19.pt` | see `DEPOSIT.md` |
 
-`DEPOSIT.md` carries the sha256 of every one of the 174 deposited files, and the
+`DEPOSIT.md` carries the sha256 of every one of the 175 deposited files, and the
 record's evidence section lists the same digests and cites the deposit commit
 that fixes those bytes.

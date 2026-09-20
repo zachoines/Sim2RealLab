@@ -74,9 +74,9 @@ class TestBuildFeatures:
     def test_the_deprecated_policy_cam_bool_adds_no_colour_column(self):
         """Neither setting of the bool produces a second colour column.
 
-        It existed to record the policy camera's colour at a smaller grid. At
-        one render resolution that column would be a byte-duplicate of the
-        perception one, so the token folds and the schema carries one.
+        Both cameras render one resolution, so a policy colour column would be
+        a byte-duplicate of the perception one. The token folds and the schema
+        carries a single colour column.
         """
         no_policy = build_features(capture_policy_cam=False)
         with_policy = build_features(capture_policy_cam=True)

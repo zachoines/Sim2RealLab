@@ -167,10 +167,10 @@ class TestSensorStackResolution:
     def test_none_falls_back_to_bool(self):
         """The deprecated bool resolves either way to the perception RGB.
 
-        It selected a second colour column when the policy camera rendered a
-        smaller image. At one resolution that column would duplicate the
-        perception one, so both settings resolve to the same stack and the
-        flag survives as a no-op rather than as a failure.
+        Both cameras render one resolution, so a separate policy colour column
+        would duplicate the perception one. Both settings therefore resolve to
+        the same stack, and the flag survives as a no-op rather than as a
+        failure.
         """
         assert capture.resolve_sensor_stack(None, capture_policy_cam=True) == (
             "rgb_full",)

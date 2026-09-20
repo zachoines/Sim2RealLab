@@ -197,6 +197,47 @@ def test_penalty_saturates_at_near_contact():
     assert math.isclose(p_near[0].item(), _expected(0.05), rel_tol=1e-5)
 
 
+def test_a_deploy_resolution_field_is_reduced_before_the_minimum():
+    """The term reads the policy field, not the render the camera emits.
+
+    Chosen so the two answers disagree: a single near pixel inside one 8x8
+    block is outvoted by the block's median, so the policy never sees it and
+    the penalty is zero. Taking the minimum over the unreduced render would
+    instead return that pixel and fire the term — a different statistic on the
+    same scene.
+    """
+    from strafer_shared.constants import (
+        DEPTH_HEIGHT,
+        DEPTH_WIDTH,
+        PERCEPTION_HEIGHT,
+        PERCEPTION_WIDTH,
+    )
+
+    raw = torch.full((1, PERCEPTION_HEIGHT, PERCEPTION_WIDTH, 1), 6.0)
+    raw[0, 0, 0, 0] = 0.2  # one raw pixel, outvoted by its block
+    assert depth_obstacle_proximity_penalty(env := _env_with_depth(raw), _SENSOR_CFG)[
+        0
+    ].item() == 0.0, "the term read a raw pixel the policy grid does not carry"
+
+    # A whole block near: the policy does see it, and the term fires on it.
+    block = PERCEPTION_HEIGHT // DEPTH_HEIGHT
+    raw_block = torch.full((1, PERCEPTION_HEIGHT, PERCEPTION_WIDTH, 1), 6.0)
+    raw_block[0, :block, :block, 0] = 0.5
+    penalty = depth_obstacle_proximity_penalty(
+        _env_with_depth(raw_block), _SENSOR_CFG
+    )
+    assert math.isclose(penalty[0].item(), _expected(0.5), rel_tol=1e-5)
+
+    # And it equals the same scene authored on the policy grid.
+    on_grid = torch.full((1, DEPTH_HEIGHT, DEPTH_WIDTH, 1), 6.0)
+    on_grid[0, 0, 0, 0] = 0.5
+    assert math.isclose(
+        depth_obstacle_proximity_penalty(_env_with_depth(on_grid), _SENSOR_CFG)[0].item(),
+        penalty[0].item(),
+        rel_tol=1e-6,
+    )
+
+
 def test_penalty_ignores_inf_and_nan_pixels():
     """inf/nan pixels (nothing in range) are treated as the far clip, so they
     never dominate the per-env minimum."""

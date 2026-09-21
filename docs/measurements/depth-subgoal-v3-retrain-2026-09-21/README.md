@@ -181,10 +181,29 @@ recording could not touch the smoke's result: enabling video sets
 `/isaaclab/video/enabled`, which changes the render loop. 1280×720, 30 fps, 60 frames.
 Frame 0 is black, because the render product is created on the first capture; frames 1–59
 show the room through its one-way ceiling, with the robot moving just right of centre.
-The goal and subgoal markers stay frozen at the world origin, the centre of the frame,
-because no visualizer is registered (§6). The room's floor renders dark and the robot is
-a dark shape on it; `video/v3_smoke_overhead_graded.mp4` is a copy cropped to the room
-with the midtones lifted, for viewing.
+The subgoal and path markers stay frozen at the world origin, the centre of the frame,
+because the probe registers no visualizer (§6). The room's floor renders dark and the
+robot is a dark shape on it; `video/v3_smoke_overhead_graded.mp4` is a copy cropped to
+the room with the midtones lifted, for viewing.
+
+**Video with the markers.** `markers/play_videos/play_20260921_105717/rl-video-step-0.mp4`
+is the stock `play_strafer_navigation.py` on the same artifact and env, 300 steps
+(10 s), with headless set by `HEADLESS=1` rather than `--headless` so that its Kit
+visualizer registers (§6). One boot attempt, 53 s. The subgoal env draws no goal sphere:
+the cyan sphere is the rolling subgoal, 0.7–1.3 m ahead along the path, and the white
+dots are the planned path at 0.2 m spacing. The first episode runs the path to its end in
+about 3 s; the later cuts are new episodes in regenerated rooms. The run is not
+byte-identical to the smoke — a registered visualizer adds a physics forward and its own
+app update to every render — so the clip is for looking at, not for numbers.
+
+Whether the positioned markers reach the D555 depth image is not established. Isaac Lab
+flags every marker prototype `primvars:invisibleToSecondaryRays` so that depth images
+skip them, and while the robot drives the markers are in the D555's view: body +X, the
+camera axis, stays within 19° of the subgoal and the velocity within 4° of body +X
+(`markers/leak_run3/depth_marker_leak.json`). The in-place test in
+`markers/depth_marker_leak.py` cannot answer it — hiding the whole scene leaves the depth
+buffer unchanged too, because the camera does not refresh outside the env step — so it is
+recorded as inconclusive.
 
 ## 4. v2 and v3 on the bridge capture's tick-0 frame set
 
@@ -360,16 +379,24 @@ What bounds these tables:
 
 ## 6. Found along the way
 
-- **Neither stock script can record video on this host.** `play_strafer_navigation.py`
-  requests `--visualizer kit` unconditionally, and `train_strafer_navigation.py` requests
-  it whenever `--video` is passed, its headless exemption having been removed at
-  `c4873e7`. `isaaclab_visualizers` carries no `extension.toml` here, so a requested
-  visualizer raises at env construction. On Isaac Lab v3.0.0-beta2.patch1 the `rgb_array`
-  path needs no visualizer — `VideoRecorder` resolves a Kit capture of
-  `/OmniverseKit_Persp` from the physics backend — so the recording used a probe that
-  leaves the visualizer unset. Without one, command debug markers never leave the world
-  origin, and of `env_cfg.viewer` only `eye` and `lookat` reach the recorder, untranslated
-  to world coordinates.
+- **`--headless` on the command line disables every visualizer, and the stock scripts
+  then raise.** `play_strafer_navigation.py` requests a Kit visualizer unconditionally, and
+  `train_strafer_navigation.py` whenever `--video` is passed (its headless exemption was
+  removed at `c4873e7`). On Isaac Lab v3.0.0-beta2.patch1 the deprecated `--headless` flag
+  sets the launcher's disable-all switch while the requested `['kit']` still reaches the
+  settings, so `SimulationContext` resolves no visualizer and raises
+  `Explicitly requested visualizer(s) ['kit'] could not be configured`
+  (`app_launcher.py:825-836`, `simulation_context.py:549-576`). Nothing is missing from
+  the install; the `isaaclab_visualizers` `extension.toml` warning is unrelated.
+  `HEADLESS=1` — or `args.headless = True` set in code — keeps the run headless without the
+  switch, and the same script then records with the markers positioned
+  (`markers/play_headless_env_cmd.sh`; `markers/play_headless_flag_unwatched.log` is the
+  `--headless` control raising). The markers need a registered visualizer because this
+  Isaac Lab version dispatches their callbacks only from `update_visualizers()`, which
+  returns early without one. `rgb_array` capture itself needs no visualizer — `VideoRecorder`
+  resolves a Kit capture of `/OmniverseKit_Persp` from the physics backend — and of
+  `env_cfg.viewer` only `eye` and `lookat` reach the recorder, untranslated to world
+  coordinates.
 - **The run left no cfg record of its own.** The training script writes no params
   directory, and rsl-rl's `git/` directory in the run came out empty.
   `provenance/launch_provenance.json` stands in for it; the open brief
@@ -406,7 +433,7 @@ and event file beside it. The paths this record names under `train/`, `export/`,
 |---|---|
 | repository | https://github.com/zachoines/Sim2RealLab-Artifacts |
 | deposit directories | `depth-subgoal-v3-retrain-2026-09-21/record-files/` (this record's file set); `depth-subgoal-v3-retrain-2026-09-21/run_20260919_234233/` (the training run: every checkpoint and the event file) |
-| deposit commit | `75490a620bdad678f60ad7fa8df08c92ea804e96` |
+| deposit commit | `630d0799a7a8ed9cfe8dfcd75cf7093a493b09f7` |
 
 Restore this record's file set into its directory with:
 
@@ -436,6 +463,35 @@ c866bfd54ec1a8352159e33d7875d41e3f07a442ff8301ba3700867932e2eb91  export/strafer
 bcfccf65009b3945ed40a171fa345188879a4b277e3930a76770f2329e03b896  export/strafer_depth_subgoal_v3_999.pt
 bd11789619897558f810413b4ff80e7f3ad4445e1e83ed80b42a96822f3db6bf  export/watchdog_export.log
 bd11789619897558f810413b4ff80e7f3ad4445e1e83ed80b42a96822f3db6bf  export/watchdog_export.log.attempt1
+78a2350010aaf715d2416e7b9fd8f072bb5a54cfea8108bda8d3818c6abeb710  markers/depth_marker_leak.py
+d6481d928af066f3b030ba3bd28e646135f3251f92191a223e661333e7ee3827  markers/depth_marker_leak_cmd.sh
+d907bee0966a22c8ce7ec79013c847360e93ca92adc74b4d05219418c4cccd71  markers/depth_marker_leak_run1.log
+1c74bfa73f6ef3b74002847eb846140e8bcfe5b192566c967583b63f2d192d89  markers/depth_marker_leak_run2.log
+41870227a7fa34049e23bab751b21bd56fa45c6dcb30d697e4375bf3cde2cbab  markers/depth_marker_leak_run3.log
+6accd3b49a5bc45e05a54f02e81197a67af1868cd08f05423ceccd00da72cdc4  markers/leak_run1/depth_marker_leak.json
+10baf1eed455fb66e4d9ada71d68d8e615cc59dd7f1f56de9e2ebcb52a449a5f  markers/leak_run2/depth_marker_leak.json
+820a21942460b8101343f36650e94e6f20d11a78e943c3aa8ace79de0c09d4fc  markers/leak_run3/depth_marker_leak.json
+ffba1b203b74d412230edb40cc072cdae3dd5fd88ac9ec584786079f924aeb9b  markers/play_headless_env.log
+9011501f66d65ae7818dfceaad71fd7a3dcaf3047e5996ceb34771fffc566238  markers/play_headless_env_cmd.sh
+1339cb52ee1790b8fa99d6c7134863effba33c816b70fb9d24ba69afe357e985  markers/play_headless_flag.log
+182c27b085b955060a62c5e88e22826c223b2ba9874e2916e9ea55ba0413940c  markers/play_headless_flag_cmd.sh
+7e455f8fccad3d315f2492f27ba2925a0cab74d2bdbb367deb6a286b9304f1f8  markers/play_headless_flag_unwatched.log
+089e810ee493d7ee5bdc7f74890078f4f34ce0f4d220e66b9e27406397a1b948  markers/play_videos/play_20260921_105717/rl-video-step-0.mp4
+384c770425947b4dcbaa244129f7f3470f7e78c544426f3b0e9954cc1bdc65e7  markers/watchdog_depth_marker_leak_run1.log
+1c8a5627a5334186b9b5e02d7717ed8816d70ac68008769ca2cd9c6908b7bed1  markers/watchdog_depth_marker_leak_run1.log.attempt1
+1c8a5627a5334186b9b5e02d7717ed8816d70ac68008769ca2cd9c6908b7bed1  markers/watchdog_depth_marker_leak_run1.log.attempt2
+384c770425947b4dcbaa244129f7f3470f7e78c544426f3b0e9954cc1bdc65e7  markers/watchdog_depth_marker_leak_run1.log.attempt3
+7da3b348a4372096bca1a1790f1c87b847645b7f08ffd514f8a7b50c1318a7c3  markers/watchdog_depth_marker_leak_run2.log
+7da3b348a4372096bca1a1790f1c87b847645b7f08ffd514f8a7b50c1318a7c3  markers/watchdog_depth_marker_leak_run2.log.attempt1
+a900b162cdcd5cc43c8765cc7506c484150866e4b5cea35a71bd8fb44f6b1cea  markers/watchdog_depth_marker_leak_run3.log
+1c8a5627a5334186b9b5e02d7717ed8816d70ac68008769ca2cd9c6908b7bed1  markers/watchdog_depth_marker_leak_run3.log.attempt1
+a900b162cdcd5cc43c8765cc7506c484150866e4b5cea35a71bd8fb44f6b1cea  markers/watchdog_depth_marker_leak_run3.log.attempt2
+1df3ace4f78224ab0a21f93a9bfdab82af1d20cc84b9be5b810eb21b71ecf8bd  markers/watchdog_play_headless_env.log
+1df3ace4f78224ab0a21f93a9bfdab82af1d20cc84b9be5b810eb21b71ecf8bd  markers/watchdog_play_headless_env.log.attempt1
+817f433582ba4dae44c69130a0ba7dd8bb707cd9902ea4c697010f7e1391048b  markers/watchdog_play_headless_flag.log
+817f433582ba4dae44c69130a0ba7dd8bb707cd9902ea4c697010f7e1391048b  markers/watchdog_play_headless_flag.log.attempt1
+817f433582ba4dae44c69130a0ba7dd8bb707cd9902ea4c697010f7e1391048b  markers/watchdog_play_headless_flag.log.attempt2
+817f433582ba4dae44c69130a0ba7dd8bb707cd9902ea4c697010f7e1391048b  markers/watchdog_play_headless_flag.log.attempt3
 b9e013c0f9a29f7e9e0aa460bb6f4c4f1dce7d524d7c7e755e5fd753c90dd3f0  probes/exported_policy_rollout_video.py
 fea15ebed64193c53fbbf729fcfcafb5c38a3a15beef6f3008b6240ec58dd87d  probes/launch_provenance.py
 0d776455914382b1de99144fbc43f42bb3f596df958c03d3e1b6354ba7576ca6  probes/sample_memory.sh

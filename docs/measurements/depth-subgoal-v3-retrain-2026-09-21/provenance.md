@@ -42,8 +42,9 @@ shell inherits no active environment.
 
 ## Boots
 
-One Kit-booting process at a time, each through `tools/kit_boot_watchdog.sh`, with
-`nvidia-smi --query-compute-apps` confirmed empty before each boot and after the last.
+One Kit-booting process at a time, each through `tools/kit_boot_watchdog.sh` except the
+one unwatched control marked below, with `nvidia-smi --query-compute-apps` confirmed empty
+before each boot and after the last.
 
 | boot | command | attempts | result |
 |---|---|---:|---|
@@ -52,6 +53,10 @@ One Kit-booting process at a time, each through `tools/kit_boot_watchdog.sh`, wi
 | export | `export/export_cmd.sh` | 1 | exit 0, 17 s |
 | play smoke | `smoke/smoke_cmd.sh` | 1 | exit 0, 19 s |
 | video | `video/video_cmd.sh` | 1 | exit 0, 25 s |
+| play with markers, `HEADLESS=1` | `markers/play_headless_env_cmd.sh` | 1 | exit 0, 53 s; `Registered backend 'kit' for factory Visualizer` |
+| play, `--headless` control | `markers/play_headless_flag_cmd.sh` | 3 | all three stalled before Kit loaded (61 s each, RSS ≈ 64 MB); the watchdog gave up with 124 |
+| play, `--headless` control, unwatched | the same command without the watchdog | — | booted and raised `Explicitly requested visualizer(s) ['kit'] could not be configured` (`markers/play_headless_flag_unwatched.log`) |
+| depth-leak probe, runs 1–3 | `markers/depth_marker_leak_cmd.sh` | 3 / 1 / 2 | exit 0 each; runs 1 and 2 used earlier revisions of the script |
 
 The memory series ran beside the training boot as
 `probes/sample_memory.sh 'train_strafer_navigation.py' train/memory.txt`.

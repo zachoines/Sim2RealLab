@@ -10,7 +10,7 @@ neither output.
 This record gives the evidence, what it reached, what it did and did not explain, and the fix:
 - the command terms now create no scene geometry;
 - `debug_vis` is off in the shared command cfgs;
-- recorded video draws the command as a 2-D overlay;
+- recorded video draws the command, and the robot's footprint, as a 2-D overlay;
 - the play and train scripts no longer request a Kit visualizer, which also makes `--headless`
   record video again.
 
@@ -181,6 +181,24 @@ rolling subgoal and the path. It projects each point through the recording camer
 intrinsics, read from the stage every frame. It wraps `RecordVideo` in `play`, `train` and
 `test_strafer_env` (`video/`).
 
+**The robot is outlined too**, in magenta: the chassis footprint at the articulation's root
+pose, with a line from its centre to its front.
+- **Why.** Enriched episodes carry a ceiling with probability 0.7. It is culled for the overhead
+  camera but still shades the room below it, and that floor renders black. Over the 80 s
+  recording, enclosed frames crush 13–32 % of their pixels below 20 of 255 (median 21 %), against
+  at most 2.2 % in an open room. The chassis sits 9 of 255 over a floor at 0.
+- **Brightening the frame does not recover it**, measured over 134 enclosed frames
+  (`video_robot/shadow_lift_comparison.txt`, `shadow_lift_frame*.png`). A 1.8 gamma leaves the
+  floor at 0 and lifts the chassis to 36; CLAHE on L gives 24 against 6; a shadow-only lift
+  raises both, to 141 against 145 — the floor ends up brighter than the robot. A light in the
+  scene would change the D555's RGB, though not its depth, which is geometry-only; the
+  enrichment brief measured one for this on the training path and did not ship it, because it
+  cut the crushed share only 31.2 % → 21.8 % and added a specular hot spot. The 1–8-environment
+  perception scenes do carry one.
+- **Check.** In an 80 s play recording of v3, the outline lands on the rendered chassis in open
+  rooms, and its front line follows the robot as it turns. A 2-iteration training run at 4
+  environments draws it too, which is the overlay's multi-environment path (`video_robot/`).
+
 **`--headless`.** The play script, and the train script under `--video`, requested a Kit
 visualizer only so that the markers would be positioned. The deprecated `--headless` flag sets
 the launcher's disable-all switch while that request still reaches the settings
@@ -227,19 +245,23 @@ The off-goal angles in the attribution, parity and v3 records are measured again
 
 ## Gates
 
-The suites ran on this change's head; the two failure rows run this change's tests against
-`main`'s code. Kit verdicts are read from the JUnit XML (`gates/`).
+The two failure rows run this change's tests against `main`'s code. The Kit suite ran at
+`a08f26f`, before the robot outline; that commit changes the overlay, its unit tests and four
+documents, and no Kit suite exercises the overlay. The pure and contract suites, the mutation
+arms and both recordings are at `11ea0cf`, the head, which carries the outline. Kit verdicts
+are read from the JUnit XML (`gates/`).
 
 | gate | result |
 |---|---|
-| pure-python suite | 1 364 passed, 1 skipped |
+| pure-python suite | 1 367 passed, 1 skipped |
 | composition contracts | 135 passed |
 | full Kit suite (`run_tests.py all`, 15 suites) | 502 of 502 passed; `obs_dump` needed 2 boot relaunches |
 | `command_markers` on `main`'s command terms | fails: `SubgoalCommand: debug vis reached the D555 depth` |
 | contract tests against five single mutations | each fails: `debug_vis=True` in each of the four shared cfgs, and `main`'s command terms |
 | golden attribution | `altered commands.goal_command.debug_vis True -> False ×22`, nothing else |
 | `debug_vis` survey over every registered navigation env | 29 of 29 on `main`, 0 of 29 after |
-| `play … --headless --video`, `train … --headless --video` | both record, with the overlay drawn |
+| `play … --headless --video`, `train … --headless --video` | both record, with the overlay and the robot outline drawn |
+| robot outline against five single mutations (rotation sign, line reversed, filled, length and width swapped, no behind-camera guard) | each fails the overlay unit tests (`video_robot/robot_outline_mutation_proof.log`) |
 
 ## Evidence — deposit
 
@@ -247,7 +269,7 @@ The suites ran on this change's head; the two failure rows run this change's tes
 |---|---|
 | repository | https://github.com/zachoines/Sim2RealLab-Artifacts |
 | deposit directory | `debug-marker-leak-2026-09-21/record-files/` |
-| deposit commit | `f8a1f84492006a6b2a23f18daf54942f8a6d6e95` |
+| deposit commit | `fb3d3641f8a1282508fc4169b8c31f78640690fb` |
 
 Restore into this record's directory with:
 
@@ -320,8 +342,10 @@ a7d22fcf78b105ba703eab850d962f568e4c30d7019acc8bec3a71962d5fcbd3  exposure/train
 9376efe7c7448e5fc2fd2a4a9c019e8dd6d32d48ca2baa000b8668fdd7765572  gates/command_markers_on_main_FAIL.xml
 03a3daefc2f0d49afe589a3e5dca3dddfe8fa3f0645e575cb65a12b000221e4c  gates/contract_mutation_proof.log
 6bf6d839860e9fac0c35c8dd12b98d4c4ab03203435a2a54622c90b68edcc8df  gates/contract_mutation_proof.sh
-74ea16ee21182d38c8bb52419577d03583d634162140713e12bbff3d5b4480ac  gates/gate_contracts.xml
-692003bfd75fd16899cbca42ce664dcf06b52bf4cd0228f0ff94650b3b6e8aee  gates/gate_pure.xml
+ba1a27a52b503242cff8e2d606516d3b9c1484cde6b56aab7f45e6e55d4d5e29  gates/gate_contracts.log
+423e7d5a401fd0350d6b745ef2c9de4262cc178f024b45bf9f42c3917a2ede8f  gates/gate_contracts.xml
+895f12113e5df3ea043dfe6169a2093602b8ac04bda2e587c7a29898e2dd654f  gates/gate_pure.log
+8c6f07bd5e11920c452f8aa6d7f905a3b0f198b4c7a7e55e6a41fba013afb492  gates/gate_pure.xml
 94c0c57465b624c3b4df3ad1b8d31eca19c7a4c51995db52b1feaf8451a85463  gates/kit_xml/test_results_actions.xml
 de55ce90fd0c1b2baef84cdcdbf9b1941f037c9bc706e8a25bd303dff65788da  gates/kit_xml/test_results_camera_jitter.xml
 22d5c0f2eb8db92c3c80ca75eb131f18f2e73c075d0a89fef1c7aee0243fac08  gates/kit_xml/test_results_command_markers.xml
@@ -442,6 +466,32 @@ ffba1b203b74d412230edb40cc072cdae3dd5fd88ac9ec584786079f924aeb9b  play_markers/p
 1147ad865d5edfcd6145960dc53d3f13446cc02c9c3526703afd65e01edf8a84  video/watchdog_play_headless_fixed.log.attempt1
 f62d4e02b846c194e6e39ad45f44c7faced38fb2b77f2f1ee5f9d805f2dcc6ae  video/watchdog_train_headless_fixed.log
 f62d4e02b846c194e6e39ad45f44c7faced38fb2b77f2f1ee5f9d805f2dcc6ae  video/watchdog_train_headless_fixed.log.attempt1
+d47dafd00b3fc562a36b7c53b15e016330d67e780c0a1b0077111410db4d7834  video_robot/play_robot_overlay.log
+cd950bf15128408ed825b875870a9f582cc413d42cce08fc3576925faa31c965  video_robot/play_robot_overlay_cmd.sh
+178d35af7babb22a23753fb009069b61664b65a0713dcaa21e8a77d261ae2f5a  video_robot/play_videos/play_20260922_131809/rl-video-step-0.mp4
+57b409ee4136ff6afcbb19552b098c1d2b644daaa44e5483b813f3fdb39dd4ff  video_robot/robot_outline_mutation_proof.log
+e4e7b3f2081244149b98ac560746a0192f60bf662f8e4677ff23f407d95ceeb2  video_robot/robot_outline_mutation_proof.sh
+3eabe00764f1ad440c4cf9dac3c8275c06d5b99c58ed7fcfb80c7c5db2c1e9c3  video_robot/robot_overlay_frames.py
+6b8cc5207486eff0bd53549c270efc8fc404dfbcdadb29a4ca92562d1abfc492  video_robot/robot_overlay_frames.txt
+85f63337c328aebadb3c850ef322fce4d3f9849851bf7a9126d3535c4cf7f8a9  video_robot/robot_overlay_sheet.png
+05f285f247b10218dae742d5c662a89255a787e9af14d0cecd3272f79f4867e9  video_robot/robot_zoom.png
+021c1023154de320d7639fabcf3ddb4b915a8a63a34cb678f8c66dd4f6b84766  video_robot/shadow_lift_comparison.py
+67e7532f5c1940afdd0838c7ffdaa3fb9c360db7bcc93c027f01cb7d08211319  video_robot/shadow_lift_comparison.txt
+4c6aa307830573cbd8a70cedc66c726692655a1e65513c69034977268b9a2c57  video_robot/shadow_lift_frame150.png
+0b60378534df35e7a71e409efd77691b0935989e458b24e143e473b3cf40845c  video_robot/shadow_lift_frame290.png
+e7d7e7f530efb5ffb873fa37584f4ad82006b8d7f4b1e085eac66f5f2e2c0e05  video_robot/shadow_lift_frame45.png
+c26e8f20003cb971fe93bcf63f2ca99af9ec6d0eb08e62d258ead1d801c82dce  video_robot/shadow_lift_frame90.png
+f1dc1e1abf58c6c3790784eed75b0e9f6af9a2dfc66914778b4c28f386c373b0  video_robot/train_robot_overlay.log
+ee53996793bf7c4df562fd86104c2591881af9f3c84c95073ec974591a9f96d1  video_robot/train_robot_overlay_cmd.sh
+c93b3494f0825d9db62d6ff4be99009e729f50d5316de6b265b65212526b3542  video_robot/train_runs/run_20260922_132554/events.out.tfevents.1790101555.gx10-d1d8.2080248.0
+059414bec491d2e02fbccb7dabd70df0a0e2d293a821f1917b49b89d5ca8299c  video_robot/train_runs/run_20260922_132554/videos/rl-video-step-0.mp4
+0a2c2b69c6a6bc2f0eb259becf10e28fdf47659f3a5abcb63b5ec6dcb731def5  video_robot/watchdog_play_robot_overlay.log
+0a2c2b69c6a6bc2f0eb259becf10e28fdf47659f3a5abcb63b5ec6dcb731def5  video_robot/watchdog_play_robot_overlay.log.attempt1
+18838466c6a102de9fd75d4c0d2a55fe3af05e0fbb9d27fdeb35d73e104bbd4e  video_robot/watchdog_play_robot_overlay.log.attempt2
+18838466c6a102de9fd75d4c0d2a55fe3af05e0fbb9d27fdeb35d73e104bbd4e  video_robot/watchdog_play_robot_overlay.log.attempt3
+8d48bf6ab92ea45e7de1206ab650f107350dfeec949982529a80a3fda80c4d02  video_robot/watchdog_train_robot_overlay.log
+18838466c6a102de9fd75d4c0d2a55fe3af05e0fbb9d27fdeb35d73e104bbd4e  video_robot/watchdog_train_robot_overlay.log.attempt1
+8d48bf6ab92ea45e7de1206ab650f107350dfeec949982529a80a3fda80c4d02  video_robot/watchdog_train_robot_overlay.log.attempt2
 cd0e73abb1ad8d77e0576d3e1634e19a126b7f1cecebb1e90579112cac6aa7d3  visibility/d555_depth_absdiff_vis_vs_hid.png
 854d43cbd37d656cdb2351e1d82df8c7ac8c4588472dd494174b0725b2892390  visibility/d555_marker_visibility.json
 d2f4b711ed9cbf140d3aac56b62d94e200e9f38cb08c23582c03847dc48e97c6  visibility/d555_marker_visibility.log

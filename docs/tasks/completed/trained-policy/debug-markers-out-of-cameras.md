@@ -1,5 +1,8 @@
 # Keep the command debug markers out of every camera the policy, a stream or a dataset reads
 
+**Status:** Shipped 2026-09-22 in `7cd0a10` (DGX).
+**PR:** https://github.com/zachoines/Sim2RealLab/pull/224
+
 **Type:** bug
 **Owner:** DGX
 **Priority:** P1 — a bridge session puts a phantom goal sphere and cone into the perception
@@ -44,26 +47,26 @@ markers.
 
 ## Acceptance criteria
 
-- [ ] The command terms create no scene geometry for debug visualisation:
+- [x] The command terms create no scene geometry for debug visualisation:
       `set_debug_vis(True)` adds no prim and changes nothing any camera renders.
-- [ ] `debug_vis` is off in the four shared command cfgs, and the composition goldens move by
+- [x] `debug_vis` is off in the four shared command cfgs, and the composition goldens move by
       exactly `commands.goal_command.debug_vis`, attributed by field name; the observation
       and layout goldens hold.
-- [ ] A Kit-free contract test fails if any camera-bearing navigation env enables command
+- [x] A Kit-free contract test fails if any camera-bearing navigation env enables command
       debug visualisation, and is shown to fail on a single-cfg mutation.
-- [ ] A Kit test shows the policy depth is bit-identical with the markers requested and not
+- [x] A Kit test shows the policy depth is bit-identical with the markers requested and not
       requested, with a positive control that proves the comparison sees real geometry at the
       same point, and is shown to fail on the tree before this change.
-- [ ] Recorded play and training video draws the goal, subgoal and path as a 2-D overlay from
+- [x] Recorded play and training video draws the goal, subgoal and path as a 2-D overlay from
       the command state, with no scene geometry.
-- [ ] `--headless` records video in both scripts.
-- [ ] The finding is recorded with its evidence, including that the v3 training contract
+- [x] `--headless` records video in both scripts.
+- [x] The finding is recorded with its evidence, including that the v3 training contract
       differs from the post-fix contract by exactly this field.
-- [ ] If your work invalidates a fact in any referenced context module, package README,
+- [x] If your work invalidates a fact in any referenced context module, package README,
       top-level `Readme.md`, or guide under `docs/`, update those in the same commit. See
       [`conventions.md`'s user-facing documentation maintenance
       section](../../context/conventions.md#user-facing-documentation-maintenance).
-- [ ] No regression in the workflows the touched code supports.
+- [x] No regression in the workflows the touched code supports.
 
 ## Investigation pointers
 

@@ -12,9 +12,8 @@ import torch
 
 import isaaclab.sim as sim_utils
 from isaaclab.managers import CommandTerm, CommandTermCfg
-from isaaclab.markers import VisualizationMarkers, VisualizationMarkersCfg
+from isaaclab.markers import VisualizationMarkersCfg
 from isaaclab.utils.configclass import configclass
-from isaaclab.utils.math import quat_from_euler_xyz, quat_mul
 
 from strafer_shared.constants import (
     GOAL_ARRIVAL_RADIUS_M,
@@ -271,69 +270,6 @@ class GoalCommand(CommandTerm):
         reached = self._distance_to_goal < self.cfg.goal_reach_threshold
         self._goal_reached_count += reached.float()
 
-    """
-    Debug visualization
-    """
-
-    def _set_debug_vis_impl(self, debug_vis: bool):
-        """Create or toggle visibility of goal markers."""
-        if debug_vis:
-            if not hasattr(self, "_goal_sphere_vis"):
-                self._goal_sphere_vis = VisualizationMarkers(self.cfg.goal_sphere_visualizer_cfg)
-                self._goal_heading_vis = VisualizationMarkers(self.cfg.goal_heading_visualizer_cfg)
-            self._goal_sphere_vis.set_visibility(True)
-            self._goal_heading_vis.set_visibility(True)
-        else:
-            if hasattr(self, "_goal_sphere_vis"):
-                self._goal_sphere_vis.set_visibility(False)
-                self._goal_heading_vis.set_visibility(False)
-
-    def _debug_vis_callback(self, event):
-        """Update goal markers each frame.
-
-        Sphere color shifts green → yellow → red based on distance.
-        Arrow shows desired arrival heading.
-        """
-        if not self._robot.is_initialized:
-            return
-
-        num_envs = self._goal.shape[0]
-
-        # -- Goal sphere position (slightly above ground so it's visible)
-        goal_pos = torch.zeros(num_envs, 3, device=self.device)
-        goal_pos[:, 0] = self._goal[:, 0]
-        goal_pos[:, 1] = self._goal[:, 1]
-        goal_pos[:, 2] = 0.15  # hover above ground plane
-
-        # -- Color selection based on distance: 0=green (close), 1=yellow (mid), 2=red (far)
-        # Thresholds: <1m = green, 1-3m = yellow, >3m = red
-        marker_indices = torch.zeros(num_envs, dtype=torch.long, device=self.device)
-        dist = self._distance_to_goal
-        marker_indices[dist > 1.0] = 1  # yellow
-        marker_indices[dist > 3.0] = 2  # red
-
-        self._goal_sphere_vis.visualize(
-            translations=goal_pos,
-            marker_indices=marker_indices,
-        )
-
-        # -- Heading cone at goal position, offset above the sphere
-        arrow_pos = goal_pos.clone()
-        arrow_pos[:, 2] += 0.2  # sit on top of sphere
-
-        zeros = torch.zeros(num_envs, device=self.device)
-        # Tip cone from +Z (vertical) to +X (horizontal) with -90° pitch,
-        # then apply the heading yaw so the cone points in the goal direction.
-        pitch_neg90 = torch.full((num_envs,), -math.pi / 2, device=self.device)
-        tip_quat = quat_from_euler_xyz(zeros, pitch_neg90, zeros)
-        heading_quat = quat_from_euler_xyz(zeros, zeros, self._goal[:, 2])
-        arrow_quat = quat_mul(heading_quat, tip_quat)
-
-        self._goal_heading_vis.visualize(
-            translations=arrow_pos,
-            orientations=arrow_quat,
-        )
-
 
 # ---------------------------------------------------------------------------
 # Marker configurations
@@ -401,13 +337,15 @@ class GoalCommandCfg(CommandTermCfg):
     the uniform goal_range box. Set from scenes_metadata.json at config time."""
 
     debug_vis: bool = False
-    """Whether to visualize goal positions."""
+    """Unused: this term creates no scene geometry, so no camera can render it. Recorded video
+    draws the goal as an overlay (``strafer_lab.tools.command_overlay``)."""
 
     goal_sphere_visualizer_cfg: VisualizationMarkersCfg = _GOAL_SPHERE_CFG
-    """Sphere marker config. Three prototypes for distance-based color (green/yellow/red)."""
+    """Goal disc style for the video overlay: radius, and colour by distance
+    (green / yellow / red)."""
 
     goal_heading_visualizer_cfg: VisualizationMarkersCfg = _GOAL_HEADING_CFG
-    """Arrow marker config for desired arrival heading."""
+    """Arrival-heading tick colour for the video overlay."""
 
     @configclass
     class Ranges:
@@ -786,67 +724,6 @@ class SubgoalCommand(CommandTerm):
             robot_xy_w - self._subgoal[:, :2], dim=-1
         )
 
-    """
-    Debug visualization
-    """
-
-    def _set_debug_vis_impl(self, debug_vis: bool):
-        """Create or toggle subgoal + path waypoint markers."""
-        if debug_vis:
-            if not hasattr(self, "_subgoal_sphere_vis"):
-                self._subgoal_sphere_vis = VisualizationMarkers(
-                    self.cfg.subgoal_sphere_visualizer_cfg
-                )
-                self._subgoal_heading_vis = VisualizationMarkers(
-                    self.cfg.subgoal_heading_visualizer_cfg
-                )
-                self._path_points_vis = VisualizationMarkers(
-                    self.cfg.path_points_visualizer_cfg
-                )
-            self._subgoal_sphere_vis.set_visibility(True)
-            self._subgoal_heading_vis.set_visibility(True)
-            self._path_points_vis.set_visibility(True)
-        else:
-            if hasattr(self, "_subgoal_sphere_vis"):
-                self._subgoal_sphere_vis.set_visibility(False)
-                self._subgoal_heading_vis.set_visibility(False)
-                self._path_points_vis.set_visibility(False)
-
-    def _debug_vis_callback(self, event):
-        """Draw the rolling subgoal (sphere + tangent arrow) and the path."""
-        if not self._robot.is_initialized:
-            return
-
-        num_envs = self._subgoal.shape[0]
-
-        subgoal_pos = torch.zeros(num_envs, 3, device=self.device)
-        subgoal_pos[:, :2] = self._subgoal[:, :2]
-        subgoal_pos[:, 2] = 0.15
-        self._subgoal_sphere_vis.visualize(translations=subgoal_pos)
-
-        arrow_pos = subgoal_pos.clone()
-        arrow_pos[:, 2] += 0.2
-        zeros = torch.zeros(num_envs, device=self.device)
-        pitch_neg90 = torch.full((num_envs,), -math.pi / 2, device=self.device)
-        tip_quat = quat_from_euler_xyz(zeros, pitch_neg90, zeros)
-        heading_quat = quat_from_euler_xyz(zeros, zeros, self._subgoal[:, 2])
-        self._subgoal_heading_vis.visualize(
-            translations=arrow_pos,
-            orientations=quat_mul(heading_quat, tip_quat),
-        )
-
-        # Path waypoints, subsampled to ~one marker per 0.2 m of arc.
-        stride = max(1, int(round(0.2 / max(self.cfg.path_spacing_m, 1e-3))))
-        paths = self._path_cursor.paths[:, ::stride]            # (B, P', 2)
-        n_pts = paths.shape[1]
-        point_idx = torch.arange(0, n_pts * stride, stride, device=self.device)
-        valid = point_idx.unsqueeze(0) < self._path_cursor.path_len.unsqueeze(1)
-        pts = paths[valid]                                       # (N, 2)
-        translations = torch.zeros(pts.shape[0], 3, device=self.device)
-        translations[:, :2] = pts
-        translations[:, 2] = 0.05
-        self._path_points_vis.visualize(translations=translations)
-
 
 _SUBGOAL_SPHERE_CFG = VisualizationMarkersCfg(
     prim_path="/Visuals/Command/subgoal_sphere",
@@ -946,13 +823,14 @@ class SubgoalCommandCfg(CommandTermCfg):
     """Per-env waypoint buffer size; longer paths are truncated head-first."""
 
     debug_vis: bool = False
-    """Whether to visualize the subgoal and path."""
+    """Unused: this term creates no scene geometry, so no camera can render it. Recorded video
+    draws the subgoal and path as an overlay (``strafer_lab.tools.command_overlay``)."""
 
     subgoal_sphere_visualizer_cfg: VisualizationMarkersCfg = _SUBGOAL_SPHERE_CFG
-    """Marker config for the rolling subgoal."""
+    """Rolling-subgoal disc style for the video overlay."""
 
     subgoal_heading_visualizer_cfg: VisualizationMarkersCfg = _SUBGOAL_HEADING_CFG
-    """Arrow marker config for the subgoal's path-tangent heading."""
+    """Subgoal path-tangent tick colour for the video overlay."""
 
     path_points_visualizer_cfg: VisualizationMarkersCfg = _PATH_POINTS_CFG
-    """Marker config for the planned path's waypoints."""
+    """Path waypoint dot style for the video overlay."""

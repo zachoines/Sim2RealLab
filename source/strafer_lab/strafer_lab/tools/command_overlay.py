@@ -1,13 +1,18 @@
-"""Draw the navigation command onto recorded video frames.
+"""Draw the navigation command and the robot onto recorded video frames.
 
 The command terms create no scene geometry for debug visualisation: a prim in the stage
 is rendered by every camera in it, the D555 included. Recorded video draws the goal,
 the rolling subgoal and the planned path here instead, onto the finished frame, in the
 styles the command cfgs carry.
 
-The drawing is a pure function of the command state and the recording camera
-(:func:`draw_command`); :class:`CommandOverlay` is the ``gym`` wrapper that applies it
-to every frame ``RecordVideo`` captures, placed inside ``RecordVideo``.
+The robot's footprint is drawn too. Under an enclosed room's ceiling the floor renders
+black and the chassis barely rises above it, and brightening the frame either leaves the
+floor at zero or raises it past the chassis; an outline does not depend on the lighting.
+
+The drawing is a pure function of the command state, the robot pose and the recording
+camera (:func:`draw_command`, :func:`draw_robot`); :class:`CommandOverlay` is the
+``gym`` wrapper that applies it to every frame ``RecordVideo`` captures, placed inside
+``RecordVideo``.
 """
 
 from __future__ import annotations
@@ -17,8 +22,11 @@ import math
 import gymnasium as gym
 import numpy as np
 
+from strafer_shared.constants import CHASSIS_LENGTH, CHASSIS_WIDTH
+
 _PATH_DOT_SPACING_M = 0.2
 _HEADING_TICK_M = 0.3
+ROBOT_RGB = (255, 0, 255)
 
 
 def project(points_w, cam_to_world, focal_length, horizontal_aperture, width, height):
@@ -92,8 +100,25 @@ def draw_command(frame, term, env_index, cam_to_world, focal_length, horizontal_
     return frame
 
 
+def draw_robot(frame, x, y, z, yaw, cam_to_world, focal_length, horizontal_aperture):
+    """Outline the chassis footprint at a robot pose, with a line from its centre to its front."""
+    import cv2  # noqa: WPS433 — heavy optional dep, imported lazily
+
+    height, width = frame.shape[:2]
+    c, s = math.cos(yaw), math.sin(yaw)
+    half_l, half_w = CHASSIS_LENGTH / 2.0, CHASSIS_WIDTH / 2.0
+    body = [(half_l, half_w), (-half_l, half_w), (-half_l, -half_w), (half_l, -half_w), (0.0, 0.0), (half_l, 0.0)]
+    points = [(x + c * a - s * b, y + s * a + c * b, z) for a, b in body]
+    uv, depth, _ = project(points, cam_to_world, focal_length, horizontal_aperture, width, height)
+    if (depth > 0).all():
+        px = np.round(uv).astype(np.int32)
+        cv2.polylines(frame, [px[:4]], True, ROBOT_RGB, 2, cv2.LINE_AA)
+        cv2.line(frame, tuple(int(v) for v in px[4]), tuple(int(v) for v in px[5]), ROBOT_RGB, 2, cv2.LINE_AA)
+    return frame
+
+
 class CommandOverlay(gym.Wrapper):
-    """Draws the viewed env's ``goal_command`` onto every rendered frame.
+    """Draws the viewed env's ``goal_command`` and robot onto every rendered frame.
 
     Reads the recording camera from the stage on each frame, so the overlay follows
     whatever pose the recording script anchored.
@@ -103,18 +128,25 @@ class CommandOverlay(gym.Wrapper):
         frame = self.env.render()
         if frame is None:
             return frame
+        import torch
+        import warp as wp
+        from isaaclab.utils.math import quat_apply
         from pxr import Usd, UsdGeom
 
         env = self.env.unwrapped
+        index = env.cfg.viewer.env_index
         prim = env.sim.stage.GetPrimAtPath(env.cfg.viewer.cam_prim_path)
         camera = UsdGeom.Camera(prim)
-        cam_to_world = np.array(UsdGeom.Xformable(prim).ComputeLocalToWorldTransform(Usd.TimeCode.Default()))
-        term = env.command_manager.get_term("goal_command")
-        return draw_command(
-            np.ascontiguousarray(frame),
-            term,
-            env.cfg.viewer.env_index,
-            cam_to_world,
+        lens = (
+            np.array(UsdGeom.Xformable(prim).ComputeLocalToWorldTransform(Usd.TimeCode.Default())),
             camera.GetFocalLengthAttr().Get(),
             camera.GetHorizontalApertureAttr().Get(),
         )
+        term = env.command_manager.get_term("goal_command")
+        robot = env.scene[term.cfg.asset_name].data
+        x, y, z = (float(v) for v in wp.to_torch(robot.root_pos_w)[index])
+        forward = quat_apply(
+            wp.to_torch(robot.root_quat_w)[index : index + 1], torch.tensor([[1.0, 0.0, 0.0]], device=env.device)
+        )[0]
+        frame = draw_command(np.ascontiguousarray(frame), term, index, *lens)
+        return draw_robot(frame, x, y, z, math.atan2(float(forward[1]), float(forward[0])), *lens)

@@ -7,7 +7,8 @@ import pytest
 import torch
 
 from strafer_lab.tasks.navigation.mdp.commands import GoalCommandCfg, SubgoalCommandCfg
-from strafer_lab.tools.command_overlay import draw_command, project
+from strafer_lab.tools.command_overlay import ROBOT_RGB, draw_command, draw_robot, project
+from strafer_shared.constants import CHASSIS_LENGTH, CHASSIS_WIDTH
 
 W, H = 1280, 720
 FOCAL, APERTURE = 18.147562, 20.955  # the recording camera, /OmniverseKit_Persp
@@ -73,3 +74,31 @@ def test_the_goal_term_colours_its_disc_by_distance(dist, key):
     )
     frame = draw_command(np.zeros((H, W, 3), np.uint8), term, 0, _straight_down(12.0), FOCAL, APERTURE)
     np.testing.assert_array_equal(_pixel(frame, 1.0, 1.0), _rgb(cfg.goal_sphere_visualizer_cfg, key))
+
+
+def _drawn_near(frame, x, y, rgb, height_m=12.0):
+    """Whether ``rgb`` is drawn within a pixel of a world point: antialiased lines blend at their rims."""
+    (u, v), = project([(x, y, 0.0)], _straight_down(height_m), FOCAL, APERTURE, W, H)[0]
+    u, v = int(round(u)), int(round(v))
+    return (frame[v - 1 : v + 2, u - 1 : u + 2] == np.array(rgb)).all(axis=-1).any()
+
+
+@pytest.mark.parametrize("yaw", [0.0, np.pi / 2])
+def test_the_robot_is_outlined_at_its_pose_with_a_line_to_its_front(yaw):
+    x, y = 1.0, -0.5
+    frame = draw_robot(np.zeros((H, W, 3), np.uint8), x, y, 0.0, yaw, _straight_down(12.0), FOCAL, APERTURE)
+    fwd, left = np.array([np.cos(yaw), np.sin(yaw)]), np.array([-np.sin(yaw), np.cos(yaw)])
+
+    def at(a, b):
+        return (x, y) + a * fwd + b * left
+
+    for corner in (at(CHASSIS_LENGTH / 2, CHASSIS_WIDTH / 2), at(-CHASSIS_LENGTH / 2, -CHASSIS_WIDTH / 2)):
+        assert _drawn_near(frame, *corner, ROBOT_RGB)
+    assert _drawn_near(frame, *at(0.12, 0.0), ROBOT_RGB), "no line from the centre toward the front"
+    assert not _drawn_near(frame, *at(-0.12, 0.0), ROBOT_RGB), "the line points backward"
+    assert not _drawn_near(frame, *at(0.0, 0.1), ROBOT_RGB), "the footprint is filled"
+
+
+def test_a_robot_behind_the_camera_is_not_drawn():
+    frame = draw_robot(np.zeros((H, W, 3), np.uint8), 0.0, 0.0, 20.0, 0.0, _straight_down(12.0), FOCAL, APERTURE)
+    assert not frame.any()

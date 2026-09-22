@@ -465,7 +465,8 @@ without it you get Kit's default pose.
 
 The goal, subgoal and path are not in the scene, so the stream does not show them: a prim in
 the stage is rendered by every camera, the policy's D555 included. Recorded `--video` frames
-draw them as an overlay; showing them in the livestream is `livestream-command-markers`.
+draw them as an overlay, with the robot's footprint outlined in magenta so it stays visible in
+the dark enclosed rooms; showing them in the livestream is `livestream-command-markers`.
 
 ```bash
 tools/kit_boot_watchdog.sh --label gui -- "$ISAACLAB" -p \

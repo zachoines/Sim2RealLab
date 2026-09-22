@@ -196,14 +196,11 @@ about 3 s; the later cuts are new episodes in regenerated rooms. The run is not
 byte-identical to the smoke — a registered visualizer adds a physics forward and its own
 app update to every render — so the clip is for looking at, not for numbers.
 
-Whether the positioned markers reach the D555 depth image is not established. Isaac Lab
-flags every marker prototype `primvars:invisibleToSecondaryRays` so that depth images
-skip them, and while the robot drives the markers are in the D555's view: body +X, the
-camera axis, stays within 19° of the subgoal and the velocity within 4° of body +X
-(`markers/leak_run3/depth_marker_leak.json`). The in-place test in
-`markers/depth_marker_leak.py` cannot answer it — hiding the whole scene leaves the depth
-buffer unchanged too, because the camera does not refresh outside the env step — so it is
-recorded as inconclusive.
+The positioned markers do reach the D555 policy camera, in both RGB and depth: established
+by a toggle test on stationary env steps, and recorded with its evidence in
+`debug-marker-leak-2026-09-21`. The in-place test in `markers/depth_marker_leak.py` could
+not show it — hiding the whole scene leaves the depth buffer unchanged too, because the
+camera does not refresh outside the env step — and is superseded by that record.
 
 ## 4. v2 and v3 on the bridge capture's tick-0 frame set
 
@@ -215,8 +212,10 @@ band drawn live. Each row puts a 3600-dim depth block under the bridge capture's
 action zero), because the dumped gym prefix holds NaN in dims 10–13 and 16–18. Each ONNX
 runs one tick per frame from a zero hidden state, on CPU.
 
-Off-goal is the direction of the commanded (vx, vy) relative to the goal bearing of
-−8.1°, wrapped into [−180°, 180°). The rig class is an off-goal in [−83°, −79°], counted
+Off-goal is the direction of the commanded (vx, vy) relative to the mission goal's bearing
+of −8.1°, wrapped into [−180°, 180°). That is the convention of the earlier depth records;
+the subgoal the policy observes at this pose lies at −62.5°, so "toward" in these tables
+means toward the mission goal, not toward the observed subgoal. The rig class is an off-goal in [−83°, −79°], counted
 over a row's frames. It is v2's response to a far, featureless field and is retired as a
 criterion (noise-texture-parity-2026-09-17); it appears here descriptively. The noise
 rows use the production `DepthNoiseModel`, injected at 80×45 after the reduction — the

@@ -209,6 +209,7 @@ def main():
     # Import strafer_lab to register environments
     import strafer_lab  # noqa: F401
     from strafer_lab.isaacsim_compat import anchor_capture_camera
+    from strafer_lab.tools.command_overlay import CommandOverlay
 
     env_name = args.env
 
@@ -313,7 +314,7 @@ def main():
             "disable_logger": True,
         }
         print(f"[INFO] Recording videos to: {video_kwargs['video_folder']}")
-        env = gym.wrappers.RecordVideo(env, **video_kwargs)
+        env = gym.wrappers.RecordVideo(CommandOverlay(env), **video_kwargs)
 
     # RSL-RL wrapper must be last
     env = RslRlVecEnvWrapper(env)

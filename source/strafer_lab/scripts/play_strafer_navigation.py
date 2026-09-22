@@ -144,6 +144,7 @@ def main() -> None:
 
     import strafer_lab  # noqa: F401  (registers envs)
     from strafer_lab.isaacsim_compat import anchor_capture_camera
+    from strafer_lab.tools.command_overlay import CommandOverlay
 
     env_cfg = parse_env_cfg(
         args.env,
@@ -199,6 +200,7 @@ def main() -> None:
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         out_dir = os.path.abspath(os.path.join(args.video_dir, f"play_{timestamp}"))
         os.makedirs(out_dir, exist_ok=True)
+        env = CommandOverlay(env)
         env = gym.wrappers.RecordVideo(
             env,
             video_folder=out_dir,

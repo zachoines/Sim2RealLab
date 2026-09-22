@@ -39,6 +39,7 @@ entry-point scripts](repo-topology.md#key-entry-point-scripts).
 - `lerobot_depth` — 16UC1 depth PNG sidecar read/write at deterministic paths.
 - `lerobot_detections` — the padded `observation.detections.*` columns + `meta/detection_labels.json` vocab (`pack_detections`, `read_detection_labels`).
 - `detections_overlay` — render a capture's recorded detections as an annotated MP4 (pure read-side viz; works on any detections-bearing run).
+- `command_overlay` — draw the navigation command (goal, rolling subgoal, path) onto recorded play/train video frames. The command terms create no scene geometry, so no camera renders them.
 
 **Path geometry**
 - `path_statistics` — corridor-curvature (turn density, tortuosity, bending fraction) and aperture-threading (clearance below a threshold) over paths from the shared `plan_path`, with the resolution / inflation-radius / arc-length corrections that make a procedural grid and a scanned-scene grid comparable; group-resampled intervals. Numpy-only.

@@ -841,20 +841,11 @@ def main() -> int:
             file=sys.stderr, flush=True,
         )
 
-    # Suppress the env's RL goal marker (sphere + cone). Teleop isn't
-    # using the RL goal signal; the operator decides episode end via
-    # buttons. The marker is operator-confusing residue from the
-    # underlying training env. Also lock goal resampling so the env
-    # doesn't keep teleporting a goal we're not tracking (avoids any
-    # cost from goal_command's per-tick work).
+    # Teleop does not track the RL goal (the operator ends episodes by button), so
+    # lock goal resampling to stop the env teleporting a goal nothing reads.
     if hasattr(env_cfg.commands, "goal_command"):
-        env_cfg.commands.goal_command.debug_vis = False
         env_cfg.commands.goal_command.resampling_time_range = (1.0e6, 1.0e6)
-        print(
-            "[teleop_capture] suppressed env goal_command.debug_vis + locked "
-            "resampling — the sphere/cone marker is a training-side residue.",
-            flush=True,
-        )
+        print("[teleop_capture] locked goal_command resampling.", flush=True)
 
     if args.control_mode == "egocentric":
         # Don't author a follow-cam ViewerCfg here — a separate

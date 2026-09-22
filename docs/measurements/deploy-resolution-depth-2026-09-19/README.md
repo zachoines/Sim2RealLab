@@ -245,6 +245,13 @@ scalar + 3600 depth) and returning finite three-dimensional actions throughout.
 None of this is a training result; it is the proof that the reduction holds end
 to end at the resolution the retrain will use.
 
+> **Correction (2026-09-22): the cause below is wrong.** A visualizer backend is
+> configurable on this host. The play script raised because it was run with the
+> deprecated `--headless` flag, which disables every visualizer while the script requested
+> a Kit one (`app_launcher.py:825-836`); with headless set by `HEADLESS=1` the same script
+> ran. The script no longer requests a visualizer, and the finding is recorded in
+> [`debug-marker-leak-2026-09-21`](../debug-marker-leak-2026-09-21/README.md).
+
 `play_strafer_navigation.py` itself could not be used: it forces a visualizer,
 and no visualizer backend is configurable on this host. It raises at environment
 construction, before the policy or the depth path is reached, and does so

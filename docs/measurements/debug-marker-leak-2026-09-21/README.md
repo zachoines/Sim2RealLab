@@ -1,0 +1,461 @@
+# The command debug markers reach the robot's cameras — 2026-09-21
+
+The command terms drew their debug markers — goal sphere and cone, subgoal sphere and cone,
+and the planned path as dots — as USD point instancers under `/Visuals`. That is scene
+geometry, and the renderer draws scene geometry into every camera in the stage. The D555
+policy camera renders the markers in RGB and in `distance_to_image_plane` depth. Isaac Lab
+flags each marker prototype `primvars:invisibleToSecondaryRays`, and that hides them from
+neither output.
+
+This record gives the evidence, what it reached, what it did and did not explain, and the fix:
+- the command terms now create no scene geometry;
+- `debug_vis` is off in the shared command cfgs;
+- recorded video draws the command as a 2-D overlay;
+- the play and train scripts no longer request a Kit visualizer, which also makes `--headless`
+  record video again.
+
+- **Proven:** requesting debug visualisation on `main` changes the D555 depth at the marker's
+  position (§1). After the fix it leaves the depth bit-identical, pinned by a Kit test and two
+  contract tests, each shown to fail on `main`.
+- **Exposure:** every depth policy trained on the previous Isaac Lab had its markers drawn at
+  its true subgoal every step. v3 did not: its markers never left the world origin, outside
+  every room (§3).
+- **Not established as a cause of v2's deploy failures.** v2's single-tick command does react
+  to a marker in clean depth, at three of five poses. Under noise, though, that reaction is not
+  specific to the marker, and in closed loop v2 performs the same without markers (§4).
+
+## 1. The D555 renders the markers
+
+**Toggle test** (`visibility/d555_marker_visibility.py`):
+- The v3 exported policy drives the play env until the markers are ahead, then the robot is
+  stopped.
+- The markers are toggled through the command term's own `set_debug_vis` on consecutive
+  stationary env steps: on, off, on, off.
+- **RGB:** the D555 image shows the cyan subgoal sphere, the heading cone and the path dots.
+  Hiding them removes them, and this reproduces across both toggles
+  (`visibility/d555_rgb_{vis,hid,vis2,hid2}.png`).
+- **Depth:** the on−off difference shows every marker as a solid blob, larger than the image's
+  0.13 m saturation, and nothing else above sub-millimetre render noise
+  (`visibility/d555_depth_absdiff_vis_vs_hid.png`).
+
+**Deterministic measurement on `main`'s command code** (`measure/`). This uses the Kit
+test's method (§5) against `615fc14`'s command terms: one environment, both command families
+placed 1 m ahead of the camera, one physics state re-rendered in place.
+
+| added to the stage | raw depth pixels changed > 0.1 m (of 230 400) | max \|Δ\| | policy cells changed > 0.1 m (of 3 600) |
+|---|---|---|---|
+| nothing (the same state re-rendered) | 0 | 0 | 0 |
+| a real sphere, r 0.12, at the same point | 5 129 | 0.588 m | 79 |
+| `SubgoalCommand` debug visualisation | 6 785 | 0.640 m | 104 |
+| `GoalCommandProcRoom` debug visualisation | 10 875 | 0.665 m | 172 |
+
+Each marker set moves more of the depth than a real object of the subgoal sphere's size.
+Releasing it, like removing the sphere, restores the depth bit-exactly.
+
+**How it reaches the policy.** At five poses along a rollout (`beacon_ab/`, poses 1–5), the
+robot was stopped and two on/off pairs of policy observations taken, with corruption off. The
+marker changes 400–561 of the 3 600 policy depth cells by more than 0.1 m; the floor between
+two same-state stationary steps is 48–214. Pose 0 is left out: the robot was still settling,
+and its floor (625–821 cells) exceeds its on/off change (185).
+
+The subgoal sphere sits about 0.5 m from the lens, so its front face is inside the D555's
+0.4 m blind zone. It therefore reaches the policy mostly as the 0.2 m near-field fill:
+354–446 of about 500 footprint cells at poses 2, 4 and 5, where no marker-off frame has any
+(`check1/`).
+
+## 2. Which envs drew them, and where
+
+| | markers created | positioned |
+|---|---|---|
+| every registered navigation env (training, Play, capture, bridge) | yes: `goal_command.debug_vis=True` in the four shared command cfgs, also at v2's head `69014c6` | see below |
+| teleop and coverage capture | no: both turned `debug_vis` off | — |
+
+- **When they were positioned, on this stack.** On Isaac Lab v3.0.0-beta2.patch1 the
+  markers moved only from `SimulationContext.update_visualizers()`, which returns early
+  unless a visualizer is registered. The play script always registered one; the train script
+  did under `--video`; a bridge does under `--viz kit`.
+- **Where they sat otherwise.** Without a visualizer the markers stayed at the world origin.
+  That is the room centre at one environment, and a grid corner 7.07 m from the nearest room
+  centre at 96 environments.
+- **On the previous Isaac Lab (`IsaacLab-retired` `ae41e2a`).** `CommandTerm.set_debug_vis`
+  subscribed to Kit's post-update event, and every policy-camera read pumps `app.update()`.
+  So the markers were positioned at every control step in every env, with no visualizer
+  needed.
+- **The bridge composes the goal objective, not the subgoal one.** Its markers were a goal
+  sphere (r 0.15, green/yellow/red by distance) and a blue cone. They sat at a goal the sim
+  picks for itself — drawn once at reset and held for the session in the ProcRoom bridge —
+  and unrelated to the subgoal the Jetson sends; the sim's only ROS subscription is
+  `/cmd_vel`. The bridge publishes `d555_camera_perception`, which renders the same stage. So
+  a bridge session carried either a decoy at the room centre (this stack, no visualizer) or
+  one at the sim's own goal (the previous stack, or `--viz kit`). It never carried the
+  training cue.
+
+## 3. Exposure by artifact
+
+| artifact | markers during training | reached its D555 |
+|---|---|---|
+| v0, the warmstart legs, v1, v2, v2.1, v2.1a, cprime (previous Isaac Lab, 96 envs, `--video`) | positioned at each env's true subgoal and path, every control step; in 32 of 33 frames sampled from the 13 runs on that stack that recorded video, the sphere and path dots are drawn along the robot's path (`exposure/training_video_sample/`) | inferred from the identical marker code, not measured on that stack |
+| v3 (this stack, 96 envs, no `--video`, no visualizer) | frozen at the world origin, outside every room | the cluster is outside every walled room and uncorrelated with any subgoal. A 2-D model of the four nearest rooms (`exposure/origin_line_of_sight.*`) gives a clear line to it, through a doorway or wall slit and within the 6 m depth range, from 0.9–3.8 % of camera positions, never nearer than 2.8 m; the camera's heading is not modelled |
+| NOCAM policies | — | no image input |
+
+- **The drift-trained legs had a reason to use the marker.** For v2.1, v2.1a and cprime the
+  numeric subgoal was drifted by the referent-drift DR, while the markers stayed at the true
+  subgoal: a privileged, drift-free cue. v2 had no drift, so for v2 the marker only repeated
+  the numeric subgoal.
+- **The previous stack's depth statistics of v2's training env do not decide it.** The
+  2026-08-14 `depth_obs_stats` match the current stack's to float noise (G4 of
+  `isaac-lab-upgrade-stage3-2026-08-23`), but they are aggregates over 8 environments, and at
+  8 environments the world origin is one environment's room centre, so the current-stack arm
+  is not a marker-free reference either.
+- **The bridge capture of 2026-08-22 shows no marker-shaped blob.** 48 frames sampled across
+  its 1 799 were checked (`exposure/bridge_capture_mosaic.png`).
+
+## 4. Whether v2 uses the marker
+
+**Clean depth: v2 reacts at three of the five poses, and the reaction replicates.** The on/off
+observations (`beacon_ab/`) are scored one tick from a zero hidden state, each against its
+own **observed** subgoal (`check1/check1_tables.md`, clean rows).
+- At poses 2–4, with the marker shown v2 heads 6–28° from the subgoal; with it hidden,
+  39–116° off. The second on/off pair repeats the first at poses 2 and 4; at pose 3 its hidden
+  heading is 39° off against the first pair's 53°. At poses 3 and 4 the commanded speed also
+  drops by 37–70 % within each pair.
+- At pose 1 v2 heads 138–179° off either way. At pose 5 it heads closer to the subgoal with
+  the marker hidden (−3.5°, −5.7°) than shown (+17.1°, +18.3°).
+
+**Check 1 — under noise, the reaction is not specific to the marker** (`check1/`, 20 paired
+seeds per arm):
+
+| arm | pattern (marker on → toward the subgoal, off → away) |
+|---|---|
+| v2's own training noise (σ_d 0.16, pre-#219 far-clamp fills) | 0 of 6 poses; marker off, v2 heads within 7.7° of the subgoal at poses 1–5 |
+| shipped robust band | 1 of 6 poses, in one of its two replicate pairs |
+| same footprint moved away from the subgoal | reproduces the marker-on command at poses 1–5 (16–20 of 20 seeds), and never heads toward the moved blob (0 of 1 500 classifications) |
+
+- **What v2 responds to is a near blob, wherever it sits.** Clean depth is where v2 falls into
+  its featureless-field default, and any near structure pulls it out.
+- **v3 has no marker effect** once the scalar prefix is matched (|gap| ≤ 4.1° under the band).
+  An earlier pose-4 "swerve" came from the robot settling between toggles, which changed the
+  IMU dims, not from the marker.
+
+**Closed loop.** In gate G7 (`isaac-lab-upgrade-stage3-2026-08-23`), v2 ran in its own
+training env with corruption on: path_complete was 0.8575 ± 0.0435 on the previous stack,
+where the markers were positioned, and 0.8650 ± 0.0289 on this one, where they were absent from
+every room.
+
+The attribution of the rig-gate failure to depth **content** stands. The markers are not
+established as its cause.
+
+## 5. The fix
+
+**No scene geometry.** `GoalCommand` and `SubgoalCommand` (and so `GoalCommandProcRoom` and
+`CaptureSubgoalCommand`) no longer implement `_set_debug_vis_impl` / `_debug_vis_callback`.
+`set_debug_vis(True)` returns `False` and registers nothing. The five `*_visualizer_cfg`
+fields stay, as the overlay's styles.
+
+**`debug_vis` off in the four shared command cfgs.**
+- The attribution walker (`goldens/`) pools the whole golden movement to one field:
+  `altered commands.goal_command.debug_vis True -> False ×22`, with nothing added or removed.
+- That was the expected set. It was computed before the flip, and all 26 goldens were first
+  reproduced from the tree without Kit.
+- The observation golden and both layout goldens are unmoved.
+
+**Tests.**
+- **Kit-free:** `test_no_camera_bearing_variant_enables_command_debug_vis` sweeps every
+  composed variant with a camera; each of four single-cfg mutations fails it.
+  `test_command_terms_create_no_debug_geometry` fails on `main`'s command terms, naming
+  `GoalCommand`, `GoalCommandProcRoom` and `SubgoalCommand`.
+- **Kit:** `test_sim/sensors/test_command_markers.py` puts both command families 1 m ahead of
+  the camera and requests debug visualisation. It requires the raw depth and the policy grid to
+  stay bit-identical and no `/Visuals/Command` prim to exist.
+  - It compares an in-place re-render of one physics state, because consecutive stationary
+    steps are not bit-identical even without markers.
+  - Its positive control is a real r 0.12 sphere at the same point: it must change the depth
+    and the grid, and removing it must restore both exactly.
+  - An earlier in-place probe (`inplace_probe/`) saw no refresh even with the whole scene
+    hidden, and is inconclusive. It ran with a visualizer registered and `update(dt=0)`. The
+    test runs with neither, and its positive control is what shows its own comparison is live.
+  - It passes on this tree and fails on `main` (`gates/`).
+
+**Overlay.** `strafer_lab.tools.command_overlay` draws the goal (coloured by distance), the
+rolling subgoal and the path. It projects each point through the recording camera's pose and
+intrinsics, read from the stage every frame. It wraps `RecordVideo` in `play`, `train` and
+`test_strafer_env` (`video/`).
+
+**`--headless`.** The play script, and the train script under `--video`, requested a Kit
+visualizer only so that the markers would be positioned. The deprecated `--headless` flag sets
+the launcher's disable-all switch while that request still reaches the settings
+(`app_launcher.py:825-836`), so `SimulationContext` resolved no visualizer and raised
+`Explicitly requested visualizer(s) ['kit'] could not be configured`. Nothing was missing from
+the install; the `isaaclab_visualizers … extension.toml` warning is unrelated.
+- `HEADLESS=1` in place of the flag ran the same script with markers positioned
+  (`play_markers/`).
+- With the request removed, `play … --headless --video` and `train … --headless --video` both
+  record (`video/`).
+
+## 6. v3's training contract
+
+v3 was trained with `debug_vis=True` and its markers frozen at the world origin. The
+composition contract now differs from v3's training contract by exactly
+`commands.goal_command.debug_vis` — `faf86756…` → `c98d18ba…` for
+`RLDepthSubgoalEnriched_Robust` — and by nothing in the observation semantics.
+
+## 7. Angle conventions
+
+The off-goal angles in the attribution, parity and v3 records are measured against the
+**mission goal's** bearing: −8.1° at the capture pose. The subgoal the policy observes sits at
+−62.5° there. Against the observed subgoal, the rig-class command is about 25–29° off and the
+"toward" class about 67° off. The causal results do not change; what "toward" means does.
+§4 of this record measures against the observed subgoal.
+
+## 8. Open
+
+- **Whether the previous stack rendered markers into the D555** (check 2). This is one boot on
+  the retired pair, run after this change merges. It decides how every pre-flip depth
+  artifact's history is read.
+- **Whether v3 keys on the frozen cluster** (check 4). This is v3 in closed loop, 16 envs ×
+  100 episodes with corruption on, markers positioned against off. Pre-registered: within G7's
+  run-to-run spread (±0.04 path_complete, ±0.5° steering offset).
+- **Markers in the livestream viewport** are filed as `livestream-command-markers`. That brief
+  also covers teleop's debug-draw target marker, which has never been shown to stay out of
+  render products.
+
+## What is not claimed
+
+- That the markers caused v2's deploy failures.
+- That the previous stack's D555 rendered them.
+- Anything about the real D555 (no real-sensor frame is involved here).
+
+## Gates
+
+The suites ran on this change's head; the two failure rows run this change's tests against
+`main`'s code. Kit verdicts are read from the JUnit XML (`gates/`).
+
+| gate | result |
+|---|---|
+| pure-python suite | 1 364 passed, 1 skipped |
+| composition contracts | 135 passed |
+| full Kit suite (`run_tests.py all`, 15 suites) | 502 of 502 passed; `obs_dump` needed 2 boot relaunches |
+| `command_markers` on `main`'s command terms | fails: `SubgoalCommand: debug vis reached the D555 depth` |
+| contract tests against five single mutations | each fails: `debug_vis=True` in each of the four shared cfgs, and `main`'s command terms |
+| golden attribution | `altered commands.goal_command.debug_vis True -> False ×22`, nothing else |
+| `debug_vis` survey over every registered navigation env | 29 of 29 on `main`, 0 of 29 after |
+| `play … --headless --video`, `train … --headless --video` | both record, with the overlay drawn |
+
+## Evidence — deposit
+
+| | |
+|---|---|
+| repository | https://github.com/zachoines/Sim2RealLab-Artifacts |
+| deposit directory | `debug-marker-leak-2026-09-21/record-files/` |
+| deposit commit | `f8a1f84492006a6b2a23f18daf54942f8a6d6e95` |
+
+Restore into this record's directory with:
+
+```
+git clone git@github.com:zachoines/Sim2RealLab-Artifacts.git
+cp -a Sim2RealLab-Artifacts/debug-marker-leak-2026-09-21/record-files/. \
+      docs/measurements/debug-marker-leak-2026-09-21/
+```
+
+Verify digests with:
+
+```
+cd Sim2RealLab-Artifacts/debug-marker-leak-2026-09-21/record-files
+grep -E '^[0-9a-f]{64}  ' DEPOSIT.md | sha256sum -c -
+```
+
+sha256 of every file in the deposit:
+
+```
+1b94c4087eb533fee3496f117c34f835b89f54a7751339f102dd5d8d619fcf7f  beacon_ab/beacon_ab_capture.log
+83172a666d4eac2259ed1898154a9e2507547d1534d601bcd21f724019353320  beacon_ab/beacon_ab_capture.py
+53ae48f9af1926fee711ae448329ea90bf6a10205852ea612307ba976322d4ac  beacon_ab/beacon_ab_capture_cmd.sh
+1de1b6242c921582b9b8ab7dcb60ad9af43bb7feffe9c2ef5c94d4b64978f573  beacon_ab/beacon_ab_obs.json
+5870057dd734138e8eea5aa3786856ccd88b26b87e9936fbe032627678ea82db  beacon_ab/beacon_ab_score.py
+3c69881835e358d93f8b79f10b735d366b2b2bb10fceabb9b6d0e85511a225c9  beacon_ab/beacon_ab_scores.json
+5e6f471cb99478312d51f9bc0af98fd2601ef99a40d9b073e76a38e9fd4d9f80  beacon_ab/pose0_d555_rgb_off.png
+c89776a584dba22adb21cb627b92c92685ce4f126864e4e9849a18f788e9fe79  beacon_ab/pose0_d555_rgb_on.png
+92845627f1b133df15040396e187a5180523525f8c56ddfb91ad3f9a8bb3a831  beacon_ab/pose1_d555_rgb_off.png
+d40eaffeca7b26c81fe30baebc50a7f58c488690415e95c9e2386d3a3bd374a5  beacon_ab/pose1_d555_rgb_on.png
+f921f1588971304c1d5dbe6b8b2653f81a96edfa931857d48d9372d79f4dd0be  beacon_ab/pose2_d555_rgb_off.png
+99c51708d9fd3a5aedb7ba83897f707d8b4c94a0eec527150c37b89bdf921d00  beacon_ab/pose2_d555_rgb_on.png
+7c0e536347149d38d33a75dc5ab822e10646cd9eaf5eff96c7df58acd792b240  beacon_ab/pose3_d555_rgb_off.png
+b02e564074de7bdfe23d1c73f5f9d984f47badad6f29230366ed8d8951136be4  beacon_ab/pose3_d555_rgb_on.png
+7628eb2dece8a37c9ae8734a0be812b40b2c0e631cd4ecbaf8cc4fed7fc424b3  beacon_ab/pose4_d555_rgb_off.png
+9dc568a45c3d4c13261d2c0b9eed07e41b361f377040e12ee24e5300a9632159  beacon_ab/pose4_d555_rgb_on.png
+e10cb165c252bff8bbab2170d511117a1056517297c5267099e82570ae50b88f  beacon_ab/pose5_d555_rgb_off.png
+f761a1b1b4b6b4ad4c5e7fb2968fd5ef4cbeb4e01b62ee9b04314c982d01b240  beacon_ab/pose5_d555_rgb_on.png
+2f81840615d84e28719bfcf400d57e4590f429218672c50dee69c2b908ee9bb9  beacon_ab/watchdog_beacon_ab.log
+2f81840615d84e28719bfcf400d57e4590f429218672c50dee69c2b908ee9bb9  beacon_ab/watchdog_beacon_ab.log.attempt1
+f399324d3c5e8986898b86965638d21cb088acc612f87d8ac0f8240efa61bde5  check1/check1.py
+a7e097bb93821581eaa379096852784d468a79b34b2049ac617eff53c7997dd3  check1/check1_figure.py
+7f36255a59793c3aaa876869d0e8a91e35e9d1f9459d40925371eebef3831377  check1/check1_footprints.png
+81e41d505d306273f62265973ce29023d4f747da5e848613019401950fc1e89b  check1/check1_prefix_probe.json
+aec444f7beb77671c0f868f0a2e0f668657dd0d55e71abd04080c176e45e2740  check1/check1_prefix_probe.py
+f79625edaf749fc957bbc0d63cb129fb427f8752dcd006df65023a577f69a885  check1/check1_results.json
+c878cb2a2f3cbf8fce55c47a4d5b7e912ad990e0272a53814db4afcabc883c27  check1/check1_run.log
+5fe147170a3d3139898b7089f768517bd4289e50d598bb2d9e5dc55e34972150  check1/check1_summary.md
+c37caaad57f3a81c4fae67f5e5cc3c92a7a327f2c955d79afb694318a911aaa4  check1/check1_tables.md
+c3a2894bb1fa6ce553f2622f9835d5f7207d5e61165adc76b403ea53de028ca3  check1/pose0_displaced_depth.npy
+3b58562e28ad23a0551f47cd679ead2fc21afded2fd2fac57a048fa509a3456c  check1/pose1_displaced_depth.npy
+28524282f34ef35defccc8dc14d38efa553b8f824b82f63371e4473f83e47c1d  check1/pose2_displaced_depth.npy
+19451a0f53fe8de8a428914439ea73053e2828907b87ddbf124af2eb4b1fce44  check1/pose3_displaced_depth.npy
+b179a1abc2a9ab44d652eaa872a5ff4cb7308a43ac3d97a27129090282c3207a  check1/pose4_displaced_depth.npy
+1321a01520ec0ee18445134233f74349190e35943a55047bd2092d2eb2cd8834  check1/pose5_displaced_depth.npy
+9c0e8199fe8c31c903234bcc5eb295a385af470d2008258604a81712db61d0bb  check1/run_check1.sh
+0bb27361bb522c73c6ce59f8a69380c6d226421a59b552495abea09f8ae7be68  exposure/bridge_capture_mosaic.png
+c452d63243d80d1a2b50d01a977246f139d14e2203efa13cfb78115284354558  exposure/bridge_capture_mosaic.py
+7522c5f7c60735d4404ef84b5dcff33129d21608d61edcd364a52a51fe666471  exposure/debug_vis_survey.py
+b8f442acb4f6458309e6d7d7f87ffb8d823be4c349853080e0f0c7574909200c  exposure/debug_vis_survey_after_fix.txt
+31cc6ff845330207a14e8666fb526f698dbf72c0cca181d60f15e72e627fa913  exposure/debug_vis_survey_on_main.txt
+ee9ed8d9e42aad90295209574034a3cbd44e5e9b2025e2ab84be4c985a91a9e3  exposure/origin_line_of_sight.py
+d075a2855150eff4260fdbab4eb58c241526eb6c993bca224de6100c27718c1c  exposure/origin_line_of_sight.txt
+54a384e6f20f821c27f771f6ed66ef5bc4727c2ee0e3e884cf8ca8d1dc52ab27  exposure/training_video_sample.py
+83aa11a5c001ceb711b4330179eec11f57021da91ed30e24facb5f3f032113d1  exposure/training_video_sample/sample_1.png
+a7d22fcf78b105ba703eab850d962f568e4c30d7019acc8bec3a71962d5fcbd3  exposure/training_video_sample/sample_2.png
+52f4f37c85c55c4c28931e550b92f4f1c6f3017713f0f33b0b12284013c9204c  exposure/training_video_sample/sample_3.png
+7c26fb4fa360085f9e03d7dc07633c2bc98c1c05b3d348c5c333c75eb17b4501  exposure/training_video_sample/sources.json
+82d31ebbc7311d1094c17c7b9ebddc94142f52d0af6c0ba8abf1f72e604331f2  exposure/v2_training_run_20260726_221955_step9000_t3s.png
+8667f3de5d47dbc3e113467b72e98bc82138bb9bbb8fca66ca53f87098438443  gates/command_markers_fixed_PASS.xml
+9376efe7c7448e5fc2fd2a4a9c019e8dd6d32d48ca2baa000b8668fdd7765572  gates/command_markers_on_main_FAIL.xml
+03a3daefc2f0d49afe589a3e5dca3dddfe8fa3f0645e575cb65a12b000221e4c  gates/contract_mutation_proof.log
+6bf6d839860e9fac0c35c8dd12b98d4c4ab03203435a2a54622c90b68edcc8df  gates/contract_mutation_proof.sh
+74ea16ee21182d38c8bb52419577d03583d634162140713e12bbff3d5b4480ac  gates/gate_contracts.xml
+692003bfd75fd16899cbca42ce664dcf06b52bf4cd0228f0ff94650b3b6e8aee  gates/gate_pure.xml
+94c0c57465b624c3b4df3ad1b8d31eca19c7a4c51995db52b1feaf8451a85463  gates/kit_xml/test_results_actions.xml
+de55ce90fd0c1b2baef84cdcdbf9b1941f037c9bc706e8a25bd303dff65788da  gates/kit_xml/test_results_camera_jitter.xml
+22d5c0f2eb8db92c3c80ca75eb131f18f2e73c075d0a89fef1c7aee0243fac08  gates/kit_xml/test_results_command_markers.xml
+470e464c89d199b6abace1d3c8e9959a9de83814f9766c15afddbd19b45d7e4b  gates/kit_xml/test_results_commands.xml
+7ffbdb53e7c250643f1a4e5150369277ad2afc5a3a83070d22f5b6497f88ac23  gates/kit_xml/test_results_curriculums.xml
+b3843625fa8bda5770dd9aa7bb65619489eccb4f8f55554fae219b95daaeecd3  gates/kit_xml/test_results_depth_noise_test_frame_drops.xml
+704574d3e6082b341eee973d0b41d4a3b12bb5c7f3256511030f6d40e8739782  gates/kit_xml/test_results_depth_noise_test_gaussian.xml
+a61c716b0a8bb9715bab6776dd49284ff3dea0f5cc70ad34124c8f3f632a8f27  gates/kit_xml/test_results_depth_noise_test_holes.xml
+9e334a772596f4c1763e5e4ba87a41265cd47ed2d6f424d0ec90e346cd6b8eac  gates/kit_xml/test_results_env.xml
+07604bffa676b82da231d3846f793e095629377b1b073bf1394ca619acb84e0a  gates/kit_xml/test_results_events.xml
+442f7db4fafdb2e7051e87e390cfc3e5ea1bededbbfa41e3ed3a13a2fa9305d4  gates/kit_xml/test_results_imu_test_imu.xml
+335ac0ce8abafa5b0166438f0d0ddad1b62db803bc9027271ea11228475dcb52  gates/kit_xml/test_results_imu_test_imu_collision.xml
+20a824ea7cb3b827909c29be9e1bc26df1d40c6b3e19699fe6a9040701c217ab  gates/kit_xml/test_results_noise_models.xml
+97a98478e753c77081150ac6b2665f9b2d77581c583eb37f247b000599062b65  gates/kit_xml/test_results_obs_dump.xml
+306931ff66e2c0501e85d7ba62673bb90760b7055758b3e00b71918cd80302dd  gates/kit_xml/test_results_observations.xml
+d2389fa3bf59ecdf15adf8c88679ac4881408b40d398d860503008f527cbd078  gates/kit_xml/test_results_rewards_test_collision_rewards.xml
+52761c833ffbc8c1403f5cc45bc13f00970fa4aad21346d14edc64ea519ffc94  gates/kit_xml/test_results_rewards_test_rewards.xml
+0612f8f0e8da2bef16605c3576dd6e4b79bf497f1b7f64c87c651a34acfd1279  gates/kit_xml/test_results_sensors.xml
+4682c32c3941b8ef35b104e5eaf53c47aa11a790387e7383fbab2636430215fc  gates/kit_xml/test_results_terminations.xml
+4c272ebca392d37581c4a04a119adc9680a190d045f494173640ba791cee47a6  gates/run_tests_all.log
+b21b23949e8fa25eb47f4a9263d1e5dfe166dad5445b52ee0ff84eb085929d69  goldens/after.log
+4f7fbc0b91e6e6bd35f6506f297c1dbeb75fc8da55291a5dd73e8dc58db114dd  goldens/after/hashes.json
+e6e230c283d8b3838370a79a9fff34979517b807707d608b0b8dab1503bae208  goldens/after/preimages/contract-RLDepthEnriched_Real.json
+c58a9e527859c84dbcc12f2ae69724871c9592a1c79fd24df8b7dfa7eebfbaff  goldens/after/preimages/contract-RLDepthEnriched_Real_PLAY.json
+6095cb6cbc1cc503e448ecb743f0606df5837b67365eef4b9163346e4edc3335  goldens/after/preimages/contract-RLDepthEnriched_Robust.json
+2676629ab0ca3c3de3fde1dadc50e623f6bd2b194d6980a9bd49b61056b9e858  goldens/after/preimages/contract-RLDepthEnriched_Robust_PLAY.json
+1f558159d280e5ab55d0a7fa58c5cea84340567b8116c85e454bdb3e8a56a562  goldens/after/preimages/contract-RLDepthSubgoalEnriched_Real.json
+23604bb3b6ac57b24fc3240edc9ba8987d0be60670eb5d4ca4d21d451b0c2adc  goldens/after/preimages/contract-RLDepthSubgoalEnriched_Real_PLAY.json
+3f1bdc4f70e2a69714312a5c93fcbb783a7137b53e3118ff983e46fb1c1d273f  goldens/after/preimages/contract-RLDepthSubgoalEnriched_Robust.json
+3e8267799f8db617b4f3abc4a52bd4c676ba45b288bd6197703aafa33dd1b264  goldens/after/preimages/contract-RLDepthSubgoalEnriched_Robust_PLAY.json
+f98578cac577ccc85b786c0c0cb7fcf13f69a81626c5da9eaf997187b289dbf7  goldens/after/preimages/contract-RLDepthSubgoal_Real.json
+0c0ab4029332169f2aee32eb97d691491999b4100137128db04b5f8dd91a170b  goldens/after/preimages/contract-RLDepthSubgoal_Real_PLAY.json
+7756f87dcccc81e2989f6c507eda432803c76dbd7f3d43edcb504422b28fb196  goldens/after/preimages/contract-RLDepthSubgoal_Robust.json
+112e52e179ddbf50a84194e2082ee4eea3e4e258c8c9ef10ab2f1e5d1041766f  goldens/after/preimages/contract-RLDepthSubgoal_Robust_PLAY.json
+9d84b482133fe9d23f401d67875df7a29347bdafd02f5a4664fe92b877daa5fe  goldens/after/preimages/contract-RLDepth_Real.json
+7e4ad64585634743c205a416660d586c92a2d2a6ebf532e5237520aa8808684c  goldens/after/preimages/contract-RLDepth_Real_PLAY.json
+210a648e8887af8100fe566e9d2e2dd919ca11baa3e78e4cc30e634983ad3195  goldens/after/preimages/contract-RLDepth_Robust.json
+6771a761f6285566890fc4bae9085f16bf07779fd3ff03c3e07ec6446e745939  goldens/after/preimages/contract-RLDepth_Robust_PLAY.json
+43c960379b0a2de40e683d0faa4a1bb9c31ae3418326be87acb03f10630fa667  goldens/after/preimages/contract-RLNoCam.json
+76e815d3eab5bd17e1aa21d5103f22e133aadfb2049dd3c40af640c2d627ce3f  goldens/after/preimages/contract-RLNoCamSubgoal_Real.json
+978df5c4d4cb3fa32e2759c5dcb40077ca161b8b5cf4e4df6f81b091e7f4b533  goldens/after/preimages/contract-RLNoCamSubgoal_Real_PLAY.json
+6ab41331e42545376d500390235c479a0ccbfb0213819582c07d07cfd83992dd  goldens/after/preimages/contract-RLNoCamSubgoal_Robust.json
+b16df297516da1ca5bc14c2efa02b6809b803372aba65a2eea6cfeef7eb0f0bc  goldens/after/preimages/contract-RLNoCamSubgoal_Robust_PLAY.json
+b79700c3a7c92179843055b8dde6f57bc440abfc58ad5d13c84a2d6298ddea16  goldens/after/preimages/contract-RLNoCam_PLAY.json
+88b7c0e4a1ac221feb5db9f245b3e8a20e04400d90a32ab706bf0f191a762bdc  goldens/after/preimages/depth_obs-RLDepth_Real.json
+6c4cd4326c0d1ad5efb0737a708c39eadc40ea39802f005841317201c02a8e36  goldens/after/preimages/layout-depth.json
+2a7e51cd9c4e0d6e2feee951ce2494c757f5df26e51c6dcdc76cb0134e5f4170  goldens/after/preimages/layout-nocam.json
+edabd78ac9b3856dadb60482614648edfed43cd6464d1e67c0198d3f0bd67eb0  goldens/before.log
+9f01a6271554bdf18a62c32d4eeb0ffbf0a6f34a8813527d15049f5b65ceaf2a  goldens/before/hashes.json
+022a41e4807c2876400735c71219a6b69ae4eabc4988472e9e6d41502c9c7e31  goldens/before/preimages/contract-RLDepthEnriched_Real.json
+57029c366aa3400627e06ad530168d12ba8376bc14650147109408b5a3895220  goldens/before/preimages/contract-RLDepthEnriched_Real_PLAY.json
+1a8fb607245b2c3b41e0cc11c6b3a8d7f288d7f7d1b2c6a1cc8e146f288b62e0  goldens/before/preimages/contract-RLDepthEnriched_Robust.json
+fa852dac0e54b6db1dc4184c22ddf25771feead4efc91ddfeacc31b6fff9fdf2  goldens/before/preimages/contract-RLDepthEnriched_Robust_PLAY.json
+09516c10984f3ad2d9c7993074634240ae030e540d16e2b67f7e4b6b5b35abab  goldens/before/preimages/contract-RLDepthSubgoalEnriched_Real.json
+75ce3c17354028d6fba7b383383ebcdd401941c5f02e67433374fa6f04906d18  goldens/before/preimages/contract-RLDepthSubgoalEnriched_Real_PLAY.json
+86fe46d070f0e86adc487284246720b83cb42feabb563196bae37bf0b3a8852c  goldens/before/preimages/contract-RLDepthSubgoalEnriched_Robust.json
+4e29289981d1126f4da670e7ba046db84e1559ebc6a32a5643bc641460cf1858  goldens/before/preimages/contract-RLDepthSubgoalEnriched_Robust_PLAY.json
+f8dbf1f4f88a74e7c3840b27eaa97803c2513ef978398b26a49e650ce0ad5504  goldens/before/preimages/contract-RLDepthSubgoal_Real.json
+1480bd411e52d895697af1dacf567a85f9b3296a6d2a653ae8a40043478da6ab  goldens/before/preimages/contract-RLDepthSubgoal_Real_PLAY.json
+cc18d913bd3d1294f7d27327c5b1e6cbdfde76ea767889184ea2e68f966f54e0  goldens/before/preimages/contract-RLDepthSubgoal_Robust.json
+f6d9d59a8ff13ec395f3eba921f5f5223bd0971e3a6e51c9cd1dec9057022e0f  goldens/before/preimages/contract-RLDepthSubgoal_Robust_PLAY.json
+e9452ec81d0272ed78b515c403bf2b2340f77052d2419219ac4251dbddf79ab7  goldens/before/preimages/contract-RLDepth_Real.json
+51eced1aa04aa5bd5b2f4139d12a65368b50e2d1ae6ea3b22a0c6d7be93fd3a8  goldens/before/preimages/contract-RLDepth_Real_PLAY.json
+44d40b0db19b942daa597cdf952002dfe54549d016f31df0bfb06323f3edc0aa  goldens/before/preimages/contract-RLDepth_Robust.json
+4a9c1ba4ac54104d66032bee65e4c9a9107ec0cf9f3126bdc09d2ec0e233c5d4  goldens/before/preimages/contract-RLDepth_Robust_PLAY.json
+9ec306286b72e3db5b365559f791daada842c0ab54d694b02e216038aaf8c402  goldens/before/preimages/contract-RLNoCam.json
+b17399b3e4506e5ea2496d9663eb5390042f325378688465de620c30910b6875  goldens/before/preimages/contract-RLNoCamSubgoal_Real.json
+c88e515ea9fda493ab9ef81040561e499d26865d143f7e51cfcc42e24cd0be8d  goldens/before/preimages/contract-RLNoCamSubgoal_Real_PLAY.json
+132be1a681068dbcfc777090bda66d280c04c3d868e334d9998d5c38f8e2bab5  goldens/before/preimages/contract-RLNoCamSubgoal_Robust.json
+58d8b760c10aacaef63b455d75ec65cdc0e3682b0983e7061738cac5c1c0abba  goldens/before/preimages/contract-RLNoCamSubgoal_Robust_PLAY.json
+dfb9e45be05cc08391eb640204a4e64fbef9b2259ebef6785ac315bca1146902  goldens/before/preimages/contract-RLNoCam_PLAY.json
+88b7c0e4a1ac221feb5db9f245b3e8a20e04400d90a32ab706bf0f191a762bdc  goldens/before/preimages/depth_obs-RLDepth_Real.json
+6c4cd4326c0d1ad5efb0737a708c39eadc40ea39802f005841317201c02a8e36  goldens/before/preimages/layout-depth.json
+2a7e51cd9c4e0d6e2feee951ce2494c757f5df26e51c6dcdc76cb0134e5f4170  goldens/before/preimages/layout-nocam.json
+3b49094679c88771c1088e33a6cd3891da8570d7d589fa8d61db2b95f2fb050b  goldens/golden_attribution.py
+78a2350010aaf715d2416e7b9fd8f072bb5a54cfea8108bda8d3818c6abeb710  inplace_probe/depth_marker_leak.py
+d6481d928af066f3b030ba3bd28e646135f3251f92191a223e661333e7ee3827  inplace_probe/depth_marker_leak_cmd.sh
+d907bee0966a22c8ce7ec79013c847360e93ca92adc74b4d05219418c4cccd71  inplace_probe/depth_marker_leak_run1.log
+1c74bfa73f6ef3b74002847eb846140e8bcfe5b192566c967583b63f2d192d89  inplace_probe/depth_marker_leak_run2.log
+41870227a7fa34049e23bab751b21bd56fa45c6dcb30d697e4375bf3cde2cbab  inplace_probe/depth_marker_leak_run3.log
+6accd3b49a5bc45e05a54f02e81197a67af1868cd08f05423ceccd00da72cdc4  inplace_probe/leak_run1/depth_marker_leak.json
+10baf1eed455fb66e4d9ada71d68d8e615cc59dd7f1f56de9e2ebcb52a449a5f  inplace_probe/leak_run2/depth_marker_leak.json
+820a21942460b8101343f36650e94e6f20d11a78e943c3aa8ace79de0c09d4fc  inplace_probe/leak_run3/depth_marker_leak.json
+384c770425947b4dcbaa244129f7f3470f7e78c544426f3b0e9954cc1bdc65e7  inplace_probe/watchdog_depth_marker_leak_run1.log
+1c8a5627a5334186b9b5e02d7717ed8816d70ac68008769ca2cd9c6908b7bed1  inplace_probe/watchdog_depth_marker_leak_run1.log.attempt1
+1c8a5627a5334186b9b5e02d7717ed8816d70ac68008769ca2cd9c6908b7bed1  inplace_probe/watchdog_depth_marker_leak_run1.log.attempt2
+384c770425947b4dcbaa244129f7f3470f7e78c544426f3b0e9954cc1bdc65e7  inplace_probe/watchdog_depth_marker_leak_run1.log.attempt3
+7da3b348a4372096bca1a1790f1c87b847645b7f08ffd514f8a7b50c1318a7c3  inplace_probe/watchdog_depth_marker_leak_run2.log
+7da3b348a4372096bca1a1790f1c87b847645b7f08ffd514f8a7b50c1318a7c3  inplace_probe/watchdog_depth_marker_leak_run2.log.attempt1
+a900b162cdcd5cc43c8765cc7506c484150866e4b5cea35a71bd8fb44f6b1cea  inplace_probe/watchdog_depth_marker_leak_run3.log
+1c8a5627a5334186b9b5e02d7717ed8816d70ac68008769ca2cd9c6908b7bed1  inplace_probe/watchdog_depth_marker_leak_run3.log.attempt1
+a900b162cdcd5cc43c8765cc7506c484150866e4b5cea35a71bd8fb44f6b1cea  inplace_probe/watchdog_depth_marker_leak_run3.log.attempt2
+0875b7bc5266d1ef9938e70a11afacb89d69a5d536eaa8d7ccb7e87ccef7a579  measure/marker_depth_on_main.json
+e25c1edadde49fec4cd1383202acb2d791b7546d731a3bb82859471e881ef305  measure/marker_depth_on_main.log
+0ad732c877e5b5b98e0d7a36c8a45e161b30b31b7fd2b35dedd6be07531c2c2d  measure/marker_depth_on_main.py
+c75122d93b0567a625f1992c9006f1f8d4e3e45220dd87134722d469af31d1c8  measure/marker_depth_on_main_cmd.sh
+1a88f6c38b0d4045c2dd52c0a75766ab555da8becdaf5650505bb77589e614a8  measure/watchdog_marker_depth_on_main.log
+1c8a5627a5334186b9b5e02d7717ed8816d70ac68008769ca2cd9c6908b7bed1  measure/watchdog_marker_depth_on_main.log.attempt1
+1a88f6c38b0d4045c2dd52c0a75766ab555da8becdaf5650505bb77589e614a8  measure/watchdog_marker_depth_on_main.log.attempt2
+ffba1b203b74d412230edb40cc072cdae3dd5fd88ac9ec584786079f924aeb9b  play_markers/play_headless_env.log
+9011501f66d65ae7818dfceaad71fd7a3dcaf3047e5996ceb34771fffc566238  play_markers/play_headless_env_cmd.sh
+1339cb52ee1790b8fa99d6c7134863effba33c816b70fb9d24ba69afe357e985  play_markers/play_headless_flag.log
+182c27b085b955060a62c5e88e22826c223b2ba9874e2916e9ea55ba0413940c  play_markers/play_headless_flag_cmd.sh
+7e455f8fccad3d315f2492f27ba2925a0cab74d2bdbb367deb6a286b9304f1f8  play_markers/play_headless_flag_unwatched.log
+089e810ee493d7ee5bdc7f74890078f4f34ce0f4d220e66b9e27406397a1b948  play_markers/play_videos/play_20260921_105717/rl-video-step-0.mp4
+1df3ace4f78224ab0a21f93a9bfdab82af1d20cc84b9be5b810eb21b71ecf8bd  play_markers/watchdog_play_headless_env.log
+1df3ace4f78224ab0a21f93a9bfdab82af1d20cc84b9be5b810eb21b71ecf8bd  play_markers/watchdog_play_headless_env.log.attempt1
+817f433582ba4dae44c69130a0ba7dd8bb707cd9902ea4c697010f7e1391048b  play_markers/watchdog_play_headless_flag.log
+817f433582ba4dae44c69130a0ba7dd8bb707cd9902ea4c697010f7e1391048b  play_markers/watchdog_play_headless_flag.log.attempt1
+817f433582ba4dae44c69130a0ba7dd8bb707cd9902ea4c697010f7e1391048b  play_markers/watchdog_play_headless_flag.log.attempt2
+817f433582ba4dae44c69130a0ba7dd8bb707cd9902ea4c697010f7e1391048b  play_markers/watchdog_play_headless_flag.log.attempt3
+337e758e70a9f1e9a57cad7c9ed33a98846571e936aa8f5adcd85131839762bd  video/play_headless_fixed.log
+5798224cd0e669d7ad2dceae490b166df121f97911734d1631dfb5ccc749a958  video/play_videos/play_20260922_082725/rl-video-step-0.mp4
+15f43ff856f562b57e271857b57702abd9154339bbf84abd99e22fb27091be39  video/train_headless_fixed.log
+24e23f3b6601839d787aae64442ad74e93b7d7c416bdbff38cbaf10bd4b14044  video/train_runs/run_20260922_083035/events.out.tfevents.1790083837.gx10-d1d8.2027185.0
+15263599b4a09390436d0ef3259771e672a927fcde13dafcbdad821e8110cfbd  video/train_runs/run_20260922_083035/videos/rl-video-step-0.mp4
+1147ad865d5edfcd6145960dc53d3f13446cc02c9c3526703afd65e01edf8a84  video/watchdog_play_headless_fixed.log
+1147ad865d5edfcd6145960dc53d3f13446cc02c9c3526703afd65e01edf8a84  video/watchdog_play_headless_fixed.log.attempt1
+f62d4e02b846c194e6e39ad45f44c7faced38fb2b77f2f1ee5f9d805f2dcc6ae  video/watchdog_train_headless_fixed.log
+f62d4e02b846c194e6e39ad45f44c7faced38fb2b77f2f1ee5f9d805f2dcc6ae  video/watchdog_train_headless_fixed.log.attempt1
+cd0e73abb1ad8d77e0576d3e1634e19a126b7f1cecebb1e90579112cac6aa7d3  visibility/d555_depth_absdiff_vis_vs_hid.png
+854d43cbd37d656cdb2351e1d82df8c7ac8c4588472dd494174b0725b2892390  visibility/d555_marker_visibility.json
+d2f4b711ed9cbf140d3aac56b62d94e200e9f38cb08c23582c03847dc48e97c6  visibility/d555_marker_visibility.log
+9f5fd9a6705409489107fb8eb4e47715a97162878357ba0b986025255715850d  visibility/d555_marker_visibility.py
+e33188884f5caedec2021b7a9e502f6f39ee640a3dea088d431e10a4b8f088b4  visibility/d555_marker_visibility_cmd.sh
+0d428c1afc91e3e5b9fc39fdfdb23f2d674e888347d1113111364b0bc2ff4790  visibility/d555_rgb_absdiff_vis_vs_hid.png
+9ca61622e3bbc43b71ee62f94b70ba8ccc3b6290fbf062f2986106c2609ad856  visibility/d555_rgb_hid.png
+5c5581fb6eb7c60efcd21f54064cc767b648f4ab37b3636047ffc204134f7d39  visibility/d555_rgb_hid2.png
+b692a037b78c8e81ecb39ac230ae52fb9736c6d54f88812c05aea86751f16ca2  visibility/d555_rgb_vis.png
+12b4b6ad6159de766bad260a95051b2bb345193f6c61b6d1a78c1857330e0a01  visibility/d555_rgb_vis2.png
+b4c1b6c1617ebab58bc1c5a64d9ff637a2908038297959cbab4e067f58e4f455  visibility/overhead_hid.png
+b2d897f826a2d1f2351e0e9b84f176c533d977a17b003fa8c8e4c4867977e78c  visibility/overhead_hid2.png
+7efdbbfeb59ec43fc9584c5027bfb5a906d7980f68ffa20f617083617c6cf574  visibility/overhead_vis.png
+5fd2332762099d92bc59b806459a099327bedca25e6b3ae50c478d55906c5996  visibility/overhead_vis2.png
+99a1f90bd32bca46f68896a536ceea9c7037cec061f266ff3d9870e8abed6e17  visibility/watchdog_d555_marker_visibility.log
+99a1f90bd32bca46f68896a536ceea9c7037cec061f266ff3d9870e8abed6e17  visibility/watchdog_d555_marker_visibility.log.attempt1
+```

@@ -866,7 +866,6 @@ class CommandsCfg:
     goal_command = mdp.GoalCommandCfg(
         asset_name="robot",
         resampling_time_range=(10.0, 15.0),
-        debug_vis=True,
         goal_range=mdp.GoalCommandCfg.Ranges(pos_x=(-3.0, 3.0), pos_y=(-3.0, 3.0)),
     )
 
@@ -1027,7 +1026,6 @@ class CommandsCfg_Infinigen:
     goal_command = mdp.GoalCommandCfg(
         asset_name="robot",
         resampling_time_range=(10.0, 15.0),
-        debug_vis=True,
         goal_range=mdp.GoalCommandCfg.Ranges(pos_x=(-2.5, 2.5), pos_y=(-2.5, 2.5)),
     )
 
@@ -1684,7 +1682,6 @@ class CommandsCfg_ProcRoom:
         # Keep a single goal active for the whole episode to narrow return variance.
         resampling_time_range=(1.0e6, 1.0e6),
         multi_goal=False,
-        debug_vis=True,
         goal_range=mdp.GoalCommandProcRoomCfg.Ranges(pos_x=(-3.5, 3.5), pos_y=(-3.5, 3.5)),
     )
 
@@ -1904,7 +1901,6 @@ class CommandsCfg_ProcRoom_Subgoal:
         dwell_radius_m=GOAL_ARRIVAL_RADIUS_M,
         dwell_speed_max_m_s=0.1,
         dwell_steps=10,
-        debug_vis=True,
     )
 
 

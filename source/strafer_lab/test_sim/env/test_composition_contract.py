@@ -918,3 +918,55 @@ def test_the_camera_jitter_rides_exactly_the_enriched_arm():
             f"jitter={row['jitter']}"
         )
     assert checked > 10, "the paired-arm sweep matched too few variants"
+
+
+# =====================================================================
+# Composition: the command terms draw nothing any camera can render
+# =====================================================================
+
+
+def _camera_bearing_variants():
+    """Every composed variant whose scene renders a camera, swept from the module."""
+    from isaaclab.sensors import CameraCfg
+
+    rows = []
+    for name in sorted(n for n in dir(composed) if n.startswith("StraferNavCfg_")):
+        cfg = getattr(composed, name)()
+        if any(isinstance(v, CameraCfg) for v in vars(cfg.scene).values()):
+            rows.append((name, cfg))
+    return rows
+
+
+def test_no_camera_bearing_variant_enables_command_debug_vis():
+    """A command marker is scene geometry to the renderer: any camera in the scene --
+    the policy's, the bridge's perception stream, a dataset's -- records it."""
+    from isaaclab.managers import CommandTermCfg
+
+    rows = _camera_bearing_variants()
+    assert len(rows) > 15, "the camera-bearing sweep collapsed"
+    drawing = [
+        (name, term_name)
+        for name, cfg in rows
+        for term_name, term in vars(cfg.commands).items()
+        if isinstance(term, CommandTermCfg) and term.debug_vis
+    ]
+    assert drawing == [], f"command debug markers would render into these cameras: {drawing}"
+
+
+def test_command_terms_create_no_debug_geometry():
+    """No command term in a camera-bearing variant implements debug visualisation, so
+    enabling it at runtime adds nothing a camera can render."""
+    from isaaclab.managers import CommandTerm, CommandTermCfg
+
+    classes = {
+        term.class_type
+        for _, cfg in _camera_bearing_variants()
+        for term in vars(cfg.commands).values()
+        if isinstance(term, CommandTermCfg)
+    }
+    assert classes, "no command term found in the camera-bearing sweep"
+    implementing = sorted(
+        c.__name__ for c in classes
+        if c._set_debug_vis_impl is not CommandTerm._set_debug_vis_impl
+    )
+    assert implementing == [], f"these command terms draw debug geometry: {implementing}"

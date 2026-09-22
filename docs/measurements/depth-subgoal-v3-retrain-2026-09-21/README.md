@@ -44,8 +44,8 @@ is not run here, and no row below carries a threshold.
 
 The contract hash is recomputed without Kit by `probes/launch_provenance.py`, which
 mirrors the serializer in `test_sim/env/test_composition_contract.py`. It is taken at the
-cfg's default `num_envs` (64), where the golden was frozen, and equals the frozen
-`RLDepthSubgoalEnriched_Robust` golden; the snapshot includes `scene_num_envs`, so the
+cfg's default `num_envs` (64), where the golden was frozen, and equals the
+`RLDepthSubgoalEnriched_Robust` golden as frozen at `615fc14`, the tree this run trained on; the snapshot includes `scene_num_envs`, so the
 run's command-line 96 is recorded separately rather than hashed. The composed cfg renders
 the policy camera at 360×640 and gives the depth term an 80×45 noise grid.
 
@@ -276,7 +276,8 @@ much is its heading. v2's answer to the same far fields is the nearly pure later
 |v_xy| 0.28 at 0.002 to 0.47 at 0.16, with wz between −0.67 and −0.71 throughout.
 
 **Table (a3).** The same noise arms applied to the node's own tick-0 depth, 30 independent
-draws each. The node's depth is the bridge's 640×360 render through the deploy block
+draws each. Off-goal is against the mission goal's bearing of −8.1°, as in (a1) and (a2), not
+against the observed subgoal. The node's depth is the bridge's 640×360 render through the deploy block
 median, so it is the only clean field at the capture pose on v3's training path. Source:
 `tables/samepose/table_a_node_base.json`.
 
@@ -364,8 +365,8 @@ the band: between its low end and its median at 1.5–3.5 m, and at the median a
 The render path does not move the statistic. At the same 30 poses, the deploy-resolution
 frames and the 80×45 direct frames agree within 0.32 % with the stereo term alone, and
 within 3.7 % with the robust tier's holes added. The statistic is linear in σ_d — each
-band's slope is constant to four significant figures across the three draws — so any other
-draw is the slope times σ_d.
+band's slope is constant to within 0.06 % across the three draws — so any other draw is the
+slope times σ_d.
 
 What bounds these tables:
 
@@ -418,15 +419,19 @@ What bounds these tables:
   row.
 - Table (a) is one tick from a zero hidden state at one pose; it says nothing about
   closed-loop navigation.
+- Nothing about environment counts above 96. The run, its per-iteration times and its cost
+  comparison are at 96 environments only.
 - The training curves are each run's own training-distribution metrics; the gap between
   them is not a measure of policy quality.
 - The uniform-field rows are featureless fields, not walls.
 
 ## Evidence — deposits
 
-Two deposits in one commit: this record's file set, and the training run's checkpoints
-and event file beside it. The paths this record names under `train/`, `export/`,
-`smoke/`, `video/`, `tables/`, `probes/` and `provenance/` resolve in the first.
+Two deposit directories, made in two commits: `75490a6` deposits this record's file set and
+the training run's checkpoints and event file beside it, and `630d079` adds the
+command-marker recording under `markers/`. The paths this record names under `train/`,
+`export/`, `smoke/`, `video/`, `tables/`, `probes/` and `provenance/` resolve in the first
+directory.
 
 | | |
 |---|---|

@@ -35,6 +35,9 @@ measures where the obstacles are rather than which renderer drew them.**
   — the gate protocol this brief re-runs, and the six confounds it recorded.
 - [measurements/depth-convention-fix-2026-09-13](../../../measurements/depth-convention-fix-2026-09-13/README.md)
   — the near-field convention every depth artifact before it was trained against.
+- [measurements/depth-subgoal-v3-retrain-2026-09-21](../../../measurements/depth-subgoal-v3-retrain-2026-09-21/README.md)
+  — the v3 run, the exported artifact the gate runs, its play smoke, and the
+  descriptive tables.
 
 ## Context
 
@@ -87,14 +90,21 @@ at a live weight has never been measured.
 
 ## Acceptance criteria
 
-- [ ] The run completes 1000 iterations at 96 environments, seed 42, through
+- [x] The run completes 1000 iterations at 96 environments, seed 42, through
       `tools/kit_boot_watchdog.sh`, with every attempt line kept and no NaN in
       the losses. Per-iteration collection and learning times are recorded and
       compared against the measured 101.6 s.
-- [ ] The checkpoint exports (`obs_dim` 3619, `action_dim` 3, `is_recurrent`)
+      Met 2026-09-21: one leg, one boot attempt, 95.25 s/iteration mean
+      (35.66 collection, 59.59 learning), 26.48 h, no NaN
+      ([record](../../../measurements/depth-subgoal-v3-retrain-2026-09-21/README.md) §1; the failed first launch's attempt line is in its
+      `provenance.md`).
+- [x] The checkpoint exports (`obs_dim` 3619, `action_dim` 3, `is_recurrent`)
       to ONNX and TorchScript, and a one-episode play with the exported
       artifact reaches an action. The export names the enriched robust play env
       explicitly — the variant default is the non-enriched one.
+      Met 2026-09-21: `strafer_depth_subgoal_v3_999` from `model_999.pt`,
+      `env_id` the enriched robust play env; 60 steps on that env, batch 1,
+      60 finite distinct actions ([record](../../../measurements/depth-subgoal-v3-retrain-2026-09-21/README.md) §3).
 - [ ] **Gate.** The sim-bridge rig-gate protocol of `goal-a-rig-gate-2026-08-17`
       is re-run with the new artifact over the direct cable: six scored missions
       on `Isaac-Strafer-Nav-Capture-Bridge-ProcRoom-Enriched-v0`, seed 42, fresh
@@ -130,12 +140,14 @@ at a live weight has never been measured.
       **not** reused: it asks whether a depth field reads as a featureless far
       surface, its answer is pre-determined for any per-pixel sensor model, and
       the response it scores is the behaviour this retrain exists to remove.
-- [ ] Descriptive tables accompany the verdict and are not thresholds: v2 and v3
+- [x] Descriptive tables accompany the verdict and are not thresholds: v2 and v3
       off-goal distributions on the bridge capture side by side, the
       uniform-field reference curve, and the per-band texture statistic of the
       new training depth against the capture.
-- [ ] What is **not** claimed is stated in the record: real-sensor behaviour, ρ,
+      Met 2026-09-21 ([record](../../../measurements/depth-subgoal-v3-retrain-2026-09-21/README.md) §2, §4, §5).
+- [x] What is **not** claimed is stated in the record: real-sensor behaviour, ρ,
       and any calibration of σ_d against the real D555.
+      Met 2026-09-21 ([record](../../../measurements/depth-subgoal-v3-retrain-2026-09-21/README.md) §7).
 - [ ] If your work invalidates a fact in any referenced context
       module, package README, top-level `Readme.md`, or guide under
       `docs/`, update those in the same commit. See

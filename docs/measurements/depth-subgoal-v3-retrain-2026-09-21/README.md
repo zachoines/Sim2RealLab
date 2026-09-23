@@ -386,7 +386,8 @@ What bounds these tables:
   sets the launcher's disable-all switch while the requested `['kit']` still reaches the
   settings, so `SimulationContext` resolves no visualizer and raises
   `Explicitly requested visualizer(s) ['kit'] could not be configured`
-  (`app_launcher.py:825-836`, `simulation_context.py:549-576`). Nothing is missing from
+  (`AppLauncher._resolve_headless_settings`, `SimulationContext._resolve_visualizer_cfgs`).
+  Nothing is missing from
   the install; the `isaaclab_visualizers` `extension.toml` warning is unrelated.
   `HEADLESS=1` — or `args.headless = True` set in code — keeps the run headless without the
   switch, and the same script then records with the markers positioned

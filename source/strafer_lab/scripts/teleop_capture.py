@@ -162,12 +162,12 @@ def _build_parser() -> argparse.ArgumentParser:
         "scene's specific structure prim naming.",
     )
     parser.add_argument(
-        "--no-target-marker",
+        "--target-marker",
         action="store_true",
-        help="Suppress the debug-draw target marker (operator-only sphere "
-        "at the active target's position). Marker never enters captured "
-        "frames either way; this flag is for operators who find the marker "
-        "visually noisy.",
+        help="Draw a debug-draw marker at the active target's position. It "
+        "renders into both cameras' RGB, the recorded perception frames "
+        "included, so it is off unless a session is for the operator to "
+        "watch rather than to keep.",
     )
     parser.add_argument(
         "--capture-rate-hz",
@@ -570,10 +570,12 @@ def _stick_to_body_action(
 class _TargetMarker:
     """Operator-only debug-draw marker at the active target position.
 
-    Uses Isaac Sim's ``isaacsim.util.debug_draw`` interface which draws
-    to the editor viewport but NOT into Replicator render products — so
-    the marker never enters captured RGB frames. Lifetime is one
-    episode: ``set_target`` on begin_episode, ``clear`` on end_episode.
+    Isaac Sim's ``isaacsim.util.debug_draw`` reaches the cameras: while the
+    marker is drawn, both the policy and the perception camera render it in
+    RGB, and the recorded perception frames carry it. Depth is untouched.
+    ``test_sim/sensors/test_command_markers.py`` measures both. So this is
+    off unless ``--target-marker`` asks for it. Lifetime is one episode:
+    ``set_target`` on begin_episode, ``clear`` on end_episode.
     """
 
     def __init__(self, enabled: bool) -> None:
@@ -979,7 +981,7 @@ def main() -> int:
             print(f"[teleop_capture] --hide-overhead failed: "
                   f"{exc.__class__.__name__}: {exc}", file=sys.stderr, flush=True)
 
-    target_marker = _TargetMarker(enabled=not args.no_target_marker)
+    target_marker = _TargetMarker(enabled=bool(args.target_marker))
 
     output_root = Path(args.output).resolve()
     if output_root.exists():
@@ -1044,7 +1046,7 @@ def main() -> int:
           f"(capture cadence; env_step_hz={env_step_hz:.1f})")
     print(f"  control_mode      : {args.control_mode}")
     print(f"  hide_overhead     : {bool(args.hide_overhead)}")
-    print(f"  target_marker     : {not bool(args.no_target_marker)}")
+    print(f"  target_marker     : {bool(args.target_marker)}")
     print(f"  max episodes      : {args.max_episodes}")
     print(f"  max steps/episode : {args.max_steps_per_episode}")
     print(f"  visualizer        : {getattr(args_cli, 'visualizer', None)!r}  "
@@ -1150,10 +1152,8 @@ def main() -> int:
             source_mission_source="scene-metadata",
             leg_initial_distance_m=leg_dist,
         )
-        # Drop the operator-only target marker into the viewport so the
-        # operator can see where the chosen object is. Debug-draw is
-        # outside Replicator's render product capture, so the marker
-        # never enters saved frames.
+        # Draw the operator-only target marker, when a session asked for it:
+        # it enters the recorded RGB, so it is off by default.
         target_marker.set_target(cand.target_position_3d)
         print(
             f"\n[teleop_capture] episode {writer.num_episodes} opened: "

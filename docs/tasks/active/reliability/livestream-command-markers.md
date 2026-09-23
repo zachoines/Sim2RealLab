@@ -26,20 +26,23 @@ stage is rendered by every camera in it, the D555 policy camera included
 overlay (`strafer_lab.tools.command_overlay`), but a livestream shows the Kit viewport, which
 that overlay never touches.
 
-Candidates, none verified here: a viewport-space overlay (`omni.ui.scene`), or Isaac Sim's
-debug-draw interface. Either must be shown not to reach any render product: the viewport
-draws in a different place from the Replicator capture that `--video` reads, and whether a
-debug-draw primitive stays out of camera render products has never been measured.
-`teleop_capture.py` already uses debug-draw for its target marker, on the claim that it stays
-out of render products, and that claim is untested too.
+Candidates: a viewport-space overlay (`omni.ui.scene`), or Isaac Sim's debug-draw interface.
+Debug-draw is now measured and **disqualified**: with a marker drawn, both the policy and the
+perception camera render it in RGB, about 2 150 pixels of it, while depth is untouched
+(`debug-marker-leak-2026-09-21` §5). Teleop's target marker used it on the opposite claim and
+is opt-in since. So whatever mechanism this brief picks must be shown not to reach any render
+product, and the viewport draws in a different place from the Replicator capture `--video`
+reads.
 
 ## Acceptance criteria
 
 - [ ] The goal, subgoal and path are visible in the livestream viewport.
 - [ ] The Kit test `test_sim/sensors/test_command_markers.py` is extended to the chosen
-      mechanism: with it drawing, `d555_camera` and `d555_camera_perception` depth and RGB stay
-      bit-identical.
-- [ ] Teleop's debug-draw target marker is covered by the same test.
+      mechanism: with it drawing, `d555_camera` and `d555_camera_perception` carry neither the
+      drawing's colour in RGB nor any change in depth. RGB is not reproducible across
+      re-renders, so equality is not the test there; the drawing's own colour is.
+- [x] Teleop's debug-draw target marker is covered by the same test — it reaches both cameras'
+      RGB and neither depth, which is why it is opt-in.
 - [ ] If your work invalidates a fact in any referenced context module, package README,
       top-level `Readme.md`, or guide under `docs/`, update those in the same commit. See
       [`conventions.md`'s user-facing documentation maintenance

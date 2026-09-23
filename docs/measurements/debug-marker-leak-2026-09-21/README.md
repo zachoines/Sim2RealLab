@@ -35,8 +35,11 @@ This record gives the evidence, what it reached, what it did and did not explain
   Hiding them removes them, and this reproduces across both toggles
   (`visibility/d555_rgb_{vis,hid,vis2,hid2}.png`).
 - **Depth:** the on−off difference shows every marker as a solid blob, larger than the image's
-  0.13 m saturation, and nothing else above sub-millimetre render noise
-  (`visibility/d555_depth_absdiff_vis_vs_hid.png`).
+  0.13 m saturation (`visibility/d555_depth_absdiff_vis_vs_hid.png`). The rest of that frame is
+  not quiet, and the same test says so: these are consecutive env steps, and two same-state
+  steps differ over almost the whole image too (230 400 and 230 389 of 230 400 pixels, by up to
+  2.62 m). The blobs are read against the in-place measurement below, where re-rendering one
+  state changes nothing at all.
 
 **Deterministic measurement on `main`'s command code** (`measure/`). This uses the Kit
 test's method (§5) against `615fc14`'s command terms: one environment, both command families
@@ -116,9 +119,10 @@ The subgoal sphere sits about 0.5 m from the lens, so its front face is inside t
 observations (`beacon_ab/`) are scored one tick from a zero hidden state, each against its
 own **observed** subgoal (`check1/check1_tables.md`, clean rows).
 - At poses 2–4, with the marker shown v2 heads 6–28° from the subgoal; with it hidden,
-  39–116° off. The second on/off pair repeats the first at poses 2 and 4; at pose 3 its hidden
-  heading is 39° off against the first pair's 53°. At poses 3 and 4 the commanded speed also
-  drops by 37–70 % within each pair.
+  39–116° off. Both on/off pairs show that pattern at all three poses. Only at pose 2 do they
+  agree in magnitude (116° and 116°); at pose 3 the hidden heading is 53° then 39°, and at
+  pose 4 105° then 51°. At poses 3 and 4 the commanded speed also drops by 37–70 % within each
+  pair.
 - At pose 1 v2 heads 138–179° off either way. At pose 5 it heads closer to the subgoal with
   the marker hidden (−3.5°, −5.7°) than shown (+17.1°, +18.3°).
 
@@ -133,6 +137,11 @@ seeds per arm):
 
 - **What v2 responds to is a near blob, wherever it sits.** Clean depth is where v2 falls into
   its featureless-field default, and any near structure pulls it out.
+- **What the control cannot separate.** Every displaced blob landed on the side opposite the
+  observed subgoal: all six subgoals sit left (+2.7° to +34.5°), all six blobs right (−11.3° to
+  −34.2°). So it shows the response is not specific to the marker, not that the blob's position
+  is irrelevant. The survive, keyed and class thresholds are this analysis's own, fixed after
+  the clean results were known and before the noise runs (`check1/check1_summary.md`).
 - **v3 has no marker effect** once the scalar prefix is matched (|gap| ≤ 4.1° under the band).
   An earlier pose-4 "swerve" came from the robot settling between toggles, which changed the
   IMU dims, not from the marker.
@@ -155,8 +164,9 @@ fields stay, as the overlay's styles.
 **`debug_vis` off in the four shared command cfgs.**
 - The attribution walker (`goldens/`) pools the whole golden movement to one field:
   `altered commands.goal_command.debug_vis True -> False ×22`, with nothing added or removed.
-- That was the expected set. It was computed before the flip, and all 26 goldens were first
-  reproduced from the tree without Kit.
+- That was the expected set. It was computed before the flip, and all 25 goldens — the 22
+  contract hashes, the depth-observation golden and both layout goldens — were first reproduced
+  from the tree without Kit.
 - The observation golden and both layout goldens are unmoved.
 
 **Tests.**
@@ -187,7 +197,7 @@ pose, with a line from its centre to its front.
   camera but still shades the room below it, and that floor renders black. Over the 80 s
   recording, enclosed frames crush 13–32 % of their pixels below 20 of 255 (median 21 %), against
   at most 2.2 % in an open room. The chassis sits 9 of 255 over a floor at 0.
-- **Brightening the frame does not recover it**, measured over 134 enclosed frames
+- **Brightening the frame does not make it legible.** Medians over 134 enclosed frames
   (`video_robot/shadow_lift_comparison.txt`, `shadow_lift_frame*.png`). A 1.8 gamma leaves the
   floor at 0 and lifts the chassis to 36; CLAHE on L gives 24 against 6; a shadow-only lift
   raises both, to 141 against 145 — the floor ends up brighter than the robot. A light in the
@@ -202,13 +212,32 @@ pose, with a line from its centre to its front.
 **`--headless`.** The play script, and the train script under `--video`, requested a Kit
 visualizer only so that the markers would be positioned. The deprecated `--headless` flag sets
 the launcher's disable-all switch while that request still reaches the settings
-(`app_launcher.py:825-836`), so `SimulationContext` resolved no visualizer and raised
+(`AppLauncher._resolve_headless_settings`), so `SimulationContext` resolved no visualizer and
+raised
 `Explicitly requested visualizer(s) ['kit'] could not be configured`. Nothing was missing from
 the install; the `isaaclab_visualizers … extension.toml` warning is unrelated.
 - `HEADLESS=1` in place of the flag ran the same script with markers positioned
   (`play_markers/`).
 - With the request removed, `play … --headless --video` and `train … --headless --video` both
   record (`video/`).
+
+**Teleop's target marker does reach the cameras, so it is now opt-in.** Teleop drew a
+bright-green point through Isaac Sim's debug-draw interface at the mission target, on by
+default, while it recorded the perception camera — on the claim that debug-draw stays outside
+the render products. It does not (`teleop_marker/`):
+
+| product | with the marker drawn |
+|---|---|
+| policy camera RGB, perception camera RGB | about 2 150 pixels carry the marker's green, in two discs; none before the draw, none after `clear_points` |
+| policy depth, its 3 600-cell grid, perception depth | unchanged, every pixel |
+
+- The recorded frames are the perception camera's RGB, so the marker was in the dataset.
+- `--no-target-marker` becomes `--target-marker`: the marker is off unless a session asks for
+  it, and its docstring now cites the test rather than asserting the claim.
+- The Kit test pins both halves. RGB is not reproducible across re-renders — two renders of the
+  same state differ over about a sixth of the frame, and clearing the marker does not return the
+  image to what it was — so the RGB half is measured by the marker's own colour, and the depth
+  half by equality, with a sphere at the same point as the control.
 
 ## 6. v3's training contract
 
@@ -233,9 +262,9 @@ The off-goal angles in the attribution, parity and v3 records are measured again
 - **Whether v3 keys on the frozen cluster** (check 4). This is v3 in closed loop, 16 envs ×
   100 episodes with corruption on, markers positioned against off. Pre-registered: within G7's
   run-to-run spread (±0.04 path_complete, ±0.5° steering offset).
-- **Markers in the livestream viewport** are filed as `livestream-command-markers`. That brief
-  also covers teleop's debug-draw target marker, which has never been shown to stay out of
-  render products.
+- **Markers in the livestream viewport** are filed as `livestream-command-markers`. Teleop's
+  debug-draw marker is no longer open: §5 measures it, and it is opt-in. What that brief still
+  carries for it is a drawing mechanism that stays out of the cameras, which debug-draw is not.
 
 ## What is not claimed
 
@@ -248,8 +277,9 @@ The off-goal angles in the attribution, parity and v3 records are measured again
 The two failure rows run this change's tests against `main`'s code. The Kit suite ran at
 `a08f26f`, before the robot outline; that commit changes the overlay, its unit tests and four
 documents, and no Kit suite exercises the overlay. The pure and contract suites, the mutation
-arms and both recordings are at `11ea0cf`, the head, which carries the outline. Kit verdicts
-are read from the JUnit XML (`gates/`).
+arms and the recordings in `video_robot/` are at `11ea0cf`, the head, which carries the
+outline; `video/` holds the earlier pair, recorded before it. Kit verdicts are read from the
+JUnit XML (`gates/`).
 
 | gate | result |
 |---|---|
@@ -261,6 +291,7 @@ are read from the JUnit XML (`gates/`).
 | golden attribution | `altered commands.goal_command.debug_vis True -> False ×22`, nothing else |
 | `debug_vis` survey over every registered navigation env | 29 of 29 on `main`, 0 of 29 after |
 | `play … --headless --video`, `train … --headless --video` | both record, with the overlay and the robot outline drawn |
+| `command_markers` Kit suite at the head | 2 of 2: the command terms reach nothing, teleop's marker reaches both cameras' RGB and neither depth |
 | robot outline against five single mutations (rotation sign, line reversed, filled, length and width swapped, no behind-camera guard) | each fails the overlay unit tests (`video_robot/robot_outline_mutation_proof.log`) |
 
 ## Evidence — deposit

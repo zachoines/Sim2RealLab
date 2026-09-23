@@ -452,7 +452,9 @@ vlc --rtsp-tcp rtsp://localhost:47998/stream
 The mount is `/stream`; the bare root answers 404. Asking for TCP transport puts control
 and media on the one port, so the tunnel carries it and no firewall rule is needed.
 Verified 2026-09-13: h264 1440x900 at 60 fps, and three seconds pulled with
-`ffmpeg -rtsp_transport tcp` decode to a playable file.
+`ffmpeg -rtsp_transport tcp` decode to a playable file. That verification predates the command
+terms losing their scene geometry, which changes what the stream carries but not that it
+carries it; `--viz kit` is the fallback if a session needs a Kit viewport rather than a stream.
 
 `--livestream 2` on its own gives WebRTC instead: TCP 49100 signalling, UDP 47998 media. The
 media being UDP means `ssh -L` cannot carry it, so a WebRTC viewer must reach the host

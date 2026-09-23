@@ -248,7 +248,7 @@ to end at the resolution the retrain will use.
 > **Correction (2026-09-22): the cause below is wrong.** A visualizer backend is
 > configurable on this host. The play script raised because it was run with the
 > deprecated `--headless` flag, which disables every visualizer while the script requested
-> a Kit one (`app_launcher.py:825-836`); with headless set by `HEADLESS=1` the same script
+> a Kit one (`AppLauncher._resolve_headless_settings`); with headless set by `HEADLESS=1` the
 > ran. The script no longer requests a visualizer, and the finding is recorded in
 > [`debug-marker-leak-2026-09-21`](../debug-marker-leak-2026-09-21/README.md).
 

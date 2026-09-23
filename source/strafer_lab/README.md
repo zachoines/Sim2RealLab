@@ -576,7 +576,7 @@ $ISAACLAB -p source/strafer_lab/run_tests.py all
 $ISAACLAB -p source/strafer_lab/run_tests.py noise_models depth_noise imu sensors
 ```
 
-Available suites: `terminations`, `events`, `commands`, `observations`, `curriculums`, `rewards`, `sensors`, `actions`, `env`, `noise_models`, `depth_noise`, `imu`, `command_markers`.
+Available suites: `terminations`, `events`, `commands`, `observations`, `curriculums`, `rewards`, `sensors`, `actions`, `env`, `noise_models`, `depth_noise`, `imu`, `obs_dump`, `camera_jitter`, `command_markers`.
 
 Full run takes ~30-45 min on DGX Spark (noise_models alone is ~15 min). The wrapper runs suites that need process isolation (`depth_noise`, `rewards`, `imu`) in separate subprocesses because Isaac Sim's `SimulationContext` is a singleton.
 

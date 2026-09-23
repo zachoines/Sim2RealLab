@@ -13,6 +13,11 @@ The drawing is a pure function of the command state, the robot pose and the reco
 camera (:func:`draw_command`, :func:`draw_robot`); :class:`CommandOverlay` is the
 ``gym`` wrapper that applies it to every frame ``RecordVideo`` captures, placed inside
 ``RecordVideo``.
+
+It draws environment 0, which is the one the recording scripts anchor the camera over,
+and projects through ``viewer.cam_prim_path``; that is the capture's camera only because
+both default to the same prim. There is no way to turn the drawing off, so a frame-level
+statistic over recorded overhead video has to mask it.
 """
 
 from __future__ import annotations
@@ -24,6 +29,7 @@ import numpy as np
 
 from strafer_shared.constants import CHASSIS_LENGTH, CHASSIS_WIDTH
 
+RECORDED_ENV = 0
 _PATH_DOT_SPACING_M = 0.2
 _HEADING_TICK_M = 0.3
 ROBOT_RGB = (255, 0, 255)
@@ -118,7 +124,7 @@ def draw_robot(frame, x, y, z, yaw, cam_to_world, focal_length, horizontal_apert
 
 
 class CommandOverlay(gym.Wrapper):
-    """Draws the viewed env's ``goal_command`` and robot onto every rendered frame.
+    """Draws environment 0's ``goal_command`` and robot onto every rendered frame.
 
     Reads the recording camera from the stage on each frame, so the overlay follows
     whatever pose the recording script anchored.
@@ -134,7 +140,7 @@ class CommandOverlay(gym.Wrapper):
         from pxr import Usd, UsdGeom
 
         env = self.env.unwrapped
-        index = env.cfg.viewer.env_index
+        index = RECORDED_ENV  # the environment the recording scripts anchor the camera over
         prim = env.sim.stage.GetPrimAtPath(env.cfg.viewer.cam_prim_path)
         camera = UsdGeom.Camera(prim)
         lens = (

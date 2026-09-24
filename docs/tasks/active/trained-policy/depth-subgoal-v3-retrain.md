@@ -77,6 +77,14 @@ before calling them, so it contributes nothing to the figure above. It reads the
 policy field through the same reduction, so its referent is right, but its cost
 at a live weight has never been measured.
 
+**The command debug markers are out of the contract v3 was trained on.** v3 was
+trained with `goal_command.debug_vis=True` and no visualizer registered, so the
+markers never left the world origin, a grid corner outside every room at 96
+environments. Since `debug-marker-leak-2026-09-21` the command terms draw no scene
+geometry and `debug_vis` is off, so the composition contract differs from v3's training
+contract by exactly `commands.goal_command.debug_vis` (`faf86756…` → `c98d18ba…`) and by
+nothing in the observation semantics.
+
 ## Run
 
 | item | value |

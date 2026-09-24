@@ -179,7 +179,7 @@ In `strafer_env_cfg.py`: `StraferNavEnvCfg_Real_ProcRoom_Subgoal_Depth` (and `_R
 
 In `navigation/__init__.py`: register `Isaac-Strafer-Nav-RLDepth-Subgoal-Real-v0`, `-Play-v0`, `Robust` variants.
 
-Smoke test (operator Kit gate): `$ISAACLAB -p source/strafer_lab/scripts/test_strafer_env.py --env Isaac-Strafer-Nav-RLDepth-Subgoal-Real-Play-v0 --num_envs 1 --pattern circle --duration 15 --video` runs without errors; the recorded clip (or a headed viewport — drop `--video`, add nothing else) shows the planned path + rolling-subgoal markers (both `debug_vis=True`) and the robot moving through the ProcRoom depth scene. The script's flag is `--env` (not `--task`), it launches via `isaaclab.sh -p`, and it auto-enables cameras for depth envs.
+Smoke test (operator Kit gate): `$ISAACLAB -p source/strafer_lab/scripts/test_strafer_env.py --env Isaac-Strafer-Nav-RLDepth-Subgoal-Real-Play-v0 --num_envs 1 --pattern circle --duration 15 --video` runs without errors; the recorded clip shows the planned path, the rolling subgoal and the robot's footprint, drawn onto the frames by the video overlay, and the robot moving through the ProcRoom depth scene. The script's flag is `--env` (not `--task`), it launches via `isaaclab.sh -p`, and it auto-enables cameras for depth envs.
 
 ### Phase 5 — Training run + checkpoint (1–3 weeks wall, depending on architecture choice from design question 1)
 

@@ -69,6 +69,7 @@ SUITE_TIMEOUTS = {
     "rewards": 300,       # per-file timeout (collision tests run physics)
     "obs_dump": 300,      # brings up a depth camera env
     "camera_jitter": 300,  # brings up an enriched depth camera env
+    "command_markers": 300,  # brings up an enriched depth camera env
 }
 DEFAULT_TIMEOUT = 180
 
@@ -101,6 +102,7 @@ SUITES = {
                       str(TEST_ROOT / "sensors" / "test_imu_collision.py")],
     "obs_dump":      [str(TEST_ROOT / "bridge" / "test_obs_dump_terms.py")],
     "camera_jitter": [str(TEST_ROOT / "sensors" / "test_d555_camera_prim_jitter.py")],
+    "command_markers": [str(TEST_ROOT / "sensors" / "test_command_markers.py")],
 }
 
 

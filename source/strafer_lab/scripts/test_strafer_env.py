@@ -149,7 +149,9 @@ def main():
                 "disable_logger": True,
             }
             print(f"[INFO] Recording video to: {args.video_dir}")
-            env = gym.wrappers.RecordVideo(env, **video_kwargs)
+            from strafer_lab.tools.command_overlay import CommandOverlay
+
+            env = gym.wrappers.RecordVideo(CommandOverlay(env), **video_kwargs)
 
         print("[OK] Environment created successfully!")
 

@@ -452,20 +452,23 @@ vlc --rtsp-tcp rtsp://localhost:47998/stream
 The mount is `/stream`; the bare root answers 404. Asking for TCP transport puts control
 and media on the one port, so the tunnel carries it and no firewall rule is needed.
 Verified 2026-09-13: h264 1440x900 at 60 fps, and three seconds pulled with
-`ffmpeg -rtsp_transport tcp` decode to a playable file.
+`ffmpeg -rtsp_transport tcp` decode to a playable file. That verification predates the command
+terms losing their scene geometry, which changes what the stream carries but not that it
+carries it; `--viz kit` is the fallback if a session needs a Kit viewport rather than a stream.
 
 `--livestream 2` on its own gives WebRTC instead: TCP 49100 signalling, UDP 47998 media. The
 media being UDP means `ssh -L` cannot carry it, so a WebRTC viewer must reach the host
 directly, with NVIDIA's Isaac Sim WebRTC client rather than a browser. `ufw` is active on
 this host, so any untunnelled access needs the ports opened deliberately.
 
-**Two flags decide whether the picture is useful.** `--livestream` forces headless, and
-headless leaves `cfg.viewer` unapplied, so:
+**`--video` decides whether the picture is useful.** `--livestream` forces headless, and
+headless leaves `cfg.viewer` unapplied, so `--video` is what aims the camera over env 0 —
+without it you get Kit's default pose.
 
-- `--video` is what aims the camera over env 0 — without it you get Kit's default pose.
-- `--viz kit` is what positions the debug-vis markers — without it they sit at the world
-  origin, off-frame. `play_strafer_navigation.py` and `train_strafer_navigation.py` now
-  request it themselves; other entrypoints still need it passed.
+The goal, subgoal and path are not in the scene, so the stream does not show them: a prim in
+the stage is rendered by every camera, the policy's D555 included. Recorded `--video` frames
+draw them as an overlay, with the robot's footprint outlined in magenta so it stays visible in
+the dark enclosed rooms; showing them in the livestream is `livestream-command-markers`.
 
 ```bash
 tools/kit_boot_watchdog.sh --label gui -- "$ISAACLAB" -p \

@@ -107,33 +107,33 @@ def _hash(obj):
 # training distribution did change — and it is why the layout golden below
 # exists: it is the half a deployed checkpoint depends on, and it must not move.
 _CONTRACT_GOLDENS = {
-    "RLDepth_Real": "d6ed2fd6adde393fd5ae02472b66bed97be50c024b4c0171cbed5cf1dcd47955",
-    "RLDepth_Robust": "edd8fc3b9d43397b9ea61a5d81cf5aad771e998e81812f92972c1efdf7e00ef4",
-    "RLNoCam": "844e91907bedd1c7c6eb6404a707b90893a146e3431d61f25f063d520a7d6f56",
-    "RLDepth_Real_PLAY": "c7822660800164185679e6d81dd5657ed095e19a60d0bfd2ed954bb931c32ec0",
-    "RLDepth_Robust_PLAY": "366827b5d63cf1fe9cee6db1ba48f1f2294b6d6e8d3620fb107136d906fefe2b",
-    "RLNoCam_PLAY": "6e0197aa80c0bcfaae39b1e5e8dfebce7a480076d47273cdb16a40708692f430",
-    "RLNoCamSubgoal_Real": "bfa5c006a443d74ea7629ffdd930b1d8abbe99e747722202b682750bb75e1a84",
-    "RLNoCamSubgoal_Robust": "9ef2be4366ae25d41fb3a169598d93c29539b9b7c6f3c199b0a8daa5fb2ba8ee",
-    "RLNoCamSubgoal_Real_PLAY": "ba6166e655931588f566852023a36328c59a6b09fccdd001d6b6fdcd077c9ae3",
-    "RLNoCamSubgoal_Robust_PLAY": "ce4b79eb0254d7711dab2212c73bd3ed8f299f0d42f4ec03d4742395161e2bef",
-    "RLDepthSubgoal_Real": "e2a99f1a78dc35902376c67e72df70af5d01259f6f434b14268c93ad713932d7",
-    "RLDepthSubgoal_Robust": "7d68d677d3c3e45d1cad5179192a09c031071202ea44ec1ae019a58b44c41a16",
-    "RLDepthSubgoal_Real_PLAY": "ac58d0cc11066e188353297a645a2255fbca7b944c98e2b8b2b7af7050370c1d",
-    "RLDepthSubgoal_Robust_PLAY": "b237c0422e9e7f7eaeb25f8c9fb3438b8a4e359dd3aef04eae1dd823b1b70342",
+    "RLDepth_Real": "4b601af6984fbabb3ef0044dee21e7f3aa0bd205c8847b0677f39fb6d8cb37e7",
+    "RLDepth_Robust": "1b34c8d7a318be8a358f93b5d4c4498338db3ac674d8617114822dd3646bed12",
+    "RLNoCam": "dca33abd5ff642ee23d0e4d71881c1301ba4f7ed9d4c5edc0331d57dbe5f887f",
+    "RLDepth_Real_PLAY": "f282a3ce3affcfc8ed57e5f562691cfa52804921583c332c2e2c91c41f05e29a",
+    "RLDepth_Robust_PLAY": "31534c688ddc355b2e856c114c9065854841b840f8e4594b7b662427b14e118a",
+    "RLNoCam_PLAY": "be8f54681e9098dfa89c825db5d7edba67f38b5d7d6a41cb5cd5a6dcd9e5f865",
+    "RLNoCamSubgoal_Real": "3af5b11feae53fa141c8794608c234e03159b66ea5390f14f4d1c61b2c83aadf",
+    "RLNoCamSubgoal_Robust": "b15bfe85a00edde7b2b1b82e76d1e4b8eb35f34ee566c8e7c250339afd8bb0f4",
+    "RLNoCamSubgoal_Real_PLAY": "4f87941f028c2d7ead3340b4f9ae4e37382bb487a4620e44eee51138c4ea9622",
+    "RLNoCamSubgoal_Robust_PLAY": "b48bfe60aaf3b330567bf049478f1aea3dfd3275eee286f894b6ba4aea2f2990",
+    "RLDepthSubgoal_Real": "3a5eeafd5477aa0612b4d8ef1f4021a6c1350d5cd866b092f24dc3b20df91b71",
+    "RLDepthSubgoal_Robust": "634f1891386f280f63deb8991dc78cd181a7e2ab368a6ca25e4863e8e709f9d8",
+    "RLDepthSubgoal_Real_PLAY": "5e27c238ce6954d6352a809b2bb5d679fd96cf8e91e2c1fdda9659f9abf2ba20",
+    "RLDepthSubgoal_Robust_PLAY": "7528e5ce1b59751c661f6426cb9247ff0ae7cfc48af7d7188ffdf81c0493a2d2",
     # Depth-enrichment variants — NEW IDs frozen at creation (no prior checkpoint
     # depends on them). The enrichment lives in the `events` field (un-pinned
     # difficulty, enriched generation params incl. the tall-object heights, and
     # the rendered-camera mount offset); the observation contract is
     # byte-identical to the open-top depth variants (asserted separately).
-    "RLDepthEnriched_Real": "b68199b7048f7519171a6586acbcf3a1ef99a8e6bca7fbe8879f0fdafbb51796",
-    "RLDepthEnriched_Robust": "2285cfeee5b2f101d7d721cca8581ea7c1e918607432a912fa95643a01504508",
-    "RLDepthEnriched_Real_PLAY": "b17ea8dff242eb90eebe3b9256f0a9c7fe0919e6df31fab9e4679e8e3ded8fe8",
-    "RLDepthEnriched_Robust_PLAY": "a1427ef30926685895e82aa9265c586f98deaa2b7dc7b1140099e8a830d611c9",
-    "RLDepthSubgoalEnriched_Real": "4a307259a1e1dc67105f38fc8c76e03b6f289f52e157935cdce3e96520b0013b",
-    "RLDepthSubgoalEnriched_Robust": "faf867563f76d01078faf9d6fe0dbd93523bc36734e75edaaf66cf1afaad001d",
-    "RLDepthSubgoalEnriched_Real_PLAY": "bfefc23231fd5f2577241c4f522f679f80b41206a97f99c7e0358e5666a1f129",
-    "RLDepthSubgoalEnriched_Robust_PLAY": "f7a1e423d5fb5cd68ec4e5896da120cabfc25a5c95c942afea571d49cf65621d",
+    "RLDepthEnriched_Real": "7bed78427cd0f6966a203c17a2e6da89940b8b8eb1d9cf2d57c92af87ac5caff",
+    "RLDepthEnriched_Robust": "1fba79a617930e2e94f7ba23bb3a7df1aedce992abb807849b651be76d96c211",
+    "RLDepthEnriched_Real_PLAY": "818e71f70980a9881885b4a8aa7f598866f605558d1faab90cb35dbff0995c13",
+    "RLDepthEnriched_Robust_PLAY": "ded3d83a629f4d267c3078788ea3c58af95a40d8e734ac16e6a6510c8247ea7c",
+    "RLDepthSubgoalEnriched_Real": "8e8615a9f32fc686533145a913cfbd33dde337c8dc5551a5a05fbaf94770784b",
+    "RLDepthSubgoalEnriched_Robust": "c98d18baedffd070eebbc8deef6f07510a81ea0cd66ee1dc797bfff21d471546",
+    "RLDepthSubgoalEnriched_Real_PLAY": "1585a43ce225062c2a387c951d40e16ddc36e3c2da58241fd7cfa2eab7551e74",
+    "RLDepthSubgoalEnriched_Robust_PLAY": "a27f086252e47caffb4d5111c3c7a0496287a2d2c39e5f8fa2ba5ca903f9d464",
 }
 
 # Frozen signature (slot name set + spawn sizes) of the pre-enrichment 44-object
@@ -918,3 +918,55 @@ def test_the_camera_jitter_rides_exactly_the_enriched_arm():
             f"jitter={row['jitter']}"
         )
     assert checked > 10, "the paired-arm sweep matched too few variants"
+
+
+# =====================================================================
+# Composition: the command terms draw nothing any camera can render
+# =====================================================================
+
+
+def _camera_bearing_variants():
+    """Every composed variant whose scene renders a camera, swept from the module."""
+    from isaaclab.sensors import CameraCfg
+
+    rows = []
+    for name in sorted(n for n in dir(composed) if n.startswith("StraferNavCfg_")):
+        cfg = getattr(composed, name)()
+        if any(isinstance(v, CameraCfg) for v in vars(cfg.scene).values()):
+            rows.append((name, cfg))
+    return rows
+
+
+def test_no_camera_bearing_variant_enables_command_debug_vis():
+    """A command marker is scene geometry to the renderer: any camera in the scene --
+    the policy's, the bridge's perception stream, a dataset's -- records it."""
+    from isaaclab.managers import CommandTermCfg
+
+    rows = _camera_bearing_variants()
+    assert len(rows) > 15, "the camera-bearing sweep collapsed"
+    drawing = [
+        (name, term_name)
+        for name, cfg in rows
+        for term_name, term in vars(cfg.commands).items()
+        if isinstance(term, CommandTermCfg) and term.debug_vis
+    ]
+    assert drawing == [], f"command debug markers would render into these cameras: {drawing}"
+
+
+def test_command_terms_create_no_debug_geometry():
+    """No command term in a camera-bearing variant implements debug visualisation, so
+    enabling it at runtime adds nothing a camera can render."""
+    from isaaclab.managers import CommandTerm, CommandTermCfg
+
+    classes = {
+        term.class_type
+        for _, cfg in _camera_bearing_variants()
+        for term in vars(cfg.commands).values()
+        if isinstance(term, CommandTermCfg)
+    }
+    assert classes, "no command term found in the camera-bearing sweep"
+    implementing = sorted(
+        c.__name__ for c in classes
+        if c._set_debug_vis_impl is not CommandTerm._set_debug_vis_impl
+    )
+    assert implementing == [], f"these command terms draw debug geometry: {implementing}"

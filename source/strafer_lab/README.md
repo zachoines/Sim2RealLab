@@ -166,6 +166,7 @@ runnable scripts under `scripts/`, importable modules under
 | `build_mission_queue` | `build_mission_queue`, `load_scene_inputs`, `GeneratorConfig`, `SceneInputs` — the canonical `mission_queue.yaml` producer: connectivity-gated free-text missions with oracle waypoints (via the shared `plan_path`), pluggable LLM/VLM passes, cache keys. Run via `scripts/build_mission_corpus.py` |
 | `grounding_injection` | `plan_injection`, `InjectionPlan`, `resolve_target_room_idx` — hard-negative goal perturbation for `--inject-bad-grounding` |
 | `infinigen_label_parser` | Infinigen-specific semantic label normalization |
+| `command_overlay` | `CommandOverlay`, `draw_command`, `draw_robot`, `project` — draws the goal, rolling subgoal and planned path, and the robot's footprint, onto recorded video frames from the command state and the robot pose. The command terms create no scene geometry, so no camera renders them; `play`, `train` and `test_strafer_env` wrap `RecordVideo` with it |
 
 **Deprecated** (`scripts/retired/`, `tools/retired/`) — retained for reference / mining, **not imported or invoked by any live entry point**; the harness brief deletes each as it supersedes it:
 
@@ -575,7 +576,7 @@ $ISAACLAB -p source/strafer_lab/run_tests.py all
 $ISAACLAB -p source/strafer_lab/run_tests.py noise_models depth_noise imu sensors
 ```
 
-Available suites: `terminations`, `events`, `commands`, `observations`, `curriculums`, `rewards`, `sensors`, `actions`, `env`, `noise_models`, `depth_noise`, `imu`.
+Available suites: `terminations`, `events`, `commands`, `observations`, `curriculums`, `rewards`, `sensors`, `actions`, `env`, `noise_models`, `depth_noise`, `imu`, `obs_dump`, `camera_jitter`, `command_markers`.
 
 Full run takes ~30-45 min on DGX Spark (noise_models alone is ~15 min). The wrapper runs suites that need process isolation (`depth_noise`, `rewards`, `imu`) in separate subprocesses because Isaac Sim's `SimulationContext` is a singleton.
 

@@ -121,14 +121,6 @@ def main() -> None:
     if "NoCam" not in args.env or args.video:
         args.enable_cameras = True
 
-    # Debug-vis markers are positioned only from SimulationContext.update_visualizers(),
-    # which returns early when no visualizer is registered — so without one the goal and
-    # subgoal markers stay at their construction pose, the world origin. A Kit visualizer
-    # dispatches those callbacks headless too, which is what makes them visible over a
-    # livestream.
-    if not getattr(args, "visualizer", None):
-        args.visualizer = ["kit"]
-
     app_launcher = AppLauncher(args)
     simulation_app = app_launcher.app
 
@@ -144,6 +136,7 @@ def main() -> None:
 
     import strafer_lab  # noqa: F401  (registers envs)
     from strafer_lab.isaacsim_compat import anchor_capture_camera
+    from strafer_lab.tools.command_overlay import CommandOverlay
 
     env_cfg = parse_env_cfg(
         args.env,
@@ -199,6 +192,7 @@ def main() -> None:
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         out_dir = os.path.abspath(os.path.join(args.video_dir, f"play_{timestamp}"))
         os.makedirs(out_dir, exist_ok=True)
+        env = CommandOverlay(env)
         env = gym.wrappers.RecordVideo(
             env,
             video_folder=out_dir,

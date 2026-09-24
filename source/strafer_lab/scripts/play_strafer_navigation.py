@@ -16,6 +16,12 @@ Examples:
         --env Isaac-Strafer-Nav-RLDepth-Real-Play-v0 \\
         --checkpoint logs/rsl_rl/strafer_navigation/run_20260425_035916/model_600.pt \\
         --headless --video --video_length 600
+
+    # The same on an enriched variant, every room open so the video shows it lit:
+    $ISAACLAB -p source/strafer_lab/scripts/play_strafer_navigation.py \\
+        --env Isaac-Strafer-Nav-RLDepth-Subgoal-Enriched-Robust-Play-v0 \\
+        --policy models/strafer_depth_subgoal_v3_999.pt \\
+        --headless --video --open_rooms --no_robot_outline
 """
 
 import argparse
@@ -99,6 +105,12 @@ def main() -> None:
                         help="Frames in the rollout MP4 (default: 600)")
     parser.add_argument("--video_dir", type=str, default="logs/rsl_rl/strafer_navigation/play_videos",
                         help="Directory for the recorded MP4 (default under logs/)")
+    parser.add_argument("--open_rooms", action="store_true",
+                        help="Build every room without a ceiling, so an overhead recording shows it "
+                             "lit. Enclosed rooms are most of what the enriched variants train on, "
+                             "so this is for watching the policy, not for judging it")
+    parser.add_argument("--no_robot_outline", action="store_true",
+                        help="Record the command overlay without the robot's outline")
 
     from isaaclab.app import AppLauncher
     AppLauncher.add_app_launcher_args(parser)
@@ -144,6 +156,12 @@ def main() -> None:
         num_envs=args.num_envs,
     )
     env_cfg.seed = args.seed
+
+    if args.open_rooms:
+        room = getattr(env_cfg.events, "generate_room", None)
+        if room is None or "p_ceil" not in room.params:
+            raise SystemExit(f"--open_rooms: {args.env} builds no ceiling to leave off")
+        room.params["p_ceil"] = 0.0
 
     if args.video:
         env_cfg.viewer = ViewerCfg(
@@ -192,7 +210,7 @@ def main() -> None:
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         out_dir = os.path.abspath(os.path.join(args.video_dir, f"play_{timestamp}"))
         os.makedirs(out_dir, exist_ok=True)
-        env = CommandOverlay(env)
+        env = CommandOverlay(env, robot_outline=not args.no_robot_outline)
         env = gym.wrappers.RecordVideo(
             env,
             video_folder=out_dir,

@@ -170,6 +170,14 @@ $ISAACLAB -p source/strafer_lab/scripts/play_strafer_navigation.py \
 ```
 MP4 lands in `logs/rsl_rl/strafer_navigation/play_videos/play_<timestamp>/`.
 
+The goal, rolling subgoal and path are drawn onto the frames, and the robot is outlined in
+magenta: most enriched rooms have a ceiling, which leaves their floor black from above. For
+cleaner shots, `--open_rooms` builds every room without a ceiling, so the room renders lit and
+the robot reads on its own, and `--no_robot_outline` then drops the outline. Open rooms are a
+normal part of training, but enclosed ones are most of it, so use this for watching tracking,
+not for judging a policy. Only the enriched variants have a ceiling; any other env refuses the
+flag.
+
 # Evaluate a checkpoint under an emulated inference cadence
 Rolls the play env out with a per-env schedule of *held* ticks (the policy does
 not run, the previous action is re-issued, the recurrent state stays frozen)

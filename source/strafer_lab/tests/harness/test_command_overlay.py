@@ -1,13 +1,15 @@
 """The video overlay that stands in for the command terms' debug markers."""
 
+import math
 from types import SimpleNamespace
 
+import gymnasium as gym
 import numpy as np
 import pytest
 import torch
 
 from strafer_lab.tasks.navigation.mdp.commands import GoalCommandCfg, SubgoalCommandCfg
-from strafer_lab.tools.command_overlay import ROBOT_RGB, draw_command, draw_robot, project
+from strafer_lab.tools.command_overlay import ROBOT_RGB, CommandOverlay, draw_command, draw_robot, project
 from strafer_shared.constants import CHASSIS_LENGTH, CHASSIS_WIDTH
 
 W, H = 1280, 720
@@ -102,3 +104,62 @@ def test_the_robot_is_outlined_at_its_pose_with_a_line_to_its_front(yaw):
 def test_a_robot_behind_the_camera_is_not_drawn():
     frame = draw_robot(np.zeros((H, W, 3), np.uint8), 0.0, 0.0, 20.0, 0.0, _straight_down(12.0), FOCAL, APERTURE)
     assert not frame.any()
+
+
+class _RecordingEnv(gym.Env):
+    """What the overlay reads from a recording env: the camera prim in a USD stage, env 0's
+    command term and robot pose, and the rendered frame (black here)."""
+
+    metadata = {"render_modes": ["rgb_array"]}
+    render_mode = "rgb_array"
+
+    def __init__(self, term, robot_xy, yaw):
+        import warp as wp
+        from isaaclab.utils.math import quat_from_euler_xyz
+        from pxr import Usd, UsdGeom
+
+        stage = Usd.Stage.CreateInMemory()
+        camera = UsdGeom.Camera.Define(stage, "/OverheadCamera")
+        camera.GetFocalLengthAttr().Set(FOCAL)
+        camera.GetHorizontalApertureAttr().Set(APERTURE)
+        UsdGeom.Xformable(camera).AddTranslateOp().Set((0.0, 0.0, 12.0))
+        quat = quat_from_euler_xyz(torch.zeros(1), torch.zeros(1), torch.tensor([yaw]))
+        data = SimpleNamespace(
+            root_pos_w=wp.from_torch(torch.tensor([[robot_xy[0], robot_xy[1], 0.0]])),
+            root_quat_w=wp.from_torch(quat.float()),
+        )
+        self.sim = SimpleNamespace(stage=stage)
+        self.cfg = SimpleNamespace(viewer=SimpleNamespace(cam_prim_path="/OverheadCamera"))
+        self.command_manager = SimpleNamespace(get_term=lambda name: term)
+        self.scene = {"robot": SimpleNamespace(data=data)}
+        self.device = "cpu"
+
+    def render(self):
+        return np.zeros((H, W, 3), np.uint8)
+
+
+def _subgoal_term(xy):
+    cfg = SubgoalCommandCfg(asset_name="robot")
+    return SimpleNamespace(
+        cfg=cfg,
+        command=torch.tensor([[xy[0], xy[1], 0.0]]),
+        path_cursor=SimpleNamespace(paths=torch.zeros(1, 1, 2), path_len=torch.tensor([0])),
+    )
+
+
+@pytest.mark.parametrize("yaw", [0.0, math.pi / 2])
+def test_the_wrapper_outlines_the_robot_where_the_articulation_puts_it(yaw):
+    robot, subgoal = (1.0, -0.5), (-2.0, 1.0)
+    term = _subgoal_term(subgoal)
+    frame = CommandOverlay(_RecordingEnv(term, robot, yaw)).render()
+    fwd = np.array([math.cos(yaw), math.sin(yaw)])
+    np.testing.assert_array_equal(_pixel(frame, *subgoal), _rgb(term.cfg.subgoal_sphere_visualizer_cfg))
+    assert _drawn_near(frame, *(np.array(robot) + 0.12 * fwd), ROBOT_RGB), "no front line where the robot faces"
+    assert not _drawn_near(frame, *(np.array(robot) - 0.12 * fwd), ROBOT_RGB), "the front line points backward"
+
+
+def test_the_wrapper_leaves_the_outline_off_on_request():
+    term = _subgoal_term((-2.0, 1.0))
+    frame = CommandOverlay(_RecordingEnv(term, (1.0, -0.5), 0.0), robot_outline=False).render()
+    np.testing.assert_array_equal(_pixel(frame, -2.0, 1.0), _rgb(term.cfg.subgoal_sphere_visualizer_cfg))
+    assert not (frame == np.array(ROBOT_RGB)).all(axis=-1).any(), "the outline was drawn"

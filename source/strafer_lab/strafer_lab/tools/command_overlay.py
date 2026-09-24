@@ -5,9 +5,10 @@ is rendered by every camera in it, the D555 included. Recorded video draws the g
 the rolling subgoal and the planned path here instead, onto the finished frame, in the
 styles the command cfgs carry.
 
-The robot's footprint is drawn too. Under an enclosed room's ceiling the floor renders
-black and the chassis barely rises above it, and brightening the frame either leaves the
-floor at zero or raises it past the chassis; an outline does not depend on the lighting.
+The robot's footprint is drawn too, unless the wrapper is built without it. Under an
+enclosed room's ceiling the floor renders black and the chassis barely rises above it, and
+brightening the frame either leaves the floor at zero or raises it past the chassis; an
+outline does not depend on the lighting.
 
 The drawing is a pure function of the command state, the robot pose and the recording
 camera (:func:`draw_command`, :func:`draw_robot`); :class:`CommandOverlay` is the
@@ -16,8 +17,8 @@ camera (:func:`draw_command`, :func:`draw_robot`); :class:`CommandOverlay` is th
 
 It draws environment 0, which is the one the recording scripts anchor the camera over,
 and projects through ``viewer.cam_prim_path``; that is the capture's camera only because
-both default to the same prim. There is no way to turn the drawing off, so a frame-level
-statistic over recorded overhead video has to mask it.
+both default to the same prim. The command is always drawn, so a frame-level statistic over
+recorded overhead video has to mask it.
 """
 
 from __future__ import annotations
@@ -124,11 +125,16 @@ def draw_robot(frame, x, y, z, yaw, cam_to_world, focal_length, horizontal_apert
 
 
 class CommandOverlay(gym.Wrapper):
-    """Draws environment 0's ``goal_command`` and robot onto every rendered frame.
+    """Draws environment 0's ``goal_command``, and its robot, onto every rendered frame.
 
     Reads the recording camera from the stage on each frame, so the overlay follows
-    whatever pose the recording script anchored.
+    whatever pose the recording script anchored. ``robot_outline=False`` leaves the robot
+    to the render, which reads only where its room is lit.
     """
+
+    def __init__(self, env, robot_outline: bool = True):
+        super().__init__(env)
+        self._robot_outline = robot_outline
 
     def render(self):
         frame = self.env.render()
@@ -149,10 +155,12 @@ class CommandOverlay(gym.Wrapper):
             camera.GetHorizontalApertureAttr().Get(),
         )
         term = env.command_manager.get_term("goal_command")
+        frame = draw_command(np.ascontiguousarray(frame), term, index, *lens)
+        if not self._robot_outline:
+            return frame
         robot = env.scene[term.cfg.asset_name].data
         x, y, z = (float(v) for v in wp.to_torch(robot.root_pos_w)[index])
         forward = quat_apply(
             wp.to_torch(robot.root_quat_w)[index : index + 1], torch.tensor([[1.0, 0.0, 0.0]], device=env.device)
         )[0]
-        frame = draw_command(np.ascontiguousarray(frame), term, index, *lens)
         return draw_robot(frame, x, y, z, math.atan2(float(forward[1]), float(forward[0])), *lens)

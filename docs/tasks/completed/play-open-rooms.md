@@ -1,5 +1,8 @@
 # Let a play recording show lit rooms, and leave the robot outline off on request
 
+**Status:** Shipped 2026-09-23 in `b4e7e47` (DGX).
+**PR:** https://github.com/zachoines/Sim2RealLab/pull/226
+
 **Type:** task
 **Owner:** DGX
 **Priority:** P3 — recorded video is already legible through the robot outline; this is for
@@ -15,10 +18,10 @@ rooms in a play recording drawn without a ceiling, and the robot outline optiona
 
 ## Context bundle
 
-- [context/conventions.md](../../context/conventions.md)
-- [context/branching-and-prs.md](../../context/branching-and-prs.md)
-- [context/tools-and-scripts-map.md](../../context/tools-and-scripts-map.md)
-- [measurements/debug-marker-leak-2026-09-21](../../../measurements/debug-marker-leak-2026-09-21/README.md)
+- [context/conventions.md](../context/conventions.md)
+- [context/branching-and-prs.md](../context/branching-and-prs.md)
+- [context/tools-and-scripts-map.md](../context/tools-and-scripts-map.md)
+- [measurements/debug-marker-leak-2026-09-21](../../measurements/debug-marker-leak-2026-09-21/README.md)
   — the overlay, the robot outline, and why the enclosed rooms render dark from above.
 
 ## Context
@@ -41,18 +44,18 @@ the data a run trains on.
 
 ## Acceptance criteria
 
-- [ ] `play_strafer_navigation.py --open_rooms` sets `p_ceil` to 0 before the env is built,
+- [x] `play_strafer_navigation.py --open_rooms` sets `p_ceil` to 0 before the env is built,
       and refuses an env whose room generator draws no ceiling.
-- [ ] `--no_robot_outline` records the command overlay without the robot outline; the outline
+- [x] `--no_robot_outline` records the command overlay without the robot outline; the outline
       stays on by default.
-- [ ] A Kit-free test covers the overlay wrapper end to end — the recording camera read from a
+- [x] A Kit-free test covers the overlay wrapper end to end — the recording camera read from a
       USD stage, the robot pose from articulation data — with the outline on and off.
-- [ ] A recording with `--open_rooms` has no enclosed room in it, and with `--no_robot_outline`
+- [x] A recording with `--open_rooms` has no enclosed room in it, and with `--no_robot_outline`
       no outline.
-- [ ] If your work invalidates a fact in any referenced context module, package README,
+- [x] If your work invalidates a fact in any referenced context module, package README,
       top-level `Readme.md`, or guide under `docs/`, update those in the same commit. See
       [`conventions.md`'s user-facing documentation maintenance
-      section](../../context/conventions.md#user-facing-documentation-maintenance).
+      section](../context/conventions.md#user-facing-documentation-maintenance).
 
 ## Out of scope
 

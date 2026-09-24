@@ -256,6 +256,17 @@ The off-goal angles in the attribution, parity and v3 records are measured again
 
 ## 8. Open
 
+> **Amendment (2026-09-23): both checks below are answered** in
+> [`debug-marker-checks-2026-09-23`](../debug-marker-checks-2026-09-23/README.md). The pre-flip
+> stack rendered the markers into the D555's RGB but not its depth, so for the pre-flip artifacts
+> §3's "reached its D555" reads RGB yes, depth no (measured on the 80×45 camera of v1 onward). The
+> depth policies' observation contract carries no RGB field in any variant
+> (`strafer_shared/policy_interface.py`), so a marker was never in a pre-flip depth policy's input
+> and cannot have caused the v0–cprime results through it. §4's closed-loop comparison therefore
+> set two depth streams without markers against each other: its previous-stack arm had them in RGB
+> only. With the markers positioned, v3's steering is biased 3.7° to the left and no outcome metric
+> moves beyond its standard error.
+
 - **Whether the previous stack rendered markers into the D555** (check 2). This is one boot on
   the retired pair, run after this change merges. It decides how every pre-flip depth
   artifact's history is read.

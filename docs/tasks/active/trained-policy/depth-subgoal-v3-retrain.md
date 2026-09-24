@@ -85,6 +85,12 @@ geometry and `debug_vis` is off, so the composition contract differs from v3's t
 contract by exactly `commands.goal_command.debug_vis` (`faf86756…` → `c98d18ba…`) and by
 nothing in the observation semantics.
 
+**How v3 responds to positioned markers is measured**
+(`debug-marker-checks-2026-09-23`): with them in every environment its completion is unchanged
+and its steering is biased 3.7° to the left, with no outcome metric better or worse beyond its
+standard error. No action follows, because no camera can render a command marker since #224;
+nothing here waits on a retrain for the markers.
+
 ## Run
 
 | item | value |

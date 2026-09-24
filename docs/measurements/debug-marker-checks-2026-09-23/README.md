@@ -17,15 +17,18 @@ Both are answered here, each against a reading written down before it ran (`chec
   positioned, and never had one in their depth input. v0 and the warm-start legs trained on the
   earlier 80×60 camera; for them that is an inference from the same marker code. Depth began to
   carry the markers only on the current pair, Isaac Sim 6.0.1.0 and Isaac Lab v3.0.0-beta2.patch1.
-- **v3's steering changes with the markers positioned; its outcomes do not.** Completion is
-  unchanged (0.888 against 0.905, a difference of −0.017 with standard error 0.021). The
-  direction-offset median moves left, from 1.29° to 4.96° (+3.66°, standard error 0.34), the share
-  of left commands from 0.53 to 0.61, and the offsets spread less. That is outside the
-  pre-registered indifference band on the steering criterion only; no outcome metric is worse or
-  better beyond its standard error. It needs no action for the reason given before the runs:
-  since #224 no camera can render a command marker.
+- **v3's steering changes with the markers positioned; no outcome metric moves beyond its
+  standard error.** Completion is 0.888 against 0.905 (−0.017, standard error 0.021). The
+  direction-offset median moves from 1.29° to 4.96° (+3.66°, standard error 0.34); the offset is
+  the commanded direction's angle from the observed subgoal, positive counter-clockwise (left),
+  as `eval_cadence_emulation.py`'s `signed_direction_offset` defines it — the attribution records
+  measure against the mission goal instead (`debug-marker-leak-2026-09-21` §7). The share of left
+  commands goes from 0.53 to 0.61, and the offsets spread less. That falls outside the
+  indifference band written down before the runs, on the steering criterion only, and is
+  recorded as v3's response to a novel object at its subgoal, not as a defect. Retraining for the
+  markers is closed by construction: since #224 no camera can render a command marker.
 - **v2, run the same way, is badly hurt by the markers** (completion 0.093 → 0.010), but from a
-  baseline that has already collapsed on this tree. It shows the session detects a marker
+  baseline that has already collapsed on this tree. It shows the comparison detects a marker
   effect; it says nothing about what v2 saw in training.
 
 ## 1. Check 2 — did the pre-flip stack render the markers into the D555?
@@ -68,10 +71,19 @@ sphere with its azure cone, in the RGB of both cameras, and nothing in either de
   "reached its D555" as inferred for them. It is now measured for the 80×45 camera of v1, v2,
   v2.1, v2.1a and cprime: RGB yes, depth no. v0 and the warm-start legs used an 80×60 camera (a
   4 819-dim observation) that was not rendered here.
+- **So a marker was never in a pre-flip depth policy's input, and cannot have caused any v0–cprime
+  result through it.** The depth policies' observation contract is 19 scalars and the depth
+  image — 3 619 dims at 80×45, 4 819 at v0's 80×60 — with no RGB field in any variant
+  (`source/strafer_shared/strafer_shared/policy_interface.py`; the exported models record 4 819
+  for v0 and 3 619 for v1 and v2). Check 2 puts the pre-flip markers in RGB only. For v1 onward
+  the depth half is measured; for v0 and the warm-start legs it rests on the same marker code.
+- RGB has other readers: the bridge's perception stream feeds the Jetson's perception stack,
+  including the grounding the language missions use. Whether a marker reached those is a
+  separate question and stays open.
 - This measures the Isaac Sim 6.0.0.0 and `IsaacLab-retired` install on this host, which predates
   every pre-flip run; no record pins the Isaac Lab checkout per training run.
-- A pre-flip bridge session carried the decoy goal marker in the perception stream's RGB, and not
-  in its depth.
+- On the pre-flip stack the bridge's goal marker reached the perception stream's RGB and never
+  its depth, which fits the bridge capture of 2026-08-22 showing no marker in its depth frames.
 - The markers reached depth only on the post-flip stack, where the leak record measured them.
   Which change between the two stacks did it is not isolated here; the marker prototypes carry
   `invisibleToSecondaryRays` on both.
@@ -105,7 +117,9 @@ positioned the markers; on the previous pair they were positioned all the same, 
 | 3 | 0.873 | 5.78° | 0.616 | 0.910 | 0.97° | 0.521 |
 | 4 | 0.920 | 4.72° | 0.611 | 0.910 | 1.84° | 0.543 |
 
-**v3 arm means** (sample standard deviation over four runs):
+**v3 arm means** (sample standard deviation over four runs; the ON arm's rests on three distinct
+rollouts, below). Standard errors are unpooled (Welch): √(sd_ON²/4 + sd_OFF²/4), as
+`check4/check4_summary.py` computes them.
 
 | metric | ON | OFF | ON − OFF (standard error) |
 |---|---|---|---|
@@ -125,21 +139,25 @@ No run flipped the robot; time-outs were 0 or 0.01.
   holds three distinct rollouts. A same-seed launch can replicate another exactly; G7's eight
   did not. Dropped, the difference is −0.027 (0.025) in completion and +3.74° (0.42) in offset,
   and the reading does not change.
-- **The reading.** The pre-registration called v3 indifferent if |Δ completion| ≤ 0.04 and
-  |Δ direction-offset median| ≤ 0.5°. Completion passes. The offset does not: the difference is
-  10.8 standard errors from zero and 9.3 past the threshold, or 8.9 and 7.7 with the duplicate
-  dropped. With markers in view v3's median command moves left of its subgoal and its offsets
-  spread less — the p10-to-p90 range is 82–89° in every ON run against 102–113° in every OFF run
-  — while its median absolute offset stays at 14.96°. No outcome metric moves beyond its
-  standard error in either direction: completion, collisions, off-path divergence, near-arrival
-  and progress. So this is a change of steering, not of performance, and neither pre-registered
-  metric improves with markers. Why v3 steers this way is not tested here; its own training kept
-  the markers at the world origin, so near-field markers are new to it.
-- **The thresholds sit inside G7's per-arm spread**: completion standard deviations of 0.029 and
-  0.044, offset ones of 0.41° and 0.69°. Against the standard error of a difference of four runs
-  a side, about 0.026 and 0.40°, the offset difference here is large either way.
+- **The reading.** What was written down before the runs (`check4/PREREGISTRATION.md`) called v3
+  indifferent if |Δ completion| ≤ 0.04 and |Δ direction-offset median| ≤ 0.5°. Completion passes.
+  The offset does not: the difference is 10.8 standard errors from zero and 9.3 past the
+  threshold, or 8.9 and 7.7 with the duplicate dropped. With markers in view v3's median command
+  moves left of its subgoal and its offsets spread less — the p10-to-p90 range is 82–89° in every
+  ON run against 102–113° in every OFF run — while its median absolute offset stays at 14.96°. No
+  outcome metric moves beyond its standard error in either direction: completion, collisions,
+  off-path divergence, near-arrival and progress — though four runs at standard error 0.021
+  cannot exclude a completion effect of about 0.04. So this is a change of steering, and neither
+  criterion improves with markers. Why v3 steers this way is not tested here; its own training
+  kept the markers at the world origin, so a marker at its subgoal is a novel object to it.
+- **The band could not certify indifference.** The maintainer wrote the 0.04 / 0.5° band into
+  the reading before the runs. Against the standard error of a four-run difference built from
+  G7's own spread (0.026 in completion, 0.40° in offset) it is 1.5 and 1.3 standard errors wide,
+  so a true null falls outside the offset band about a fifth of the time (21 %) and outside at
+  least one of the two about 31 % of the time. The +3.66° observed here, 9.3 standard errors past
+  the band, is a real effect regardless.
 
-**The v2 control**, the same two arms on the same tree, same session:
+**The v2 control**, the same two arms on the same tree, the same day:
 
 | metric | ON | OFF | ON − OFF (standard error) |
 |---|---|---|---|
@@ -179,7 +197,7 @@ No run flipped the robot; time-outs were 0 or 0.01.
   positioning the markers on its own.
 - v2's checkpoint is the preserved copy in `isaac-lab-upgrade-baseline-2026-08-14` §6, the one G7
   used; `goal-a-attribution-2026-08-22` preserved only the ONNX export.
-- The check-4 pre-registration describes `2575c65` as the last `main` with marker geometry. It is
+- `check4/PREREGISTRATION.md` describes `2575c65` as the last `main` with marker geometry. It is
   the #223 merge; `fa4cb93` is the last such `main`, with the same code.
 
 ## Evidence — deposit
@@ -188,7 +206,7 @@ No run flipped the robot; time-outs were 0 or 0.01.
 |---|---|
 | repository | https://github.com/zachoines/Sim2RealLab-Artifacts |
 | deposit directory | `debug-marker-checks-2026-09-23/record-files/` |
-| deposit commit | `148f0b076b26dd844cadbdc4740f185d764b25ca` |
+| deposit commit | `91606f77ef29b8a463db90b06a7da2713f672d4b` |
 
 Restore into this record's directory with:
 
@@ -208,7 +226,7 @@ grep -E '^[0-9a-f]{64}  ' DEPOSIT.md | sha256sum -c -
 sha256 of every file in the deposit:
 
 ```
-a6a04488da43e272e26ad35cac27c309055fec925dd9ce96b10aaee36fc04483  check2/PREREGISTRATION.md
+9d82d694e69fce5c1de8c9f32b0b6194c2e915509fa517bd33124e37bfbc8926  check2/PREREGISTRATION.md
 1b49900b5b1737a129b653e2112f65f2b08709a344bdc8e2050aafa655481b76  check2/d555_marker_visibility_preflip.py
 2b18311b89f65cae0848cf9b73efcb342b591715e22ea9cc2d84a01472341d5a  check2/d555_marker_visibility_preflip_cmd.sh
 08b4663b1c5c1a79e5c78da4975834aa87f92f6688b65550f9b084cb7d2f0236  check2/run/d555_marker_visibility_preflip.json
@@ -282,7 +300,7 @@ e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855  check2/run/gpu
 407923c859d3467132580bbc8f6a664fe42eeefca4c1b047e80286bef9a7bd5c  check2/run/probe.log
 dbc856840bfdf641965601b0231ba042b6ddd25f8f42d55e11bb3abdafb823e5  check2/run/watchdog_check2.log
 dbc856840bfdf641965601b0231ba042b6ddd25f8f42d55e11bb3abdafb823e5  check2/run/watchdog_check2.log.attempt1
-d9b53ec1975a08d76c641c51ec17069fbb59c449fc590b238b59708423174240  check4/PREREGISTRATION.md
+f6f9e468910981f9b46d818747866e9a4fd58db9da9859d1a3500961de669f72  check4/PREREGISTRATION.md
 f696361a6fa13ea3f3d78565831f8da0691927d10a3a249f4ce1d869bd4c17ba  check4/check4_eval_flag.patch
 ff351595d1efa6b45d8e8b9f3965e5b5fb11258459acc50924766e9976c22b02  check4/check4_run.sh
 3e99279b7d56d0c23512079d31579879895984dd741eff5a005be9d1e9b723ba  check4/check4_series.sh

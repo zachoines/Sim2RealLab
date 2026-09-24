@@ -86,10 +86,13 @@ contract by exactly `commands.goal_command.debug_vis` (`faf86756…` → `c98d18
 nothing in the observation semantics.
 
 **How v3 responds to positioned markers is measured**
-(`debug-marker-checks-2026-09-23`): with them in every environment its completion is unchanged
-and its steering is biased 3.7° to the left, with no outcome metric better or worse beyond its
-standard error. No action follows, because no camera can render a command marker since #224;
-nothing here waits on a retrain for the markers.
+(`debug-marker-checks-2026-09-23`): with them in every environment its steering is biased 3.7°
+to the left, and no outcome metric moves beyond its standard error. The shift is v3's response
+to a novel object at its subgoal, not a defect. The 0.04 / 0.5° indifference band written into
+the reading before the runs was too tight to certify indifference — a true null falls outside
+the offset band about a fifth of the time — and the observed shift, 9.3 standard errors past it,
+is real regardless. The retrain-on-markers question is closed by construction: since #224 no
+camera can render a command marker.
 
 ## Run
 

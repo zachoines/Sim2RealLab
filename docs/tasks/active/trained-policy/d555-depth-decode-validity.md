@@ -82,9 +82,15 @@ lets invalid pixels through the `isfinite` rescue, drags the block median toward
 zero, and the post-median nearfield rule converts the result into
 **`DEPTH_NEARFIELD_FILL` = 0.2 m** — an obstacle just in front of the robot.
 
-Training's convention is unambiguous in the other direction: invalid maps to
-**`DEPTH_MAX` = 6.0 m** in both the observation term and the noise model. So the
-same reduction would mean "far" in training and "blocked" on hardware.
+Training's observation term is unambiguous in the other direction: `depth_image`
+rescues a non-finite pixel to **`DEPTH_MAX` = 6.0 m** before the reduction — the
+same rescue the `32FC1` path applies to `+inf`. So the same reduction would mean
+"far" in training and "blocked" on hardware. (The noise model's fills act after
+the reduction and differ: its shipped `hole_fill="median"` writes the median of the
+valid 3×3 neighbours, and `min_range` (0.2 m) where the whole neighbourhood is
+invalid, with `too_close_fill="near"`. `noise_models.py` documents where it parts
+company with the deploy far clamp. What this brief matches is the observation
+term's rescue.)
 
 **This is a parity fix, not a robustness preference.** Scale, from the same
 capture: 33.9% of blocks were majority-invalid in one real room — that fraction
@@ -130,7 +136,8 @@ close-wall capture on hardware measures it; see the hardware item below.
       buffer length is `depth_bad_shape`. A frame that decodes cleanly at any
       resolution other than 640×360 (the driver's default profile, if it
       rejects the pinned one) is also dropped at the gate as
-      `depth_bad_shape`, rather than cached for `downsample_depth` to raise on
+      `depth_bad_shape` (the counter counts every drop; its warning is
+      throttled to once per 5 s), rather than cached for `downsample_depth` to raise on
       the tick (`TestZ16Decode::test_off_resolution_*`). `scripts/obs_parity.py`
       decodes the same way and hands the mask to
       `reassemble_obs_from_extracted`; `test_parity.py::TestReassembly::test_z16_mask_reads_an_invalid_block_as_depth_max`
@@ -148,7 +155,8 @@ close-wall capture on hardware measures it; see the hardware item below.
       `test_the_mask_travels_with_a_reused_frame`). The 32FC1 path passes no
       mask and keeps its `isfinite` rescue deliberately — the byte-identity
       criterion below requires it.)*
-- [x] **Z16 invalid maps to `DEPTH_MAX` (6.0 m)** — the training convention.
+- [x] **Z16 invalid maps to `DEPTH_MAX` (6.0 m)** — the training observation
+      term's convention (its non-finite rescue before the reduction).
       *(2026-09-25: before the median; see the decision above.)*
 - [x] **Genuine sub-0.4 m returns keep the nearfield fill.** The bench capture
       showed the sensor returns finite values in 0.244–0.399 m for 4.16% of

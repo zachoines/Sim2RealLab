@@ -17,8 +17,9 @@ RealSense driver's Z16 millimetres) and ``32FC1`` (the Isaac bridge's
 metres) are decoded, anything else counts ``depth_bad_encoding``. Z16's
 "no return" is 0, which is finite, so the decode carries an explicit
 validity mask with the cached frame and ``downsample_depth`` maps masked
-pixels to ``DEPTH_MAX`` before the block median — training's convention,
-where an unmasked 0 would have become the 0.2 m nearfield fill.
+pixels to ``DEPTH_MAX`` before the block median — the training observation
+term's non-finite rescue, where an unmasked 0 would have become the 0.2 m
+nearfield fill.
 
 Depth tick semantics (``depth_tick_semantics``): under ``timer_reuse``
 an inferring tick consumes the newest cached frame whether or not its

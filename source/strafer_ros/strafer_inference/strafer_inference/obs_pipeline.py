@@ -172,7 +172,7 @@ def downsample_depth(
 
     ``valid_mask`` (bool, same shape) is the explicit validity of each source
     pixel; the Z16 decode supplies ``raw != 0``. Invalid pixels take
-    ``max_depth`` BEFORE the median, the training convention
+    ``max_depth`` BEFORE the median, the training observation term's convention
     (``mdp/observations.py:depth_image`` rescues non-finite depth to
     ``max_depth`` ahead of the same reduction, then fills the nearfield after
     it). So a majority-invalid block (>= 33 of 64) reads ``max_depth``, an

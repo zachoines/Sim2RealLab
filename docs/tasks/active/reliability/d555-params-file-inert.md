@@ -86,9 +86,9 @@ another setting the repo believes it controls and does not.
       captures the `IncludeLaunchDescription` arguments (the `_CaptureNode`
       idiom) and asserts each of the five values; checks the installed
       `rs_launch.py` still declares each name, since an undeclared name is
-      warned about and dropped rather than failing the include; and checks the
-      params file and its `setup.py` entry are gone. The five value
-      assertions fail against the pre-change launch (5 failed, 8 passed).*
+      warned about and dropped rather than failing the include; and checks no
+      `config_file` or `params_file` is passed. The five value assertions fail
+      against the pre-change launch (5 failed, 6 passed).*
 - [ ] Verified against the running node on hardware: the requested values are
       the values the node reports.
       *Open 2026-09-25: the D555 enumerates as 8086:0bdc "Intel RealSense

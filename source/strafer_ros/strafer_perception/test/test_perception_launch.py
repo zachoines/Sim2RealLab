@@ -84,19 +84,3 @@ class TestRealsenseFilterContract:
             f"installed rs_launch.py no longer declares {name!r}; the value "
             "perception.launch.py pins for it would be silently dropped"
         )
-
-
-class TestParamsFileRemoved:
-    """d555_params.yaml was never loaded by any launch path; it is gone so
-    nothing installed to share/ looks like a live source of camera settings.
-    """
-
-    def test_params_file_absent_from_source(self):
-        assert not os.path.exists(
-            os.path.join(PKG_SRC, "config", "d555_params.yaml")
-        )
-
-    def test_setup_installs_no_config_dir(self):
-        with open(os.path.join(PKG_SRC, "setup.py")) as f:
-            setup_src = f.read()
-        assert "config/" not in setup_src

@@ -372,7 +372,7 @@ that lands the real fix.
   ([`d555-depth-decode-validity`](../active/trained-policy/d555-depth-decode-validity.md)) — adjacent and
   must agree with whatever lands here, but separately owned.
 - The subgoal-generator clock and cadence-report defects from the same gate
-  ([`subgoal-generator-sim-clock-freshness`](../active/reliability/subgoal-generator-sim-clock-freshness.md),
+  ([`subgoal-generator-sim-clock-freshness`](subgoal-generator-sim-clock-freshness.md),
   [`cadence-report-window-never-resets`](../active/reliability/cadence-report-window-never-resets.md)),
   both measured non-causal for this failure and both still worth fixing.
 - The last-half-metre parking behaviour.

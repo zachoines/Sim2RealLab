@@ -52,7 +52,7 @@ these are the goal-telemetry window (`goal_telemetry_timeout_s`: the inference
 node's keep-alive is 1 Hz wall), the in-flight replan abandon
 (`_REPLAN_ABANDON_S`: it times the planner process) and the status-log cadence.
 Each times a wall-clock producer or a human-facing interval.
-[`subgoal-generator-sim-clock-freshness`](../reliability/subgoal-generator-sim-clock-freshness.md)
+[`subgoal-generator-sim-clock-freshness`](../../completed/subgoal-generator-sim-clock-freshness.md)
 (`912eea7`) moved the plan-freshness window and the replan cadence **off** wall
 time and onto the node clock. This reverses the earlier guidance here, which kept
 both on wall time so that a stalled `/clock` would trip the staleness guard.

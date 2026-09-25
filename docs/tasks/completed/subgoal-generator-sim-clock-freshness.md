@@ -1,5 +1,8 @@
 # Put the subgoal generator's freshness guards on the clock its timeouts are sized in
 
+**Status:** Shipped 2026-09-25 in `912eea7` (Jetson).
+**PR:** https://github.com/zachoines/Sim2RealLab/pull/229
+
 **Type:** bug (measurement validity, sim lane)
 **Owner:** Jetson (`strafer_inference` lane)
 **Priority:** P1 — it intermittently suppresses one of the three anchor
@@ -34,18 +37,18 @@ Every one of its freshness guards is stamped and compared with
 
 | guard | parameter | default | stamp / compare |
 |---|---|---:|---|
-| costmap staleness | `costmap_timeout_s` | 5.0 | [`:614`](../../../../source/strafer_ros/strafer_inference/strafer_inference/subgoal_generator_node.py#L614) / [`:470`](../../../../source/strafer_ros/strafer_inference/strafer_inference/subgoal_generator_node.py#L470) |
-| plan staleness | `path_timeout_s` | 1.0 | [`:523`](../../../../source/strafer_ros/strafer_inference/strafer_inference/subgoal_generator_node.py#L523) / [`:967`](../../../../source/strafer_ros/strafer_inference/strafer_inference/subgoal_generator_node.py#L967) |
-| goal telemetry | `goal_telemetry_timeout_s` | 2.5 | [`:640`](../../../../source/strafer_ros/strafer_inference/strafer_inference/subgoal_generator_node.py#L640) / [`:667`](../../../../source/strafer_ros/strafer_inference/strafer_inference/subgoal_generator_node.py#L667) |
-| replan spacing | `replan_period_s` | 0.5 | [`:708`](../../../../source/strafer_ros/strafer_inference/strafer_inference/subgoal_generator_node.py#L708) / [`:682`](../../../../source/strafer_ros/strafer_inference/strafer_inference/subgoal_generator_node.py#L682) |
-| `anchor_age` in the status line | — | — | [`:414`](../../../../source/strafer_ros/strafer_inference/strafer_inference/subgoal_generator_node.py#L414) / [`:576`](../../../../source/strafer_ros/strafer_inference/strafer_inference/subgoal_generator_node.py#L576) |
+| costmap staleness | `costmap_timeout_s` | 5.0 | [`:614`](../../../source/strafer_ros/strafer_inference/strafer_inference/subgoal_generator_node.py#L614) / [`:470`](../../../source/strafer_ros/strafer_inference/strafer_inference/subgoal_generator_node.py#L470) |
+| plan staleness | `path_timeout_s` | 1.0 | [`:523`](../../../source/strafer_ros/strafer_inference/strafer_inference/subgoal_generator_node.py#L523) / [`:967`](../../../source/strafer_ros/strafer_inference/strafer_inference/subgoal_generator_node.py#L967) |
+| goal telemetry | `goal_telemetry_timeout_s` | 2.5 | [`:640`](../../../source/strafer_ros/strafer_inference/strafer_inference/subgoal_generator_node.py#L640) / [`:667`](../../../source/strafer_ros/strafer_inference/strafer_inference/subgoal_generator_node.py#L667) |
+| replan spacing | `replan_period_s` | 0.5 | [`:708`](../../../source/strafer_ros/strafer_inference/strafer_inference/subgoal_generator_node.py#L708) / [`:682`](../../../source/strafer_ros/strafer_inference/strafer_inference/subgoal_generator_node.py#L682) |
+| `anchor_age` in the status line | — | — | [`:414`](../../../source/strafer_ros/strafer_inference/strafer_inference/subgoal_generator_node.py#L414) / [`:576`](../../../source/strafer_ros/strafer_inference/strafer_inference/subgoal_generator_node.py#L576) |
 
 The node holds **12** `time.monotonic()` call sites against **1** use of
 `get_clock().now()`. Its sibling `inference_node.py` is the counter-example and
 the model: its staleness and cadence logic reads `get_clock().now()`
-([`:1165`](../../../../source/strafer_ros/strafer_inference/strafer_inference/inference_node.py#L1165),
-[`:1176`](../../../../source/strafer_ros/strafer_inference/strafer_inference/inference_node.py#L1176),
-[`:1207`](../../../../source/strafer_ros/strafer_inference/strafer_inference/inference_node.py#L1207)),
+([`:1165`](../../../source/strafer_ros/strafer_inference/strafer_inference/inference_node.py#L1165),
+[`:1176`](../../../source/strafer_ros/strafer_inference/strafer_inference/inference_node.py#L1176),
+[`:1207`](../../../source/strafer_ros/strafer_inference/strafer_inference/inference_node.py#L1207)),
 which is why its `depth_age` is reported in sim seconds and is correct.
 
 This is latent wherever real time and sim time agree — a real robot, or a sim at
@@ -99,8 +102,8 @@ The defect stands exactly as measured above, but it did not produce the gate
 result: the hypothesis that a duty-cycled admission rule starved the policy of a
 fresh referent is **refuted**, not merely unsupported. The gate is attributed to
 a near-field depth convention mismatch —
-[`depth-nearfield-convention-mismatch`](../../completed/depth-nearfield-convention-mismatch.md),
-record [`goal-a-attribution-2026-08-22`](../../../measurements/goal-a-attribution-2026-08-22/README.md).
+[`depth-nearfield-convention-mismatch`](depth-nearfield-convention-mismatch.md),
+record [`goal-a-attribution-2026-08-22`](../../measurements/goal-a-attribution-2026-08-22/README.md).
 The stale-subgoal counter reads 0 across all 1 799 ticks of the replayed mission,
 the off-goal command precedes any staleness (first inference, referent still
 evolving), and substituting the referent quartet with its clean-sim value there
@@ -123,7 +126,7 @@ because each one times a producer that runs on wall time:
 
 - **Goal telemetry** (`goal_telemetry_timeout_s`, 2.5 s). The inference node
   publishes the active-goal keep-alive on `time.monotonic()` at 1 Hz wall
-  ([`inference_node.py`](../../../../source/strafer_ros/strafer_inference/strafer_inference/inference_node.py)
+  ([`inference_node.py`](../../../source/strafer_ros/strafer_inference/strafer_inference/inference_node.py)
   `last_keepalive_t`). A 2.5 s window on the sim clock would flap at any RTF
   above 2.5, because 1 s of wall time between keep-alives would then be more
   than 2.5 s of sim time.
@@ -165,7 +168,7 @@ measured in sim seconds.
 The measured bullet above blames `plan is stale` on "0.5 s sim ≈ 4.7 s wall
 against a 1.0 s wall guard". That cannot be what happened. The gate ran images
 built at `e7ea7bd`
-([record](../../../measurements/goal-a-rig-gate-2026-08-17/README.md)), and
+([record](../../measurements/goal-a-rig-gate-2026-08-17/README.md)), and
 `e7ea7bd` already contains `86e9590`. The replan timer was therefore steady at
 0.5 s wall, and the plan window was 1.0 s wall. Replanning and plan-window
 expiry were on the same wall clock, and the cadence fit the window.

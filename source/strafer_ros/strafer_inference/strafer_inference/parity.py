@@ -720,6 +720,7 @@ def reassemble_obs_from_extracted(
     base_in_map_xy: tuple[float, float],
     base_in_map_quat: tuple[float, float, float, float],
     depth_meters: Optional[np.ndarray] = None,
+    depth_valid_mask: Optional[np.ndarray] = None,
 ) -> np.ndarray:
     """Re-assemble one obs vector from raw sensor values via the SAME
     ``obs_pipeline`` functions the node uses.
@@ -740,7 +741,10 @@ def reassemble_obs_from_extracted(
     wheel_vels = joint_state_to_wheel_vels(list(joint_names), list(joint_velocities))
     has_depth = any(f.key == "depth_image" for f in variant.fields)
     depth_flat = (
-        downsample_depth(np.asarray(depth_meters, dtype=np.float32))
+        downsample_depth(
+            np.asarray(depth_meters, dtype=np.float32),
+            valid_mask=depth_valid_mask,
+        )
         if has_depth
         else None
     )

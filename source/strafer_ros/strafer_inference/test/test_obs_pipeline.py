@@ -8,8 +8,12 @@ import numpy as np
 import pytest
 
 from strafer_inference.obs_pipeline import (
+    MAJORITY_INVALID_MIN,
+    DepthDecodeError,
     body_frame_goal,
     build_raw_obs_dict,
+    count_majority_invalid_cells,
+    decode_depth_image,
     downsample_depth,
     joint_state_to_wheel_vels,
     l1_clamp_velocity,
@@ -151,6 +155,297 @@ class TestDownsampleDepth:
         raw = np.zeros((PERCEPTION_HEIGHT, PERCEPTION_WIDTH), dtype=np.float32)
         out = downsample_depth(raw)
         assert out.shape[0] == depth_field.dims
+
+
+# =============================================================================
+# downsample_depth: explicit validity (Z16) vs the unchanged 32FC1 path
+# =============================================================================
+
+
+def _frozen_downsample_depth(
+    depth_meters,
+    *,
+    max_depth=DEPTH_MAX,
+    nearfield_clip=DEPTH_MIN,
+    nearfield_fill=DEPTH_NEARFIELD_FILL,
+):
+    """downsample_depth as it stood before the validity mask, copied verbatim
+    so the no-mask path is pinned byte for byte against it."""
+    bh = PERCEPTION_HEIGHT // DEPTH_HEIGHT
+    bw = PERCEPTION_WIDTH // DEPTH_WIDTH
+    depth = np.asarray(depth_meters, dtype=np.float32)
+    if depth.shape != (PERCEPTION_HEIGHT, PERCEPTION_WIDTH):
+        raise ValueError(
+            f"Expected raw depth shape ({PERCEPTION_HEIGHT}, "
+            f"{PERCEPTION_WIDTH}); got {depth.shape}"
+        )
+    depth = np.where(np.isfinite(depth), depth, np.float32(max_depth))
+    depth = np.median(
+        depth.reshape(DEPTH_HEIGHT, bh, DEPTH_WIDTH, bw),
+        axis=(1, 3),
+    )
+    depth = np.where(
+        depth < nearfield_clip, np.float32(nearfield_fill), depth
+    )
+    depth = np.clip(depth, 0.0, max_depth)
+    return depth.reshape(-1).astype(np.float32, copy=False)
+
+
+def _set_block(frame: np.ndarray, row: int, col: int, values) -> None:
+    """Write 64 values (row-major) into policy cell (row, col)'s 8x8 block."""
+    bh = PERCEPTION_HEIGHT // DEPTH_HEIGHT
+    bw = PERCEPTION_WIDTH // DEPTH_WIDTH
+    frame[row * bh:(row + 1) * bh, col * bw:(col + 1) * bw] = np.asarray(
+        values, dtype=frame.dtype
+    ).reshape(bh, bw)
+
+
+def _z16_frame(fill_mm: int = 2500) -> np.ndarray:
+    return np.full((PERCEPTION_HEIGHT, PERCEPTION_WIDTH), fill_mm, np.uint16)
+
+
+def _z16_downsample(raw_mm: np.ndarray) -> np.ndarray:
+    meters, valid = decode_depth_image(
+        encoding="16UC1",
+        data=raw_mm.tobytes(),
+        height=raw_mm.shape[0],
+        width=raw_mm.shape[1],
+    )
+    return downsample_depth(meters, valid_mask=valid).reshape(
+        DEPTH_HEIGHT, DEPTH_WIDTH
+    )
+
+
+class TestDownsampleDepthNoMaskRegression:
+    """Sim lane: a 32FC1 frame (no mask) is byte-identical to before."""
+
+    @pytest.mark.parametrize("seed", range(8))
+    def test_randomized_frames_are_byte_identical(self, seed):
+        rng = np.random.default_rng(seed)
+        shape = (PERCEPTION_HEIGHT, PERCEPTION_WIDTH)
+        frame = rng.uniform(0.0, 9.0, size=shape).astype(np.float32)
+        kind = rng.integers(0, 6, size=shape)
+        frame[kind == 1] = np.inf
+        frame[kind == 2] = np.nan
+        frame[kind == 3] = 0.0
+        frame[kind == 4] = rng.uniform(0.0, DEPTH_MIN, size=shape)[kind == 4]
+        # Whole blocks of a single kind too, so the per-block extremes are hit.
+        frame[:8, :8] = np.inf
+        frame[:8, 8:16] = np.nan
+        frame[:8, 16:24] = 0.0
+        frame[:8, 24:32] = 0.3
+        frame[:8, 32:40] = 7.5
+        frame[:8, 40:48] = -np.inf
+        want = _frozen_downsample_depth(frame)
+        for got in (
+            downsample_depth(frame),
+            downsample_depth(frame, valid_mask=None),
+        ):
+            assert got.dtype == want.dtype
+            assert got.shape == want.shape
+            assert got.tobytes() == want.tobytes()
+
+
+class TestDownsampleDepthValidityMask:
+    """The brief's pinned vectors: Z16 invalid (0) maps to DEPTH_MAX before
+    the median, the training convention; a genuine sub-0.4 m return keeps
+    the nearfield fill."""
+
+    def test_all_zero_block_reads_max_depth(self):
+        raw = _z16_frame()
+        _set_block(raw, 0, 0, np.zeros(64))
+        out = _z16_downsample(raw)
+        assert out[0, 0] == np.float32(DEPTH_MAX)
+        assert out[0, 0] != np.float32(DEPTH_NEARFIELD_FILL)
+
+    def test_majority_zero_block_reads_max_depth(self):
+        # 33 invalid + 31 valid at 1.5 m: the median lands on the far clamp.
+        raw = _z16_frame()
+        _set_block(raw, 5, 7, [0] * MAJORITY_INVALID_MIN + [1500] * 31)
+        out = _z16_downsample(raw)
+        assert out[5, 7] == np.float32(DEPTH_MAX)
+
+    def test_majority_zero_block_with_near_valid_pixels_still_reads_max(self):
+        # Even when the valid minority is itself sub-0.4 m: never 0.2 m.
+        raw = _z16_frame()
+        _set_block(raw, 1, 1, [0] * 40 + [300] * 24)
+        out = _z16_downsample(raw)
+        assert out[1, 1] == np.float32(DEPTH_MAX)
+
+    def test_genuine_sub_nearfield_block_keeps_the_fill(self):
+        raw = _z16_frame()
+        _set_block(raw, 2, 3, np.full(64, 300))  # 0.3 m, every pixel valid
+        out = _z16_downsample(raw)
+        assert out[2, 3] == np.float32(DEPTH_NEARFIELD_FILL)
+
+    def test_exactly_half_invalid_follows_numpys_even_median(self):
+        # 32 invalid (-> 6.0) + 32 valid at 2.0 m: numpy averages the two
+        # middle ranks, exactly as the training reduction would.
+        raw = _z16_frame()
+        _set_block(raw, 3, 4, [0] * 32 + [2000] * 32)
+        out = _z16_downsample(raw)
+        want = np.median(
+            np.array([DEPTH_MAX] * 32 + [2.0] * 32, dtype=np.float32)
+        )
+        np.testing.assert_allclose(out[3, 4], want, atol=1e-6)
+        assert 2.0 < out[3, 4] < DEPTH_MAX
+
+    def test_valid_pixels_decode_to_metres(self):
+        out = _z16_downsample(_z16_frame(2500))
+        np.testing.assert_allclose(out, 2.5, atol=1e-6)
+
+    def test_mask_overrides_a_finite_value_and_not_the_reverse(self):
+        # A masked pixel reads max_depth whatever it holds; an unmasked
+        # non-finite pixel is still rescued.
+        depth = np.full((PERCEPTION_HEIGHT, PERCEPTION_WIDTH), 1.0, np.float32)
+        valid = np.ones_like(depth, dtype=bool)
+        depth[:8, :8] = np.inf
+        valid[:8, 8:16] = False
+        out = downsample_depth(depth, valid_mask=valid).reshape(
+            DEPTH_HEIGHT, DEPTH_WIDTH
+        )
+        assert out[0, 0] == np.float32(DEPTH_MAX)
+        assert out[0, 1] == np.float32(DEPTH_MAX)
+        assert out[0, 2] == np.float32(1.0)
+
+    def test_all_valid_mask_matches_the_no_mask_path(self):
+        rng = np.random.default_rng(7)
+        depth = rng.uniform(0.0, 8.0, (PERCEPTION_HEIGHT, PERCEPTION_WIDTH))
+        depth = depth.astype(np.float32)
+        valid = np.ones_like(depth, dtype=bool)
+        assert (
+            downsample_depth(depth, valid_mask=valid).tobytes()
+            == downsample_depth(depth).tobytes()
+        )
+
+    def test_rejects_a_mask_of_the_wrong_shape(self):
+        depth = np.ones((PERCEPTION_HEIGHT, PERCEPTION_WIDTH), np.float32)
+        with pytest.raises(ValueError, match="valid_mask shape"):
+            downsample_depth(depth, valid_mask=np.ones((4, 4), dtype=bool))
+
+
+class TestCountMajorityInvalidCells:
+    def test_counts_blocks_at_or_above_33_invalid(self):
+        valid = np.ones((PERCEPTION_HEIGHT, PERCEPTION_WIDTH), dtype=bool)
+        _set_block(valid, 0, 0, [False] * 64)
+        _set_block(valid, 0, 1, [False] * 33 + [True] * 31)
+        _set_block(valid, 0, 2, [False] * 32 + [True] * 32)  # half: not forced
+        assert MAJORITY_INVALID_MIN == 33
+        assert count_majority_invalid_cells(valid) == 2
+
+    def test_matches_the_cells_the_mask_forces_to_the_far_clamp(self):
+        rng = np.random.default_rng(3)
+        raw = rng.integers(500, 5000, (PERCEPTION_HEIGHT, PERCEPTION_WIDTH))
+        raw = raw.astype(np.uint16)
+        raw[rng.random(raw.shape) < 0.5] = 0
+        meters, valid = decode_depth_image(
+            encoding="16UC1", data=raw.tobytes(),
+            height=raw.shape[0], width=raw.shape[1],
+        )
+        out = downsample_depth(meters, valid_mask=valid)
+        # Valid values stay below 5 m, so only a forced cell reads 6.0.
+        assert count_majority_invalid_cells(valid) == int(
+            np.count_nonzero(out == np.float32(DEPTH_MAX))
+        )
+
+
+class TestDecodeDepthImage:
+    H, W = 4, 6
+
+    def test_16uc1_is_millimetres_with_zero_invalid(self):
+        raw = np.array(
+            [[0, 1000, 65535, 400, 399, 1]] * self.H, dtype=np.uint16
+        )
+        meters, valid = decode_depth_image(
+            encoding="16UC1", data=raw.tobytes(), height=self.H, width=self.W,
+            step=self.W * 2,
+        )
+        assert meters.dtype == np.float32
+        assert meters.shape == (self.H, self.W)
+        np.testing.assert_allclose(
+            meters[0], [0.0, 1.0, 65.535, 0.4, 0.399, 0.001], rtol=1e-6
+        )
+        np.testing.assert_array_equal(
+            valid[0], [False, True, True, True, True, True]
+        )
+
+    def test_mono16_decodes_like_16uc1(self):
+        raw = np.arange(self.H * self.W, dtype=np.uint16).reshape(self.H, self.W)
+        a = decode_depth_image(
+            encoding="16UC1", data=raw.tobytes(), height=self.H, width=self.W
+        )
+        b = decode_depth_image(
+            encoding="mono16", data=raw.tobytes(), height=self.H, width=self.W
+        )
+        assert a[0].tobytes() == b[0].tobytes()
+        np.testing.assert_array_equal(a[1], b[1])
+
+    def test_big_endian_z16(self):
+        raw = np.full((self.H, self.W), 1234, dtype=">u2")
+        meters, valid = decode_depth_image(
+            encoding="16UC1", data=raw.tobytes(), height=self.H, width=self.W,
+            is_bigendian=True,
+        )
+        np.testing.assert_allclose(meters, 1.234, rtol=1e-6)
+        assert valid.all()
+
+    def test_padded_rows_honour_step(self):
+        raw = np.arange(self.H * self.W, dtype=np.uint16).reshape(self.H, self.W)
+        step = self.W * 2 + 4
+        padded = np.zeros((self.H, step), dtype=np.uint8)
+        padded[:, : self.W * 2] = raw.view(np.uint8).reshape(self.H, -1)
+        padded[:, self.W * 2 :] = 0xFF  # garbage in the pad must be ignored
+        meters, _ = decode_depth_image(
+            encoding="16UC1", data=padded.tobytes(), height=self.H,
+            width=self.W, step=step,
+        )
+        np.testing.assert_allclose(meters, raw * 0.001, rtol=1e-6)
+
+    def test_32fc1_is_the_unchanged_float_path(self):
+        frame = np.array(
+            [[np.inf, np.nan, 0.0, 0.3, 2.5, 9.0]] * self.H, dtype=np.float32
+        )
+        meters, valid = decode_depth_image(
+            encoding="32FC1", data=frame.tobytes(), height=self.H, width=self.W
+        )
+        assert valid is None
+        assert meters.dtype == np.float32
+        want = np.frombuffer(frame.tobytes(), dtype=np.float32).reshape(
+            self.H, self.W
+        )
+        assert meters.tobytes() == want.tobytes()
+
+    def test_big_endian_32fc1(self):
+        frame = np.full((self.H, self.W), 2.25, dtype=">f4")
+        meters, valid = decode_depth_image(
+            encoding="32FC1", data=frame.tobytes(), height=self.H,
+            width=self.W, is_bigendian=True,
+        )
+        assert meters.dtype == np.float32
+        np.testing.assert_array_equal(meters, 2.25)
+        assert valid is None
+
+    @pytest.mark.parametrize("encoding", ["rgb8", "8UC1", "32FC3", "", "16SC1"])
+    def test_unknown_encoding_is_an_encoding_error(self, encoding):
+        with pytest.raises(DepthDecodeError) as err:
+            decode_depth_image(
+                encoding=encoding, data=bytes(self.H * self.W * 4),
+                height=self.H, width=self.W,
+            )
+        assert err.value.reason == "encoding"
+
+    @pytest.mark.parametrize("encoding,nbytes", [
+        ("16UC1", 4 * 6 * 2 - 2),
+        ("32FC1", 4 * 6 * 4 + 3),
+        ("16UC1", 0),
+    ])
+    def test_bad_length_is_a_shape_error(self, encoding, nbytes):
+        with pytest.raises(DepthDecodeError) as err:
+            decode_depth_image(
+                encoding=encoding, data=bytes(nbytes),
+                height=self.H, width=self.W,
+            )
+        assert err.value.reason == "shape"
 
 
 class TestDepthSingleScaleParity:

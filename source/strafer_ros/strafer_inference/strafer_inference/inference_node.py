@@ -12,6 +12,15 @@ L1 velocity clamp before ``/strafer/cmd_vel`` publish, and a
 successful inference so operator health checks distinguish "warming
 up" (TRT engine cold-start) from "wedged".
 
+Depth encoding is detected per frame: ``16UC1``/``mono16`` (the
+RealSense driver's Z16 millimetres) and ``32FC1`` (the Isaac bridge's
+metres) are decoded, anything else counts ``depth_bad_encoding``. Z16's
+"no return" is 0, which is finite, so the decode carries an explicit
+validity mask with the cached frame and ``downsample_depth`` maps masked
+pixels to ``DEPTH_MAX`` before the block median — the training observation
+term's non-finite rescue, where an unmasked 0 would have become the 0.2 m
+nearfield fill.
+
 Depth tick semantics (``depth_tick_semantics``): under ``timer_reuse``
 an inferring tick consumes the newest cached frame whether or not its
 seq advanced, so the recurrent state advances at the trained cadence
@@ -46,7 +55,7 @@ ticking; the policy mutex serializes ``policy(obs)`` and
 ``policy.reset()`` per the recurrent hidden-state contract's
 thread-safety point. Depth runs in its own callback group, so
 ``_on_depth`` and the tick execute on separate executor threads: a lock
-guards the depth ``(array, stamp, rx_t, seq)`` tuple, and each tick snapshots
+guards the depth ``(array, mask, stamp, rx_t, seq)`` tuple, and each tick snapshots
 it once so the watchdog, the freshness gate, and obs assembly all read
 one coherent frame — a bumped seq paired with the previous array would
 silently infer on the wrong frame. Every other cached source is written
@@ -85,9 +94,13 @@ from rclpy.qos import HistoryPolicy, QoSProfile, ReliabilityPolicy
 from sensor_msgs.msg import Image, Imu, JointState
 
 from strafer_shared.constants import (
+    DEPTH_HEIGHT,
+    DEPTH_WIDTH,
     GOAL_ARRIVAL_RADIUS_M,
     NAV_ANGULAR_VEL,
     NAV_LINEAR_VEL,
+    PERCEPTION_HEIGHT,
+    PERCEPTION_WIDTH,
 )
 from strafer_shared.policy_interface import (
     LoadedPolicy,
@@ -98,8 +111,11 @@ from strafer_shared.policy_interface import (
 )
 
 from .obs_pipeline import (
+    DepthDecodeError,
     body_frame_goal,
     build_raw_obs_dict,
+    count_majority_invalid_cells,
+    decode_depth_image,
     downsample_depth,
     joint_state_to_wheel_vels,
     l1_clamp_velocity,
@@ -342,6 +358,9 @@ class InferenceNode(Node):
         self._last_odom: Optional[Odometry] = None
         self._last_odom_rx_t: Optional[float] = None
         self._last_depth_meters: Optional[np.ndarray] = None
+        # Validity mask of the cached frame (Z16 only; None for 32FC1), part
+        # of the same locked tuple so a reused frame keeps its own mask.
+        self._last_depth_valid: Optional[np.ndarray] = None
         self._last_depth_rx_t: Optional[float] = None
         # Publisher stamp of the cached frame, carried alongside it so the age
         # reported at consume time spans the whole path — render to inference —
@@ -355,7 +374,7 @@ class InferenceNode(Node):
         self._depth_seq = 0
         self._last_inferred_depth_seq = -1
         # _on_depth runs in its own callback group, concurrent with the tick.
-        # This lock guards the (array, stamp, rx_t, seq) tuple so the tick reads a
+        # This lock guards the (array, mask, stamp, rx_t, seq) tuple so the tick reads a
         # consistent snapshot; a fresh seq paired with a stale array would
         # silently infer on the wrong frame. Writes replace the array ref
         # (never mutate it), so a snapshotted ref stays valid without a copy.
@@ -363,6 +382,7 @@ class InferenceNode(Node):
         # Snapshot of _last_depth_meters taken under _depth_lock at the top of
         # each tick; obs assembly reads this, not the live field.
         self._tick_depth_meters: Optional[np.ndarray] = None
+        self._tick_depth_valid: Optional[np.ndarray] = None
         # Whether that snapshot carries a frame no policy call has consumed.
         self._tick_depth_fresh = True
         self._last_goal_map: Optional[PoseStamped] = None
@@ -400,8 +420,17 @@ class InferenceNode(Node):
             "depth_bad_encoding": 0,
             "depth_bad_shape": 0,
             "depth_repeat_content": 0,
+            # Z16 frames decoded, and over the full-resolution ones the policy
+            # cells scored and those whose block was majority-invalid (forced
+            # to the far clamp by the validity mask).
+            "depth_z16_rx": 0,
+            "depth_z16_cells": 0,
+            "depth_z16_cells_majority_invalid": 0,
             "timer_deadline_missed": 0,
         }
+        # Z16 cell counts at the previous cadence line, so the logged share
+        # describes the window just logged. Read and written by the tick only.
+        self._z16_cells_logged = (0, 0)
         self._stale_counts: dict[str, int] = {}
         # Sim-time bookkeeping for the achieved-rate figure and the
         # missed-timer-deadline count.
@@ -798,35 +827,61 @@ class InferenceNode(Node):
         self._last_odom_rx_t = time.monotonic()
 
     def _on_depth(self, msg: Image) -> None:
-        if msg.encoding != "32FC1":
-            self._counts["depth_bad_encoding"] += 1
-            self.get_logger().warning(
-                f"Dropping depth frame with encoding={msg.encoding!r}; "
-                "expected 32FC1"
-            )
-            return
-        arr = np.frombuffer(msg.data, dtype=np.float32)
+        # Encoding is detected per frame: 16UC1/mono16 from realsense2_camera,
+        # 32FC1 from the Isaac bridge.
         try:
-            arr = arr.reshape(msg.height, msg.width)
-        except ValueError:
+            arr, valid = decode_depth_image(
+                encoding=msg.encoding,
+                data=msg.data,
+                height=msg.height,
+                width=msg.width,
+                step=msg.step,
+                is_bigendian=bool(msg.is_bigendian),
+            )
+        except DepthDecodeError as exc:
+            self._counts[
+                "depth_bad_encoding"
+                if exc.reason == "encoding"
+                else "depth_bad_shape"
+            ] += 1
+            self.get_logger().warning(str(exc))
+            return
+        # Dropped here, not cached: downsample_depth raises on any other
+        # shape, and that raise on the tick would reach the executor. The
+        # driver serves its default profile when the pinned one is rejected.
+        if arr.shape != (PERCEPTION_HEIGHT, PERCEPTION_WIDTH):
             self._counts["depth_bad_shape"] += 1
             self.get_logger().warning(
-                f"Depth frame data length {arr.size} does not match "
-                f"{msg.height}x{msg.width}"
+                f"Dropping {msg.encoding} depth frame at "
+                f"{arr.shape[1]}x{arr.shape[0]}; the policy needs "
+                f"{PERCEPTION_WIDTH}x{PERCEPTION_HEIGHT}",
+                throttle_duration_sec=5.0,
             )
             return
+        # Scored here on the depth thread, not the tick.
+        z16_cells = z16_majority_invalid = 0
+        if valid is not None:
+            z16_cells = DEPTH_HEIGHT * DEPTH_WIDTH
+            z16_majority_invalid = count_majority_invalid_cells(valid)
         rx_t = time.monotonic()
         stamp_s = msg.header.stamp.sec + msg.header.stamp.nanosec * 1e-9
-        # Publish the frame as one atomic (array, stamp, rx_t, seq) update so the
+        # Publish the frame as one atomic (array, mask, stamp, rx_t, seq) update so the
         # concurrent tick never pairs a bumped seq with the previous array.
         # Validation/decode above stays outside the lock — only the tuple
         # write is contended.
         with self._depth_lock:
             self._last_depth_meters = arr
+            self._last_depth_valid = valid
             self._last_depth_stamp_s = stamp_s
             self._last_depth_rx_t = rx_t
             self._depth_seq += 1
             self._counts["depth_rx"] += 1
+            if valid is not None:
+                self._counts["depth_z16_rx"] += 1
+                self._counts["depth_z16_cells"] += z16_cells
+                self._counts[
+                    "depth_z16_cells_majority_invalid"
+                ] += z16_majority_invalid
         # rclpy re-triggers a guard condition signalled but not handled, so a
         # wake landing mid-inference is not lost.
         if self._depth_wake is not None:
@@ -1004,19 +1059,21 @@ class InferenceNode(Node):
             self._counts["ticks_depth"] += 1
         self._maybe_log_cadence()
 
-        # Consistent snapshot of the depth tuple (array, stamp, rx_t, seq) under the
-        # lock: _on_depth may replace all four concurrently from its own
+        # Consistent snapshot of the depth tuple (array, mask, stamp, rx_t, seq) under the
+        # lock: _on_depth may replace all five concurrently from its own
         # callback group. The rest of the tick reads only these locals plus
         # the tick-owned _last_inferred_depth_seq, so the frame the watchdog,
         # the freshness test, and obs assembly all see is one coherent frame.
         if self._has_depth:
             with self._depth_lock:
                 self._tick_depth_meters = self._last_depth_meters
+                self._tick_depth_valid = self._last_depth_valid
                 depth_stamp_s = self._last_depth_stamp_s
                 depth_rx_t = self._last_depth_rx_t
                 depth_seq = self._depth_seq
         else:
             self._tick_depth_meters = None
+            self._tick_depth_valid = None
             depth_stamp_s = None
             depth_rx_t = None
             depth_seq = self._depth_seq  # 0; unread for a camera-free variant
@@ -1219,6 +1276,25 @@ class InferenceNode(Node):
             f"n={ages.size}"
         )
 
+    def _z16_window_share(self) -> str:
+        """Share of Z16 policy cells forced to the far clamp by the validity
+        mask since the previous cadence line. Appended last on that line so
+        existing readers of it are undisturbed."""
+        # Both bumped together under the depth lock by _on_depth.
+        with self._depth_lock:
+            cells = self._counts["depth_z16_cells"]
+            invalid = self._counts["depth_z16_cells_majority_invalid"]
+        prev_cells, prev_invalid = self._z16_cells_logged
+        self._z16_cells_logged = (cells, invalid)
+        window = cells - prev_cells
+        if window <= 0:
+            return "n/a"
+        frames = window // (DEPTH_HEIGHT * DEPTH_WIDTH)
+        return (
+            f"{100.0 * (invalid - prev_invalid) / window:.1f}% over "
+            f"{frames} frames"
+        )
+
     def _maybe_log_cadence(self) -> None:
         if self._cadence_log_period_s <= 0.0:
             return
@@ -1261,7 +1337,9 @@ class InferenceNode(Node):
             f"bad_shape={c['depth_bad_shape']} | "
             f"depth_age {self._depth_age_summary()} | "
             f"timer_deadline_missed={c['timer_deadline_missed']} | "
-            f"stale_sources[{stale}]"
+            f"stale_sources[{stale}] | "
+            f"z16 frames={c['depth_z16_rx']} "
+            f"majority_invalid_cells={self._z16_window_share()}"
         )
 
         if span_sim >= 2.0 and target > 0.0 and rate < 0.9 * target:
@@ -1352,7 +1430,11 @@ class InferenceNode(Node):
         # The tick's coherent snapshot, not the live field a concurrent
         # _on_depth may be replacing.
         depth_flat_meters = (
-            downsample_depth(self._tick_depth_meters) if self._has_depth else None
+            downsample_depth(
+                self._tick_depth_meters, valid_mask=self._tick_depth_valid
+            )
+            if self._has_depth
+            else None
         )
         if depth_flat_meters is not None and self._tick_depth_fresh:
             self._note_depth_content(depth_flat_meters)

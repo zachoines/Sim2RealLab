@@ -41,9 +41,115 @@ assert PERCEPTION_WIDTH == _BLOCK_W * DEPTH_WIDTH, (
 )
 
 
+# Encodings the inference node decodes on its depth subscription. Z16 is what
+# realsense2_camera publishes (uint16 millimetres, 0 = no return); 32FC1 is the
+# Isaac bridge's (float32 metres, +inf = no return).
+DEPTH_ENCODINGS_Z16 = frozenset({"16UC1", "mono16"})
+DEPTH_ENCODING_F32 = "32FC1"
+Z16_METRES_PER_UNIT = 0.001
+
+# Invalid pixels in a block at or above this count put the block median on the
+# far clamp (they are max_depth after the validity rescue, and they hold both
+# middle ranks of the 64). Exactly half is not enough: the even-count median
+# then averages the largest valid value with max_depth.
+MAJORITY_INVALID_MIN = _BLOCK_H * _BLOCK_W // 2 + 1  # 33
+
+
+class DepthDecodeError(ValueError):
+    """A depth frame the node cannot use. ``reason`` is ``"encoding"`` or
+    ``"shape"``, naming the counter the node charges it to."""
+
+    def __init__(self, reason: str, message: str) -> None:
+        super().__init__(message)
+        self.reason = reason
+
+
+def _unpack_rows(
+    data, *, height: int, width: int, step: int, dtype: np.dtype
+) -> np.ndarray:
+    """Bytes of a ``sensor_msgs/Image`` → ``(height, width)`` array of ``dtype``.
+
+    Packed rows (``len(data) == height * width * itemsize``) are accepted
+    whatever ``step`` says, as the 32FC1 path always has; padded rows are
+    accepted when ``len(data) == height * step``.
+    """
+    if len(data) == 0:
+        raise DepthDecodeError("shape", f"Empty depth frame ({height}x{width})")
+    buf = np.frombuffer(data, dtype=np.uint8)
+    row_bytes = width * dtype.itemsize
+    if buf.size == height * row_bytes:
+        return np.frombuffer(data, dtype=dtype).reshape(height, width)
+    if step > row_bytes and buf.size == height * step:
+        rows = buf.reshape(height, step)[:, :row_bytes]
+        return np.ascontiguousarray(rows).view(dtype).reshape(height, width)
+    raise DepthDecodeError(
+        "shape",
+        f"Depth frame data length {buf.size} B does not match "
+        f"{height}x{width} at {dtype.itemsize} B/px (step={step})",
+    )
+
+
+def decode_depth_image(
+    *,
+    encoding: str,
+    data,
+    height: int,
+    width: int,
+    step: int = 0,
+    is_bigendian: bool = False,
+) -> tuple[np.ndarray, np.ndarray | None]:
+    """Decode a depth ``sensor_msgs/Image`` by its declared encoding.
+
+    Returns ``(depth_meters, valid_mask)``:
+
+    - ``16UC1`` / ``mono16`` (Z16): uint16 millimetres → float32 metres, with
+      ``valid_mask = raw != 0``. Z16 marks "no return" with 0, which is finite
+      and would otherwise pass :func:`downsample_depth`'s non-finite rescue
+      and turn into the nearfield fill, the opposite of training's meaning.
+    - ``32FC1``: float32 metres, ``valid_mask = None``. The sim path, unchanged:
+      its invalids are +inf/NaN, which the non-finite rescue already handles.
+
+    Raises :class:`DepthDecodeError` for any other encoding or a buffer whose
+    length fits neither packed nor ``step``-padded rows.
+    """
+    order = ">" if is_bigendian else "<"
+    if encoding in DEPTH_ENCODINGS_Z16:
+        raw = _unpack_rows(
+            data, height=height, width=width, step=step,
+            dtype=np.dtype(order + "u2"),
+        )
+        valid = raw != 0
+        meters = raw.astype(np.float32) * np.float32(Z16_METRES_PER_UNIT)
+        return meters, valid
+    if encoding == DEPTH_ENCODING_F32:
+        meters = _unpack_rows(
+            data, height=height, width=width, step=step,
+            dtype=np.dtype(order + "f4"),
+        )
+        if meters.dtype != np.float32:  # big-endian on a little-endian host
+            meters = meters.astype(np.float32)
+        return meters, None
+    raise DepthDecodeError(
+        "encoding",
+        f"Dropping depth frame with encoding={encoding!r}; expected "
+        f"{DEPTH_ENCODING_F32} or one of {sorted(DEPTH_ENCODINGS_Z16)}",
+    )
+
+
+def count_majority_invalid_cells(valid_mask: np.ndarray) -> int:
+    """Policy cells whose 8×8 block is majority-invalid, i.e. the cells the
+    validity mask forces to the far clamp."""
+    invalid = ~np.asarray(valid_mask, dtype=bool)
+    per_block = invalid.reshape(
+        DEPTH_HEIGHT, _BLOCK_H, DEPTH_WIDTH, _BLOCK_W
+    ).sum(axis=(1, 3))
+    return int(np.count_nonzero(per_block >= MAJORITY_INVALID_MIN))
+
+
 def downsample_depth(
     depth_meters: np.ndarray,
     *,
+    valid_mask: np.ndarray | None = None,
     max_depth: float = DEPTH_MAX,
     nearfield_clip: float = DEPTH_MIN,
     nearfield_fill: float = DEPTH_NEARFIELD_FILL,
@@ -63,6 +169,17 @@ def downsample_depth(
     Not a stride, either: the policy pixel's centre maps to the corner
     BETWEEN source pixels ``8c+3`` and ``8c+4``, so no single source pixel
     sits on the training ray and the two that bracket it disagree.
+
+    ``valid_mask`` (bool, same shape) is the explicit validity of each source
+    pixel; the Z16 decode supplies ``raw != 0``. Invalid pixels take
+    ``max_depth`` BEFORE the median, the training observation term's convention
+    (``mdp/observations.py:depth_image`` rescues non-finite depth to
+    ``max_depth`` ahead of the same reduction, then fills the nearfield after
+    it). So a majority-invalid block (>= 33 of 64) reads ``max_depth``, an
+    exactly-half block takes numpy's even-count median exactly as training
+    would, and a genuine sub-``nearfield_clip`` return still takes
+    ``nearfield_fill``. ``None`` is the 32FC1 path, byte-identical to before
+    the mask existed: non-finite alone marks invalid.
     """
     depth = np.asarray(depth_meters, dtype=np.float32)
     if depth.shape != (PERCEPTION_HEIGHT, PERCEPTION_WIDTH):
@@ -71,9 +188,21 @@ def downsample_depth(
             f"{PERCEPTION_WIDTH}); got {depth.shape}"
         )
 
-    # +inf (frustum cull) and NaN (D555) must read as out-of-range before
-    # the reduction rather than poisoning it.
-    depth = np.where(np.isfinite(depth), depth, np.float32(max_depth))
+    # +inf (frustum cull) and NaN must read as out-of-range before the
+    # reduction rather than poisoning it; so must any pixel the mask marks
+    # invalid (Z16's finite 0).
+    if valid_mask is None:
+        depth = np.where(np.isfinite(depth), depth, np.float32(max_depth))
+    else:
+        valid = np.asarray(valid_mask, dtype=bool)
+        if valid.shape != depth.shape:
+            raise ValueError(
+                f"valid_mask shape {valid.shape} does not match depth "
+                f"shape {depth.shape}"
+            )
+        depth = np.where(
+            valid & np.isfinite(depth), depth, np.float32(max_depth)
+        )
     depth = np.median(
         depth.reshape(DEPTH_HEIGHT, _BLOCK_H, DEPTH_WIDTH, _BLOCK_W),
         axis=(1, 3),

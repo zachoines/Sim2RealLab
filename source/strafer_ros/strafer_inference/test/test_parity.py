@@ -495,6 +495,55 @@ class TestReassembly:
         # constant 3 m depth -> DEPTH_SCALE (1/DEPTH_MAX) applied once downstream.
         np.testing.assert_allclose(obs[dstart:dstop], 3.0 / DEPTH_MAX, atol=1e-6)
 
+    @staticmethod
+    def _reassemble_depth(depth, mask):
+        return P.reassemble_obs_from_extracted(
+            PolicyVariant.DEPTH_SUBGOAL,
+            imu_accel=(0.0, 0.0, 0.0),
+            imu_gyro=(0.0, 0.0, 0.0),
+            joint_names=list(WHEEL_JOINT_NAMES),
+            joint_velocities=[0.0, 0.0, 0.0, 0.0],
+            body_velocity_xy=(0.0, 0.0),
+            last_action=np.zeros(3, np.float32),
+            referent_map_xy=(1.0, 0.0),
+            base_in_map_xy=(0.0, 0.0),
+            base_in_map_quat=(0.0, 0.0, 0.0, 1.0),
+            depth_meters=depth,
+            depth_valid_mask=mask,
+        )
+
+    def test_z16_mask_reads_an_invalid_block_as_depth_max(self):
+        """A decoded Z16 frame's mask must reach the reduction: an all-zero
+        block is DEPTH_MAX (1.0 normalized), where the unmasked zeros would
+        take the nearfield fill."""
+        from strafer_inference.obs_pipeline import decode_depth_image
+        from strafer_shared.constants import (
+            DEPTH_MAX,
+            DEPTH_NEARFIELD_FILL,
+            DEPTH_SCALE,
+        )
+
+        raw = np.full((PERCEPTION_HEIGHT, PERCEPTION_WIDTH), 2500, np.uint16)
+        raw[0:8, 0:8] = 0
+        depth, mask = decode_depth_image(
+            encoding="16UC1",
+            data=raw.astype("<u2").tobytes(),
+            height=PERCEPTION_HEIGHT,
+            width=PERCEPTION_WIDTH,
+        )
+        assert mask is not None
+        _, (dstart, dstop) = P.split_indices(PolicyVariant.DEPTH_SUBGOAL)
+
+        masked = self._reassemble_depth(depth, mask)[dstart:dstop]
+        assert masked[0] == pytest.approx(DEPTH_MAX * DEPTH_SCALE, abs=1e-6)
+        assert masked[0] == pytest.approx(1.0, abs=1e-6)
+        np.testing.assert_allclose(masked[1:], 2.5 * DEPTH_SCALE, atol=1e-6)
+
+        unmasked = self._reassemble_depth(depth, None)[dstart:dstop]
+        assert unmasked[0] == pytest.approx(
+            DEPTH_NEARFIELD_FILL * DEPTH_SCALE, abs=1e-6
+        )
+
 
 class TestResidualFloorSuppressesTheStructureVerdict:
     """Both scores are ratios to the overall mean, so they rise as the

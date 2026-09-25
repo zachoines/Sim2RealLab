@@ -5,10 +5,10 @@
 **Priority:** P3 — completes the 2×2 deployment matrix on the runtime side; pairs with [`depth-subgoal-env`](../../active/trained-policy/depth-subgoal-env.md) which produces the trained checkpoint. Not blocking any current mission shape.
 **Estimate:** S–M (1–2 days, the size depending on which implementation approach the picking-up agent chooses — see "Architecture choice" below)
 **Branch:** task/depth-subgoal-hybrid-runtime
-**Status:** In-flight (un-parked). Runtime is variant-agnostic (verified); this PR **consumes** `PolicyVariant.DEPTH_SUBGOAL` (shipped in #138) and adds the full combo test cell, the sim depth-timeout override, and the deploy depth-scale fix. Stays **active** for the live acceptance (load the converged `DEPTH_SUBGOAL` artifact + a hybrid sim mission), gated on the checkpoint (`depth-subgoal-env` Phase 5) + the rig.
+**Status:** In-flight (un-parked). Runtime is variant-agnostic (verified); this PR **consumes** `PolicyVariant.DEPTH_SUBGOAL` (shipped in #138) and adds the full combo test cell, the sim depth-timeout override, and the deploy depth-scale fix. Stays **active** for the live acceptance (load the converged `DEPTH_SUBGOAL` artifact + a hybrid sim mission), gated on the checkpoint (`depth-subgoal-env` Phase 5) + the rig. Both halves of that live sim acceptance are now met — runtime on 2026-08-17 (v2), behaviour on 2026-09-25 (v3; see the dated notes below). What keeps the brief active is the unticked cross-format recurrent-contract item and the `depth-subgoal-sim-validation` follow-up, not yet filed.
 
-> **The runtime half of the live acceptance is discharged; the behavioural half
-> is not.** Measured 2026-08-17 on the rebuilt deploy stack over the direct
+> **2026-08-17: the runtime half of the live acceptance is discharged; the
+> behavioural half is not** (it is, on 2026-09-25 — see the last note below). Measured 2026-08-17 on the rebuilt deploy stack over the direct
 > DGX↔robot cable — full record in
 > [`measurements/goal-a-rig-gate-2026-08-17`](../../../measurements/goal-a-rig-gate-2026-08-17/README.md).
 >
@@ -22,7 +22,7 @@
 > deadlines, `obs_none`, `gate`, `bad_encoding` or `bad_shape`.
 > This closes the "live artifact-load confirmation" left open at `:126`.
 >
-> **Behaviour, not confirmed:** six hybrid missions reached **0 of 6** goals
+> **Behaviour, not confirmed (2026-08-17, v2):** six hybrid missions reached **0 of 6** goals
 > against a 0.30 m tolerance, closest approach 1.79 m, every mission aborted at
 > the 60 s `mission_timeout_s`. Net advance was positive in five of six, so the
 > shape is under-advance rather than no motion. Transport, cadence, chassis
@@ -38,7 +38,8 @@
 > Two runtime defects the run surfaced, both filed and neither blocking this
 > brief: [`subgoal-generator-sim-clock-freshness`](../../completed/subgoal-generator-sim-clock-freshness.md)
 > and [`cadence-report-window-never-resets`](../reliability/cadence-report-window-never-resets.md).
-> Both still stand and both are now measured non-causal for the 0 of 6.
+> Both were measured non-causal for the 0 of 6. The freshness defect has since
+> been fixed (#229); the cadence-window defect still stands.
 >
 > **Attributed 2026-08-22 — the runtime is exonerated and the behavioural half
 > is blocked on a training-side fix.** Record:
@@ -51,6 +52,14 @@
 > Observation *content* settles against the **training** convention, not the
 > node: depth moves the command 95.8° where every other field is inert within
 > 0.570°. The live acceptance stays open, now gated on that fix plus a retrain.
+>
+> **Behaviour confirmed on the sim-bridge lane, 2026-09-25.** The fix landed (#219)
+> and the retrained artifact `strafer_depth_subgoal_v3_999` ran the same protocol:
+> **4 of 6** missions reached the 0.30 m tolerance (pre-registered pass: ≥ 4 of 6) and
+> the 2026-08-19 fixed goal was reached **3 of 3**, while v2 in the same session
+> reached 0 of 2. Record:
+> [`measurements/goal-a-rig-gate-v3-2026-09-25`](../../../measurements/goal-a-rig-gate-v3-2026-09-25/README.md).
+> Nothing here is a real-robot result.
 
 ## Un-park trigger
 
@@ -168,7 +177,7 @@ Sim-validation of the trained checkpoint lives in `depth-subgoal-sim-validation.
 
 ### Integration
 
-- [x] `JetsonRosClient.navigate_to_pose` dispatch with `STRAFER_NAV_BACKEND=hybrid_nav2_strafer` + a loaded DEPTH_SUBGOAL artifact routes correctly — no new dispatch logic; the bringup auto-launch gates on the backend, not the variant (`test_depth_subgoal_env_flows_to_launch_arg`), so DEPTH_SUBGOAL auto-launches inference + the subgoal generator exactly as NOCAM_SUBGOAL. Live artifact-load confirmation stays open (checkpoint pending).
+- [x] `JetsonRosClient.navigate_to_pose` dispatch with `STRAFER_NAV_BACKEND=hybrid_nav2_strafer` + a loaded DEPTH_SUBGOAL artifact routes correctly — no new dispatch logic; the bringup auto-launch gates on the backend, not the variant (`test_depth_subgoal_env_flows_to_launch_arg`), so DEPTH_SUBGOAL auto-launches inference + the subgoal generator exactly as NOCAM_SUBGOAL. Live artifact-load confirmed on the rig: v2 on 2026-08-17, v3 on 2026-09-25.
 
 ### Deploy depth-scale correction (cross-lane flag from #138)
 
@@ -189,7 +198,7 @@ Sim-validation of the trained checkpoint lives in `depth-subgoal-sim-validation.
 ## Out of scope
 
 - **The training environment + checkpoint.** That's [`depth-subgoal-env`](../../active/trained-policy/depth-subgoal-env.md). This brief is runtime-only; it loads what that brief produces.
-- **Sim validation against the trained checkpoint (the live acceptance, still OPEN on this brief).** Loading the converged `DEPTH_SUBGOAL` artifact + running a hybrid sim mission is goal-c's validation step; it waits on the checkpoint ([`depth-subgoal-env`](../../active/trained-policy/depth-subgoal-env.md) training) + the rig, so this brief stays **active** at merge. The dedicated `depth-subgoal-sim-validation.md` is filed once the checkpoint lands (same precedent as [`inference-package`](../../completed/inference-package.md) → [`strafer-direct-sim-validation`](strafer-direct-sim-validation.md) and [`hybrid-mode`](../../completed/hybrid-mode.md) → [`strafer-hybrid-sim-validation`](../../completed/trained-policy/strafer-hybrid-sim-validation.md)). It carries the DEPTH_SUBGOAL-specific parity bounds (19 NOCAM dims ≤ 1e-5 + 4800 depth dims ≤ 1e-3 + subgoal-pose pick ≤ MAP_RESOLUTION × 2), the 7-source watchdog acceptance, and the dynamic-obstacle test that's intentionally out of scope for NOCAM_SUBGOAL.
+- **Sim validation against the trained checkpoint (the live acceptance; met on the sim-bridge lane 2026-09-25 by [`goal-a-rig-gate-v3-2026-09-25`](../../../measurements/goal-a-rig-gate-v3-2026-09-25/README.md)).** Loading the converged `DEPTH_SUBGOAL` artifact + running a hybrid sim mission is goal-c's validation step; it waits on the checkpoint ([`depth-subgoal-env`](../../active/trained-policy/depth-subgoal-env.md) training) + the rig, so this brief stays **active** at merge. The dedicated `depth-subgoal-sim-validation.md` is filed once the checkpoint lands (same precedent as [`inference-package`](../../completed/inference-package.md) → [`strafer-direct-sim-validation`](strafer-direct-sim-validation.md) and [`hybrid-mode`](../../completed/hybrid-mode.md) → [`strafer-hybrid-sim-validation`](../../completed/trained-policy/strafer-hybrid-sim-validation.md)). It carries the DEPTH_SUBGOAL-specific parity bounds (19 NOCAM dims ≤ 1e-5 + 4800 depth dims ≤ 1e-3 + subgoal-pose pick ≤ MAP_RESOLUTION × 2), the 7-source watchdog acceptance, and the dynamic-obstacle test that's intentionally out of scope for NOCAM_SUBGOAL.
 - **Cross-format recurrent-contract parametrization over `DEPTH_SUBGOAL`.** Follow-up (one-liner): parametrize `test_recurrent_contract_e2e.py` (strafer_lab — out of this brief's touch scope) over `DEPTH_SUBGOAL` once the converged `.pt`/`.onnx` exports exist. Tracked on [`depth-subgoal-env`](../../active/trained-policy/depth-subgoal-env.md)'s Phase 2 (which owns that test surface and produces the artifact); the reset-trigger contract itself is variant-independent and already covered here.
 - **Real-robot re-check of the corrected deploy depth scale.** The double-scale fix changes the deployed DEPTH-family input distribution (now the correct sim-matching value). No real DEPTH checkpoint has been deployed to a robot yet, so nothing was locked into the wrong distribution — but the first real-robot DEPTH / DEPTH_SUBGOAL run must confirm depth reaches the network at the sim value (the sim-validation follow-up's 4800-dim ≤ 1e-3 parity bound covers this in sim).
 - **Real-robot DEPTH_SUBGOAL validation.** Files later, gated on the sim-validation follow-up passing. The GPU execution providers this run needs are installed + measured by [`ort-gpu-jetson`](../../completed/ort-gpu-jetson.md) (TRT runs the whole DEPTH_SUBGOAL graph at ~4.7 ms in the node's `load_policy` path); the **real-robot obs→cmd_vel 33 ms verification stays open** and rides on this real-robot run.

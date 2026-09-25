@@ -47,14 +47,22 @@ in the tick that makes the decision, adding concurrency to state machines that
 are currently single-threaded and easy to reason about. "Use timers" and "use the
 node clock" are different changes; only the second is clearly right here.
 
-**Some wall-clock uses are deliberate and must not move.** The generator's
-plan-freshness window (`path_timeout_s`, `time.monotonic`) guards against a dead
-planner — a wall-clock event that must fire even if `/clock` stops entirely.
-Converting it to sim time would mean a stalled bridge never trips the staleness
-guard, which is the opposite of what it is for. The same reasoning covers the
-replan cadence, which already runs on a `STEADY_TIME` clock with a comment
-explaining why. **Audit output must classify each site as sim-time or
-wall-clock and justify wall-clock ones**, not convert uniformly.
+**Some wall-clock uses are deliberate and must not move.** In the generator
+these are the goal-telemetry window (`goal_telemetry_timeout_s`: the inference
+node's keep-alive is 1 Hz wall), the in-flight replan abandon
+(`_REPLAN_ABANDON_S`: it times the planner process) and the status-log cadence.
+Each times a wall-clock producer or a human-facing interval.
+[`subgoal-generator-sim-clock-freshness`](../../completed/subgoal-generator-sim-clock-freshness.md)
+(`912eea7`) moved the plan-freshness window and the replan cadence **off** wall
+time and onto the node clock. This reverses the earlier guidance here, which kept
+both on wall time so that a stalled `/clock` would trip the staleness guard.
+The plan window now runs on the clock the replans that refresh it are timed on,
+so `replan_period_s` < `path_timeout_s` holds at every RTF. A stalled `/clock` also
+stops the generator's node-clock tick, so the subgoal stream stops anyway, and
+a planner that dies while `/clock` runs still ages the plan out in sim seconds.
+Treat those two sites as already converted. **Audit output must classify each
+site as sim-time or wall-clock and justify wall-clock ones**, not convert
+uniformly.
 
 ## Acceptance
 
@@ -73,7 +81,8 @@ wall-clock and justify wall-clock ones**, not convert uniformly.
 ## Out of scope
 
 - Changing any timeout's *value*.
-- The wall-clock plan-freshness and replan-cadence budgets described above.
+- The generator's wall-clock goal-telemetry, replan-abandon and status-log
+  windows described above.
 - Multi-threaded executor work; this brief must not change concurrency.
 
 ## Triggered by

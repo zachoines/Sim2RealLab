@@ -384,7 +384,7 @@ poses directly. Isolating it needs one NL mission captured with
    admissions still occurred — that field is a **cumulative counter**, and it
    reached **43** by session end, **18** of them inside the six scored windows
    (14 of those in M4). Filed as
-   [`subgoal-generator-sim-clock-freshness`](../../tasks/active/reliability/subgoal-generator-sim-clock-freshness.md).
+   [`subgoal-generator-sim-clock-freshness`](../../tasks/completed/subgoal-generator-sim-clock-freshness.md).
 2. **Start pose varied; only start heading was fixed.** Nav2 cannot reposition
    from a just-parked pose in this scene — `controller_server` reports
    `Resulting plan has 0 poses in it` and the goal fails, once after 202 s wall

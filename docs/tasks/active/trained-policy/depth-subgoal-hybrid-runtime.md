@@ -36,7 +36,7 @@
 > is consistency, not capability.
 >
 > Two runtime defects the run surfaced, both filed and neither blocking this
-> brief: [`subgoal-generator-sim-clock-freshness`](../reliability/subgoal-generator-sim-clock-freshness.md)
+> brief: [`subgoal-generator-sim-clock-freshness`](../../completed/subgoal-generator-sim-clock-freshness.md)
 > and [`cadence-report-window-never-resets`](../reliability/cadence-report-window-never-resets.md).
 > Both still stand and both are now measured non-causal for the 0 of 6.
 >

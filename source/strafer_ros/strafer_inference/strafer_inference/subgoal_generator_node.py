@@ -6,7 +6,7 @@ anchors the path from the action result (``/plan`` is a fallback input).
 Each tick it looks up the ``map -> base_link`` TF, runs the pure
 :class:`RollingSubgoalGenerator`, and publishes the rolling subgoal.
 
-Four non-obvious contracts:
+Five non-obvious contracts:
 
 - Anchoring. One path is anchored per goal and a monotonic cursor
   advances along it, matching the training command term. Every
@@ -32,6 +32,12 @@ Four non-obvious contracts:
   ``_last_plan_rx_t`` is plan liveness, refreshed by any valid plan for
   the active goal whether or not it is admitted, so a refusing planner
   still starves these guards.
+- Clocks. Each window runs on the clock of what it times. The costmap
+  and plan windows, the replan cadence and ``anchor_age`` use the node
+  clock (sim time under ``use_sim_time``): the costmap publishes and the
+  plan is requested at sim rate. Goal telemetry and the in-flight abandon
+  time wall-clock producers (the inference node's keep-alive, the planner
+  process) and stay on ``time.monotonic``, as does the status-log cadence.
 
 ROS glue only -- selection math is in :mod:`strafer_inference.generator`.
 """
@@ -50,7 +56,6 @@ from geometry_msgs.msg import PoseStamped
 from nav2_msgs.action import ComputePathToPose
 from nav_msgs.msg import OccupancyGrid, Path
 from rclpy.action import ActionClient
-from rclpy.clock import Clock, ClockType
 from rclpy.node import Node
 from rclpy.qos import (
     DurabilityPolicy,
@@ -69,7 +74,8 @@ from .generator import (
 )
 
 # An in-flight replan older than this is treated as lost: rclpy leaves
-# the future pending forever if the planner dies mid-request.
+# the future pending forever if the planner dies mid-request. Wall clock:
+# it times the planner process, not the robot.
 _REPLAN_ABANDON_S = 2.0
 
 # A /plan whose terminal pose is farther than this from the active goal
@@ -125,7 +131,7 @@ class SubgoalGeneratorNode(Node):
         self.declare_parameter("lookahead_m", SUBGOAL_LOOKAHEAD_M)
         # 0 (or negative) means "use the path as published" (no truncation).
         self.declare_parameter("max_path_points", 0)
-        # Generator half of the split stale-plan budget (wall-clock): stop
+        # Generator half of the split stale-plan budget (node clock): stop
         # publishing the subgoal once the plan ages past this, so a dead
         # planner reaches the inference watchdog rather than the policy
         # chasing it.
@@ -137,8 +143,8 @@ class SubgoalGeneratorNode(Node):
         self.declare_parameter(
             "active_goal_topic", "/strafer_inference/active_goal"
         )
-        # Telemetry keep-alive is ~1 Hz; 2.5 s tolerates one missed message
-        # plus publish jitter before replanning stops.
+        # Telemetry keep-alive is ~1 Hz wall; 2.5 s tolerates one missed
+        # message plus publish jitter before replanning stops.
         self.declare_parameter("goal_telemetry_timeout_s", 2.5)
         self.declare_parameter("planner_action", "/compute_path_to_pose")
         self.declare_parameter("planner_id", "GridBased")
@@ -277,8 +283,7 @@ class SubgoalGeneratorNode(Node):
         )
         # Both windows convert to TICKS: the tick timer runs on the node clock,
         # so a tick count is a sim-time budget at any RTF, and these budget the
-        # robot's motion. (The plan-freshness window above stays wall-clock —
-        # it guards a dead planner, which is a wall-clock event.)
+        # robot's motion.
         tick_period = float(self.get_parameter("update_period_s").value)
         self._hold_ticks_budget = (
             max(0, round(self._starvation_hold_s / tick_period))
@@ -334,14 +339,11 @@ class SubgoalGeneratorNode(Node):
         self._planner_client = ActionClient(
             self, ComputePathToPose, planner_action
         )
-        # Replan cadence on the steady (wall) clock, matching the
-        # wall-clock plan-freshness window (time.monotonic): a node-clock
-        # timer would run at sim rate and, at low RTF, fire far slower
-        # than the plan goes stale, starving the subgoal.
-        self._replan_clock = Clock(clock_type=ClockType.STEADY_TIME)
+        # Node clock, like the plan-freshness window it feeds: the
+        # replan_period_s < path_timeout_s budget only holds at every RTF
+        # when both are measured on one clock.
         self._replan_timer = self.create_timer(
-            self._replan_period_s, self._on_replan_tick,
-            clock=self._replan_clock,
+            self._replan_period_s, self._on_replan_tick
         )
 
         self._tf_buffer = tf2_ros.Buffer()
@@ -377,13 +379,35 @@ class SubgoalGeneratorNode(Node):
             )
         )
 
+    def _now_s(self) -> float:
+        """Node-clock seconds (sim time under ``use_sim_time``); 0 until
+        the first ``/clock``."""
+        return self.get_clock().now().nanoseconds * 1e-9
+
+    @staticmethod
+    def _age_s(stamp_s: Optional[float], now_s: float) -> Optional[float]:
+        """Node-clock age of a receipt stamp; None when it has no usable age.
+
+        None covers never-received and a clock that has jumped back past the
+        stamp (bridge restart, ``/clock`` reset). A pre-jump receipt says
+        nothing about the new timeline, so it reads stale until the source
+        re-stamps, never fresh for the length of the jump.
+        """
+        if stamp_s is None or now_s < stamp_s:
+            return None
+        return now_s - stamp_s
+
+    def _clock_unit(self) -> str:
+        """Seconds unit naming the clock the node-clock guards measure."""
+        return "s sim" if self.get_clock().ros_time_is_active else "s"
+
     def _note_plan_alive(self) -> None:
         """Bookkeeping every valid plan earns, admitted or not.
 
         Liveness and the starvation guards key off "a planner answered",
         never off "we installed it".
         """
-        self._last_plan_rx_t = time.monotonic()
+        self._last_plan_rx_t = self._now_s()
         self._planner_refusals = 0
         self._end_starvation_hold(rearm=True)
 
@@ -411,7 +435,7 @@ class SubgoalGeneratorNode(Node):
             initial_cursor, _ = arc_length_projection(path_xy, robot_xy)
 
         self._generator.set_path(path_xy, initial_cursor=initial_cursor)
-        self._anchor_installed_t = time.monotonic()
+        self._anchor_installed_t = self._now_s()
         self._last_cross_track_m = None
         # A fresh plan ends any starvation episode: clear the refusal streak,
         # record which goal this path serves, close and re-arm the hold window.
@@ -465,14 +489,12 @@ class SubgoalGeneratorNode(Node):
                 )
                 self._costmap_absent_logged = True
             return False
-        if (
-            self._costmap_rx_t is None
-            or time.monotonic() - self._costmap_rx_t > self._costmap_timeout_s
-        ):
+        costmap_age = self._age_s(self._costmap_rx_t, self._now_s())
+        if costmap_age is None or costmap_age > self._costmap_timeout_s:
             self.get_logger().warning(
                 "Costmap is older than "
-                f"{self._costmap_timeout_s:.1f} s; skipping the collision "
-                "admission rule.",
+                f"{self._costmap_timeout_s:.1f} {self._clock_unit()}; "
+                "skipping the collision admission rule.",
                 throttle_duration_sec=10.0,
             )
             return False
@@ -520,7 +542,7 @@ class SubgoalGeneratorNode(Node):
         if key == self._last_plan_key:
             # Already decided on; still proves the planner is alive.
             self._plans_republished += 1
-            self._last_plan_rx_t = time.monotonic()
+            self._last_plan_rx_t = self._now_s()
             return
         self._last_plan_key = key
         self._plans_seen += 1
@@ -573,6 +595,8 @@ class SubgoalGeneratorNode(Node):
         """Periodic anchoring summary."""
         if self._anchor_log_period_s <= 0.0:
             return
+        # Cadence is a human-facing interval, so wall; anchor_age is robot
+        # time, so node clock.
         now = time.monotonic()
         if now - self._last_anchor_log_t < self._anchor_log_period_s:
             return
@@ -580,10 +604,9 @@ class SubgoalGeneratorNode(Node):
         reasons = " ".join(
             f"{k}={v}" for k, v in sorted(self._admit_reasons.items())
         ) or "none"
-        anchor_age = (
-            f"{now - self._anchor_installed_t:.1f}s"
-            if self._anchor_installed_t is not None else "n/a"
-        )
+        age_s = self._age_s(self._anchor_installed_t, self._now_s())
+        clock = "(sim)" if self.get_clock().ros_time_is_active else ""
+        anchor_age = f"{age_s:.1f}s{clock}" if age_s is not None else "n/a"
         self.get_logger().info(
             f"anchor status: mode={'rolling' if self._rolling_anchoring else 'mission'} "
             f"plans_new={self._plans_seen} republished={self._plans_republished} "
@@ -611,7 +634,7 @@ class SubgoalGeneratorNode(Node):
             msg.info.height, msg.info.width
         )
         self._costmap_info = msg.info
-        self._costmap_rx_t = time.monotonic()
+        self._costmap_rx_t = self._now_s()
 
     def _on_plan(self, msg: Path) -> None:
         # Fallback input only — the primary path comes from the
@@ -911,13 +934,11 @@ class SubgoalGeneratorNode(Node):
         )
         return True
 
-    def _plan_fresh(self, now_monotonic_s: float) -> bool:
+    def _plan_fresh(self, now_s: float) -> bool:
         """True if a plan (action result or /plan) arrived within
-        ``path_timeout_s``."""
-        return (
-            self._last_plan_rx_t is not None
-            and now_monotonic_s - self._last_plan_rx_t <= self._path_timeout_s
-        )
+        ``path_timeout_s`` of node-clock time ``now_s``."""
+        age = self._age_s(self._last_plan_rx_t, now_s)
+        return age is not None and age <= self._path_timeout_s
 
     def _lookup_robot_xy(self) -> Optional[np.ndarray]:
         try:
@@ -964,7 +985,7 @@ class SubgoalGeneratorNode(Node):
         if not self._generator.has_path:
             return  # No plan yet -- do not publish a subgoal.
 
-        if not self._plan_fresh(time.monotonic()):
+        if not self._plan_fresh(self._now_s()):
             # The plan went stale (planner died / replanning stopped).
             # Suppress the subgoal so the inference node's subgoal watchdog
             # zero-twists, rather than rolling the cursor along a stale
@@ -973,7 +994,8 @@ class SubgoalGeneratorNode(Node):
             if not self._starvation_hold_publishes():
                 if not self._stale_plan_logged:
                     self.get_logger().warning(
-                        f"plan is stale (older than {self._path_timeout_s:.1f} s); "
+                        "plan is stale (older than "
+                        f"{self._path_timeout_s:.1f} {self._clock_unit()}); "
                         "suppressing rolling-subgoal output until a fresh plan arrives."
                     )
                     self._stale_plan_logged = True

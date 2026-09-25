@@ -8,12 +8,13 @@ strafer_subgoal_generator:
     # Replan ownership: while the inference node's active-goal telemetry
     # is fresh, request ComputePathToPose on this cadence. Must stay below
     # path_timeout_s (the plan-staleness suppression window) or the plan
-    # goes stale between replans.
+    # goes stale between replans; both run on the node clock (sim time
+    # under use_sim_time), so the rule holds at any RTF.
     replan_period_s: 0.5
     active_goal_topic: "/strafer_inference/active_goal"
-    # Telemetry keep-alive is ~1 Hz from the inference node; 2.5 s
-    # tolerates one missed message plus publish jitter before
-    # replanning stops.
+    # Telemetry keep-alive is ~1 Hz wall from the inference node; 2.5 s
+    # (wall, the producer's clock) tolerates one missed message plus
+    # publish jitter before replanning stops.
     goal_telemetry_timeout_s: 2.5
     planner_action: "/compute_path_to_pose"
     planner_id: "GridBased"
@@ -52,7 +53,8 @@ strafer_subgoal_generator:
 
     # Checks only the anchored path ahead of the cursor; abstains without a
     # costmap. costmap_lethal_cost is in OccupancyGrid units (99 inscribed,
-    # 100 lethal).
+    # 100 lethal). costmap_timeout_s is node-clock seconds, the clock the
+    # costmap publishes on.
     admission_collision_check: true
     costmap_topic: "/global_costmap/costmap"
     costmap_lethal_cost: 99
@@ -82,4 +84,6 @@ strafer_subgoal_generator:
     # global planner reaches the inference node's subgoal watchdog rather
     # than the policy chasing a stale path. Generator half of a split
     # budget (~1.0 s here + ~1.0 s in the watchdog before /cmd_vel zeros).
+    # Node-clock seconds; the watchdog half is wall, so the two only sum
+    # as written at RTF 1.
     path_timeout_s: 1.0

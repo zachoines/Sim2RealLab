@@ -137,6 +137,12 @@ camera can render a command marker.
       start heading within 0.6–2.2° of 130° on all nine v3 runs; no `map→odom` correction
       ≥ 0.30 m in the six scored windows, although R3 ran its whole window on a `map→odom`
       displaced 0.95 m / 76° by a step in the transit before it ([record](../../../measurements/goal-a-rig-gate-v3-2026-09-25/README.md)).
+      The record also carries the reaches' terminal behaviour and a stable-frame distance for
+      every run: in stable frames the six read three certain reaches plus G1 at the line, and the
+      fixed leg 2 of 3. Goal-a's "via the autonomy CLI" clause stays open until
+      [`executor-policy-nav-budget`](../reliability/executor-policy-nav-budget.md) lands and a
+      CLI-submitted confirmation set runs; this gate drove the node's action server directly, as
+      the 2026-08-17 set did.
 - [x] **Gate, second leg.** The 2026-08-19 addendum's fixed-goal leg is run as
       well: the one goal (−2.00, 2.25) from a fixed start pose and heading,
       repeated three times. The six-mission set measures coverage because each

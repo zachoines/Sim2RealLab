@@ -186,12 +186,15 @@ make submit-deploy CMD="go to the chair"
   `mission_timeout_s` = 60 s on the node clock (about 8 min wall at RTF ~0.13). A mission routed
   through the executor gets a tighter, distance-derived budget for its navigate step:
   2·d / `NAV_LINEAR_VEL` (0.784 m/s) + 5 s on the executor's node clock (sim time here), capped
-  at `STRAFER_NAVIGATION_TIMEOUT_S` (90 s), plus a stall watchdog. On 2026-09-25 the v3 artifact
+  at `STRAFER_NAVIGATION_TIMEOUT_S` (90 s). Only the Nav2 backend adds a progress (stall)
+  watchdog; the policy backends pass none. When the budget expires the executor cancels the
+  goal and reports `navigation_timeout`. On 2026-09-25 the v3 artifact
   (`strafer_depth_subgoal_v3_999`), driven directly on the policy's action server, reached the
   radius in 4 of 6 gate missions and 3 of 3 fixed-goal repeats; three of those reaches took
-  longer than that executor budget (G1: 19.0 s sim against ~12.9 s for 3.1 m), so the executor
-  path can report a timeout on a goal the policy goes on to reach. v2 reached 0 of 2 in the
-  same session and 0 of 6 on 2026-08-17
+  longer than that budget (G1: 19.0 s sim against ~12.9 s for 3.1 m), so through the executor
+  they would have been cancelled short of the goal
+  ([`executor-policy-nav-budget`](tasks/active/reliability/executor-policy-nav-budget.md)).
+  v2 reached 0 of 2 in the same session and 0 of 6 on 2026-08-17
   ([v3 record](measurements/goal-a-rig-gate-v3-2026-09-25/README.md),
   [2026-08-17 record](measurements/goal-a-rig-gate-2026-08-17/README.md)).
 - **If the robot parks within ~0.4 m of an obstacle** it lands in the costmap

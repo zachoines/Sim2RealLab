@@ -23,8 +23,8 @@ accepted against.
 | cadence contract | `publish 30.00 Hz sim`, `frame_skip=3 (derived, derived 3)`, bridge tick 120 Hz, script defaults (no cadence flags) |
 | SLAM key | `enrich_rigv3gate1` (fresh for this bridge launch) |
 | images | `strafer-cpu:humble` / `strafer-gpu:humble`, both `bd240ba2c2bf`, built clean at the merge of #229 |
-| candidate | `strafer_depth_subgoal_v3_999.onnx`, sha256 `c866bfd54ec1a8352159e33d7875d41e3f07a442ff8301ba3700867932e2eb91`, verified in the running container |
-| descriptive arm | `strafer_depth_subgoal_v2_998.onnx`, sha256 `855e1df7d0dac3be7229f933b59546b26f18959f97966b9e2f2f22e752bf5165`, swapped in-container and verified |
+| candidate | `strafer_depth_subgoal_v3_999.onnx`, sha256 `c866bfd54ec1a8352159e33d7875d41e3f07a442ff8301ba3700867932e2eb91`, verified in the running container before the first mission (`stage0/in_container_artifact_checks.txt`) |
+| descriptive arm | `strafer_depth_subgoal_v2_998.onnx`, sha256 `855e1df7d0dac3be7229f933b59546b26f18959f97966b9e2f2f22e752bf5165`, swapped in-container and verified there, then v3 restored and verified (same file) |
 | lane | `hybrid_nav2_strafer` + `DEPTH_SUBGOAL`, `anchoring=mission`, `depth_tick_semantics: timer_reuse`, `mission_timeout_s` 60 (node clock), tolerance 0.30 m (`GOAL_ARRIVAL_RADIUS_M`) |
 | subgoal generator | freshness windows on the node clock ([`subgoal-generator-sim-clock-freshness`](../../tasks/completed/subgoal-generator-sim-clock-freshness.md), #229): the collision admission rule was in force for the whole session |
 | transport | direct cable, 943/941 Mbit/s forward and 943/940 reverse with 0 retransmits (measured the same day); the Cyclone interface pin selected the cable in every running container, including the recreated v2 container; two RELIABLE depth subscribers (`strafer_inference`, `timestamp_fixer`) |
@@ -66,11 +66,12 @@ dry-run bridge launch with the same task and seed. The six are:
 | G1 | dead-ahead; its path wraps the block in front of the start |
 | R1 | a wrapping goal: its straight line crosses the block |
 | L1 | left, W region |
-| R2 | a furniture standoff: lethal cost 0.39 m from the goal |
+| R2 | chosen as the furniture-standoff goal: cost ≥ 99 lies 0.39 m from the goal cell |
 | L2 | left, SW region |
 | R3 | open floor, NE region |
 
-The split is one dead-ahead, two left and three right, over four regions. G1 is also the
+The split is one dead-ahead, two left and three right, over five region labels (NW, W, SW, N, NE;
+the thresholds file counts N/NE as one region). G1 is also the
 fixed goal. A read-only re-check on the scored map found all six plannable before the first
 mission.
 
@@ -83,7 +84,9 @@ mission.
 | v2 (descriptive) | 0 of 2 | — |
 
 Every reach agrees with its TF cross-check: the TF distance at the result was ≤ 0.30 m in each
-case. No run was unscored, and no mission was re-run.
+case. That agreement is expected rather than independent, because the runner reads the same
+`map→base_link` transform the node gates on; the independent read is the stable-frame column
+below. No run was unscored, and no mission was re-run.
 
 ## The six
 
@@ -115,16 +118,83 @@ The set-level reads are the pre-registration's own, reported although PASS does 
 On 2026-08-17, v2 closed at 0.026–0.083 m/s on the same protocol, and its closest approach
 over six missions was 1.79 m.
 
+### How the reaches were reached (descriptive)
+
+The reach the pre-registration defines is the node's: the action returns `SUCCEEDED` on the
+first `map→base_link` lookup at or inside 0.30 m. Training's own completion is a 10-step dwell
+inside 0.30 m at ≤ 0.1 m/s. The approach to every goal was good — median while-moving `v_par`
++0.253 m/s, against v2's 0.014–0.027 m/s the same day — but three of the four reaches in the six
+(G1, L1, L2) and the R2 miss were decided in the terminal centimetres. All figures below
+re-derive from the deposit (`reach_terminal.json`, `tools/reach_terminal.py`).
+
+| run | status | final (map) | 0.42 m → end, s sim | distance held (m) | mean cmd (m/s) | `vx` sign flips | chassis (m/s) | last 0.5 s before crossing: chassis / cmd (m/s) | dwell read | last-1 s corrections vs margin (m) |
+|---|---|---:|---:|---|---:|---:|---:|---|---|---|
+| G1 | SUCCEEDED | 0.300 | 13.9 | 0.301–0.410 | 0.226 | 34% | 0.028 | 0.016 / 0.017 | holds (≤ 0.300 m, ≤ 0.001 m/s) | +0.000 vs 0.000 |
+| R1 | SUCCEEDED | 0.290 | 2.3 | 0.304–0.415 | 0.108 | 0% | 0.063 | 0.046 / 0.098 | holds (≤ 0.289 m, ≤ 0.015 m/s) | -0.020 vs 0.010 |
+| L1 | SUCCEEDED | 0.299 | 7.0 | 0.304–0.420 | 0.223 | 27% | 0.032 | 0.060 / 0.430 | holds (≤ 0.299 m, ≤ 0.019 m/s) | +0.004 vs 0.001 |
+| L2 | SUCCEEDED | 0.300 | 7.8 | 0.303–0.412 | 0.092 | 23% | 0.028 | 0.048 / 0.259 | holds (≤ 0.295 m, ≤ 0.017 m/s) | +0.000 vs 0.000 |
+| R2 | ABORTED | 0.350 | 52.7 | 0.347–0.420 | 0.025 | 13% | 0.004 | — | — | — |
+| F1 | SUCCEEDED | 0.297 | 5.1 | 0.309–0.412 | 0.045 | 13% | 0.027 | 0.023 / 0.044 | holds (≤ 0.296 m, ≤ 0.015 m/s) | -0.011 vs 0.003 |
+| F2 | SUCCEEDED | 0.292 | 1.3 | 0.301–0.418 | 0.084 | 0% | 0.085 | 0.050 / 0.047 | holds (≤ 0.290 m, ≤ 0.006 m/s) | -0.008 vs 0.007 |
+| F3 | SUCCEEDED | 0.284 | 1.3 | 0.311–0.413 | 0.080 | 0% | 0.077 | 0.056 / 0.067 | holds (≤ 0.280 m, ≤ 0.025 m/s) | -0.024 vs 0.016 |
+
+- **G1, L1 and L2** spent 7.0–13.9 s sim between 0.42 m and the line, holding 0.30–0.42 m while
+  the policy commanded a mean 0.09–0.23 m/s with `vx` changing sign on 23–34 % of consecutive
+  commands and the chassis moving at ~0.03 m/s. Each crossed at the result, at 0.3000, 0.2989 and
+  0.3000 m.
+- **R1, F2 and F3** went through the same band in 1.3–2.3 s sim. **F1** held 0.31–0.41 m for
+  5.1 s sim at 0.027 m/s after its map step (below). **R2** held 0.347–0.420 m for 52.7 s sim,
+  commanding a mean 0.025 m/s.
+- **Dwell read.** After every `SUCCEEDED`, the samples over the next 10 policy ticks stay inside
+  0.30 m at ≤ 0.025 m/s. The node has stopped commanding by then (it publishes one zero twist at
+  the result), so this says each reach was declared with the robot already slow and inside; it
+  cannot say whether the policy would have held there.
+- **Last-second corrections against the margin.** The column gives the change in map-frame goal
+  distance caused by `map→odom` movement over the last 1.0 s sim, holding the final odom pose
+  fixed, against the margin by which the reach cleared 0.30 m. For R1, F1, F2 and F3 the
+  corrections brought the distance down by more than that margin (−0.0196 against 0.0102,
+  −0.0112 against 0.0030, −0.0081 against 0.0075, −0.0242 against 0.0156), with all four still closing; L1's
+  moved it away (+0.004 against 0.001); G1's and L2's were zero.
+
+**Final distance in stable frames.** Odom is ground truth in the sim bridge, so every `map→odom`
+change is SLAM error. The final odom pose is mapped into two frames no in-mission correction
+moves: the run's own start frame (`map→odom` at goal sent) and the session-median frame
+(component-wise median of the ride-along's `map→odom`: 0.093 m, −0.042 m, 2.59°).
+
+| run | status | map frame at the result | run's own start frame | session-median frame |
+|---|---|---:|---:|---:|
+| G1 | SUCCEEDED | 0.300 | 0.307 | 0.233 |
+| R1 | SUCCEEDED | 0.290 | 0.278 | 0.263 |
+| L1 | SUCCEEDED | 0.299 | 0.254 | 0.253 |
+| R2 | ABORTED | 0.350 | 0.354 | 0.349 |
+| L2 | SUCCEEDED | 0.300 | 0.178 | 0.263 |
+| R3 | ABORTED | 0.508 | 0.270 | 4.110 |
+| F1 | SUCCEEDED | 0.297 | 0.613 | 0.654 |
+| F2 | SUCCEEDED | 0.293 | 0.191 | 0.213 |
+| F3 | SUCCEEDED | 0.284 | 0.250 | 0.260 |
+| V2_G1 | ABORTED | 2.097 | 2.000 | 2.042 |
+| V2_L1 | ABORTED | 2.129 | 2.055 | 2.083 |
+
+In both stable frames R1, L1 and L2 end inside 0.30 m. G1 ends at 0.233 m in the session-median
+frame and 0.307 m in its own start frame — at the line. R2 is a miss in every frame. R3 is not
+comparable (below). In the fixed leg, F2 and F3 end inside in both frames; F1 ends 0.613 m and
+0.654 m away, a reach in the map frame only, because its 0.497 m / −17° step persisted to the
+result. So in stable frames the six read three certain reaches plus G1 at the line, and the fixed
+leg reads 2 of 3. The scored verdict is the map-frame one, by the pre-registration; this record
+states both.
+
 ### The two misses
 
 The record does not attribute either miss. What each run did:
 
-**R2, the furniture standoff.**
+**R2 — parked 5 cm short; cause not attributed.**
 - The robot was within 0.37 m of the goal 9.9 s sim into the mission.
 - From about 11 s sim to the end it held 0.347–0.360 m from the goal, commanding a mean
   0.020 m/s over the last 10 s sim.
-- The goal cell is free, and cost ≥ 99 lies 0.39 m from it. On the pre-mission costmap
-  snapshot, the nearest cell of cost ≥ 99 to the robot's final pose was 0.64 m away.
+- Nothing in the deposit ties the miss to the nearby furniture: the subgoal sat 0.038 m from
+  the goal throughout, the generator made no collision admission, and on the pre-mission costmap
+  snapshot the nearest cell of cost ≥ 99 to the robot's final pose was 0.64 m away (the goal cell
+  itself is 0.39 m from one).
 - The node aborted at 60.0 s sim.
 - `map→odom` corrections in the window were each ≤ 0.160 m; their net displacement over the
   60 s sim was 0.33 m.
@@ -144,9 +214,15 @@ The record does not attribute either miss. What each run did:
   planner refusal: `ComputePathToPose` status 6, after which the relaxed planner engaged. The
   subgoal went stale for 13 policy ticks there, and the inference node skipped them on its
   watchdog; no other scored window had more than one such skip.
+- **R3 was physically a different mission.** In odom, which is ground truth here, its start was
+  0.88 m and 81° off the nominal start, and its plans ran on a map rotated ~77° to the world;
+  in the session-median frame it ended 4.11 m from where its goal is.
 - None of the pre-registration's unscored causes applies: a start outside tolerance or inside
   the floor, a broken stack contract (depth stall, container restart, SLAM FATAL), or a
-  wall-guard cancel. It names no cause for a displaced SLAM estimate, so R3 is scored as run.
+  wall-guard cancel. It names no cause for a displaced SLAM estimate, so R3 is scored as run,
+  which is protocol-correct. The policy-attributable denominator of the six is therefore five
+  (G1, R1, L1, R2, L2), with one miss (R2) in it. A SLAM-health unscored cause belongs in the
+  next gate's pre-registration.
 
 ## Fixed-goal leg
 
@@ -164,8 +240,9 @@ goal, all three runs ending within 4 cm of each other.
 
 **F1's window carries the scored session's one in-window correction at or above the
 tolerance.** `map→odom` stepped **0.497 m and −17.35°** at 2.12 s into the 10.72 s sim mission.
-The corrections after it were 0.20 m or less, and none exceeded 0.022 m in the last 3 s sim
-before the result, so the jump did not deliver the reach.
+The step persisted to the result: in F1's own start frame its final distance is 0.613 m, and
+in the session-median frame 0.654 m. F1 is a reach in the map frame only (see the stable-frame
+table above).
 
 **F2's first transit settled 3.001° off the 130° heading**, outside the transit's own 2.5°
 target and just past the runner's enforced 3.0°, so the transit was repeated before any goal
@@ -174,8 +251,9 @@ was sent.
 ## The v2 descriptive arm
 
 v2 was swapped in after the fixed-goal leg: the host artifact key was changed, `inference` was
-recreated, and the sha was verified in the container. It ran on the same bridge, map and start
-handling. v3 was restored and verified afterwards.
+recreated, and the sha was verified in the container (`stage0/in_container_artifact_checks.txt`).
+It ran on the same bridge, map and start handling. v3 was restored and verified afterwards, in
+the same file.
 
 | run | goal | bearing | status | final | min | net advance | v_par | cross-track s/max/end |
 |---|---|---:|---|---:|---:|---:|---:|---|
@@ -231,6 +309,12 @@ the collision admission rule is in force for the whole interval rather than abou
     again from F2 onward, including both v2 runs.
   - Outcome does not order by regime: the 0% runs are G1, F2, F3 and the two v2 runs; the ~50%
     runs include three of the four reaches in the six, and both misses.
+  - The two misses carry the two highest table fractions (0.487, 0.483), but not because the
+    robot was parked. The repeat counter compares only frames an inference consumed, and per
+    inference the repeats were 0.500 in every ~50 % run, in parked and moving windows alike
+    (R2 0.500 in both; R3 0.501 in both). The table's `repeat_content / depth rx` reads lower for
+    shorter missions because `depth rx` also counts frames received at the window edges that no
+    inference consumed, and a full 60 s mission is diluted least.
   - The regime is render-side and is not set from the deploy stack.
 - **Collision admissions** inside the six windows: 8 (R1 2, R3 6). The v3 container's
   cumulative counter ended at 11; the other three fall outside mission windows.
@@ -250,8 +334,8 @@ per-window rows come from `tools/drift_windows.py`, whose p95 is the floor-index
 | v2 windows | 76 | 0.029 m | 0.011 m | 0 |
 | whole session | 534 | 0.953 m | 0.093 m | 4 |
 
-- In the last 1 s sim before every result, no correction exceeded 0.037 m, so no reach was
-  delivered by a map step.
+- The last-second corrections are set against each reach's margin, and F1's persistent step
+  against its stable-frame distance, in "How the reaches were reached".
 - Of the four session steps at or above 0.30 m, three fell in transits: 0.315 m before L2,
   0.953 m / −75.7° before R3, and 0.941 m / +77.5° before F1. The fourth is F1's.
 - Drift autocorrelation τ(1/e) is 63.5 s sim, and the net shift over the session is 0.05 m.
@@ -282,6 +366,8 @@ per-window rows come from `tools/drift_windows.py`, whose p95 is the floor-index
   SLAM estimate caused its miss, or what produced the step.
 - **Comparability of the per-mission duplicate fraction or collision-admission counts** with
   the 2026-08-17 set.
+- **Whether the policy would have held a reach.** The dwell read uses the samples after the
+  result, when the node has stopped commanding.
 - **Anything about v2 beyond the two descriptive runs.**
 
 ## Evidence — deposit
@@ -290,13 +376,13 @@ per-window rows come from `tools/drift_windows.py`, whose p95 is the floor-index
 |---|---|
 | repository | https://github.com/zachoines/Sim2RealLab-Artifacts |
 | deposit directory | `goal-a-rig-gate-v3-2026-09-25/record-files/` |
-| deposit commit | `b513b2890abf137a78730f1ec07daca2a7d4ace5` |
-| file deposit | `15cea6163fc25d77cf21fad6cf8d557ff6f6e9eb` (every file below; `b513b289` changes only `DEPOSIT.md`'s re-derive command) |
+| deposit commit | `f0a9232337be4cb15ccca8dfbc08fa15d78986c6` |
+| earlier commits | `15cea6163fc25d77cf21fad6cf8d557ff6f6e9eb` deposited the first 110 files; `b513b289` corrected only `DEPOSIT.md`'s re-derive command; `f0a92323` adds `reach_terminal.json`, `tools/reach_terminal.py` and `stage0/in_container_artifact_checks.txt` and refreshes `DEPOSIT.md` |
 | pre-registration commit | `185d2bc30c4d5acb14e7307c72e05633b693b19d` (the file alone, before the first mission) |
 
 The deposit holds everything this record names:
-- the per-mission table and its JSON (`table.md`, `table.json`) and the drift summary
-  (`drift_summary.json`);
+- the per-mission table and its JSON (`table.md`, `table.json`), the drift summary
+  (`drift_summary.json`) and the terminal-approach and stable-frame reads (`reach_terminal.json`);
 - one runner record per run (`missions/`) and one transit record per run (`transits/`);
 - the counter scrapes (`scrape/`) and the `map→odom` ride-along (`ride_along/`);
 - the stage checks (`stage0/`) and every container log plus the bridge console (`logs/`);
@@ -307,8 +393,10 @@ The deposit holds everything this record names:
   all of it (`tools/`).
 
 Two text files had rig network addresses replaced with placeholders before deposit. Its
-`DEPOSIT.md` gives the commands that re-derive `table.json` and `drift_summary.json`
-byte-for-byte from the deposited files.
+`DEPOSIT.md` gives the commands that re-derive `table.json`, `table.md`, `drift_summary.json`
+and `reach_terminal.json` byte-for-byte from the deposited files. The three in-container
+`sha256sum` checks were not written to a file at the time; `stage0/in_container_artifact_checks.txt`
+copies them verbatim, command and output, from the session's command log.
 
 Restore into this record's directory with:
 
@@ -399,6 +487,7 @@ ebd11d176a57acd6b0ae1fc2025bfbf8f7ec5bd31ae254e3ca2e412c6876aafe  missions/R2.js
 6c0e2341807570afc208b77d6eec46b594ae4b9b436c7db5e8c9c73946ee08ab  missions/V2_G1.json
 cc90b62096705017ef836b4f5267060a00515056a8cae8ee3672ca0151cc572c  missions/V2_L1.json
 69a6807fb828bf88eca15a1af2c5d7acdcffbaab831133baecf1b01277c4c00c  preregistration.md
+706ba7bc634284ee09b17710fcdf20e6dcd95970da2d999391ce06f9532b08d7  reach_terminal.json
 1f7e4c08d3e22e5f6949a93bf158e2ac55f5d29ef0ac3cb6aa346e0f6d6b7593  ride_along/tf_gate.jsonl
 1dcf54927b8525935d350fb8e76538b800c1d0cddd3b717dac1c7290fd9e21ce  ride_along/tf_logger_gate.out
 befb15fa58ec7023a18222dbfb1732d41bd28a2280c3614d26ee8f874c5b8b59  scrape/scrape_v2.json
@@ -410,6 +499,7 @@ be53935178160203c06879413f82d69d1e8fd43820dc26d780d2100fb2589205  scrape/scrape_
 635dd8730e1635994df72b01fd88b63b53c199475d4cf4d40bffe4204f12d082  stage0/cyclone_pin_in_containers.txt
 4f08ff0a77ed3cfacdc26a6ece2b53a1c695e4e6cab76fd58108a9ae95b78619  stage0/depth_topic_info.txt
 312c94239e2edd8e8a8f6e690212683eca8aaaa99b52475c38c53e6d69dfc4bd  stage0/harness_sha256.txt
+adcf600caba61e6cd719bf15b6acb3255f0367b1fd0a63719bbf914a14671264  stage0/in_container_artifact_checks.txt
 9d5412a6b9a5f5ba10daafe0ea8f279eac4e2cd97e9695735ae7b07d18ad6e76  stage0/probe_gate_recheck.json
 63526281ffb6120bba86ae92b11012328aece8f367d701f4590422d4cfc3d92e  stage0/probe_gate_recheck.stdout
 ab99b92cd62e072e926a37321f6df8e66bbd83fba4e076ad3db12cfab7877f5c  stage0/probe_gate_recheck_costmap.npz
@@ -421,6 +511,7 @@ efec4ece1d68fbd8dff072e36a60b47e2fa13e46eed9184de3cfba2bb46c77a6  tools/build_ta
 cd663222fc4060ce908d1434f49a0bbad05ec6b4585904f3f3d5762e9b650e50  tools/drift_windows.py
 2e0ecafe86ac323734682a01b5bb2bd6e025d6ba7afda97fdc7b0a20d4ed1f13  tools/gate_mission.py
 89a1296abba90e4c29b0c03a70a8b459aa7e8bd527cea0b0097734e8cc1e3f40  tools/probe_goals.py
+5c34a70685bec6922ac5e716d2ee92c1b1e348dd511d9ab03b4b7dda4ea13cb6  tools/reach_terminal.py
 ca66c078b8331fa81a7f7194c2d632d056b3c0a3bb6fd8ce83ae68d4682089c5  tools/run_one.sh
 59849e7cccefb971431c30ed7c669fe5860dff4aca0a5d9a0ad695b3a17b6a8c  tools/scrape_windows.py
 8f47148d0c32260650377ec70a9055fda02a3aa32bda807eb95508fc8804e4e4  tools/tf_logger.py

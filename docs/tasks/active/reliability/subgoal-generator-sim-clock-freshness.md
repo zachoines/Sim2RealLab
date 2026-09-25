@@ -201,17 +201,61 @@ explanation.
 
 ## Acceptance
 
-- [ ] Freshness guards read the node clock (`get_clock().now()`), so they follow
+- [x] Freshness guards read the node clock (`get_clock().now()`), so they follow
       `use_sim_time` and are expressed in the units their parameters name.
-- [ ] `anchor_age` in the status line is sim seconds, or is labelled with its
-      clock.
-- [ ] Wall-clock stays where wall-clock is correct: the status-line log cadence
-      is a human-facing interval and should remain monotonic-based.
-- [ ] A regression test drives the node with a clock slower than real time and
+      Met in `912eea7` for the costmap window, the plan window (both call sites,
+      including the tick's), the replan cadence and `anchor_age`. Goal telemetry
+      and the in-flight abandon stay on `time.monotonic()` because the quantities
+      they time run on wall time (the inference node's 1 Hz wall keep-alive, the
+      planner process); see [Implementation notes](#implementation-notes-912eea7).
+- [x] `anchor_age` in the status line is sim seconds, or is labelled with its
+      clock. Met: it reads the node clock and prints `anchor_age=<s>s(sim)` under
+      sim time (`anchor_age=1.0s(sim)` … `3.7s(sim)` across the re-run's mission
+      below).
+- [x] Wall-clock stays where wall-clock is correct: the status-line log cadence
+      is a human-facing interval and should remain monotonic-based. Met, and
+      pinned by `test_status_log_cadence_stays_on_the_wall_clock`.
+- [x] A regression test drives the node with a clock slower than real time and
       asserts the collision admission rule stays in force while the costmap is
-      fresh in sim time.
-- [ ] Re-run the enriched sim-bridge lane and confirm `Costmap is older than
+      fresh in sim time. Met: `TestNodeClockFreshness` (7 tests; sim time is
+      injected through a ROS-time override and wall time through a stubbed
+      `time.monotonic`, no sleeps). Four of the seven fail against the pre-fix
+      node — the collision regression, plan freshness in sim seconds, the
+      backwards jump, and `anchor_age`; the other three pin behaviour that was
+      already correct. `tools/run_ros_tests.sh ros`: 761 passed, 11 skipped, 0 failed.
+- [x] Re-run the enriched sim-bridge lane and confirm `Costmap is older than
       5.0 s` no longer appears while the costmap publishes at ~0.95 Hz sim.
+      Met 2026-09-25 (see [Re-run](#re-run-2026-09-25)).
+
+## Re-run, 2026-09-25
+
+Bridge `Isaac-Strafer-Nav-Capture-Bridge-ProcRoom-Enriched-v0`, `Environment seed : 42`,
+script defaults (`publish 30.00 Hz sim`, `frame_skip=3 (derived, derived 3)`, bridge
+tick 120 Hz), over the direct cable; deploy images `strafer-cpu:humble` /
+`strafer-gpu:humble` both built clean at `19ce9fe61d02` on this branch;
+`hybrid_nav2_strafer` + `DEPTH_SUBGOAL` (`strafer_depth_subgoal_v3_999.onnx`),
+`anchoring=mission`; fresh SLAM key.
+
+- `/global_costmap/costmap`, timed on the sim clock over 11 consecutive arrivals:
+  **0.936 Hz sim**, inter-arrival min/mean/max **1.025 / 1.069 / 1.100 s sim**,
+  **8.0 s wall** mean at RTF 0.134 — every gap wider than the 5.0 s the old wall
+  guard allowed.
+- `Costmap is older than`: **0 lines** over the generator's whole life on that
+  bridge (~22 min wall, covering the warm-up, two plannability probes, two scripted
+  transits and one mission).
+- `plan is stale (older than 1.0 s sim)`: **5 lines, none inside a mission window**.
+  Two followed the two plannability probes and two followed the two scripted
+  transits (7–9 s wall later each): `planner_server` echoes every
+  `ComputePathToPose` result on `/plan`, the idle generator takes the echo as a
+  path, and it ages out with no goal to replan for. One followed the mission's
+  result by 9.3 s wall — the mission-end case listed above, by design.
+- One unscored mission (a goal outside any scored set, 2.21 m, bearing −148°) ran
+  on the fixed generator: cross-track 0.076 → 0.196 m, cursor 1.85 of 2.21 m,
+  `anchor_in_collision` 0, cadence p50 30.01 Hz sim with 182 of 182 inferences on
+  fresh depth, `depth_age` max 0.033 s sim.
+
+So the collision admission rule was available for the whole session rather than
+the ~half the 2026-08-17 lane allowed, and no mid-mission plan staleness appeared.
 
 ## Scope
 

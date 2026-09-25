@@ -1,11 +1,6 @@
-"""Tests for the RealSense launch arguments perception.launch.py requests.
-
-The camera's post-processing filter state is a contract, not a wrapper
-default: the only spatial operator between the sensor and the policy is the
-8x8 block median in obs_pipeline.downsample_depth. These tests pin the values
-the launch passes to rs_launch.py, and check that the installed wrapper still
-declares each pinned name, because rs_launch.py forwards only declared names to
-the node and drops the rest with a warning. No camera needed.
+"""Pins the RealSense filter and AE values perception.launch.py passes to
+rs_launch.py, and checks the installed wrapper still declares each name.
+No camera needed.
 """
 
 import importlib.util
@@ -68,9 +63,9 @@ class TestRealsenseFilterContract:
         )
 
     def test_no_params_file_or_config_file_override(self, rs_launch_args):
-        # The launch_arguments dict is the single surface for these values.
-        # A config_file / params-file alongside it would let a second source
-        # disagree with the pins above.
+        # rs_launch.py applies a config_file after the launch arguments, so
+        # it would override the pins above. Adopting one means replacing this
+        # with a check that the file sets no PINNED key.
         assert "config_file" not in rs_launch_args
         assert "params_file" not in rs_launch_args
 

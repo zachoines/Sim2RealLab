@@ -107,6 +107,16 @@ clamps to `[0, max_depth]`. On deploy:
   return still takes the 0.2 m fill;
 - `valid_mask=None` is the 32FC1 (sim) path, byte-identical to before.
 
+**Remaining gap (2026-09-25).** One sentinel cannot separate the two causes of
+a Z16 `0`: "no return" (far, which this decision matches to training) and "too
+close to measure". A surface nearer than the sensor's minimum range — about
+0.24 m, the bottom of the bench capture's finite 0.244–0.399 m band — returns
+`0` and so reads **6.0 m ("free") on deploy, where training renders it at its
+real distance and fills it to 0.2 m ("blocked")**. The camera sits near the
+chassis front face, so a wall approach reaches that range. Nothing regresses
+(before this branch every Z16 frame was dropped), but the gap is open until a
+close-wall capture on hardware measures it; see the hardware item below.
+
 ## Acceptance criteria
 
 - [x] The node decodes **16UC1** (Z16, millimetres → metres) on its depth
@@ -117,8 +127,16 @@ clamps to `[0, max_depth]`. On deploy:
       → float32 m (× 0.001, as `depth_downsampler` does), `32FC1` → the
       existing float path, anything else → `depth_bad_encoding`. Both honour
       `is_bigendian` and accept packed rows or `step`-padded rows; any other
-      buffer length is `depth_bad_shape`. `scripts/obs_parity.py` decodes the
-      same way, so its self-check mirrors the node on a Z16 bag.)*
+      buffer length is `depth_bad_shape`. A frame that decodes cleanly at any
+      resolution other than 640×360 (the driver's default profile, if it
+      rejects the pinned one) is also dropped at the gate as
+      `depth_bad_shape`, rather than cached for `downsample_depth` to raise on
+      the tick (`TestZ16Decode::test_off_resolution_*`). `scripts/obs_parity.py`
+      decodes the same way and hands the mask to
+      `reassemble_obs_from_extracted`; `test_parity.py::TestReassembly::test_z16_mask_reads_an_invalid_block_as_depth_max`
+      and `test_obs_parity_self_check.py` (the CLI's `_self_check_stream` over a
+      synthetic one-tick Z16 bag) pin that an all-zero block reads 1.0
+      normalized there, not the fill.)*
 - [x] An **explicit validity mask** accompanies depth through
       `downsample_depth`, rather than validity being inferred from `isfinite` or
       from any sentinel value. Neither `0` nor `+inf` may be load-bearing.
@@ -158,14 +176,18 @@ clamps to `[0, max_depth]`. On deploy:
       each, asserting `tobytes()` equality with and without an explicit
       `valid_mask=None`; the node's 32FC1 decode returns
       `np.frombuffer(..., float32)` exactly as before.)*
-- [ ] Verified on hardware: `depth_bad_encoding` stays 0 and `inferences`
-      advances with the real D555 attached.
+- [ ] Verified on hardware: `depth_bad_encoding` and `depth_bad_shape` stay 0
+      and `inferences` advances with the real D555 attached. Include a
+      close-wall check: face a flat wall from about 0.15 m, 0.25 m and 0.35 m
+      and record what the policy cells covering it read, to measure the
+      too-close gap in the decision above.
       *(2026-09-25: not run — the D555 enumerates as 8086:0bdc "Intel
       RealSense Generic Device" with no `/dev/video*` nodes and
       realsense2_camera 4.58.4 reports "No RealSense devices were found!", so
       no real depth stream exists to verify against. The cadence line now ends
       `| z16 frames=N majority_invalid_cells=P% over M frames`, which is what
-      to read when it runs.)*
+      to read when it runs. The close-wall check was added on review the same
+      day and is equally blocked on the camera.)*
 - [x] If your work invalidates a fact in any referenced context module, package
       README, top-level `Readme.md`, or guide under `docs/`, update those in the
       same commit. See
@@ -176,8 +198,10 @@ clamps to `[0, max_depth]`. On deploy:
       or guide claimed 32FC1-only. [`real-d555-depth-texture-capture`](real-d555-depth-texture-capture.md)
       gains a dated note that an offline Z16 reduction must pass the mask.)*
 - [x] No regression in the workflows the touched code supports.
-      *(2026-09-25: `tools/run_ros_tests.sh ros` — 804 passed across the seven
-      packages, strafer_inference 536 passed / 11 skipped. The new counters
+      *(2026-09-25: `tools/run_ros_tests.sh ros` — 809 passed across the seven
+      packages, strafer_inference 541 passed / 11 skipped, after the review
+      fixes (536 before them). Each of the branch's commits passes the
+      strafer_inference suite on its own. The new counters
       are appended after `stale_sources[...]`, the last field, so the existing
       `cadence:` token test holds unchanged; nothing under `tools/` parses the
       line.)*

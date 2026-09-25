@@ -122,7 +122,7 @@ camera can render a command marker.
       Met 2026-09-21: `strafer_depth_subgoal_v3_999` from `model_999.pt`,
       `env_id` the enriched robust play env; 60 steps on that env, batch 1,
       60 finite distinct actions ([record](../../../measurements/depth-subgoal-v3-retrain-2026-09-21/README.md) §3).
-- [ ] **Gate.** The sim-bridge rig-gate protocol of `goal-a-rig-gate-2026-08-17`
+- [x] **Gate.** The sim-bridge rig-gate protocol of `goal-a-rig-gate-2026-08-17`
       is re-run with the new artifact over the direct cable: six scored missions
       on `Isaac-Strafer-Nav-Capture-Bridge-ProcRoom-Enriched-v0`, seed 42, fresh
       SLAM key, start heading 130° held to within ~2.8° by closed-loop in-place
@@ -131,13 +131,20 @@ camera can render a command marker.
       drift statistics restricted to the scored windows. Tolerance is 0.30 m
       (`GOAL_ARRIVAL_RADIUS_M`, also the node's `goal_reached_distance_m`); v2's
       closest approach across the six was 1.79 m.
-- [ ] **Gate, second leg.** The 2026-08-19 addendum's fixed-goal leg is run as
+      Met 2026-09-25: **4 of 6** reached within 0.30 m (G1, R1, L1, L2; R2 and R3 aborted at
+      60 s sim at 0.350 and 0.508 m after advancing 2.25 and 2.38 m), which the pre-registered
+      table reads as PASS. Median while-moving `v_par` +0.253 m/s against v2's 0.026–0.083;
+      no `map→odom` correction ≥ 0.30 m in the six scored windows ([record](../../../measurements/goal-a-rig-gate-v3-2026-09-25/README.md)).
+- [x] **Gate, second leg.** The 2026-08-19 addendum's fixed-goal leg is run as
       well: the one goal (−2.00, 2.25) from a fixed start pose and heading,
       repeated three times. The six-mission set measures coverage because each
       mission uses a different goal; this leg is what measures reliability. v2
       scored 0/3 with all three runs ending within 4 cm of each other, so the
       comparison is against a sharp baseline.
-- [ ] The six confounds the 2026-08-17 set recorded are each answered before the
+      Met 2026-09-25: **3 of 3** reached (final 0.297, 0.292, 0.284 m; 10.7, 6.8, 6.8 s sim), so v3
+      is reliable at that goal; v2 on the same goal in the same session ended 2.10 m away
+      ([record](../../../measurements/goal-a-rig-gate-v3-2026-09-25/README.md)).
+- [x] The six confounds the 2026-08-17 set recorded are each answered before the
       runs, not after, quoting that record's own list: (1) the collision
       admission rule duty-cycled — its freshness guards compare
       `time.monotonic()` against timeouts sized in sim units, leaving it
@@ -151,12 +158,22 @@ camera can render a command marker.
       v3 on the same set is exactly the arm that record names as the obvious
       first one, and it separates a policy-specific under-advance from a
       lane-wide one.
-- [ ] Acceptance thresholds are fixed and written down before the first mission
+      Met 2026-09-25: each was answered in the pre-registration deposited before the first
+      mission — (1) fixed by #229 and in the images; (2) a fixed nominal start via a scripted
+      `cmd_vel` transit and heading hold, enforced at 0.15 m / 3.0°; (3) the 1.20 m floor in force
+      from the first mission; (4) every goal fixed in advance; (5) one bridge launch at script
+      defaults, with the render-side regime measured per mission; (6) v2 on two of the six goals
+      ([record](../../../measurements/goal-a-rig-gate-v3-2026-09-25/README.md)).
+- [x] Acceptance thresholds are fixed and written down before the first mission
       runs. The 2026-08-17 set fixed ≥4/6 pass, 1–3/6 partial, 0/6 fail; a v3
       threshold is stated in the same form before any mission runs. The v2 rig-class texture criterion is
       **not** reused: it asks whether a depth field reads as a featureless far
       surface, its answer is pre-determined for any per-pixel sensor model, and
       the response it scores is the behaviour this retrain exists to remove.
+      Met 2026-09-25: the thresholds, in the 2026-08-17 form, with the reading of PARTIAL's
+      qualifiers and the definition of a reach, were committed to the evidence deposit at
+      03:30 UTC, before the first goal at 03:34 UTC, and not edited afterwards
+      ([record](../../../measurements/goal-a-rig-gate-v3-2026-09-25/README.md)).
 - [x] Descriptive tables accompany the verdict and are not thresholds: v2 and v3
       off-goal distributions on the bridge capture side by side, the
       uniform-field reference curve, and the per-band texture statistic of the

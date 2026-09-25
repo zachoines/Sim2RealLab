@@ -38,6 +38,7 @@ from typing import Optional
 import numpy as np
 
 from strafer_inference import parity as P
+from strafer_inference.obs_pipeline import DepthDecodeError, decode_depth_image
 from strafer_shared.policy_interface import PolicyVariant
 
 _TOPIC_IMU = "/d555/imu/filtered"
@@ -85,8 +86,22 @@ def _self_check_stream(
         ref = node_stream.referent_xy[i]
         base = bag_io.lookup_base_in_map(tf_buf, map_frame, base_frame, t)
         depth = bag_io.latest_at(dep_s, dep_m, t) if has_depth else None
-        # Mirror the node's _on_depth: a non-32FC1 depth frame is not usable.
-        bad_depth = has_depth and depth is not None and depth.encoding != "32FC1"
+        # Mirror the node's _on_depth: decode by the frame's own encoding; one
+        # the node would drop (unknown encoding, bad length) is not usable.
+        depth_meters = depth_valid = None
+        bad_depth = False
+        if has_depth and depth is not None:
+            try:
+                depth_meters, depth_valid = decode_depth_image(
+                    encoding=depth.encoding,
+                    data=depth.data,
+                    height=depth.height,
+                    width=depth.width,
+                    step=depth.step,
+                    is_bigendian=bool(depth.is_bigendian),
+                )
+            except DepthDecodeError:
+                bad_depth = True
         if (
             imu is None
             or jnt is None
@@ -101,11 +116,6 @@ def _self_check_stream(
 
         base_xy, base_quat = base
         try:
-            depth_meters = None
-            if has_depth:
-                depth_meters = np.frombuffer(depth.data, dtype=np.float32).reshape(
-                    depth.height, depth.width
-                )
             obs = P.reassemble_obs_from_extracted(
                 variant,
                 imu_accel=(
@@ -126,6 +136,7 @@ def _self_check_stream(
                 base_in_map_xy=base_xy,
                 base_in_map_quat=base_quat,
                 depth_meters=depth_meters,
+                depth_valid_mask=depth_valid,
             )
         except (ValueError, KeyError):
             # Off-resolution/truncated depth or an unparseable joint state drops

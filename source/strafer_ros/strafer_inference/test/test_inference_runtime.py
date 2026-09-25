@@ -2274,7 +2274,7 @@ class TestDepthDrivenTick(unittest.TestCase):
             wake = MagicMock()
             node._depth_wake = wake
             bad = _depth_msg()
-            bad.encoding = "16UC1"
+            bad.encoding = "rgb8"
             node._on_depth(bad)
             wake.trigger.assert_not_called()
             self.assertEqual(node._counts["depth_bad_encoding"], 1)

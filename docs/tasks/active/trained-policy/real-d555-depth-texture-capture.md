@@ -64,7 +64,11 @@ Note the sensor has never fed the depth policy: the node requires `32FC1` and
 the driver publishes `16UC1`
 ([`d555-depth-decode-validity`](d555-depth-decode-validity.md)). This brief does
 **not** need that fixed — it bags the camera topic directly and runs
-`downsample_depth` offline.
+`downsample_depth` offline. (2026-09-25: that brief's branch adds the node-side `16UC1` decode; an
+offline run on bagged Z16 must decode through
+`obs_pipeline.decode_depth_image` and pass its mask as
+`downsample_depth(..., valid_mask=...)`, or Z16's invalid `0` reaches the
+reduction as a near return instead of `DEPTH_MAX`.)
 
 ## Method
 

@@ -90,34 +90,97 @@ same reduction would mean "far" in training and "blocked" on hardware.
 capture: 33.9% of blocks were majority-invalid in one real room — that fraction
 is pose-dependent, but the inversion mechanism is not.
 
+## Decision — the invalid convention on deploy (2026-09-25)
+
+Matched to training's `mdp/observations.py:depth_image`, which rescues
+non-finite depth to `max_depth` (6.0 m) **before** `reduce_depth_to_policy_grid`
+(the same block median, numpy even-count semantics), applies the nearfield
+fill (`< DEPTH_MIN` 0.4 m → `DEPTH_NEARFIELD_FILL` 0.2 m) **after** it, then
+clamps to `[0, max_depth]`. On deploy:
+
+- the Z16 decode (`obs_pipeline.decode_depth_image`) returns an explicit
+  `valid_mask = raw != 0` alongside metres;
+- `downsample_depth(..., valid_mask=...)` sets every masked or non-finite pixel
+  to `max_depth` before the same median, so a majority-invalid block
+  (>= 33 of 64) reads 6.0 m, an exactly-32 block takes numpy's even median of
+  the two middle ranks exactly as training would, and a genuine sub-0.4 m
+  return still takes the 0.2 m fill;
+- `valid_mask=None` is the 32FC1 (sim) path, byte-identical to before.
+
 ## Acceptance criteria
 
-- [ ] The node decodes **16UC1** (Z16, millimetres → metres) on its depth
+- [x] The node decodes **16UC1** (Z16, millimetres → metres) on its depth
       subscription, alongside the existing `32FC1` path. Encoding is detected,
       not assumed.
-- [ ] An **explicit validity mask** accompanies depth through
+      *(2026-09-25: `_on_depth` routes every frame through
+      `decode_depth_image` on its own `encoding`: `16UC1`/`mono16` → uint16 mm
+      → float32 m (× 0.001, as `depth_downsampler` does), `32FC1` → the
+      existing float path, anything else → `depth_bad_encoding`. Both honour
+      `is_bigendian` and accept packed rows or `step`-padded rows; any other
+      buffer length is `depth_bad_shape`. `scripts/obs_parity.py` decodes the
+      same way, so its self-check mirrors the node on a Z16 bag.)*
+- [x] An **explicit validity mask** accompanies depth through
       `downsample_depth`, rather than validity being inferred from `isfinite` or
       from any sentinel value. Neither `0` nor `+inf` may be load-bearing.
-- [ ] **Z16 invalid maps to `DEPTH_MAX` (6.0 m)** — the training convention.
-- [ ] **Genuine sub-0.4 m returns keep the nearfield fill.** The bench capture
+      *(2026-09-25: `downsample_depth(..., valid_mask=)`; the Z16 decode
+      produces it once, from the format's own "no return" code, and the
+      node caches it in the same locked `(array, mask, stamp, rx_t, seq)`
+      tuple as the frame, so a `timer_reuse` tick consuming the cached frame
+      again gets that frame's mask (pinned by
+      `test_the_mask_travels_with_a_reused_frame`). The 32FC1 path passes no
+      mask and keeps its `isfinite` rescue deliberately — the byte-identity
+      criterion below requires it.)*
+- [x] **Z16 invalid maps to `DEPTH_MAX` (6.0 m)** — the training convention.
+      *(2026-09-25: before the median; see the decision above.)*
+- [x] **Genuine sub-0.4 m returns keep the nearfield fill.** The bench capture
       showed the sensor returns finite values in 0.244–0.399 m for 4.16% of
       pixels, so that rule is load-bearing and must survive: the fix must
       distinguish *invalid* (→ 6.0 m) from *too close* (→ `nearfield_fill`),
       which a single sentinel cannot.
-- [ ] **Required test vectors**, as unit tests on `downsample_depth`:
+      *(2026-09-25: the nearfield rule is unchanged and still runs after the
+      median; a valid 0.3 m block reads 0.2 m.)*
+- [x] **Required test vectors**, as unit tests on `downsample_depth`:
       an **all-zero block** and a **majority-zero block** each produce
       **6.0 m**, never 0.2 m. Plus a genuine sub-0.4 m block still producing
       `nearfield_fill`, so the two paths are proven distinct.
-- [ ] Sim-lane behaviour unchanged: a `32FC1` frame with `+inf` invalids
+      *(2026-09-25: `test_obs_pipeline.py::TestDownsampleDepthValidityMask` —
+      all-zero, 33-zero, 40-zero-beside-0.3 m (each 6.0), all-0.3 m (0.2),
+      exactly-32-zero (numpy's even median, strictly between 2.0 and 6.0).
+      Node level, `test_inference_runtime.py::TestZ16Decode`: a full-resolution
+      16UC1 `sensor_msgs/Image` decodes with no `bad_encoding`, infers, and
+      downsamples to those values; an unknown encoding still counts
+      `bad_encoding`.)*
+- [x] Sim-lane behaviour unchanged: a `32FC1` frame with `+inf` invalids
       produces byte-identical output to today (regression, not a rewrite).
+      *(2026-09-25: `TestDownsampleDepthNoMaskRegression` compares against a
+      verbatim copy of the pre-change function over 8 seeded 640×360 frames
+      mixing +inf, −inf, NaN, 0, sub-0.4 m and >6 m values plus whole blocks of
+      each, asserting `tobytes()` equality with and without an explicit
+      `valid_mask=None`; the node's 32FC1 decode returns
+      `np.frombuffer(..., float32)` exactly as before.)*
 - [ ] Verified on hardware: `depth_bad_encoding` stays 0 and `inferences`
       advances with the real D555 attached.
-- [ ] If your work invalidates a fact in any referenced context module, package
+      *(2026-09-25: not run — the D555 enumerates as 8086:0bdc "Intel
+      RealSense Generic Device" with no `/dev/video*` nodes and
+      realsense2_camera 4.58.4 reports "No RealSense devices were found!", so
+      no real depth stream exists to verify against. The cadence line now ends
+      `| z16 frames=N majority_invalid_cells=P% over M frames`, which is what
+      to read when it runs.)*
+- [x] If your work invalidates a fact in any referenced context module, package
       README, top-level `Readme.md`, or guide under `docs/`, update those in the
       same commit. See
       [`conventions.md`'s user-facing documentation maintenance section](../../context/conventions.md#user-facing-documentation-maintenance)
       for the surface list and trigger heuristics.
-- [ ] No regression in the workflows the touched code supports.
+      *(2026-09-25: `source/strafer_ros/README.md` now states the dual decode,
+      the mask convention and the appended cadence counters; no context module
+      or guide claimed 32FC1-only. [`real-d555-depth-texture-capture`](real-d555-depth-texture-capture.md)
+      gains a dated note that an offline Z16 reduction must pass the mask.)*
+- [x] No regression in the workflows the touched code supports.
+      *(2026-09-25: `tools/run_ros_tests.sh ros` — 804 passed across the seven
+      packages, strafer_inference 536 passed / 11 skipped. The new counters
+      are appended after `stale_sources[...]`, the last field, so the existing
+      `cadence:` token test holds unchanged; nothing under `tools/` parses the
+      line.)*
 
 ## Adjacent — pin the driver's depth QoS while this lane is being made to work
 
@@ -144,6 +207,25 @@ separately, because this brief is what makes them measurable:
   is a RELIABLE subscriber of the same stream and was recorded dropping
   fragmented Images under load — so this wants a measurement on hardware, not
   an assertion.
+
+### Status of the adjacent items (2026-09-25)
+
+**Open — pinning by launch argument is unavailable on the installed wrapper.**
+`/opt/ros/humble/share/realsense2_camera/launch/rs_launch.py` in
+`strafer-cpu:humble` (realsense2_camera **4.58.4**) declares 80
+`configurable_parameters` and none of them is a QoS argument (`grep qos` on the
+file is empty). The node library does carry a `%s_qos` format string
+(`strings librealsense2_camera.so`), i.e. per-stream QoS parameters exist on
+the node, but `launch_setup` forwards only the declared set plus the
+`config_file` yaml, so a `depth_qos` launch argument would never reach it.
+Correction to the first bullet, read from the file rather than executed: on
+4.58.4 an undeclared argument does **not** fail the include — `launch_setup`
+prints a "Parameter '…' is not supported" warning and drops it, a silent no-op
+rather than a loud failure. The one untested route left
+is `config_file`, whose yaml `launch_setup` passes to the node unfiltered
+(with the same warning); whether the node honours `depth_qos` from it wants a
+run against a streaming camera. QoS is unchanged by this branch, and the
+`depth_reliability` decision still waits on a hardware measurement.
 
 ## Investigation pointers
 

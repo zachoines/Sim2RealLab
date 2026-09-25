@@ -1382,6 +1382,12 @@ class TestNodeClockFreshness(unittest.TestCase):
                 node._note_plan_alive()
                 clock.advance_wall(5.0)           # 0.5 s sim, 5 s wall
                 self.assertTrue(node._plan_fresh(node._now_s()))
+                # And through the tick's own freshness check, the call site
+                # that raised the rig's stale-plan warning: a fresh tick
+                # clears the flag before it needs a pose, so no TF is needed.
+                node._stale_plan_logged = True
+                node._on_tick()
+                self.assertFalse(node._stale_plan_logged)
                 clock.advance_wall(6.0)           # 1.1 s sim
                 self.assertFalse(node._plan_fresh(node._now_s()))
                 node._subgoal_pub = MagicMock()

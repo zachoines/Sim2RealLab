@@ -95,7 +95,7 @@ another setting the repo believes it controls and does not.
       Generic Device" with no `/dev/video*` nodes and `realsense2_camera`
       4.58.4 logs "No RealSense devices were found!", so there is no node to
       read back from.*
-- [ ] If your work invalidates a fact in any referenced context module, package
+- [x] If your work invalidates a fact in any referenced context module, package
       README, top-level `Readme.md`, or guide under `docs/`, update those in the
       same commit. See
       [`conventions.md`'s user-facing documentation maintenance section](../../context/conventions.md#user-facing-documentation-maintenance)
@@ -144,7 +144,17 @@ plans to pin.
 
 Suggested follow-up: pass these through `rs_launch.py`'s declared
 `config_file` argument. That YAML reaches the node unfiltered; unknown keys are
-warned about but still passed. Then read the running values back with
+warned about but still passed. Two cautions. `launch_setup` builds the node
+with `parameters=[params, params_from_file]` (`rs_launch.py:160` in 4.58.4), so
+the file is applied second and would silently override the five filter and AE
+pins if it set any of them; `test_no_params_file_or_config_file_override` in
+`test_perception_launch.py` exists to block that, so adopting `config_file`
+means replacing it with a test that loads the file and fails if it sets any
+`PINNED` key. And the YAML must be a plain parameter dict (dotted keys such as
+`depth_module.global_time_enabled: false`, or the equivalent nesting): the
+`d555: ros__parameters:` wrapper the deleted file used would be flattened into
+`d555.ros__parameters.<name>` and reach no real parameter. Then read the
+running values back with
 `ros2 param get /d555 depth_module.global_time_enabled` on hardware, and check
 whether `timestamp_fixer`'s offset logic assumed global time was off. Also add
 a test that every `launch_arguments` key is declared by the installed wrapper,

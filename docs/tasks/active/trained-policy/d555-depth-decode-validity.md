@@ -142,7 +142,12 @@ separately, because this brief is what makes them measurable:
   `depth_qos` is **not** in that list, so a `launch_arguments` pin would be
   dropped; the route that reaches the node is `rs_launch.py`'s `config_file`
   argument, whose YAML is passed to the node unfiltered (checked 2026-09-25
-  against the wrapper in `strafer-cpu:humble`).
+  against the wrapper in `strafer-cpu:humble`). The file is applied after the
+  launch arguments, so it can override the filter pins, and
+  `test_perception_launch.py` currently forbids `config_file` for that reason;
+  see the follow-up in
+  [`d555-params-file-inert`](../reliability/d555-params-file-inert.md#adjacent-finding-2026-09-25-not-fixed-here)
+  for what replacing that test and writing the YAML must look like.
 - **Then decide the real lane's `depth_reliability`.** The sim lanes subscribe
   RELIABLE via `STRAFER_DEPTH_RELIABILITY`
   ([`depth-qos-reliable-flip`](../../completed/depth-qos-reliable-flip.md));

@@ -131,23 +131,12 @@ separately, because this brief is what makes them measurable:
   resolves RELIABLE), so a RELIABLE subscriber works *by default rather than by
   contract*, and a driver-version change would break it silently — a reliable
   subscriber receives **nothing** from a best-effort publisher. Note that the
-  `launch_arguments` dict is the surface (the old, never-loaded
-  `d555_params.yaml` was deleted by
-  [`d555-params-file-inert`](../reliability/d555-params-file-inert.md)). An
-  argument name `rs_launch.py` does not declare does **not** fail the include:
-  `realsense2_camera` 4.58.4 prints `Parameter '<name>' is not supported` and
-  never forwards it to the node, so verify the name against the installed
-  wrapper's `configurable_parameters` and pin it in
-  `strafer_perception/test/test_perception_launch.py`. As of 4.58.4
-  `depth_qos` is **not** in that list, so a `launch_arguments` pin would be
-  dropped; the route that reaches the node is `rs_launch.py`'s `config_file`
-  argument, whose YAML is passed to the node unfiltered (checked 2026-09-25
-  against the wrapper in `strafer-cpu:humble`). The file is applied after the
-  launch arguments, so it can override the filter pins, and
-  `test_perception_launch.py` currently forbids `config_file` for that reason;
-  see the follow-up in
-  [`d555-params-file-inert`](../reliability/d555-params-file-inert.md#adjacent-finding-2026-09-25-not-fixed-here)
-  for what replacing that test and writing the YAML must look like.
+  `launch_arguments` dict is the surface (the never-loaded `d555_params.yaml`
+  was deleted by [`d555-params-file-inert`](../reliability/d555-params-file-inert.md)).
+  An argument name `rs_launch.py` does not declare does **not** fail the
+  include: `realsense2_camera` 4.58.4 prints `Parameter '<name>' is not
+  supported` and never forwards it to the node, so verify the name against the
+  installed wrapper's `configurable_parameters`.
 - **Then decide the real lane's `depth_reliability`.** The sim lanes subscribe
   RELIABLE via `STRAFER_DEPTH_RELIABILITY`
   ([`depth-qos-reliable-flip`](../../completed/depth-qos-reliable-flip.md));

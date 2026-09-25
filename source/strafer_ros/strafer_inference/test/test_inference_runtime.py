@@ -9,6 +9,7 @@ NOT subscribe / publish across the wire. The action server's blocking
 
 from __future__ import annotations
 
+import array
 import json
 import math
 import os
@@ -27,7 +28,9 @@ from rclpy.parameter import Parameter
 from rclpy.qos import ReliabilityPolicy
 from sensor_msgs.msg import Image
 
-from strafer_shared.constants import GOAL_ARRIVAL_RADIUS_M
+from strafer_shared.constants import (
+    GOAL_ARRIVAL_RADIUS_M, PERCEPTION_HEIGHT, PERCEPTION_WIDTH,
+)
 
 from strafer_inference.inference_node import (
     _DEPTH_AGE_WINDOW,
@@ -119,13 +122,22 @@ def _make_pose(x: float, y: float) -> PoseStamped:
     return msg
 
 
-def _depth_msg(h: int = 4, w: int = 4, fill: float = 0.0) -> Image:
-    """A minimal valid 32FC1 depth frame (content irrelevant to the gate)."""
+def _image_data(arr: np.ndarray) -> array.array:
+    # rclpy validates a bytes payload element by element; an array.array
+    # is taken as is, which keeps full-resolution frames cheap to build.
+    return array.array("B", arr.tobytes())
+
+
+def _depth_msg(
+    h: int = PERCEPTION_HEIGHT, w: int = PERCEPTION_WIDTH, fill: float = 0.0
+) -> Image:
+    """A valid 32FC1 depth frame at the policy's resolution; ``_on_depth``
+    drops any other shape."""
     msg = Image()
     msg.encoding = "32FC1"
     msg.height = h
     msg.width = w
-    msg.data = np.full((h, w), fill, dtype=np.float32).tobytes()
+    msg.data = _image_data(np.full((h, w), fill, dtype=np.float32))
     return msg
 
 
@@ -165,8 +177,6 @@ def _ready_depth_node(**overrides) -> InferenceNode:
 
 def _full_depth_msg(fill: float) -> Image:
     """A full-resolution 32FC1 frame, so the real downsample runs."""
-    from strafer_shared.constants import PERCEPTION_HEIGHT, PERCEPTION_WIDTH
-
     return _depth_msg(PERCEPTION_HEIGHT, PERCEPTION_WIDTH, fill=fill)
 
 
@@ -1876,14 +1886,16 @@ class TestDepthFreshnessGate(unittest.TestCase):
 # =============================================================================
 
 
-def _seq_depth_msg(seq: int, h: int = 4, w: int = 4) -> Image:
+def _seq_depth_msg(
+    seq: int, h: int = PERCEPTION_HEIGHT, w: int = PERCEPTION_WIDTH
+) -> Image:
     """A valid 32FC1 frame whose every pixel encodes ``seq`` — lets a test read
     back which frame the tick's locked snapshot actually fed to obs assembly."""
     msg = Image()
     msg.encoding = "32FC1"
     msg.height = h
     msg.width = w
-    msg.data = np.full((h, w), float(seq), dtype=np.float32).tobytes()
+    msg.data = _image_data(np.full((h, w), float(seq), dtype=np.float32))
     return msg
 
 
@@ -2932,7 +2944,7 @@ def _z16_msg(raw_mm: np.ndarray, encoding: str = "16UC1") -> Image:
     msg.height, msg.width = raw_mm.shape
     msg.step = raw_mm.shape[1] * 2
     msg.is_bigendian = 0
-    msg.data = raw_mm.astype("<u2").tobytes()
+    msg.data = _image_data(raw_mm.astype("<u2"))
     return msg
 
 
@@ -2940,8 +2952,6 @@ def _z16_test_frame() -> np.ndarray:
     """2.5 m everywhere, with four pinned blocks along policy row 0:
     (0,0) all invalid, (0,1) majority invalid, (0,2) a genuine 0.3 m return,
     (0,3) exactly half invalid next to 2.0 m."""
-    from strafer_shared.constants import PERCEPTION_HEIGHT, PERCEPTION_WIDTH
-
     raw = np.full((PERCEPTION_HEIGHT, PERCEPTION_WIDTH), 2500, dtype=np.uint16)
     blocks = (
         [0] * 64,
@@ -2983,7 +2993,7 @@ class TestZ16Decode(unittest.TestCase):
     def test_16uc1_frame_is_decoded_not_dropped(self) -> None:
         node = _node(policy_variant="DEPTH_SUBGOAL")
         try:
-            node._on_depth(_z16_msg(np.full((4, 4), 1000, dtype=np.uint16)))
+            node._on_depth(_z16_msg(np.full((PERCEPTION_HEIGHT, PERCEPTION_WIDTH), 1000, dtype=np.uint16)))
             self.assertEqual(node._counts["depth_bad_encoding"], 0)
             self.assertEqual(node._counts["depth_bad_shape"], 0)
             self.assertEqual(node._counts["depth_rx"], 1)
@@ -2997,7 +3007,7 @@ class TestZ16Decode(unittest.TestCase):
         node = _node(policy_variant="DEPTH_SUBGOAL")
         try:
             node._on_depth(
-                _z16_msg(np.zeros((4, 4), dtype=np.uint16), encoding="mono16")
+                _z16_msg(np.zeros((PERCEPTION_HEIGHT, PERCEPTION_WIDTH), dtype=np.uint16), encoding="mono16")
             )
             self.assertEqual(node._counts["depth_bad_encoding"], 0)
             self.assertEqual(node._counts["depth_z16_rx"], 1)
@@ -3021,12 +3031,49 @@ class TestZ16Decode(unittest.TestCase):
     def test_truncated_16uc1_counts_bad_shape(self) -> None:
         node = _node(policy_variant="DEPTH_SUBGOAL")
         try:
-            msg = _z16_msg(np.full((4, 4), 1000, dtype=np.uint16))
+            msg = _z16_msg(np.full((PERCEPTION_HEIGHT, PERCEPTION_WIDTH), 1000, dtype=np.uint16))
             msg.data = bytes(msg.data)[:-2]
             node._on_depth(msg)
             self.assertEqual(node._counts["depth_bad_shape"], 1)
             self.assertEqual(node._counts["depth_bad_encoding"], 0)
             self.assertEqual(node._counts["depth_rx"], 0)
+        finally:
+            node.destroy_node()
+
+    def test_off_resolution_16uc1_is_dropped_as_bad_shape(self) -> None:
+        """A well-formed Z16 frame at the driver's fallback profile decodes
+        cleanly but has no policy cells: it is dropped at the gate, and the
+        tick keeps running on the last full-resolution frame."""
+        node = _real_assembly_depth_node()
+        try:
+            node._on_depth(_z16_msg(_z16_test_frame()))
+            for h, w in ((480, 848), (720, 1280)):
+                node._on_depth(
+                    _z16_msg(np.full((h, w), 1000, dtype=np.uint16))
+                )
+            self.assertEqual(node._counts["depth_bad_shape"], 2)
+            self.assertEqual(node._counts["depth_bad_encoding"], 0)
+            self.assertEqual(node._counts["depth_rx"], 1)
+            self.assertEqual(node._counts["depth_z16_rx"], 1)
+            self.assertEqual(
+                node._last_depth_meters.shape,
+                (PERCEPTION_HEIGHT, PERCEPTION_WIDTH),
+            )
+            node._on_tick(source="timer")
+            self.assertEqual(node._counts["inferences"], 1)
+        finally:
+            node.destroy_node()
+
+    def test_off_resolution_frame_alone_never_reaches_the_tick(self) -> None:
+        node = _real_assembly_depth_node()
+        try:
+            node._on_depth(_z16_msg(np.full((480, 848), 1000, dtype=np.uint16)))
+            node._on_depth(_depth_msg(480, 848, fill=1.0))
+            self.assertEqual(node._counts["depth_bad_shape"], 2)
+            self.assertEqual(node._counts["depth_rx"], 0)
+            self.assertIsNone(node._last_depth_meters)
+            node._on_tick(source="timer")
+            self.assertEqual(node._counts["inferences"], 0)
         finally:
             node.destroy_node()
 
@@ -3094,7 +3141,7 @@ class TestZ16Decode(unittest.TestCase):
     def test_32fc1_frame_after_z16_drops_the_mask(self) -> None:
         node = _node(policy_variant="DEPTH_SUBGOAL")
         try:
-            node._on_depth(_z16_msg(np.zeros((4, 4), dtype=np.uint16)))
+            node._on_depth(_z16_msg(np.zeros((PERCEPTION_HEIGHT, PERCEPTION_WIDTH), dtype=np.uint16)))
             node._on_depth(_depth_msg(fill=1.0))
             self.assertIsNone(node._last_depth_valid)
         finally:

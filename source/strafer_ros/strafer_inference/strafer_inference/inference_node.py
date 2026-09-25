@@ -845,12 +845,21 @@ class InferenceNode(Node):
             ] += 1
             self.get_logger().warning(str(exc))
             return
-        # Scored here on the depth thread, not the tick. An off-resolution
-        # frame has no policy cells; downsample_depth rejects it downstream.
+        # Dropped here, not cached: downsample_depth raises on any other
+        # shape, and that raise on the tick would reach the executor. The
+        # driver serves its default profile when the pinned one is rejected.
+        if arr.shape != (PERCEPTION_HEIGHT, PERCEPTION_WIDTH):
+            self._counts["depth_bad_shape"] += 1
+            self.get_logger().warning(
+                f"Dropping {msg.encoding} depth frame at "
+                f"{arr.shape[1]}x{arr.shape[0]}; the policy needs "
+                f"{PERCEPTION_WIDTH}x{PERCEPTION_HEIGHT}",
+                throttle_duration_sec=5.0,
+            )
+            return
+        # Scored here on the depth thread, not the tick.
         z16_cells = z16_majority_invalid = 0
-        if valid is not None and valid.shape == (
-            PERCEPTION_HEIGHT, PERCEPTION_WIDTH
-        ):
+        if valid is not None:
             z16_cells = DEPTH_HEIGHT * DEPTH_WIDTH
             z16_majority_invalid = count_majority_invalid_cells(valid)
         rx_t = time.monotonic()

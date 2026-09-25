@@ -63,6 +63,15 @@ def generate_launch_description():
                 # Align depth frame to color frame
                 "align_depth.enable": "true",
 
+                # Pinned by contract, not left to wrapper defaults: no RealSense
+                # filter may touch depth before the policy. rs_launch.py warns
+                # about and drops any name it does not declare.
+                "decimation_filter.enable": "false",
+                "spatial_filter.enable": "false",
+                "temporal_filter.enable": "false",
+                "hole_filling_filter.enable": "false",
+                "depth_module.enable_auto_exposure": "true",
+
                 # Reset USB device on startup (helps with reconnections)
                 # NOTE: Disabled — causes tegra-xusb transfer errors on
                 # re-enumeration.  Camera state is clean at module load.

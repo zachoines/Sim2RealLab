@@ -68,12 +68,14 @@ the driver publishes `16UC1`
 
 ## Method
 
-1. **Pin the filter state first, or record that it is unpinned.**
-   `strafer_perception/config/d555_params.yaml` is never loaded by any launch
-   path, so the four post-processing filters and depth auto-exposure are at
-   `realsense2_camera` defaults rather than at the values that file names.
-   Either land [`d555-params-file-inert`](../reliability/d555-params-file-inert.md)
-   first, or read the running values back off the node and record them. Spatial
+1. **Confirm the filter state before bagging.**
+   [`d555-params-file-inert`](../reliability/d555-params-file-inert.md)
+   deleted the never-loaded `d555_params.yaml` and pins the four
+   post-processing filters off and depth auto-exposure on as explicit
+   `rs_launch.py` arguments in `perception.launch.py`. Its on-hardware
+   read-back is still open, so read the running values back off the node
+   (`ros2 param get /d555 spatial_filter.enable`, and the rest) and record
+   them with the capture. Spatial
    or temporal filtering would bias every number here, and a temporal filter
    would bias it **down**, in the direction that makes the sensor look quieter
    than it is.

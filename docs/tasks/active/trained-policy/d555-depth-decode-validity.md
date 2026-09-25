@@ -130,11 +130,13 @@ separately, because this brief is what makes them measurable:
   pinned there. Depth currently inherits the wrapper's `SYSTEM_DEFAULT` (which
   resolves RELIABLE), so a RELIABLE subscriber works *by default rather than by
   contract*, and a driver-version change would break it silently — a reliable
-  subscriber receives **nothing** from a best-effort publisher. Note that
-  `d555_params.yaml` is **not** the surface: its own header offers it as a
-  `--params-file` and no launch file loads it, so anything written there is
-  inert. An argument name `rs_launch.py` does not declare fails the include
-  outright, so verify the name against the installed wrapper.
+  subscriber receives **nothing** from a best-effort publisher. Note that the
+  `launch_arguments` dict is the surface (the never-loaded `d555_params.yaml`
+  was deleted by [`d555-params-file-inert`](../reliability/d555-params-file-inert.md)).
+  An argument name `rs_launch.py` does not declare does **not** fail the
+  include: `realsense2_camera` 4.58.4 prints `Parameter '<name>' is not
+  supported` and never forwards it to the node, so verify the name against the
+  installed wrapper's `configurable_parameters`.
 - **Then decide the real lane's `depth_reliability`.** The sim lanes subscribe
   RELIABLE via `STRAFER_DEPTH_RELIABILITY`
   ([`depth-qos-reliable-flip`](../../completed/depth-qos-reliable-flip.md));

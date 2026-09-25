@@ -59,24 +59,57 @@ another setting the repo believes it controls and does not.
 
 ## Acceptance criteria
 
-- [ ] The four post-processing filters and `depth_module.enable_auto_exposure`
+- [x] The four post-processing filters and `depth_module.enable_auto_exposure`
       are set by something that is read at launch: either `d555_params.yaml`
       passed as `--params-file`, or the file deleted and the same values passed
       as explicit `launch_arguments` in `perception.launch.py`. Pick one; do not
       leave both.
-- [ ] If the file is kept, its header stops describing a usage that is not the
+      *Met 2026-09-25: file deleted; `perception.launch.py` passes
+      `decimation_filter.enable`, `spatial_filter.enable`,
+      `temporal_filter.enable`, `hole_filling_filter.enable` = `"false"` and
+      `depth_module.enable_auto_exposure` = `"true"` to `rs_launch.py`, with a
+      comment saying they are pinned by contract. All five are in the
+      `configurable_parameters` list of `realsense2_camera` 4.58.4's
+      `rs_launch.py` (read inside `strafer-cpu:humble`), so each is forwarded
+      to the node. The file's `rgb_camera.enable_auto_exposure: true` was not
+      carried over: colour is not on the policy path and the wrapper default is
+      the same `true`.*
+- [x] If the file is kept, its header stops describing a usage that is not the
       usage. If it is deleted, `setup.py`'s `data_files` entry goes with it.
-- [ ] A test asserts the filter state the launch requests, in the same idiom as
+      *Met 2026-09-25: the `config/*.yaml` entry is gone from
+      `strafer_perception/setup.py`; it was the directory's only file.*
+- [x] A test asserts the filter state the launch requests, in the same idiom as
       the existing inference-config assertions
       (`test_inference_config.py` pins the depth topic this way). A launch-arg
       assertion is enough; no camera needed.
+      *Met 2026-09-25: `strafer_perception/test/test_perception_launch.py`
+      captures the `IncludeLaunchDescription` arguments (the `_CaptureNode`
+      idiom) and asserts each of the five values; checks the installed
+      `rs_launch.py` still declares each name, since an undeclared name is
+      warned about and dropped rather than failing the include; and checks no
+      `config_file` or `params_file` is passed. The five value assertions fail
+      against the pre-change launch (5 failed, 6 passed).*
 - [ ] Verified against the running node on hardware: the requested values are
       the values the node reports.
-- [ ] If your work invalidates a fact in any referenced context module, package
+      *Open 2026-09-25: the D555 enumerates as 8086:0bdc "Intel RealSense
+      Generic Device" with no `/dev/video*` nodes and `realsense2_camera`
+      4.58.4 logs "No RealSense devices were found!", so there is no node to
+      read back from.*
+- [x] If your work invalidates a fact in any referenced context module, package
       README, top-level `Readme.md`, or guide under `docs/`, update those in the
       same commit. See
       [`conventions.md`'s user-facing documentation maintenance section](../../context/conventions.md#user-facing-documentation-maintenance)
       for the surface list and trigger heuristics.
+      *Met 2026-09-25: `source/strafer_ros/README.md` names the pinned filter
+      state and its test. Two active briefs that described the file as live or
+      pending were updated: `real-d555-depth-texture-capture` step 1, and
+      `d555-depth-decode-validity`, whose claim that an undeclared argument
+      "fails the include outright" was wrong; it also now notes that 4.58.4
+      does not declare `depth_qos`. No context module cited the file.
+      The content of completed records and `docs/measurements/` was left alone
+      (the 2026-08-04 correction is out of scope); the one change there is a link
+      retarget in `completed/depth-reception-reliability.md`, whose link to the
+      deleted file now points at its last revision (`bd240ba`).*
 
 ## Investigation pointers
 
@@ -92,6 +125,45 @@ another setting the repo believes it controls and does not.
 - [`completed/d555-invalid-pixel-statistics.md`](../../completed/d555-invalid-pixel-statistics.md),
   the "Measurement 2026-08-04" setup paragraph — the citation that rests on this
   file being loaded.
+
+## Adjacent finding (2026-09-25, not fixed here)
+
+**The three `global_time_enabled` pins in the same include are inert too.**
+`perception.launch.py` passes `depth_module.global_time_enabled`,
+`rgb_camera.global_time_enabled` and `motion_module.global_time_enabled` =
+`"false"`, with a comment that global time is broken on Jetson. None of the three
+is in `realsense2_camera` 4.58.4's `rs_launch.py` `configurable_parameters`
+(read inside `strafer-cpu:humble`). `launch_setup` prints
+`Parameter '<name>' is not supported` for each one, which matches the startup
+log, and builds the node's parameters only from the declared list, so the
+values never reach the node. The node sets these sensor options itself from
+librealsense, so global time is **on** unless the wrapper sets it (librealsense's
+`bool_option` default). That is the opposite of what the comment says. It does not
+affect `timestamp_fixer`, which in its default restamp mode replaces every header
+stamp with the reception clock and so is indifferent to global time; it bears on
+consumers of the raw header stamps — bag parity work, and the fixer's own
+first-frame delta log. The same gap applies to `depth_qos`, which
+[`d555-depth-decode-validity`](../trained-policy/d555-depth-decode-validity.md)
+plans to pin.
+
+Suggested follow-up: pass these through `rs_launch.py`'s declared
+`config_file` argument. That YAML reaches the node unfiltered; unknown keys are
+warned about but still passed. Two cautions. `launch_setup` builds the node
+with `parameters=[params, params_from_file]` (`rs_launch.py:160` in 4.58.4), so
+the file is applied second and would silently override the five filter and AE
+pins if it set any of them; `test_no_params_file_or_config_file_override` in
+`test_perception_launch.py` exists to block that, so adopting `config_file`
+means replacing it with a test that loads the file and fails if it sets any
+`PINNED` key. And the YAML must be a plain parameter dict (dotted keys such as
+`depth_module.global_time_enabled: false`, or the equivalent nesting): the
+`d555: ros__parameters:` wrapper the deleted file used would be flattened into
+`d555.ros__parameters.<name>` and reach no real parameter. Then read the
+running values back with
+`ros2 param get /d555 depth_module.global_time_enabled` on hardware, and check
+which raw-stamp consumers assumed global time was off. Also add
+a test that every `launch_arguments` key is declared by the installed wrapper,
+which would have caught all three. That test would fail today, which is why it
+is not in this change.
 
 ## Out of scope
 

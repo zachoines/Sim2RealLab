@@ -181,7 +181,14 @@ make submit-deploy CMD="go to the chair"
   [`context/deploy-env-config.md`](tasks/context/deploy-env-config.md).
 - The executor is set to the **hybrid (policy) backend** via `docker-compose.override.autonomy-local.yml`, so semantic goals drive the DEPTH_SUBGOAL policy (not plain nav2). That override is **untracked** (host-specific URLs) — it lives in the deploy dir.
 - If the VLM can't find the named object, the mission fails at grounding ("target not found"). Pick something clearly in frame.
-- **Known open items:** the policy parks near the goal but doesn't trip `NavigateToPose`'s success radius, and the mission-runner's hybrid-nav step has a **7 s** timeout that's short for the sim's RTF — so a mission may report a nav timeout even when the robot arrived. Drive/loop are correct; it's a completion-signal/tuning gap.
+- **Mission completion.** The policy's action server reports `SUCCEEDED` at the shared
+  `GOAL_ARRIVAL_RADIUS_M` (0.30 m, the node's `goal_reached_distance_m`) and aborts at
+  `mission_timeout_s` = 60 s on the node clock (about 8 min wall at RTF ~0.13). The executor's
+  hybrid-nav step allows 90 s (`default_nav_timeout_s`). On 2026-09-25 the v3 artifact
+  (`strafer_depth_subgoal_v3_999`) reached that radius in 4 of 6 gate missions and 3 of 3
+  fixed-goal repeats on this lane; v2 reached 0 of 2 in the same session and does not close a
+  ~3 m goal inside 60 s
+  ([record](measurements/goal-a-rig-gate-v3-2026-09-25/README.md)).
 - **If the robot parks within ~0.4 m of an obstacle** it lands in the costmap
   inflation halo, where `GridBased` refuses its own pose as a planning start.
   On the **hybrid** lane the subgoal generator escapes that itself — it retries

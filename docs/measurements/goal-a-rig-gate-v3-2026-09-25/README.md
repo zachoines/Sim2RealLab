@@ -121,13 +121,13 @@ The record does not attribute either miss. What each run did:
 
 **R2, the furniture standoff.**
 - The robot was within 0.37 m of the goal 9.9 s sim into the mission.
-- For the remaining ~50 s sim it held 0.347–0.359 m from the goal, commanding a mean
+- From about 11 s sim to the end it held 0.347–0.360 m from the goal, commanding a mean
   0.020 m/s over the last 10 s sim.
-- The goal cell is free, and lethal cost lies 0.39 m from it. On the pre-mission costmap
-  snapshot, the nearest lethal cell to the robot's final pose was 0.64 m away.
+- The goal cell is free, and cost ≥ 99 lies 0.39 m from it. On the pre-mission costmap
+  snapshot, the nearest cell of cost ≥ 99 to the robot's final pose was 0.64 m away.
 - The node aborted at 60.0 s sim.
-- `map→odom` corrections in the window were each ≤ 0.160 m. Summed over 60 s sim, they
-  moved `map→odom` by 0.33 m.
+- `map→odom` corrections in the window were each ≤ 0.160 m; their net displacement over the
+  60 s sim was 0.33 m.
 
 **R3, open floor, NE — run on a displaced SLAM estimate.**
 - During the transit that brought the robot to the start for R3, `map→odom` stepped by
@@ -167,9 +167,9 @@ tolerance.** `map→odom` stepped **0.497 m and −17.35°** at 2.12 s into the 
 The corrections after it were 0.20 m or less, and none exceeded 0.022 m in the last 3 s sim
 before the result, so the jump did not deliver the reach.
 
-**F2's first transit settled at 3.00° off the 130° heading.** That is inside the runner's
-enforced 3.0° but outside the transit's own 2.5° target, so the transit was repeated before
-any goal was sent.
+**F2's first transit settled 3.001° off the 130° heading**, outside the transit's own 2.5°
+target and just past the runner's enforced 3.0°, so the transit was repeated before any goal
+was sent.
 
 ## The v2 descriptive arm
 
@@ -238,8 +238,10 @@ the collision admission rule is in force for the whole interval rather than abou
 ## map→odom
 
 A ride-along sampled `map→odom` at ~10 Hz sim for the whole scored session: 7406 samples. A
-correction is a step of more than 1e-4 m or 0.057° between samples. The statistics use the
-2026-08-17 record's analysis, run on the same series.
+correction is a step of more than 1e-4 m or 0.057° between samples. The whole-session row uses
+the 2026-08-17 record's analysis (interpolated percentiles), run on the same series; the
+per-window rows come from `tools/drift_windows.py`, whose p95 is the floor-index order statistic
+(with interpolation the six windows' p95 reads 0.134 m).
 
 | | corrections | largest | p95 | at or above 0.30 m |
 |---|---:|---:|---:|---:|

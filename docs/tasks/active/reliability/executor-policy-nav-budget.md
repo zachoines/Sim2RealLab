@@ -31,6 +31,8 @@ time budget to follow the policy's own completion bound, or its measured closing
   `nav_progress_aware=True`, gives it `compute_motion_budget_s`. That is
   `min(STRAFER_NAVIGATION_TIMEOUT_S = 90, max(5, 2·d / NAV_LINEAR_VEL + 5))` seconds, with
   `d` the straight-line distance at dispatch and `NAV_LINEAR_VEL` = 0.7841 m/s.
+- The cap is `STRAFER_NAVIGATION_TIMEOUT_S`: 90 s by default, which the sim-bridge lane keeps;
+  the sim-in-the-loop lane sets 180 s.
 - The budget runs on the executor's node clock, which is sim time on the sim lanes.
 - It is sized for Nav2 driving at its nominal speed.
 

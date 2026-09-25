@@ -125,7 +125,8 @@ first `map→base_link` lookup at or inside 0.30 m. Training's own completion is
 inside 0.30 m at ≤ 0.1 m/s. The approach to every goal was good — median while-moving `v_par`
 +0.253 m/s, against v2's 0.014–0.027 m/s the same day — but three of the four reaches in the six
 (G1, L1, L2) and the R2 miss were decided in the terminal centimetres. All figures below
-re-derive from the deposit (`reach_terminal.json`, `tools/reach_terminal.py`).
+re-derive from the deposit: the tables from `reach_terminal.json` (`tools/reach_terminal.py`),
+`v_par` from `table.json`, and F1's step from `drift_summary.json`.
 
 | run | status | final (map) | 0.42 m → end, s sim | distance held (m) | mean cmd (m/s) | `vx` sign flips | chassis (m/s) | last 0.5 s before crossing: chassis / cmd (m/s) | dwell read | last-1 s corrections vs margin (m) |
 |---|---|---:|---:|---|---:|---:|---:|---|---|---|
@@ -158,30 +159,38 @@ re-derive from the deposit (`reach_terminal.json`, `tools/reach_terminal.py`).
 
 **Final distance in stable frames.** Odom is ground truth in the sim bridge, so every `map→odom`
 change is SLAM error. The final odom pose is mapped into two frames no in-mission correction
-moves: the run's own start frame (`map→odom` at goal sent) and the session-median frame
-(component-wise median of the ride-along's `map→odom`: 0.093 m, −0.042 m, 2.59°).
+moves: the run's own start frame (`map→odom` at goal sent), the session-median frame
+(component-wise median of the ride-along's `map→odom`: 0.093 m, −0.042 m, 2.59°), and the same
+median with R3's displaced interval left out (the ride-along between the session's two steps of
+0.9 m or more, 357.0–475.5 s sim: 0.104 m, −0.050 m, 3.14°). The frame definition matters, so
+all three are given.
 
-| run | status | map frame at the result | run's own start frame | session-median frame |
-|---|---|---:|---:|---:|
-| G1 | SUCCEEDED | 0.300 | 0.307 | 0.233 |
-| R1 | SUCCEEDED | 0.290 | 0.278 | 0.263 |
-| L1 | SUCCEEDED | 0.299 | 0.254 | 0.253 |
-| R2 | ABORTED | 0.350 | 0.354 | 0.349 |
-| L2 | SUCCEEDED | 0.300 | 0.178 | 0.263 |
-| R3 | ABORTED | 0.508 | 0.270 | 4.110 |
-| F1 | SUCCEEDED | 0.297 | 0.613 | 0.654 |
-| F2 | SUCCEEDED | 0.293 | 0.191 | 0.213 |
-| F3 | SUCCEEDED | 0.284 | 0.250 | 0.260 |
-| V2_G1 | ABORTED | 2.097 | 2.000 | 2.042 |
-| V2_L1 | ABORTED | 2.129 | 2.055 | 2.083 |
+| run | status | map frame at the result¹ | run's own start frame | session-median frame | session median without the displaced interval |
+|---|---|---:|---:|---:|---:|
+| G1 | SUCCEEDED | 0.300 | 0.307 | 0.233 | 0.260 |
+| R1 | SUCCEEDED | 0.290 | 0.278 | 0.263 | 0.260 |
+| L1 | SUCCEEDED | 0.299 | 0.254 | 0.253 | 0.271 |
+| R2 | ABORTED | 0.350 | 0.354 | 0.349 | 0.355 |
+| L2 | SUCCEEDED | 0.300 | 0.178 | 0.263 | 0.310 |
+| R3 | ABORTED | 0.508 | 0.270 | 4.110 | 4.121 |
+| F1 | SUCCEEDED | 0.297 | 0.613 | 0.654 | 0.684 |
+| F2 | SUCCEEDED | 0.293 | 0.191 | 0.213 | 0.235 |
+| F3 | SUCCEEDED | 0.284 | 0.250 | 0.260 | 0.276 |
+| V2_G1 | ABORTED | 2.097 | 2.000 | 2.042 | 2.068 |
+| V2_L1 | ABORTED | 2.129 | 2.055 | 2.083 | 2.108 |
 
-In both stable frames R1, L1 and L2 end inside 0.30 m. G1 ends at 0.233 m in the session-median
-frame and 0.307 m in its own start frame — at the line. R2 is a miss in every frame. R3 is not
-comparable (below). In the fixed leg, F2 and F3 end inside in both frames; F1 ends 0.613 m and
-0.654 m away, a reach in the map frame only, because its 0.497 m / −17° step persisted to the
-result. So in stable frames the six read three certain reaches plus G1 at the line, and the fixed
-leg reads 2 of 3. The scored verdict is the map-frame one, by the pre-registration; this record
-states both.
+¹ Recomputed from the final odom pose and the `map→odom` sample nearest the result, so it can
+differ from the runner's final distance in the fourth decimal (F2: 0.2927 against 0.2925).
+
+R1 and L1 end inside 0.30 m in every stable frame. G1 and L2 each end outside in exactly one:
+G1 at 0.307 m in its own start frame, L2 at 0.310 m in the median without the displaced
+interval; each is inside in the other two. R2 is a miss in every frame. R3 is not comparable
+(below). In the fixed leg F2 and F3 end inside in every frame, and F1 ends 0.61–0.68 m away in
+all three — a reach in the map frame only, because its 0.497 m / −17° step persisted to the
+result. So in stable frames the six read two reaches that hold under every definition (R1,
+L1) and two at the line whose reading depends on the frame (G1, L2), and the fixed leg reads
+2 of 3 under every definition. The scored verdict is the map-frame one, by the
+pre-registration; this record states both.
 
 ### The two misses
 
@@ -191,8 +200,8 @@ The record does not attribute either miss. What each run did:
 - The robot was within 0.37 m of the goal 9.9 s sim into the mission.
 - From about 11 s sim to the end it held 0.347–0.360 m from the goal, commanding a mean
   0.020 m/s over the last 10 s sim.
-- Nothing in the deposit ties the miss to the nearby furniture: the subgoal sat 0.038 m from
-  the goal throughout, the generator made no collision admission, and on the pre-mission costmap
+- Nothing in the deposit ties the miss to the nearby furniture: from 2.9 s sim on, the subgoal
+  sat 0.038 m from the goal, the generator made no collision admission, and on the pre-mission costmap
   snapshot the nearest cell of cost ≥ 99 to the robot's final pose was 0.64 m away (the goal cell
   itself is 0.39 m from one).
 - The node aborted at 60.0 s sim.
@@ -201,8 +210,9 @@ The record does not attribute either miss. What each run did:
 
 **R3, open floor, NE — run on a displaced SLAM estimate.**
 - During the transit that brought the robot to the start for R3, `map→odom` stepped by
-  **0.953 m and −75.7°**. It held there for the whole mission, at about (−0.8, +0.1, −77°)
-  against about (0.08, −0.05, +1.3°) for the runs before and after.
+  **0.953 m and −75.7°**. It stayed displaced for the whole mission — starting at
+  (−0.82, +0.12, −77.4°), reaching (−0.80, +0.42, −84.7°) at 5.2 s sim and ending at
+  (−0.64, +0.26, −76.7°) — against about (0.08, −0.05, +1.3°) for the runs before and after.
 - It stepped back by 0.941 m and +77.5° during the next transit, before F1.
 - At the first step, rtabmap's map-update time rose from ~0.005 s to 0.17 s for three
   iterations. Its log records no accepted loop closure at INFO level.
@@ -216,13 +226,18 @@ The record does not attribute either miss. What each run did:
   watchdog; no other scored window had more than one such skip.
 - **R3 was physically a different mission.** In odom, which is ground truth here, its start was
   0.88 m and 81° off the nominal start, and its plans ran on a map rotated ~77° to the world;
-  in the session-median frame it ended 4.11 m from where its goal is.
-- None of the pre-registration's unscored causes applies: a start outside tolerance or inside
-  the floor, a broken stack contract (depth stall, container restart, SLAM FATAL), or a
-  wall-guard cancel. It names no cause for a displaced SLAM estimate, so R3 is scored as run,
-  which is protocol-correct. The policy-attributable denominator of the six is therefore five
-  (G1, R1, L1, R2, L2), with one miss (R2) in it. A SLAM-health unscored cause belongs in the
-  next gate's pre-registration.
+  in the session-median frame it ended 4.11 m from where its goal is. In its own start frame —
+  itself the displaced estimate — it came inside 0.30 m at 17.7 s sim and parked at ~0.27 m, so
+  about 0.24 m of in-mission `map→odom` movement lies between that and the scored 0.508 m.
+- None of the pre-registration's unscored causes applies. The runner enforces the start
+  tolerance through `map→base_link`, where R3's start was 0.031 m / 1.2° off nominal; its
+  ground-truth offset is outside that tolerance, and the pre-registration names no frame for it.
+  The other causes (a start inside the floor, a broken stack contract, a wall-guard cancel) did
+  not occur, and it names no cause for a displaced SLAM estimate. So R3 is scored as run, which is
+  protocol-correct. If R3 is set aside as a run on a displaced frame, the remaining five hold one
+  miss (R2); that is a reading of which runs tested the policy on the intended mission, not a
+  cause for either miss. A SLAM-health unscored cause belongs in the next gate's
+  pre-registration.
 
 ## Fixed-goal leg
 
@@ -311,10 +326,12 @@ the collision admission rule is in force for the whole interval rather than abou
     runs include three of the four reaches in the six, and both misses.
   - The two misses carry the two highest table fractions (0.487, 0.483), but not because the
     robot was parked. The repeat counter compares only frames an inference consumed, and per
-    inference the repeats were 0.500 in every ~50 % run, in parked and moving windows alike
-    (R2 0.500 in both; R3 0.501 in both). The table's `repeat_content / depth rx` reads lower for
-    shorter missions because `depth rx` also counts frames received at the window edges that no
-    inference consumed, and a full 60 s mission is diluted least.
+    inference the repeats were about 0.50 in every ~50 % run, in parked and moving windows
+    alike (R2 and R3 each 0.50 in both, from the 10 s counter deltas in
+    `logs/strafer_inference.v3.log`, a window counting as moving when the chassis covered more
+    than 2 cm in it). The table's `repeat_content / depth rx` reads lower for shorter missions
+    because `depth rx` also counts frames no inference consumed — at the window edges and, in R3,
+    during its 13 mid-mission watchdog skips — and a full 60 s mission is diluted least.
   - The regime is render-side and is not set from the deploy stack.
 - **Collision admissions** inside the six windows: 8 (R1 2, R3 6). The v3 container's
   cumulative counter ended at 11; the other three fall outside mission windows.
@@ -376,8 +393,8 @@ per-window rows come from `tools/drift_windows.py`, whose p95 is the floor-index
 |---|---|
 | repository | https://github.com/zachoines/Sim2RealLab-Artifacts |
 | deposit directory | `goal-a-rig-gate-v3-2026-09-25/record-files/` |
-| deposit commit | `f0a9232337be4cb15ccca8dfbc08fa15d78986c6` |
-| earlier commits | `15cea6163fc25d77cf21fad6cf8d557ff6f6e9eb` deposited the first 110 files; `b513b289` corrected only `DEPOSIT.md`'s re-derive command; `f0a92323` adds `reach_terminal.json`, `tools/reach_terminal.py` and `stage0/in_container_artifact_checks.txt` and refreshes `DEPOSIT.md` |
+| deposit commit | `ca78bf063968569b262d18f02add3f8883b1dca1` |
+| earlier commits | `185d2bc3` deposited `preregistration.md` alone, before the first mission; `15cea6163fc25d77cf21fad6cf8d557ff6f6e9eb` the other 109 digest-listed files and `DEPOSIT.md`; `b513b289` corrected `DEPOSIT.md`'s re-derive command and added its `cmp` statement; `f0a92323` added `reach_terminal.json`, `tools/reach_terminal.py` and `stage0/in_container_artifact_checks.txt`; `ca78bf06` added the third stable frame to those reads |
 | pre-registration commit | `185d2bc30c4d5acb14e7307c72e05633b693b19d` (the file alone, before the first mission) |
 
 The deposit holds everything this record names:
@@ -487,7 +504,7 @@ ebd11d176a57acd6b0ae1fc2025bfbf8f7ec5bd31ae254e3ca2e412c6876aafe  missions/R2.js
 6c0e2341807570afc208b77d6eec46b594ae4b9b436c7db5e8c9c73946ee08ab  missions/V2_G1.json
 cc90b62096705017ef836b4f5267060a00515056a8cae8ee3672ca0151cc572c  missions/V2_L1.json
 69a6807fb828bf88eca15a1af2c5d7acdcffbaab831133baecf1b01277c4c00c  preregistration.md
-706ba7bc634284ee09b17710fcdf20e6dcd95970da2d999391ce06f9532b08d7  reach_terminal.json
+2ab8f8dc90331aa4fa90087c82ce4f5358f370c5c2ed602bdd554209495339a8  reach_terminal.json
 1f7e4c08d3e22e5f6949a93bf158e2ac55f5d29ef0ac3cb6aa346e0f6d6b7593  ride_along/tf_gate.jsonl
 1dcf54927b8525935d350fb8e76538b800c1d0cddd3b717dac1c7290fd9e21ce  ride_along/tf_logger_gate.out
 befb15fa58ec7023a18222dbfb1732d41bd28a2280c3614d26ee8f874c5b8b59  scrape/scrape_v2.json
@@ -511,7 +528,7 @@ efec4ece1d68fbd8dff072e36a60b47e2fa13e46eed9184de3cfba2bb46c77a6  tools/build_ta
 cd663222fc4060ce908d1434f49a0bbad05ec6b4585904f3f3d5762e9b650e50  tools/drift_windows.py
 2e0ecafe86ac323734682a01b5bb2bd6e025d6ba7afda97fdc7b0a20d4ed1f13  tools/gate_mission.py
 89a1296abba90e4c29b0c03a70a8b459aa7e8bd527cea0b0097734e8cc1e3f40  tools/probe_goals.py
-5c34a70685bec6922ac5e716d2ee92c1b1e348dd511d9ab03b4b7dda4ea13cb6  tools/reach_terminal.py
+019e177cb6f6a6f4f1c2f4d3403bd39df646c1137b15ea56ebeb98ecb6c2d808  tools/reach_terminal.py
 ca66c078b8331fa81a7f7194c2d632d056b3c0a3bb6fd8ce83ae68d4682089c5  tools/run_one.sh
 59849e7cccefb971431c30ed7c669fe5860dff4aca0a5d9a0ad695b3a17b6a8c  tools/scrape_windows.py
 8f47148d0c32260650377ec70a9055fda02a3aa32bda807eb95508fc8804e4e4  tools/tf_logger.py

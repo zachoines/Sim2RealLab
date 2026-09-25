@@ -138,8 +138,8 @@ camera can render a command marker.
       ≥ 0.30 m in the six scored windows, although R3 ran its whole window on a `map→odom`
       displaced 0.95 m / 76° by a step in the transit before it ([record](../../../measurements/goal-a-rig-gate-v3-2026-09-25/README.md)).
       The record also carries the reaches' terminal behaviour and a stable-frame distance for
-      every run: in stable frames the six read three certain reaches plus G1 at the line, and the
-      fixed leg 2 of 3. Goal-a's "via the autonomy CLI" clause stays open until
+      every run: in stable frames R1 and L1 hold under every frame definition, G1 and L2 sit at
+      the line depending on the frame, and the fixed leg reads 2 of 3. Goal-a's "via the autonomy CLI" clause stays open until
       [`executor-policy-nav-budget`](../reliability/executor-policy-nav-budget.md) lands and a
       CLI-submitted confirmation set runs; this gate drove the node's action server directly, as
       the 2026-08-17 set did.

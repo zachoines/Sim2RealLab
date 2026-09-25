@@ -86,7 +86,8 @@ arithmetic is stated once and does not drift between paragraphs.
   (`cross_track_exceeded` and `goal_changed` both fired normally).
 - `plan is stale (older than 1.0 s); suppressing rolling-subgoal output` also
   fired: the replan period is 0.5 s sim ≈ 4.7 s wall at RTF 0.106, against a
-  1.0 s wall guard.
+  1.0 s wall guard. *(This explanation is wrong for the code that ran; see
+  [the corrected diagnosis](#the-stale-plan-warning-at-the-gate) below.)*
 - `anchor_age` in the `anchor status:` line is wall seconds while `cursor` and
   `cross_track` beside it are spatial and the mode is sim-driven. It read
   `anchor_age=794.0s` on a mission that had run ~50 s sim, which is a live trap
@@ -108,6 +109,95 @@ moves the command 0.4°.
 What this brief owns is untouched by that: an admission rule that fires about
 half the time on any lane slower than real time, and an `anchor_age` reported in
 a clock the rest of its line does not use.
+
+## Implementation notes (`912eea7`)
+
+These notes record where the fix departs from the table and acceptance box 1 as
+written, and correct one diagnosis above. Read them before ticking the boxes.
+
+### Two windows stay on wall time on purpose
+
+Box 1 says the freshness guards read the node clock, and the table lists goal
+telemetry among them. Two windows deliberately stay on `time.monotonic()`,
+because each one times a producer that runs on wall time:
+
+- **Goal telemetry** (`goal_telemetry_timeout_s`, 2.5 s). The inference node
+  publishes the active-goal keep-alive on `time.monotonic()` at 1 Hz wall
+  ([`inference_node.py`](../../../../source/strafer_ros/strafer_inference/strafer_inference/inference_node.py)
+  `last_keepalive_t`). A 2.5 s window on the sim clock would flap at any RTF
+  above 2.5, because 1 s of wall time between keep-alives would then be more
+  than 2.5 s of sim time.
+- **In-flight replan abandon** (`_REPLAN_ABANDON_S`, 2.0 s). It times the
+  planner process's reply to one `ComputePathToPose` request. This is not a
+  sim-rate quantity.
+
+The status-log cadence also stays on wall time, as box 3 requires. The node
+docstring, the `subgoal_generator.yaml` comments and
+`test_goal_telemetry_and_inflight_abandon_stay_on_the_wall_clock` all record
+the same split. So box 1 is met for the costmap window, the plan window, the
+replan cadence and `anchor_age`, and is deliberately not met for these two.
+
+The table's "replan spacing" row is also mislabelled. The lines it cites
+(`:708` / `:682` before the fix) are the `_REPLAN_ABANDON_S` stamp and compare,
+not the replan timer. The timer ran on a `STEADY_TIME` clock at `:341`, and the
+fix did move it (next section).
+
+### The replan timer moved back to the node clock, reversing #132
+
+`86e9590` (#132, 2026-07-03) put the replan timer on a `STEADY_TIME` clock to
+match the wall-clock plan window. With the plan window now on the node clock,
+the budget `replan_period_s` (0.5) < `path_timeout_s` (1.0) holds at every RTF
+only if both run on the same clock, so the timer is back on the node clock.
+`test_replan_fires_on_wall_time_with_frozen_sim_clock` was removed with it.
+
+On a slow lane, this changes the replan rate per wall second. At RTF 0.106,
+replans go from one every 0.5 s wall to one every ~4.7 s wall. The replan rate
+per sim second is unchanged.
+
+A stalled `/clock` no longer trips the plan window. It does not need to: the
+generator's tick is a node-clock timer too, so a stalled `/clock` stops the
+subgoal stream, and a sim whose `/clock` has stopped is not moving the robot
+either. A planner that dies while `/clock` runs still ages the plan out,
+measured in sim seconds.
+
+### The stale-plan warning at the gate
+
+The measured bullet above blames `plan is stale` on "0.5 s sim ≈ 4.7 s wall
+against a 1.0 s wall guard". That cannot be what happened. The gate ran images
+built at `e7ea7bd`
+([record](../../../measurements/goal-a-rig-gate-2026-08-17/README.md)), and
+`e7ea7bd` already contains `86e9590`. The replan timer was therefore steady at
+0.5 s wall, and the plan window was 1.0 s wall. Replanning and plan-window
+expiry were on the same wall clock, and the cadence fit the window.
+
+The cause of that warning is still unexplained. There are three candidates:
+
+- **Mission end, by design.** When goal telemetry stops, `_on_replan_tick`
+  drops the active goal. The plan then ages out and the subgoal is suppressed,
+  and this warning fires. The warning will still fire this way after the fix.
+- **Planner latency.** The cadence skips a tick while a request is in flight,
+  so a `ComputePathToPose` reply slow enough to land consecutive plans more
+  than 1.0 s wall apart would expire the plan window mid-mission.
+- **Planner refusal.** Only a valid plan for the active goal refreshes plan
+  liveness, so a planner that keeps refusing the robot's pose also lets the
+  window expire mid-mission.
+
+### What the re-run should expect and check
+
+Records taken before and after this fix differ in two ways:
+
+1. `anchor_in_collision` should rise above the gate's 43, because the collision
+   rule is in force for the whole interval (see Scope).
+2. There are fewer replans per wall second on a slow lane: ~4.7 s wall apart
+   at RTF 0.106, where they used to be 0.5 s wall apart.
+
+The warnings now name their clock: `Costmap is older than 5.0 s sim` and
+`plan is stale (older than 1.0 s sim)`. Box 5's grep for `Costmap is older than
+5.0 s` still matches. For `plan is stale`, the re-run should record when it
+fires. If it fires only at mission ends, that is the by-design case above. If
+it fires mid-mission, record planner reply latency and planner failures to
+tell the other two apart. A disappearing warning does not confirm the brief's original
+explanation.
 
 ## Acceptance
 

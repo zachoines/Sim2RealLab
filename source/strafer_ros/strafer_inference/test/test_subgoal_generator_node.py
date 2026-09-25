@@ -9,7 +9,8 @@ from __future__ import annotations
 
 import time
 import unittest
-from unittest.mock import MagicMock
+from types import SimpleNamespace
+from unittest.mock import MagicMock, patch
 
 import numpy as np
 import pytest
@@ -19,6 +20,7 @@ from geometry_msgs.msg import PoseStamped
 from nav_msgs.msg import OccupancyGrid, Path
 from rclpy.clock import ClockType
 from rclpy.parameter import Parameter
+from rclpy.time import Time
 
 from strafer_inference.generator import (
     ADMIT_COLLISION,
@@ -28,6 +30,7 @@ from strafer_inference.generator import (
     ADMIT_ROLLING,
     REJECT_ANCHOR_HELD,
 )
+from strafer_inference import subgoal_generator_node as sgn_module
 from strafer_inference.subgoal_generator_node import SubgoalGeneratorNode
 
 
@@ -183,8 +186,6 @@ class TestStalePlanSuppressesSubgoal(unittest.TestCase):
             node.destroy_node()
 
     def test_fresh_tick_resets_stale_log_flag(self) -> None:
-        import time
-
         node = _node()
         try:
             node._generator.set_path(np.array([(0.0, 0.0), (1.0, 0.0)]))
@@ -194,7 +195,7 @@ class TestStalePlanSuppressesSubgoal(unittest.TestCase):
             self.assertTrue(node._stale_plan_logged)
             # A fresh plan resets the flag (so the warning can re-fire on a
             # future stale transition); the reset happens before the TF lookup.
-            node._last_plan_rx_t = time.monotonic()
+            node._last_plan_rx_t = node._now_s()
             node._on_tick()  # TF lookup fails (no transform) -> returns
             self.assertFalse(node._stale_plan_logged)
         finally:
@@ -234,38 +235,21 @@ class TestStalePlanSuppressesSubgoal(unittest.TestCase):
 
 
 class TestReplanCadenceClock(unittest.TestCase):
-    """The replan cadence must run on the wall (steady) clock, not the
-    node clock. Under use_sim_time the node clock is sim time, and at a
-    sub-unity RTF a sim-clock cadence fires far slower in wall time than
-    the wall-clock plan-freshness window (time.monotonic), starving the
-    plan and suppressing the subgoal — the failure this guards.
+    """The replan cadence runs on the node clock, the same clock as the
+    plan-freshness window it feeds, so replan_period_s < path_timeout_s
+    holds at any RTF. A steady-clock cadence against a sim-clock window
+    would go stale between replans on a faster-than-real-time lane.
     """
 
-    def test_replan_timer_is_wall_clock_under_sim_time(self) -> None:
+    def test_replan_timer_runs_on_the_node_clock_under_sim_time(self) -> None:
         node = _node(use_sim_time=True)
         try:
-            # Node clock is sim (ROS_TIME); the replan cadence stays wall.
             self.assertEqual(node.get_clock().clock_type, ClockType.ROS_TIME)
+            self.assertIs(node._replan_timer.clock, node.get_clock())
             self.assertEqual(
-                node._replan_timer.clock.clock_type, ClockType.STEADY_TIME
+                node._replan_timer.timer_period_ns,
+                int(node._replan_period_s * 1e9),
             )
-        finally:
-            node.destroy_node()
-
-    def test_replan_fires_on_wall_time_with_frozen_sim_clock(self) -> None:
-        # use_sim_time=True + no /clock => sim clock frozen at 0, so a
-        # ROS-time timer would never fire; the steady-clock cadence must.
-        node = _node(use_sim_time=True)
-        try:
-            calls = {"n": 0}
-            node._on_replan_tick = lambda: calls.__setitem__(  # type: ignore
-                "n", calls["n"] + 1
-            )
-            node._replan_timer.callback = node._on_replan_tick
-            deadline = time.monotonic() + 1.3
-            while time.monotonic() < deadline:
-                rclpy.spin_once(node, timeout_sec=0.05)
-            self.assertGreaterEqual(calls["n"], 2)  # ~2-3 at 0.5 s period
         finally:
             node.destroy_node()
 
@@ -389,7 +373,7 @@ class TestReplanOwnership(unittest.TestCase):
 
             self.assertFalse(node._replan_inflight)
             self.assertTrue(node._generator.has_path)
-            self.assertTrue(node._plan_fresh(time.monotonic()))
+            self.assertTrue(node._plan_fresh(node._now_s()))
         finally:
             node.destroy_node()
 
@@ -937,7 +921,7 @@ class TestAnchorHeldAgainstRepeatPlans(unittest.TestCase):
             node._consider_plan(
                 _straight_path(x0=4.0, stamp_ns=3), source="test"
             )
-            self.assertTrue(node._plan_fresh(time.monotonic()))
+            self.assertTrue(node._plan_fresh(node._now_s()))
             self.assertEqual(node._planner_refusals, 0)
             self.assertTrue(node._hold_armed)
         finally:
@@ -952,7 +936,7 @@ class TestAnchorHeldAgainstRepeatPlans(unittest.TestCase):
                 node._consider_plan(_straight_path(stamp_ns=1), source="test")
             self.assertEqual(node._plans_seen, seen_before)
             self.assertEqual(node._plans_republished, 5)
-            self.assertTrue(node._plan_fresh(time.monotonic()))
+            self.assertTrue(node._plan_fresh(node._now_s()))
         finally:
             node.destroy_node()
 
@@ -1132,7 +1116,7 @@ class TestCollisionAdmissionRule(unittest.TestCase):
             node._on_costmap(
                 _costmap(blocked_cells=_cells_for(node, (6.0, 0.0)))
             )
-            node._costmap_rx_t = time.monotonic() - 5.0
+            node._costmap_rx_t = node._now_s() - 5.0
             self.assertFalse(node._anchor_in_collision())
         finally:
             node.destroy_node()
@@ -1292,5 +1276,231 @@ class TestAnchorStatusLogging(unittest.TestCase):
             node._last_anchor_log_t = 0.0
             node._maybe_log_anchor_status()
             info.assert_not_called()
+        finally:
+            node.destroy_node()
+
+
+# =============================================================================
+# Freshness on the node clock: a sim lane slower than real time
+# =============================================================================
+
+
+class _SlowSimClock:
+    """Sim time advancing ``rtf`` s per wall second, injected deterministically.
+
+    The node clock is driven by a ROS-time override, as a TimeSource does on
+    each ``/clock`` message (without ``use_sim_time``, so no live ``/clock``
+    on the host network can reach it); wall time is the node module's
+    ``time.monotonic``, stubbed for the ``with`` block.
+    """
+
+    def __init__(self, node, *, rtf: float = 0.1, sim_s: float = 100.0,
+                 wall_s: float = 1000.0) -> None:
+        self.node, self.rtf = node, rtf
+        self.sim_s, self.wall_s = sim_s, wall_s
+        self._patch = patch.object(
+            sgn_module, "time", SimpleNamespace(monotonic=lambda: self.wall_s)
+        )
+
+    def __enter__(self) -> "_SlowSimClock":
+        self.node.get_clock()._set_ros_time_is_active(True)
+        self._apply()
+        self._patch.start()
+        return self
+
+    def __exit__(self, *exc) -> None:
+        self._patch.stop()
+
+    def _apply(self) -> None:
+        self.node.get_clock().set_ros_time_override(
+            Time(nanoseconds=int(round(self.sim_s * 1e9)))
+        )
+
+    def advance_wall(self, wall_s: float) -> None:
+        self.wall_s += wall_s
+        self.sim_s += wall_s * self.rtf
+        self._apply()
+
+    def set_sim(self, sim_s: float) -> None:
+        """Jump the sim clock (a bridge restart / ``/clock`` reset)."""
+        self.sim_s = sim_s
+        self._apply()
+
+
+def _warnings_containing(warn: MagicMock, text: str) -> list[str]:
+    return [c.args[0] for c in warn.call_args_list if text in c.args[0]]
+
+
+class TestNodeClockFreshness(unittest.TestCase):
+    """The costmap and plan windows and ``anchor_age`` are measured on the
+    node clock, in the sim seconds their parameters name; the status-log
+    cadence, goal telemetry and the in-flight abandon stay wall."""
+
+    def test_collision_rule_stays_in_force_on_a_slow_sim_clock(self) -> None:
+        # The measured rig case: a ~0.95 Hz sim costmap at RTF ~0.1 arrives
+        # every ~10 s wall, twice the 5.0 s costmap_timeout_s. A wall-clock
+        # guard suppressed the rule for half of every gap.
+        node = _anchored_node(costmap_timeout_s=5.0)
+        try:
+            warn = MagicMock()
+            node.get_logger().warning = warn
+            blocked = _costmap(blocked_cells=_cells_for(node, (6.0, 0.0)))
+            with _SlowSimClock(node, rtf=0.1) as clock:
+                node._on_costmap(blocked)
+                for k in range(4):
+                    clock.advance_wall(9.9)   # 0.99 s sim, 9.9 s wall
+                    self.assertTrue(node._anchor_in_collision())
+                    node._last_cross_track_m = 0.01
+                    node._consider_plan(
+                        _straight_path(x0=4.0, stamp_ns=300 + k),
+                        source="test",
+                    )
+                    node._on_costmap(blocked)   # next arrival
+                self.assertEqual(node._admit_reasons.get(ADMIT_COLLISION), 4)
+                self.assertEqual(
+                    _warnings_containing(warn, "Costmap is older"), []
+                )
+
+                # The timeout still bounds it, in sim seconds.
+                clock.advance_wall(51.0)        # 5.1 s sim since arrival
+                self.assertFalse(node._anchor_in_collision())
+                self.assertEqual(
+                    _warnings_containing(warn, "Costmap is older"),
+                    ["Costmap is older than 5.0 s sim; skipping the "
+                     "collision admission rule."],
+                )
+        finally:
+            node.destroy_node()
+
+    def test_plan_freshness_is_measured_in_sim_seconds(self) -> None:
+        node = _node()
+        try:
+            node._generator.set_path(np.array([(0.0, 0.0), (1.0, 0.0)]))
+            warn = MagicMock()
+            node.get_logger().warning = warn
+            with _SlowSimClock(node, rtf=0.1) as clock:
+                node._note_plan_alive()
+                clock.advance_wall(5.0)           # 0.5 s sim, 5 s wall
+                self.assertTrue(node._plan_fresh(node._now_s()))
+                clock.advance_wall(6.0)           # 1.1 s sim
+                self.assertFalse(node._plan_fresh(node._now_s()))
+                node._subgoal_pub = MagicMock()
+                node._on_tick()
+                node._subgoal_pub.publish.assert_not_called()
+                self.assertEqual(
+                    len(_warnings_containing(
+                        warn, "plan is stale (older than 1.0 s sim)"
+                    )),
+                    1,
+                )
+        finally:
+            node.destroy_node()
+
+    def test_never_received_is_stale_while_the_sim_clock_reads_zero(self) -> None:
+        # Before /clock the node clock reads 0; a 0.0 initial stamp would
+        # make an unreceived plan or costmap read as fresh.
+        node = _anchored_node()
+        try:
+            node._on_costmap(
+                _costmap(blocked_cells=_cells_for(node, (6.0, 0.0)))
+            )
+            node._costmap_rx_t = None
+            node._last_plan_rx_t = None
+            node._subgoal_pub = MagicMock()
+            with _SlowSimClock(node, sim_s=0.0):
+                self.assertEqual(node._now_s(), 0.0)
+                self.assertFalse(node._plan_fresh(node._now_s()))
+                self.assertFalse(node._anchor_in_collision())
+                node._on_tick()
+                node._subgoal_pub.publish.assert_not_called()
+                self.assertTrue(node._stale_plan_logged)
+        finally:
+            node.destroy_node()
+
+    def test_backwards_clock_jump_reads_stale_until_restamped(self) -> None:
+        node = _anchored_node(anchor_log_period_s=10.0)
+        try:
+            info = MagicMock()
+            node.get_logger().info = info
+            blocked = _costmap(blocked_cells=_cells_for(node, (6.0, 0.0)))
+            with _SlowSimClock(node, sim_s=500.0) as clock:
+                node._last_anchor_log_t = clock.wall_s
+                node._on_costmap(blocked)
+                node._note_plan_alive()
+                node._anchor_installed_t = node._now_s()
+                self.assertTrue(node._anchor_in_collision())
+                self.assertTrue(node._plan_fresh(node._now_s()))
+
+                clock.set_sim(10.0)   # bridge restart: /clock starts over
+                # A negative age is not "fresh for the next 490 s".
+                self.assertFalse(node._anchor_in_collision())
+                self.assertFalse(node._plan_fresh(node._now_s()))
+                clock.advance_wall(20.0)
+                node._maybe_log_anchor_status()
+                self.assertIn("anchor_age=n/a", info.call_args[0][0])
+
+                # The next arrival re-stamps on the new timeline.
+                node._on_costmap(blocked)
+                node._note_plan_alive()
+                self.assertTrue(node._anchor_in_collision())
+                self.assertTrue(node._plan_fresh(node._now_s()))
+        finally:
+            node.destroy_node()
+
+    def test_anchor_age_reports_sim_seconds(self) -> None:
+        node = _anchored_node(anchor_log_period_s=10.0)
+        try:
+            info = MagicMock()
+            node.get_logger().info = info
+            with _SlowSimClock(node, rtf=0.1) as clock:
+                node._last_anchor_log_t = clock.wall_s
+                node._new_mission_pending = True
+                node._consider_plan(_straight_path(stamp_ns=400), source="test")
+                clock.advance_wall(125.0)          # 12.5 s sim
+                node._maybe_log_anchor_status()
+                line = info.call_args[0][0]
+                self.assertIn("anchor status:", line)
+                self.assertIn("anchor_age=12.5s(sim)", line)
+        finally:
+            node.destroy_node()
+
+    def test_status_log_cadence_stays_on_the_wall_clock(self) -> None:
+        # A human-facing interval: 10 s of wall, whatever sim time did.
+        node = _anchored_node(anchor_log_period_s=10.0)
+        try:
+            info = MagicMock()
+            node.get_logger().info = info
+            with _SlowSimClock(node, rtf=0.1) as clock:
+                node._last_anchor_log_t = clock.wall_s
+                clock.advance_wall(9.0)
+                node._maybe_log_anchor_status()
+                info.assert_not_called()
+                clock.advance_wall(1.5)            # 10.5 s wall, 1.05 s sim
+                node._maybe_log_anchor_status()
+                info.assert_called_once()
+        finally:
+            node.destroy_node()
+
+    def test_goal_telemetry_and_inflight_abandon_stay_on_the_wall_clock(self) -> None:
+        # Both time wall-clock producers: the inference node's keep-alive
+        # (time.monotonic, ~1 Hz) and the planner process.
+        node = _node()
+        try:
+            client = MagicMock()
+            client.server_is_ready.return_value = True
+            node._planner_client = client
+            with _SlowSimClock(node, rtf=0.1) as clock:
+                node._on_active_goal(_pose(2.0, 1.0))
+                self.assertTrue(node._replan_inflight)
+                self.assertEqual(client.send_goal_async.call_count, 1)
+
+                clock.advance_wall(2.1)            # 0.21 s sim
+                node._on_active_goal(_pose(2.0, 1.0))   # keep-alive
+                node._on_replan_tick()
+                self.assertEqual(client.send_goal_async.call_count, 2)
+
+                clock.advance_wall(2.6)            # 0.26 s sim
+                node._on_replan_tick()
+                self.assertIsNone(node._active_goal)
         finally:
             node.destroy_node()

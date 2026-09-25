@@ -54,10 +54,10 @@ node's keep-alive is 1 Hz wall), the in-flight replan abandon
 Each times a wall-clock producer or a human-facing interval.
 [`subgoal-generator-sim-clock-freshness`](../reliability/subgoal-generator-sim-clock-freshness.md)
 (`912eea7`) moved the plan-freshness window and the replan cadence **off** wall
-time and onto the node clock. This reverses the earlier ruling here, which kept
+time and onto the node clock. This reverses the earlier guidance here, which kept
 both on wall time so that a stalled `/clock` would trip the staleness guard.
-`path_timeout_s` is sized against a sim-rate replan cadence, so on a lane
-slower than real time a wall window expired live plans. A stalled `/clock` also
+The plan window now runs on the clock the replans that refresh it are timed on,
+so `replan_period_s` < `path_timeout_s` holds at every RTF. A stalled `/clock` also
 stops the generator's node-clock tick, so the subgoal stream stops anyway, and
 a planner that dies while `/clock` runs still ages the plan out in sim seconds.
 Treat those two sites as already converted. **Audit output must classify each

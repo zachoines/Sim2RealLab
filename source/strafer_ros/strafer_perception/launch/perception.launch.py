@@ -63,6 +63,22 @@ def generate_launch_description():
                 # Align depth frame to color frame
                 "align_depth.enable": "true",
 
+                # Post-processing filters and depth auto-exposure — pinned by
+                # contract, not left to wrapper defaults. The only spatial
+                # operator allowed between the sensor and the policy is the
+                # 8x8 block median in obs_pipeline.downsample_depth, so every
+                # RealSense filter stays off here explicitly; a
+                # realsense2_camera bump must not be able to change these
+                # silently. rs_launch.py forwards only the names it declares
+                # (an undeclared one is warned about and dropped), so
+                # test_perception_launch.py checks both the values and that
+                # the installed wrapper still declares each name.
+                "decimation_filter.enable": "false",
+                "spatial_filter.enable": "false",
+                "temporal_filter.enable": "false",
+                "hole_filling_filter.enable": "false",
+                "depth_module.enable_auto_exposure": "true",
+
                 # Reset USB device on startup (helps with reconnections)
                 # NOTE: Disabled — causes tegra-xusb transfer errors on
                 # re-enumeration.  Camera state is clean at module load.

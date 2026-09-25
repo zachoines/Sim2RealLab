@@ -222,10 +222,13 @@ explanation.
       asserts the collision admission rule stays in force while the costmap is
       fresh in sim time. Met: `TestNodeClockFreshness` (7 tests; sim time is
       injected through a ROS-time override and wall time through a stubbed
-      `time.monotonic`, no sleeps). Four of the seven fail against the pre-fix
-      node — the collision regression, plan freshness in sim seconds, the
+      `time.monotonic`, no sleeps). Against the pre-fix node with only a
+      `_now_s` accessor added (the tests call it), four of the seven fail on their
+      assertions — the collision regression, plan freshness in sim seconds, the
       backwards jump, and `anchor_age`; the other three pin behaviour that was
-      already correct. `tools/run_ros_tests.sh ros`: 761 passed, 11 skipped, 0 failed.
+      already correct. Against the pre-fix node as it stands, five fail, three of
+      them on the missing accessor. `tools/run_ros_tests.sh ros`: 761 passed,
+      11 skipped, 0 failed.
 - [x] Re-run the enriched sim-bridge lane and confirm `Costmap is older than
       5.0 s` no longer appears while the costmap publishes at ~0.95 Hz sim.
       Met 2026-09-24 (see [Re-run](#re-run-2026-09-24)).

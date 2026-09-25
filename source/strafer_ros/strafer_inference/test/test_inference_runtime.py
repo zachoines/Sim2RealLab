@@ -2919,3 +2919,229 @@ class TestDepthAgeInstrument(unittest.TestCase):
             self.assertIn("depth_age p50=", info.call_args[0][0])
         finally:
             node.destroy_node()
+
+
+# =============================================================================
+# Z16 (16UC1) decode: the real D555's encoding, with its validity mask
+# =============================================================================
+
+
+def _z16_msg(raw_mm: np.ndarray, encoding: str = "16UC1") -> Image:
+    msg = Image()
+    msg.encoding = encoding
+    msg.height, msg.width = raw_mm.shape
+    msg.step = raw_mm.shape[1] * 2
+    msg.is_bigendian = 0
+    msg.data = raw_mm.astype("<u2").tobytes()
+    return msg
+
+
+def _z16_test_frame() -> np.ndarray:
+    """2.5 m everywhere, with four pinned blocks along policy row 0:
+    (0,0) all invalid, (0,1) majority invalid, (0,2) a genuine 0.3 m return,
+    (0,3) exactly half invalid next to 2.0 m."""
+    from strafer_shared.constants import PERCEPTION_HEIGHT, PERCEPTION_WIDTH
+
+    raw = np.full((PERCEPTION_HEIGHT, PERCEPTION_WIDTH), 2500, dtype=np.uint16)
+    blocks = (
+        [0] * 64,
+        [0] * 40 + [1500] * 24,
+        [300] * 64,
+        [0] * 32 + [2000] * 32,
+    )
+    for col, values in enumerate(blocks):
+        raw[0:8, col * 8:(col + 1) * 8] = np.array(
+            values, dtype=np.uint16
+        ).reshape(8, 8)
+    return raw
+
+
+class TestZ16Decode(unittest.TestCase):
+    """The node decodes the RealSense driver's 16UC1 alongside the Isaac
+    bridge's 32FC1, and carries Z16's validity mask into the reduction."""
+
+    def _captured_downsample(self, node: InferenceNode, ticks: int):
+        """Run ``ticks`` timer ticks; return each downsample call's
+        ``(valid_mask, output)``."""
+        from unittest.mock import patch
+
+        from strafer_inference import inference_node as mod
+
+        real = mod.downsample_depth
+        calls: list = []
+
+        def spy(depth, **kwargs):
+            out = real(depth, **kwargs)
+            calls.append((kwargs.get("valid_mask"), out))
+            return out
+
+        with patch.object(mod, "downsample_depth", side_effect=spy):
+            for _ in range(ticks):
+                node._on_tick(source="timer")
+        return calls
+
+    def test_16uc1_frame_is_decoded_not_dropped(self) -> None:
+        node = _node(policy_variant="DEPTH_SUBGOAL")
+        try:
+            node._on_depth(_z16_msg(np.full((4, 4), 1000, dtype=np.uint16)))
+            self.assertEqual(node._counts["depth_bad_encoding"], 0)
+            self.assertEqual(node._counts["depth_bad_shape"], 0)
+            self.assertEqual(node._counts["depth_rx"], 1)
+            self.assertEqual(node._counts["depth_z16_rx"], 1)
+            np.testing.assert_allclose(node._last_depth_meters, 1.0, rtol=1e-6)
+            self.assertTrue(node._last_depth_valid.all())
+        finally:
+            node.destroy_node()
+
+    def test_mono16_is_decoded_too(self) -> None:
+        node = _node(policy_variant="DEPTH_SUBGOAL")
+        try:
+            node._on_depth(
+                _z16_msg(np.zeros((4, 4), dtype=np.uint16), encoding="mono16")
+            )
+            self.assertEqual(node._counts["depth_bad_encoding"], 0)
+            self.assertEqual(node._counts["depth_z16_rx"], 1)
+            self.assertFalse(node._last_depth_valid.any())
+        finally:
+            node.destroy_node()
+
+    def test_unknown_encoding_still_counts_bad_encoding(self) -> None:
+        node = _node(policy_variant="DEPTH_SUBGOAL")
+        try:
+            for encoding in ("rgb8", "8UC1", "32FC3"):
+                bad = _depth_msg()
+                bad.encoding = encoding
+                node._on_depth(bad)
+            self.assertEqual(node._counts["depth_bad_encoding"], 3)
+            self.assertEqual(node._counts["depth_rx"], 0)
+            self.assertIsNone(node._last_depth_meters)
+        finally:
+            node.destroy_node()
+
+    def test_truncated_16uc1_counts_bad_shape(self) -> None:
+        node = _node(policy_variant="DEPTH_SUBGOAL")
+        try:
+            msg = _z16_msg(np.full((4, 4), 1000, dtype=np.uint16))
+            msg.data = bytes(msg.data)[:-2]
+            node._on_depth(msg)
+            self.assertEqual(node._counts["depth_bad_shape"], 1)
+            self.assertEqual(node._counts["depth_bad_encoding"], 0)
+            self.assertEqual(node._counts["depth_rx"], 0)
+        finally:
+            node.destroy_node()
+
+    def test_32fc1_carries_no_mask(self) -> None:
+        node = _node(policy_variant="DEPTH_SUBGOAL")
+        try:
+            node._on_depth(_depth_msg(fill=1.0))
+            self.assertIsNone(node._last_depth_valid)
+            self.assertEqual(node._counts["depth_z16_rx"], 0)
+        finally:
+            node.destroy_node()
+
+    def test_16uc1_frame_downsamples_to_the_training_convention(self) -> None:
+        """Real obs assembly on a full-resolution Z16 frame: invalid reads
+        6.0 m (never the 0.2 m fill), a genuine 0.3 m return keeps the fill,
+        an exactly-half block takes numpy's even median, valid is metres."""
+        from strafer_shared.constants import (
+            DEPTH_HEIGHT, DEPTH_MAX, DEPTH_NEARFIELD_FILL, DEPTH_WIDTH,
+        )
+
+        node = _real_assembly_depth_node()
+        try:
+            node._on_depth(_z16_msg(_z16_test_frame()))
+            calls = self._captured_downsample(node, ticks=1)
+            self.assertEqual(node._counts["inferences"], 1)
+            self.assertEqual(node._counts["depth_bad_encoding"], 0)
+            self.assertEqual(len(calls), 1)
+            mask, out = calls[0]
+            self.assertIsNotNone(mask)
+            out = out.reshape(DEPTH_HEIGHT, DEPTH_WIDTH)
+            self.assertEqual(out[0, 0], np.float32(DEPTH_MAX))
+            self.assertEqual(out[0, 1], np.float32(DEPTH_MAX))
+            self.assertEqual(out[0, 2], np.float32(DEPTH_NEARFIELD_FILL))
+            self.assertAlmostEqual(
+                float(out[0, 3]), (2.0 + DEPTH_MAX) / 2.0, places=5
+            )
+            np.testing.assert_allclose(out[1:], 2.5, atol=1e-6)
+            np.testing.assert_allclose(out[0, 4:], 2.5, atol=1e-6)
+            self.assertEqual(node._counts["depth_z16_cells"], 3600)
+            self.assertEqual(
+                node._counts["depth_z16_cells_majority_invalid"], 2
+            )
+        finally:
+            node.destroy_node()
+
+    def test_the_mask_travels_with_a_reused_frame(self) -> None:
+        """Under timer_reuse a later tick consumes the cached frame again; it
+        must see that frame's own mask, or its invalid blocks turn into the
+        nearfield fill on every reuse."""
+        from strafer_shared.constants import DEPTH_MAX
+
+        node = _real_assembly_depth_node()
+        try:
+            node._on_depth(_z16_msg(_z16_test_frame()))
+            calls = self._captured_downsample(node, ticks=3)
+            self.assertEqual(node._counts["infer_reuse"], 2)
+            self.assertEqual(len(calls), 3)
+            for mask, out in calls:
+                self.assertIsNotNone(mask)
+                self.assertIs(mask, calls[0][0])
+                self.assertEqual(out[0], np.float32(DEPTH_MAX))
+        finally:
+            node.destroy_node()
+
+    def test_32fc1_frame_after_z16_drops_the_mask(self) -> None:
+        node = _node(policy_variant="DEPTH_SUBGOAL")
+        try:
+            node._on_depth(_z16_msg(np.zeros((4, 4), dtype=np.uint16)))
+            node._on_depth(_depth_msg(fill=1.0))
+            self.assertIsNone(node._last_depth_valid)
+        finally:
+            node.destroy_node()
+
+    def test_cadence_line_appends_the_z16_counters_last(self) -> None:
+        node = _ready_depth_node(cadence_log_period_s=0.001)
+        try:
+            # No tick: a tick logs the line itself at this period and would
+            # consume the window before the assertion reads it.
+            node._on_depth(_z16_msg(_z16_test_frame()))
+            info = MagicMock()
+            node.get_logger().info = info
+            node._last_cadence_log_t = 0.0
+            node._maybe_log_cadence()
+            line = info.call_args[0][0]
+            self.assertIn("stale_sources[", line)
+            self.assertTrue(
+                line.endswith(
+                    "| z16 frames=1 majority_invalid_cells=0.1% over 1 frames"
+                ),
+                line,
+            )
+            # The share is per window: nothing new since, so n/a.
+            node._last_cadence_log_t = 0.0
+            node._maybe_log_cadence()
+            self.assertTrue(
+                info.call_args[0][0].endswith(
+                    "| z16 frames=1 majority_invalid_cells=n/a"
+                )
+            )
+        finally:
+            node.destroy_node()
+
+    def test_cadence_line_on_the_sim_lane_reads_no_z16(self) -> None:
+        node = _ready_depth_node(cadence_log_period_s=0.001)
+        try:
+            node._on_depth(_depth_msg(fill=1.0))
+            node._on_tick(source="timer")
+            info = MagicMock()
+            node.get_logger().info = info
+            node._last_cadence_log_t = 0.0
+            node._maybe_log_cadence()
+            self.assertTrue(
+                info.call_args[0][0].endswith(
+                    "| z16 frames=0 majority_invalid_cells=n/a"
+                )
+            )
+        finally:
+            node.destroy_node()

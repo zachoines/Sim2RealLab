@@ -183,12 +183,17 @@ make submit-deploy CMD="go to the chair"
 - If the VLM can't find the named object, the mission fails at grounding ("target not found"). Pick something clearly in frame.
 - **Mission completion.** The policy's action server reports `SUCCEEDED` at the shared
   `GOAL_ARRIVAL_RADIUS_M` (0.30 m, the node's `goal_reached_distance_m`) and aborts at
-  `mission_timeout_s` = 60 s on the node clock (about 8 min wall at RTF ~0.13). The executor's
-  hybrid-nav step allows 90 s (`default_nav_timeout_s`). On 2026-09-25 the v3 artifact
-  (`strafer_depth_subgoal_v3_999`) reached that radius in 4 of 6 gate missions and 3 of 3
-  fixed-goal repeats on this lane; v2 reached 0 of 2 in the same session and does not close a
-  ~3 m goal inside 60 s
-  ([record](measurements/goal-a-rig-gate-v3-2026-09-25/README.md)).
+  `mission_timeout_s` = 60 s on the node clock (about 8 min wall at RTF ~0.13). A mission routed
+  through the executor gets a tighter, distance-derived budget for its navigate step:
+  2·d / `NAV_LINEAR_VEL` (0.784 m/s) + 5 s on the executor's node clock (sim time here), capped
+  at `STRAFER_NAVIGATION_TIMEOUT_S` (90 s), plus a stall watchdog. On 2026-09-25 the v3 artifact
+  (`strafer_depth_subgoal_v3_999`), driven directly on the policy's action server, reached the
+  radius in 4 of 6 gate missions and 3 of 3 fixed-goal repeats; three of those reaches took
+  longer than that executor budget (G1: 19.0 s sim against ~12.9 s for 3.1 m), so the executor
+  path can report a timeout on a goal the policy goes on to reach. v2 reached 0 of 2 in the
+  same session and 0 of 6 on 2026-08-17
+  ([v3 record](measurements/goal-a-rig-gate-v3-2026-09-25/README.md),
+  [2026-08-17 record](measurements/goal-a-rig-gate-2026-08-17/README.md)).
 - **If the robot parks within ~0.4 m of an obstacle** it lands in the costmap
   inflation halo, where `GridBased` refuses its own pose as a planning start.
   On the **hybrid** lane the subgoal generator escapes that itself — it retries

@@ -8,7 +8,8 @@ were written down and deposited before the first mission: ≥ 4 of 6 reads as **
 sim gate for goal-a closes on this set. The two misses advanced 2.25 m and 2.38 m and stopped
 0.35 m and 0.51 m short. The fixed-goal leg, which measures reliability at one goal, reached on
 every repeat. In the same session, from the same starts, v2 reached neither of its two
-descriptive runs; it closed at 0.014–0.027 m/s, as it did on 2026-08-17. No threshold reads v2.
+descriptive runs, closing at 0.014–0.027 m/s against 0.026–0.083 m/s on 2026-08-17. No threshold
+reads v2.
 This is the gate the brief
 [`depth-subgoal-v3-retrain`](../../tasks/active/trained-policy/depth-subgoal-v3-retrain.md) is
 accepted against.
@@ -33,8 +34,8 @@ accepted against.
 
 ## Pre-registration
 
-`preregistration.md` was committed to the evidence deposit at 03:30:13 UTC. The first goal was
-sent at 03:34:47. The file carries:
+`preregistration.md` was committed to the evidence deposit at 03:30:11 UTC and pushed at 03:30:13.
+The first goal was sent at 03:34:47. The file carries:
 
 - the thresholds, verbatim;
 - how PARTIAL's qualifiers are read over the set;
@@ -47,12 +48,14 @@ sent at 03:34:47. The file carries:
 Its sha256 is `69a6807fb828bf88eca15a1af2c5d7acdcffbaab831133baecf1b01277c4c00c`. It was not
 edited afterwards.
 
+The table is quoted verbatim from that file:
+
 | outcome | reading |
 |---|---|
 | ≥ 4 of 6 missions reach their goal within 0.30 m | **PASS — G-sim closes** (goal-a's sim gate) |
-| 1–3 of 6, with positive `v_par` and cross-track that develops and is consumed | **PARTIAL** |
-| 0 of 6, or no net advance | **FAIL** |
-| fixed-goal leg | ≥ 2 of 3 reach = reliable at that goal; < 2 named as the reliability finding |
+| 1–3 of 6, with positive `v_par` and cross-track that develops and is consumed | **PARTIAL** — full capture, per-mission attribution, no tuning in-session |
+| 0 of 6, or no net advance | **FAIL** — full capture, STOP, no tuning |
+| fixed-goal leg | reported alongside: ≥ 2 of 3 reach = reliable at that goal; < 2 named as the reliability finding |
 
 **The goals** came from a plannability probe: `ComputePathToPose` from the nominal start over
 472 candidates, all of them plannable. The probe ran on the post-warm-up map of a separate
@@ -132,16 +135,18 @@ The record does not attribute either miss. What each run did:
   against about (0.08, −0.05, +1.3°) for the runs before and after.
 - It stepped back by 0.941 m and +77.5° during the next transit, before F1.
 - At the first step, rtabmap's map-update time rose from ~0.005 s to 0.17 s for three
-  iterations, which is consistent with a graph re-optimisation. Its log records no accepted
-  loop closure at INFO level.
+  iterations. Its log records no accepted loop closure at INFO level.
 - In R3 the robot came within 0.53 m of the goal by 17.7 s sim and ended 0.499–0.508 m away,
   commanding a mean 0.017 m/s over the last 10 s sim.
 - The generator admitted six new anchors on the collision rule, the most of any run, and
   the anchored arcs ranged from 0.2 m to 8.05 m for a 2.89 m goal.
 - The generator's one mid-mission `plan is stale` episode in this run coincided with a
-  planner refusal: `ComputePathToPose` status 6, after which the relaxed planner engaged.
-- The pre-registration names only a depth stall, a container restart or a SLAM FATAL as
-  unscored causes, so R3 is scored as run.
+  planner refusal: `ComputePathToPose` status 6, after which the relaxed planner engaged. The
+  subgoal went stale for 13 policy ticks there, and the inference node skipped them on its
+  watchdog; no other scored window had more than one such skip.
+- None of the pre-registration's unscored causes applies: a start outside tolerance or inside
+  the floor, a broken stack contract (depth stall, container restart, SLAM FATAL), or a
+  wall-guard cancel. It names no cause for a displaced SLAM estimate, so R3 is scored as run.
 
 ## Fixed-goal leg
 
@@ -186,6 +191,12 @@ holds started.
 
 These figures come from the v3 inference container's complete log. It hosted the nine v3 runs
 and ran for 542 s sim.
+
+Restricted to the six scored windows (`table.md`), the same reads are: cadence p50 30.00–30.01 Hz
+sim in every window and p05 ≥ 28.57; 5145 of 5145 inferences on a fresh frame; `depth_age` max
+0.033 s sim; 0 missed deadlines; no `bad_encoding`, `bad_shape`, `obs_none`, `gate` or
+`action_shape` skip. Mid-mission watchdog skips were 0–1 per window, at goal acceptance, except
+R3's 13 (above).
 
 | quantity | value |
 |---|---|
@@ -277,7 +288,8 @@ correction is a step of more than 1e-4 m or 0.057° between samples. The statist
 |---|---|
 | repository | https://github.com/zachoines/Sim2RealLab-Artifacts |
 | deposit directory | `goal-a-rig-gate-v3-2026-09-25/record-files/` |
-| deposit commit | `15cea6163fc25d77cf21fad6cf8d557ff6f6e9eb` |
+| deposit commit | `b513b2890abf137a78730f1ec07daca2a7d4ace5` |
+| file deposit | `15cea6163fc25d77cf21fad6cf8d557ff6f6e9eb` (every file below; `b513b289` changes only `DEPOSIT.md`'s re-derive command) |
 | pre-registration commit | `185d2bc30c4d5acb14e7307c72e05633b693b19d` (the file alone, before the first mission) |
 
 The deposit holds everything this record names:

@@ -134,7 +134,9 @@ camera can render a command marker.
       Met 2026-09-25: **4 of 6** reached within 0.30 m (G1, R1, L1, L2; R2 and R3 aborted at
       60 s sim at 0.350 and 0.508 m after advancing 2.25 and 2.38 m), which the pre-registered
       table reads as PASS. Median while-moving `v_par` +0.253 m/s against v2's 0.026–0.083;
-      no `map→odom` correction ≥ 0.30 m in the six scored windows ([record](../../../measurements/goal-a-rig-gate-v3-2026-09-25/README.md)).
+      start heading within 0.6–2.2° of 130° on all nine v3 runs; no `map→odom` correction
+      ≥ 0.30 m in the six scored windows, although R3 ran its whole window on a `map→odom`
+      displaced 0.95 m / 76° by a step in the transit before it ([record](../../../measurements/goal-a-rig-gate-v3-2026-09-25/README.md)).
 - [x] **Gate, second leg.** The 2026-08-19 addendum's fixed-goal leg is run as
       well: the one goal (−2.00, 2.25) from a fixed start pose and heading,
       repeated three times. The six-mission set measures coverage because each
@@ -163,7 +165,9 @@ camera can render a command marker.
       `cmd_vel` transit and heading hold, enforced at 0.15 m / 3.0°; (3) the 1.20 m floor in force
       from the first mission; (4) every goal fixed in advance; (5) one bridge launch at script
       defaults, with the render-side regime measured per mission; (6) v2 on two of the six goals
-      ([record](../../../measurements/goal-a-rig-gate-v3-2026-09-25/README.md)).
+      — the "same set" above was narrowed to G1 and L1 when the thresholds were written, to
+      bound rig time; two goals still separate an artifact-specific under-advance from a
+      lane-wide one ([record](../../../measurements/goal-a-rig-gate-v3-2026-09-25/README.md)).
 - [x] Acceptance thresholds are fixed and written down before the first mission
       runs. The 2026-08-17 set fixed ≥4/6 pass, 1–3/6 partial, 0/6 fail; a v3
       threshold is stated in the same form before any mission runs. The v2 rig-class texture criterion is

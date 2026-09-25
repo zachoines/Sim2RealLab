@@ -1,6 +1,6 @@
 # Put the subgoal generator's freshness guards on the clock its timeouts are sized in
 
-**Status:** Shipped 2026-09-25 in `912eea7` (Jetson).
+**Status:** Shipped 2026-09-24 in `912eea7` (Jetson).
 **PR:** https://github.com/zachoines/Sim2RealLab/pull/229
 
 **Type:** bug (measurement validity, sim lane)
@@ -37,18 +37,18 @@ Every one of its freshness guards is stamped and compared with
 
 | guard | parameter | default | stamp / compare |
 |---|---|---:|---|
-| costmap staleness | `costmap_timeout_s` | 5.0 | [`:614`](../../../source/strafer_ros/strafer_inference/strafer_inference/subgoal_generator_node.py#L614) / [`:470`](../../../source/strafer_ros/strafer_inference/strafer_inference/subgoal_generator_node.py#L470) |
-| plan staleness | `path_timeout_s` | 1.0 | [`:523`](../../../source/strafer_ros/strafer_inference/strafer_inference/subgoal_generator_node.py#L523) / [`:967`](../../../source/strafer_ros/strafer_inference/strafer_inference/subgoal_generator_node.py#L967) |
-| goal telemetry | `goal_telemetry_timeout_s` | 2.5 | [`:640`](../../../source/strafer_ros/strafer_inference/strafer_inference/subgoal_generator_node.py#L640) / [`:667`](../../../source/strafer_ros/strafer_inference/strafer_inference/subgoal_generator_node.py#L667) |
-| replan spacing | `replan_period_s` | 0.5 | [`:708`](../../../source/strafer_ros/strafer_inference/strafer_inference/subgoal_generator_node.py#L708) / [`:682`](../../../source/strafer_ros/strafer_inference/strafer_inference/subgoal_generator_node.py#L682) |
-| `anchor_age` in the status line | — | — | [`:414`](../../../source/strafer_ros/strafer_inference/strafer_inference/subgoal_generator_node.py#L414) / [`:576`](../../../source/strafer_ros/strafer_inference/strafer_inference/subgoal_generator_node.py#L576) |
+| costmap staleness | `costmap_timeout_s` | 5.0 | [`:614`](https://github.com/zachoines/Sim2RealLab/blob/3b13ffa/source/strafer_ros/strafer_inference/strafer_inference/subgoal_generator_node.py#L614) / [`:470`](https://github.com/zachoines/Sim2RealLab/blob/3b13ffa/source/strafer_ros/strafer_inference/strafer_inference/subgoal_generator_node.py#L470) |
+| plan staleness | `path_timeout_s` | 1.0 | [`:523`](https://github.com/zachoines/Sim2RealLab/blob/3b13ffa/source/strafer_ros/strafer_inference/strafer_inference/subgoal_generator_node.py#L523) / [`:967`](https://github.com/zachoines/Sim2RealLab/blob/3b13ffa/source/strafer_ros/strafer_inference/strafer_inference/subgoal_generator_node.py#L967) |
+| goal telemetry | `goal_telemetry_timeout_s` | 2.5 | [`:640`](https://github.com/zachoines/Sim2RealLab/blob/3b13ffa/source/strafer_ros/strafer_inference/strafer_inference/subgoal_generator_node.py#L640) / [`:667`](https://github.com/zachoines/Sim2RealLab/blob/3b13ffa/source/strafer_ros/strafer_inference/strafer_inference/subgoal_generator_node.py#L667) |
+| replan spacing | `replan_period_s` | 0.5 | [`:708`](https://github.com/zachoines/Sim2RealLab/blob/3b13ffa/source/strafer_ros/strafer_inference/strafer_inference/subgoal_generator_node.py#L708) / [`:682`](https://github.com/zachoines/Sim2RealLab/blob/3b13ffa/source/strafer_ros/strafer_inference/strafer_inference/subgoal_generator_node.py#L682) |
+| `anchor_age` in the status line | — | — | [`:414`](https://github.com/zachoines/Sim2RealLab/blob/3b13ffa/source/strafer_ros/strafer_inference/strafer_inference/subgoal_generator_node.py#L414) / [`:576`](https://github.com/zachoines/Sim2RealLab/blob/3b13ffa/source/strafer_ros/strafer_inference/strafer_inference/subgoal_generator_node.py#L576) |
 
 The node holds **12** `time.monotonic()` call sites against **1** use of
 `get_clock().now()`. Its sibling `inference_node.py` is the counter-example and
 the model: its staleness and cadence logic reads `get_clock().now()`
-([`:1165`](../../../source/strafer_ros/strafer_inference/strafer_inference/inference_node.py#L1165),
-[`:1176`](../../../source/strafer_ros/strafer_inference/strafer_inference/inference_node.py#L1176),
-[`:1207`](../../../source/strafer_ros/strafer_inference/strafer_inference/inference_node.py#L1207)),
+([`:1165`](https://github.com/zachoines/Sim2RealLab/blob/3b13ffa/source/strafer_ros/strafer_inference/strafer_inference/inference_node.py#L1165),
+[`:1176`](https://github.com/zachoines/Sim2RealLab/blob/3b13ffa/source/strafer_ros/strafer_inference/strafer_inference/inference_node.py#L1176),
+[`:1207`](https://github.com/zachoines/Sim2RealLab/blob/3b13ffa/source/strafer_ros/strafer_inference/strafer_inference/inference_node.py#L1207)),
 which is why its `depth_age` is reported in sim seconds and is correct.
 
 This is latent wherever real time and sim time agree — a real robot, or a sim at
@@ -116,7 +116,7 @@ a clock the rest of its line does not use.
 ## Implementation notes (`912eea7`)
 
 These notes record where the fix departs from the table and acceptance box 1 as
-written, and correct one diagnosis above. Read them before ticking the boxes.
+written, and correct one diagnosis above.
 
 ### Two windows stay on wall time on purpose
 
@@ -185,7 +185,7 @@ The cause of that warning is still unexplained. There are three candidates:
   liveness, so a planner that keeps refusing the robot's pose also lets the
   window expire mid-mission.
 
-### What the re-run should expect and check
+### What a re-run was expected to show
 
 Records taken before and after this fix differ in two ways:
 
@@ -228,9 +228,9 @@ explanation.
       already correct. `tools/run_ros_tests.sh ros`: 761 passed, 11 skipped, 0 failed.
 - [x] Re-run the enriched sim-bridge lane and confirm `Costmap is older than
       5.0 s` no longer appears while the costmap publishes at ~0.95 Hz sim.
-      Met 2026-09-25 (see [Re-run](#re-run-2026-09-25)).
+      Met 2026-09-24 (see [Re-run](#re-run-2026-09-24)).
 
-## Re-run, 2026-09-25
+## Re-run, 2026-09-24
 
 Bridge `Isaac-Strafer-Nav-Capture-Bridge-ProcRoom-Enriched-v0`, `Environment seed : 42`,
 script defaults (`publish 30.00 Hz sim`, `frame_skip=3 (derived, derived 3)`, bridge
@@ -243,9 +243,14 @@ tick 120 Hz), over the direct cable; deploy images `strafer-cpu:humble` /
   **0.936 Hz sim**, inter-arrival min/mean/max **1.025 / 1.069 / 1.100 s sim**,
   **8.0 s wall** mean at RTF 0.134 — every gap wider than the 5.0 s the old wall
   guard allowed.
-- `Costmap is older than`: **0 lines** over the generator's whole life on that
-  bridge (~22 min wall, covering the warm-up, two plannability probes, two scripted
-  transits and one mission).
+- `Costmap is older than`: **0 lines**. The warning can fire only when the
+  collision rule is evaluated, which happens once for every distinct plan that
+  arrives while an anchor is held in `mission` mode. The generator's counters give
+  **486 such evaluations** in three stretches — 470 in the two probe bursts
+  (01:14:48–01:15:52 UTC), 13 across the mission (01:22:09–01:22:57) and 2 during
+  the transits — spanning about 15 costmap arrivals at 8.0 s wall apart. None found
+  the costmap stale. The old 5.0 s wall window would have read stale for 3.0 s of
+  every 8.0 s cycle (37.5%).
 - `plan is stale (older than 1.0 s sim)`: **5 lines, none inside a mission window**.
   Two followed the two plannability probes and two followed the two scripted
   transits (7–9 s wall later each): `planner_server` echoes every
@@ -254,11 +259,15 @@ tick 120 Hz), over the direct cable; deploy images `strafer-cpu:humble` /
   result by 9.3 s wall — the mission-end case listed above, by design.
 - One unscored mission (a goal outside any scored set, 2.21 m, bearing −148°) ran
   on the fixed generator: cross-track 0.076 → 0.196 m, cursor 1.85 of 2.21 m,
-  `anchor_in_collision` 0, cadence p50 30.01 Hz sim with 182 of 182 inferences on
-  fresh depth, `depth_age` max 0.033 s sim.
+  `anchor_age` 1.0 → 3.7 s(sim) across its status lines, `anchor_in_collision` 0,
+  cadence p50 30.01 Hz sim with 182 of 182 inferences on fresh depth, `depth_age`
+  max 0.033 s sim. Zero collision admissions over one 6 s sim mission in open floor
+  neither confirms nor contradicts the expectation above that the count rises; the
+  scored sets are where that shows.
 
-So the collision admission rule was available for the whole session rather than
-the ~half the 2026-08-17 lane allowed, and no mid-mission plan staleness appeared.
+So no collision-rule evaluation in the re-run found the costmap stale, where at this
+arrival rate the 2026-08-17 lane's wall window read stale for 37.5% of every cycle,
+and no mid-mission plan staleness appeared.
 
 ## Scope
 

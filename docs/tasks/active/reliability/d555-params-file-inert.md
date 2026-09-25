@@ -106,8 +106,10 @@ another setting the repo believes it controls and does not.
       `d555-depth-decode-validity`, whose claim that an undeclared argument
       "fails the include outright" was wrong; it also now notes that 4.58.4
       does not declare `depth_qos`. No context module cited the file.
-      Completed records and `docs/measurements/` were left alone (the
-      2026-08-04 correction is out of scope).*
+      The content of completed records and `docs/measurements/` was left alone
+      (the 2026-08-04 correction is out of scope); the one change there is a link
+      retarget in `completed/depth-reception-reliability.md`, whose link to the
+      deleted file now points at its last revision (`bd240ba`).*
 
 ## Investigation pointers
 
@@ -135,10 +137,12 @@ is in `realsense2_camera` 4.58.4's `rs_launch.py` `configurable_parameters`
 `Parameter '<name>' is not supported` for each one, which matches the startup
 log, and builds the node's parameters only from the declared list, so the
 values never reach the node. The node sets these sensor options itself from
-librealsense, so global time is at the driver default, which is probably
-**on**. That is the opposite of what the comment says, and it changes the
-timestamp semantics that `timestamp_fixer` was written to correct. The same
-gap applies to `depth_qos`, which
+librealsense, so global time is **on** unless the wrapper sets it (librealsense's
+`bool_option` default). That is the opposite of what the comment says. It does not
+affect `timestamp_fixer`, which in its default restamp mode replaces every header
+stamp with the reception clock and so is indifferent to global time; it bears on
+consumers of the raw header stamps — bag parity work, and the fixer's own
+first-frame delta log. The same gap applies to `depth_qos`, which
 [`d555-depth-decode-validity`](../trained-policy/d555-depth-decode-validity.md)
 plans to pin.
 
@@ -156,7 +160,7 @@ means replacing it with a test that loads the file and fails if it sets any
 `d555.ros__parameters.<name>` and reach no real parameter. Then read the
 running values back with
 `ros2 param get /d555 depth_module.global_time_enabled` on hardware, and check
-whether `timestamp_fixer`'s offset logic assumed global time was off. Also add
+which raw-stamp consumers assumed global time was off. Also add
 a test that every `launch_arguments` key is declared by the installed wrapper,
 which would have caught all three. That test would fail today, which is why it
 is not in this change.

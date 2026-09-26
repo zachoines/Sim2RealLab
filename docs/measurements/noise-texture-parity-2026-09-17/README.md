@@ -102,7 +102,7 @@ entrypoint loads it**. `perception.launch.py` includes `rs_launch.py` with an
 explicit argument dict and no `--params-file`. The filters are off by
 `realsense2_camera` default, not by that file. Same conclusion, void reason, and
 a wrapper version bump could change it silently:
-[`d555-params-file-inert`](../../tasks/active/reliability/d555-params-file-inert.md).
+[`d555-params-file-inert`](../../tasks/completed/d555-params-file-inert.md).
 
 ## 3. What separates the capture's depth from the training noise
 
@@ -521,7 +521,7 @@ Filed from this record:
 
 - [`real-d555-depth-texture-capture`](../../tasks/active/trained-policy/real-d555-depth-texture-capture.md)
   (Jetson, P1) — the measurement that settles ρ and unblocks §8.
-- [`d555-params-file-inert`](../../tasks/active/reliability/d555-params-file-inert.md)
+- [`d555-params-file-inert`](../../tasks/completed/d555-params-file-inert.md)
   (Jetson, P2) — the unloaded params file.
 - [`d555-depth-decode-validity`](../../tasks/active/trained-policy/d555-depth-decode-validity.md)
   amended with what the encoding gate blocks beyond deployment.

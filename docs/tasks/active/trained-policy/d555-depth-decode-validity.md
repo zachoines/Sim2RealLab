@@ -196,6 +196,23 @@ close-wall capture on hardware measures it; see the hardware item below.
       `| z16 frames=N majority_invalid_cells=P% over M frames`, which is what
       to read when it runs. The close-wall check was added on review the same
       day and is equally blocked on the camera.)*
+      *(2026-09-25, later: partly met.*
+      - *Measured, after a power cycle brought the D555 back on USB 3.2: the merged
+        node (images `de3a865e5810`, v3 loaded) ran 170 s on the real `16UC1`
+        stream. `depth_bad_encoding` and `depth_bad_shape` read 0 on all 18
+        counter lines, `z16 frames` rose from 401 to 10588, and the log has no
+        exception.*
+      - *The rate was 59.9 frames a second rather than 30, because the driver
+        publishes every depth frame twice on this host.*
+      - *Not met: `inferences` stayed 0. The rig has no motor controller, so there
+        was no goal, TF or odometry. The IMU is also disabled on this host's
+        kernel, and `/d555/imu/filtered` is a watchdog source, so it would hold
+        the node regardless.*
+      - *The close-wall check was not run.*
+      - *See
+        [`real-d555-hardware-readback-2026-09-25`](../../../measurements/real-d555-hardware-readback-2026-09-25/README.md)
+        and
+        [`d555-l4t-stream-integrity`](../reliability/d555-l4t-stream-integrity.md).)*
 - [x] If your work invalidates a fact in any referenced context module, package
       README, top-level `Readme.md`, or guide under `docs/`, update those in the
       same commit. See
@@ -227,7 +244,7 @@ separately, because this brief is what makes them measurable:
   contract*, and a driver-version change would break it silently — a reliable
   subscriber receives **nothing** from a best-effort publisher. Note that the
   `launch_arguments` dict is the surface (the never-loaded `d555_params.yaml`
-  was deleted by [`d555-params-file-inert`](../reliability/d555-params-file-inert.md)).
+  was deleted by [`d555-params-file-inert`](../../completed/d555-params-file-inert.md)).
   An argument name `rs_launch.py` does not declare does **not** fail the
   include: `realsense2_camera` 4.58.4 prints `Parameter '<name>' is not
   supported` and never forwards it to the node, so verify the name against the

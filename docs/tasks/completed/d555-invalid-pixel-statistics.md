@@ -394,7 +394,7 @@ sentence in the setup: "Post-processing filters are disabled in
 Dockerfile or entrypoint reads it, and a repo-wide search finds the name only in
 documentation and in the file's own header; `setup.py` installs it to `share/`,
 which is what makes it look live. See
-[`d555-params-file-inert`](../active/reliability/d555-params-file-inert.md).
+[`d555-params-file-inert`](d555-params-file-inert.md).
 
 The filters therefore ran at whatever the driver defaults to during the
 2026-08-04 capture, which is not recorded. The measured numbers stand as

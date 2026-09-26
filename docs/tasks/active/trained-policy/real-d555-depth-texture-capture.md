@@ -70,10 +70,41 @@ offline run on bagged Z16 must decode through
 `downsample_depth(..., valid_mask=...)`, or Z16's invalid `0` reaches the
 reduction as a near return instead of `DEPTH_MAX`.)
 
+## Status 2026-09-25: on hold after one benchtop pilot pose
+
+[`real-d555-hardware-readback-2026-09-25`](../../../measurements/real-d555-hardware-readback-2026-09-25/README.md)
+started this capture and stopped after one pose.
+
+**Why it stopped.** The Jetson does not ride on the robot: it sits beside the
+DGX on the direct-link cable, and the camera's USB tether does not reach robot
+mount height across a room. To resume, the camera must be able to reach floor
+positions, with the Jetson travelling with the robot or on an active USB 3
+extension. The capture itself needs no DGX link.
+
+**The pilot.** One wall at 0.74 m, at benchtop height, gave data in the
+0.4–1.0 m band only:
+- raw σ p50 0.767 mm and post-reduction σ p50 0.679 mm;
+- ρ = 0.777, above the 0.293 crossover, but quantisation-limited;
+- gate (B) at σ_d 0.08 gives a ratio of 0.99.
+
+It meets none of the criteria below.
+
+**What the stream needs from whoever resumes.** Three things measured on this
+host change how the capture is taken:
+- **Every depth frame is published twice.** Drop consecutive bit-identical
+  frames before any statistic. The analysis tool deposited with that record
+  does this, and ties the count to the camera's `frame_number`.
+- **The header stamps do not advance.** Time everything on bag receive time.
+- **There is no IMU** (the kernel lacks `HID_SENSOR_HUB`). Stillness rests on
+  the depth-drift test alone unless the IMU is restored first.
+
+The per-pose script, the procedure and the analysis are in that record's
+deposit under `tools/`.
+
 ## Method
 
 1. **Confirm the filter state before bagging.**
-   [`d555-params-file-inert`](../reliability/d555-params-file-inert.md)
+   [`d555-params-file-inert`](../../completed/d555-params-file-inert.md)
    deleted the never-loaded `d555_params.yaml` and pins the four
    post-processing filters off and depth auto-exposure on as explicit
    `rs_launch.py` arguments in `perception.launch.py`. Its on-hardware

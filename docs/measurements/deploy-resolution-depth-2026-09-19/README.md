@@ -17,7 +17,7 @@ correlation ρ is still unmeasured and this record does not need it. Hosts,
 trees, interpreter and digests are in `provenance.md`.
 
 *Update 2026-09-26: ρ was measured on the real sensor in [`real-d555-depth-texture-2026-09-26`](../real-d555-depth-texture-2026-09-26/README.md):
-0.64–0.90 by band, with σ_d 0.08 passing gate (B). That record also evaluates the parked option's
+0.64–0.90 by band in its headline set, with σ_d 0.08 passing gate (B). That record also evaluates the parked option's
 revisit trigger against §4 here.*
 
 ---

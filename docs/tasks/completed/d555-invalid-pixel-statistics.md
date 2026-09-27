@@ -466,10 +466,12 @@ off before every recording.
 frame is 5733 / 317 / 449 / 33 / 7.1× the sim figure of
 `deploy-resolution-depth-2026-09-19` §4. The option it re-opens is in two halves:
 - **Its render half has already shipped** in that record.
-- **Its native-resolution noise half stays parked, now on the measured ρ of 0.64–0.90.** i.i.d.
+- **Its native-resolution noise half stays parked, now on the measured ρ of 0.64–0.90 in the headline set.** i.i.d.
   native injection would under-inject about 5–6×.
 
-**§4's table does not bound true raw σ from below**, as the 2026-09-18 amendment read it. With the
-filters verified off, that capture reads lower raw σ in three of five bands: 0.84 against 1.1,
-6.36 against 10.1, and 44.75 against 87.1 mm. The scenes and heights differ, so this does not show
-what the 2026-08-04 filter state was. It only shows that the lower-bound reading is not supported.
+**§4's table is not a lower bound on the sensor's per-band raw σ in other scenes.** With the
+filters verified off, the mount-height capture reads lower raw σ in three of five bands: 0.84
+against 1.1, 6.36 against 10.1, and 44.75 against 87.1 mm. A different scene at a different height
+cannot bear on the 2026-08-04 capture's own true raw σ, so the 2026-09-18 amendment's per-capture
+bound stands as written. What fails is carrying the table to other scenes as a floor. This
+qualifies how the table travels; it does not withdraw it.

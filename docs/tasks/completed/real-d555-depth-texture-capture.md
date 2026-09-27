@@ -10,7 +10,7 @@ noise term is mis-calibrated, and every depth sim-to-real claim in the
 depth-subgoal line currently rests on a quantity nobody has measured.
 **Estimate:** S–M (one bagging sitting plus an offline analysis; M only if the
 filter pinning in `perception.launch.py` has to land first)
-**Branch:** `task/real-d555-depth-texture-capture`
+**Branch:** `task/real-d555-hardware-readback` (shipped in PR #233 with the hardware read-back record)
 
 ## Story
 
@@ -83,7 +83,7 @@ longer Ethernet runs. The one-pose benchtop pilot of 2026-09-25, recorded in
 is superseded.
 
 **Method deviation.** Method 2 asks for static poses. By the stillness rule registered during the
-session, two of the five recordings count as still. The other three fail it with no motion signature,
+capture, two of the five recordings count as still. The other three fail it with no motion signature,
 and the set of the two still recordings gives the same gate (B) verdict. The record gives the
 mechanism and the full pre-registration trail.
 
@@ -176,7 +176,8 @@ mechanism and the full pre-registration trail.
       for the surface list and trigger heuristics.
       *Met: dated notes carry the measured ρ into the records and briefs that said it was
       unmeasured. They are `noise-texture-parity-2026-09-17` §6,
-      `deploy-resolution-depth-2026-09-19`, `depth-camera-vfov-parity`, and
+      `deploy-resolution-depth-2026-09-19`, `depth-noise-coverage-2026-09-18` §8,
+      `depth-noise-coverage-band`, `depth-camera-vfov-parity`, and
       `d555-invalid-pixel-statistics`, which also gets the revisit trigger and the lower-bound
       reading. No context module, package README or guide stated these facts.*
 

@@ -11,8 +11,10 @@ lens 0.278 m above the floor and level within 1°. Filters were read back off be
 recording.
 
 **ρ.**
-- ρ is 0.64–0.90 in every band, on every estimator.
-- That is above both the 2026-09-17 crossovers and this capture's own.
+- In the headline set (poses 1, 2, 3), ρ is 0.64–0.90 in every band, on every estimator. The repeats
+  (set B) read 0.63–0.88.
+- Both ranges are above both the 2026-09-17 crossovers and this capture's own. The one reading below a
+  crossover anywhere is set C's 2.5–3.5 m ratio of band medians: 0.351 on 20 cells (§2).
 - So the sign that §6 left undetermined is settled for the surfaces measured. At the shipped
   `disparity_noise_px = 0.08`, the real post-reduction σ is larger than the σ training injects, in
   every band, by 1.11–1.88×.
@@ -32,7 +34,7 @@ has already shipped; the native-resolution noise half stays parked, now on the m
 **Brief.** This closes
 [`real-d555-depth-texture-capture`](../../tasks/completed/real-d555-depth-texture-capture.md),
 with one method deviation, set out below: two of the five recordings count as still under the rule
-registered during the session.
+registered during the capture.
 
 ## Setup
 
@@ -48,6 +50,10 @@ registered during the session.
   - the four post-processing filters (plus the disparity filter and HDR merge) read `False`;
   - depth auto-exposure reads `True`;
   - the profile is `640x360x30` Z16.
+
+  The five read-back files are byte-identical (sha256 `3ba667ef…`), as are the pilot's and the dry
+  run's, because `pose_capture.sh` writes no timestamp into them. Per-bag timing rests on the
+  script's step order and each recording's `t_start_utc.txt`, `t_end_utc.txt` and `bag_info.txt`.
 - **Geometry, measured from the data.** A plane fit of 1/z on the bottom 60 rows of each
   recording's temporal median gives the lens 0.2781–0.2791 m above the floor, pitch −0.83° to
   −0.92° (axis up) and roll +0.18° to +0.19°, in every pose.
@@ -83,16 +89,27 @@ registered during the session.
 
 ## What was registered, and when
 
-`PREANALYSIS.md` was written at 04:33:53Z, before the first bag. It fixes:
+`PREANALYSIS.md` is stamped 04:33:53Z, before the first bag. It fixes:
 - the primary tool;
 - the two secondary analyses;
 - depth-only stillness (this host has no IMU).
 
-Addenda were appended as the session went, never edited back:
+Addenda were appended as the capture went and, by the plan's own account, never edited back:
 1. **After pose 1:** a lattice-corrected stillness rule plus a coherent-motion check. A pose counts
    as still only if both pass.
 2. **After pose 2:** its failure, the decision to re-record, and the changed conditions.
 3. **After everything:** corrections, and what was not pre-registered.
+
+**How the chronology is anchored.**
+- **The plan.** Its times are the file's own stamps: 04:33:53Z, 04:48:45Z, 05:03:35Z, 05:08:05Z,
+  05:11:48Z and 08:11:07Z. `PREANALYSIS.md` has one evidence-repo commit, `465ab9b` at 08:12:26Z,
+  after every bag, so git cannot corroborate them.
+- **The primary tool** is anchored in git: it is byte-identical to the copy committed in `7ff3f70`
+  at 2026-09-26T03:24:51Z, before the first of the five recordings.
+- **Addendum 2's last note** is stamped 05:11:48Z, the same second as pose 1b's `t_start_utc.txt`.
+  The capture script writes that file before its read-back and 15 s wait, and the bag's first
+  message follows 58.75 s later. At one-second resolution the note cannot be ordered against the
+  script's start.
 
 **Not pre-registered:** pose 3, pose 2b, the three pose sets, and the choice of set A as the
 headline. Set A mixes the before and after conditions.
@@ -117,7 +134,7 @@ below.
 **How the rules work.**
 - The primary rule compares each always-valid pixel's median over the first and last thirds of the
   recording. It allows one 1 mm Z16 step.
-- The real depth sits on a disparity lattice, C = 997–1030 m, whose step is z²/C: 35 mm at 5.8 m.
+- The real depth sits on a disparity lattice, C = 997–1030 m, whose step is z²/C: about 34 mm at 5.8 m (33.7 / 32.7 mm at C = 997 / 1030 m).
   The lattice-corrected rule allows one lattice step instead.
 
 **Poses 2, 1b and 2b stay "not still" under the rule as registered.** Their failures still carry no
@@ -132,8 +149,15 @@ motion signature:
     0.6 mm.
   - A separate slow component appears only on the cardboard faces: autocorrelation +0.04 to +0.07
     out to about 2 s, in patches up to about 16 px.
-  - The 1 % threshold sits at these scenes' own false-flag level: a block-permutation null exceeds
-    it in 95–97 % of random splits of poses 2 and 2b.
+  - For poses 2 and 2b the 1 % threshold sits at their own false-flag level: a 3 s
+    block-permutation null exceeds it in 97 % and 95 % of random splits. For poses 1, 1b and 3 the
+    null never exceeds it (medians 0.80 / 0.81 / 0.20 %).
+  - In all five poses the first-vs-last split beats every random split, so slow structure beyond
+    3 s is common to all of them.
+  - Pose 1b crosses 1 % because it has slightly more of that very-slow, spatially incoherent wander
+    than pose 1 (30 s structure function 0.0795 against 0.0730 σ²). The skipped codes turn it into
+    median hops: 4.3 % of the pixels beside a skipped code flag, against 3.0 % in pose 1.
+  - No coherent component appears.
 - **Effect on the numbers.** If all of the slow component were motion, post-reduction σ would be
   overstated by at most 3.5 % in any band. That would raise, not lower, the one marginal gate (B)
   ratio.
@@ -160,7 +184,8 @@ Set A:
 **Where the cells come from.**
 - 0.4–1.0 m is mostly pose 3's box face: 1901 of 2342 cells. Without pose 3 it reads 1.038 at
   gate (B), still a pass.
-- 2.5–3.5 m is 229 cells from pose 2's box face plus 20 from pose 1.
+- 2.5–3.5 m is 229 cells from pose 2, of which 206 lie within 3.01 ± 0.08 m (the box face's depth),
+  plus 20 from pose 1.
 - Pose 3 contributes nothing beyond 1.5 m.
 
 **Sets B and C** agree to within a few percent. The exception is set C's 2.5–3.5 m band: without
@@ -168,8 +193,9 @@ the box it holds 20 cells, reading 10.4 mm.
 
 **Against 2026-08-04.** This capture reads lower raw σ than the 2026-08-04 table in three of five
 bands, with the filters verified off. The scenes and heights differ, so it does not show what the
-2026-08-04 filters were. But it does not support that record's 2026-09-18 reading of its table as a
-lower bound on true raw σ.
+2026-08-04 filters were, and it cannot bear on that capture's own true raw σ. What it does not
+support is carrying that table to other scenes as a lower bound on the sensor's per-band raw σ. The
+2026-09-18 per-capture bound stands.
 
 ## 2. ρ per band
 
@@ -195,8 +221,12 @@ lower bound on true raw σ.
   0.66–0.81.
 - **Flat-cell counts are small** at 1.0–1.5 m (30) and 3.5–5.5 m (36).
 - **Read ρ as the median's effective attenuation,** not as a pure within-block correlation. The
-  real noise is also correlated *across* block edges: adjacent cells' temporal residuals correlate
-  at a median of 0.32–0.61, rising with band. Training injects noise independently per cell.
+  real noise is also correlated *across* block edges, and anisotropically. Adjacent cells' temporal
+  residuals correlate at a median of 0.35–0.69 horizontally, rising with range (about 0.68 at
+  3.5–5.5 m). Vertically they sit at about 0.33–0.40 with no trend on pose-bands with at least 100
+  pairs, and 0.26 on pose 3's near box.
+  Per pose and band: `verification/verify_briefboxes/check_<pose>.json`. Training injects noise
+  independently per cell.
 
 ## 3. The 80×45 texture statistic
 
@@ -251,7 +281,8 @@ The band-midpoint convention of §6 gives 0.876 / 0.816 / 0.927 / 0.529 / 0.704,
 - **The real sensor is the noisier side everywhere:** 1.11 / 1.14 / 1.16 / 1.88 / 1.34× training.
   None reaches the 2× at which §8(G) would call for an increase.
 - **2.5–3.5 m is the closest** at 1.88×.
-  - 206 of its 249 cells are one flat box face, from pose 2, which does not count as still.
+  - 229 of its 249 cells come from pose 2, which does not count as still. 206 of those lie within
+    3.01 ± 0.08 m, the box face's depth.
   - The ratio holds across time windows (0.537–0.549) and on the re-record (0.521).
   - Resampling 32-px tiles puts its 2.5 % quantile at 0.50.
   - If that band matters to a decision, the one capture worth adding is a still pose with several
@@ -286,6 +317,13 @@ reading), in set A:
   0.4–1.0 m and up to about 30 % beyond.
 - **The floor's own sensor noise.** Floor pixels valid in every frame have 1.4–1.6× the per-pixel σ
   of other surfaces at 0.65–1.0 m.
+
+**With the flicker removed on both sides**, the depth-normalised floor excess is 1.45 / 1.32 / 1.65× by
+band in set A, and 1.46 / 1.32 / 1.60 in set B. These are the floor row's `eq p50 within` over the
+other row's, within-mask-state σ on both sides, from `verification/verify_floor/decomp.py`. That
+script's summary line divides by the reflection-cleaned other surfaces' deployed σ instead.
+- Across the deposited estimators it spans 1.4–1.6 / 1.3–1.5 / 1.6–1.9×, lowest at 1.0–1.5 m.
+- The 1.5–2.5 m figure rests on 48–57 floor cells bunched near 1.55 m.
 
 **What gate (B) would read on the floor.**
 - With flicker included, 0.08 would read 0.455 / 0.489 / 0.327.
@@ -336,7 +374,7 @@ So the 33× and 7× at range carry the weight.
   - This is one unit, one firmware, one profile.
 - **Disparity lattice.** The depth values sit on a lattice with C = 997–1030 m (1/32 px of
   disparity at f·B ≈ 31 px·m). Z16's 1 mm is therefore not the only quantisation step: the lattice
-  step is 1.7 / 3.7 / 9 / 21 mm at 1.3 / 1.9 / 3.0 / 4.6 m.
+  step is 1.7 / 3.6 / 9 / 21 mm at 1.3 / 1.9 / 3.0 / 4.6 m.
 - **A trap in the stillness test.** Z16 codes the camera never emits make a pixel's median jump
   about two Z16 steps while its mean barely moves, so median-based stillness tests over-flag at
   range.
@@ -368,7 +406,7 @@ The deposit holds:
   - the five depth bags, gzip-compressed and split. `DEPOSIT.md` gives both the stored and the
     uncompressed digests.
 - **`analysis/`:** the primary tool on sets A, B and C, and the secondary tool.
-- **`diagnostics/`:** the in-session stillness and jitter checks.
+- **`diagnostics/`:** the stillness and jitter checks run during the capture.
 - **`verification/`:** the independent recomputation and adversarial checks, with their scripts and
   a JSON of every verdict.
 - **`dryrun_20260925/`:** an unrecorded 2026-09-25 pipeline dry run, indicative only.

@@ -40,13 +40,16 @@ hardwood floor and found:
    - The registered cell rule excludes the floor, because it drops out intermittently at grazing
      angles.
    - On the deployed output, floor σ_post is 1.5–2.2× that of other surfaces, depth-normalised.
-   - Part of that is validity-mask flicker through the 6.0 m substitution. Removing it still leaves
-     1.3–1.7×.
+   - Part of that is validity-mask flicker through the 6.0 m substitution. Removed on both sides,
+     the floor is still 1.45 / 1.32 / 1.65× by band (set A), and 1.3–1.9× across the deposited
+     estimators, lowest at 1.0–1.5 m.
 4. **Specular floor reflections.** 2–2.5 % of the frame's cells read phantom depth beyond the floor
    plane.
-5. **Noise correlated across cells.** Adjacent 80×45 cells' temporal residuals correlate at
-   0.32–0.61, rising with band. Training's per-cell noise is independent, so gate (C)'s
-   |d − median3×3| statistic will expose this.
+5. **Noise correlated across cells, anisotropically.** Adjacent 80×45 cells' temporal residuals
+   correlate at a median of 0.35–0.69 horizontally, rising with range, and about 0.33–0.40
+   vertically with no trend (pose-bands with at least 100 pairs; 0.26 on the near box). Training's per-cell noise is independent, so
+   gate (C)'s |d − median3×3| statistic will expose this, and a correlated model with a single ρ
+   would miss the direction dependence.
 6. **Quantisation structure.** The real depth sits on a disparity lattice (C ≈ 1000 m). Some Z16
    codes never occur.
 
@@ -63,6 +66,11 @@ perception camera. It was not taken.
       reason. Any change to a noise field is gated by §8, including (G)'s direction rule.
 - [ ] If a change is made, it ships with its own record and gate readings. No change is also a
       valid outcome and says so.
+- [ ] If your work invalidates a fact in any referenced context module, package
+      README, top-level `Readme.md`, or guide under `docs/`, update those in the
+      same commit. See
+      [`conventions.md`'s user-facing documentation maintenance section](../../context/conventions.md#user-facing-documentation-maintenance)
+      for the surface list and trigger heuristics.
 
 ## Investigation pointers
 

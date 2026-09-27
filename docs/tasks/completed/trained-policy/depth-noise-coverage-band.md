@@ -45,6 +45,9 @@ within-block correlation ρ, which
 to measure and which no capture has measured yet. **This brief changes no
 shipped σ_d.**
 
+*Update 2026-09-26: ρ is now measured, in [`real-d555-depth-texture-2026-09-26`](../../../measurements/real-d555-depth-texture-2026-09-26/README.md): 0.64–0.90 by
+band in its headline set, with σ_d 0.08 passing gate (B).*
+
 It addresses a narrower and separable problem: **coverage**. The next rig gate
 runs against the bridge again, so its depth field is exactly the capture's. If
 the training distribution contains no frames that featureless, a retrained

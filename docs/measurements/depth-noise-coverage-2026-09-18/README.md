@@ -374,6 +374,11 @@ correctly: injecting i.i.d. noise at 640x360 and then medianing attenuates it
 condition alone.** Nothing is implemented here and the scratch branch is
 deposited rather than merged.
 
+*Update 2026-09-26: ρ is now measured, in [`real-d555-depth-texture-2026-09-26`](../real-d555-depth-texture-2026-09-26/README.md): 0.64–0.90 by band in its
+headline set. Direction A's native-resolution noise still does not enter the retrain, now on that
+measurement: i.i.d. injection at 640x360 would under-inject about 5–6×. It re-enters only as a
+spatially correlated noise model.*
+
 ## 9. Gates
 
 | gate | result | notes |

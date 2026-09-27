@@ -208,14 +208,18 @@ supply.**
     `/dev/ttyACM*` (`strafer_driver/roboclaw_interface.py`:415-417) and sends each port a
     `read_main_battery` probe (:367-380).
   - After "no RoboClaws found" the node opens `front_port` (`roboclaw_node.py`:136-157) and writes
-    PID configuration to it (:156, :225). `front_port` defaults to `/dev/ttyACM0` at
+    PID configuration to it (:156, :225). Its 50 Hz timer then sends a drive command to that port
+    every tick (:210-211, :310-313). After 10 consecutive failures it sends one more stop to the
+    port and enters an error state (:74, :432-446), then reopens the port every 2 s (:77, :256). A
+    single missing controller falls back the same way to its default port (:120-135). `front_port` defaults to `/dev/ttyACM0` at
     `base.launch.py`:30-33, and `driver.launch.py`:22-26, :38-43 passes it after the params file,
     so it beats `driver_params.yaml`:6.
   - With the D555 attached, `/dev/ttyACM0` is the camera's CDC interface (hardware readback
     record:57-58).
   - `base` mounts `/dev`, joins `dialout`, carries the ttyACM cgroup rule
-    (`docker-compose.yml`:74-78), and is in the default `up` set. So "Device mounts are inert until
-    the hardware is connected" (:32-34) is false for `base` whenever the camera is attached.
+    (`docker-compose.yml`:74-78), and is in the default `up` set. So the header's former "Device mounts
+    are inert until the hardware is connected" was false for `base` whenever the camera is attached.
+    It was corrected in PR #233; see the fence box.
 - **Nothing starts on boot.** Only `strafer_perception` and `strafer_inference` exist, both
   stopped (`Exited (137)`, restart `unless-stopped`; `docker ps -a`, `docker inspect`). `docker`
   is enabled. A cold boot on battery would start no strafer service.
@@ -386,11 +390,15 @@ one it replaces comes out.
 **The camera's serial interface, fenced before any RoboClaw is plugged in**
 
 - [ ] `99-strafer.rules` is installed and survives a reboot.
-- [ ] With the D555 attached and no RoboClaw, nothing opens or writes to the camera's
-      `/dev/ttyACM0`. Either `base` is left out of every boot and `up` path until the controllers
-      are attached, or the driver's fallback stops probing `/dev/ttyACM*`. Shown on a
+- [ ] With the D555 attached and either RoboClaw missing, nothing opens or writes to the camera's
+      serial port. Either `base` is left out of every boot and `up` path until both controllers are
+      attached, or the driver stops probing `/dev/ttyACM*` and stops falling back to the configured
+      ports when a controller is not found. Shown on a
       camera-attached host with `fuser /dev/ttyACM0` and the node's log.
-      `docker-compose.yml`:32-34 is corrected.
+      *2026-09-27 (PR #233): `docker-compose.yml`:32-34 no longer calls the mounts inert, and
+      `source/strafer_ros/README.md` states the rule. What remains for this box is the boot-side
+      or driver-side fence. The udev install is the box above, and it does not fence the camera on
+      its own.*
 
 **Cutover and cold boot**
 
@@ -424,7 +432,7 @@ one it replaces comes out.
         `99-strafer.rules`:20, and the D555's CDC takes `/dev/ttyACM0`;
       - the cheatsheet's SSH target (:105) and wired pre-flight (:116-128);
       - the link brief's transport table (:52-58);
-      - `source/strafer_ros/README.md`:3, :124 and :169;
+      - `source/strafer_ros/README.md`:3, :124 and :180;
       - the `jetson-desktop` SSH target at `Readme.md`:349 and
         `docs/example_commands_cheatsheet.md`:383;
       - "Orin Nano" at `WIRING_GUIDE.md`:3 and :26;
@@ -435,8 +443,10 @@ one it replaces comes out.
       cheatsheet. The docs, `.env.example` and `Makefile` items are DGX-lane files.
 
       `enriched-lane-rig-stability.md`:226-227 is superseded there, with a pointer here.
-- [ ] The reboot hazard to the camera and the stale clock at boot are recorded where an operator
+- [x] The reboot hazard to the camera and the stale clock at boot are recorded where an operator
       reads before powering the robot off.
+      *Met 2026-09-27 (PR #233): `source/strafer_ros/README.md` "Hardware / addressing" states the
+      three rules. The `base` rule is also in `docker-compose.yml`'s header.*
 - [ ] No direct-link address and no Wi-Fi network name appear in tracked text.
 - [ ] If your work invalidates a fact in any referenced context module, package
       README, top-level `Readme.md`, or guide under `docs/`, update those in the

@@ -29,9 +29,9 @@
 # environment and applies nothing. Always `up -d --force-recreate <service>`,
 # then verify with `docker compose config` + `docker exec <c> printenv`.
 #
-# HARDWARE: `base` needs the RoboClaws on /dev/ttyACM*; `perception` needs the
-# RealSense D555. slam/navigation/autonomy/inference need no hardware. Device
-# mounts are inert until the hardware is connected.
+# HARDWARE: `base` needs both RoboClaws; `perception` needs the RealSense D555;
+# the rest need no hardware. A missing RoboClaw makes `base` write motor packets to
+# its default /dev/ttyACM* port, the D555's serial port when the camera is attached.
 #
 # NOTE: Zenoh is a REMOTE-WORKSTATION CONVENIENCE, not a sanctioned transport for
 # the sim lane -- those runs use wired-LAN CycloneDDS; nobody bridges 921 KB depth

@@ -94,13 +94,14 @@ registered during the capture.
 - the two secondary analyses;
 - depth-only stillness (this host has no IMU).
 
-Addenda were appended as the capture went and, by the plan's own account, never edited back:
+Addenda were appended as the capture went and, as its addenda show, never edited back:
 1. **After pose 1:** a lattice-corrected stillness rule plus a coherent-motion check. A pose counts
    as still only if both pass.
 2. **After pose 2:** its failure, the decision to re-record, and the changed conditions.
 3. **After everything:** corrections, and what was not pre-registered.
 
-**How the chronology is anchored.**
+**How the chronology is anchored.** Every bare clock time in this block is 2026-09-27 UTC, as are the
+five recordings. The only stamp given with a date is `7ff3f70`'s, the day before.
 - **The plan.** Its times are the file's own stamps: 04:33:53Z, 04:48:45Z, 05:03:35Z, 05:08:05Z,
   05:11:48Z and 08:11:07Z. `PREANALYSIS.md` has one evidence-repo commit, `465ab9b` at 08:12:26Z,
   after every bag, so git cannot corroborate them.
@@ -222,9 +223,10 @@ support is carrying that table to other scenes as a lower bound on the sensor's 
 - **Flat-cell counts are small** at 1.0–1.5 m (30) and 3.5–5.5 m (36).
 - **Read ρ as the median's effective attenuation,** not as a pure within-block correlation. The
   real noise is also correlated *across* block edges, and anisotropically. Adjacent cells' temporal
-  residuals correlate at a median of 0.35–0.69 horizontally, rising with range (about 0.68 at
-  3.5–5.5 m). Vertically they sit at about 0.33–0.40 with no trend on pose-bands with at least 100
-  pairs, and 0.26 on pose 3's near box.
+  residuals correlate at a median of 0.37–0.69 horizontally on pose-bands with at least 100 pairs,
+  rising with range (about 0.68 at 3.5–5.5 m). The near bands of poses 1, 1b, 2 and 2b, on 73–75
+  pairs, read 0.35–0.36. Vertically, on the same basis, they sit at about 0.33–0.40 with no trend. The exception is
+  pose 3's near box face: 0.26 on 1965 pairs.
   Per pose and band: `verification/verify_briefboxes/check_<pose>.json`. Training injects noise
   independently per cell.
 
@@ -323,7 +325,9 @@ band in set A, and 1.46 / 1.32 / 1.60 in set B. These are the floor row's `eq p5
 other row's, within-mask-state σ on both sides, from `verification/verify_floor/decomp.py`. That
 script's summary line divides by the reflection-cleaned other surfaces' deployed σ instead.
 - Across the deposited estimators it spans 1.4–1.6 / 1.3–1.5 / 1.6–1.9×, lowest at 1.0–1.5 m.
-- The 1.5–2.5 m figure rests on 48–57 floor cells bunched near 1.55 m.
+- The 1.5–2.5 m figure rests on 48–57 floor cells bunched near 1.55 m (within-mask-state and modal
+  estimators). Its 1.9 extreme is set B's frozen-mask estimator, on 45 cells. Set A's, on 36 cells,
+  reads 1.7.
 
 **What gate (B) would read on the floor.**
 - With flicker included, 0.08 would read 0.455 / 0.489 / 0.327.

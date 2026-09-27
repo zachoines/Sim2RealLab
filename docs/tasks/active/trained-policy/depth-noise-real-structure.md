@@ -36,18 +36,19 @@ hardwood floor and found:
 2. **The robust tier sits mostly below the passing interval.** v3 trained on σ_d drawn
    log-uniformly over [0.002, 0.16]. Only [0.075, 0.16] passes every band, about 17 % of draws. The
    median draw injects 5–8× less than the sensor delivers.
-3. **The floor is noisier than walls at the same depth.**
+3. **The floor is noisier than other surfaces at the same depth.**
    - The registered cell rule excludes the floor, because it drops out intermittently at grazing
      angles.
    - On the deployed output, floor σ_post is 1.5–2.2× that of other surfaces, depth-normalised.
    - Part of that is validity-mask flicker through the 6.0 m substitution. Removed on both sides,
-     the floor is still 1.45 / 1.32 / 1.65× by band (set A), and 1.3–1.9× across the deposited
+     the floor is still 1.45 / 1.32 / 1.65× by band (set A), and up to 1.9× across the deposited
      estimators, lowest at 1.0–1.5 m.
 4. **Specular floor reflections.** 2–2.5 % of the frame's cells read phantom depth beyond the floor
    plane.
 5. **Noise correlated across cells, anisotropically.** Adjacent 80×45 cells' temporal residuals
-   correlate at a median of 0.35–0.69 horizontally, rising with range, and about 0.33–0.40
-   vertically with no trend (pose-bands with at least 100 pairs; 0.26 on the near box). Training's per-cell noise is independent, so
+   correlate at a median of 0.37–0.69 horizontally, rising with range, and about 0.33–0.40
+   vertically with no trend, on pose-bands with at least 100 pairs. Vertically, pose 3's near box
+   face reads 0.26 (1965 pairs). Training's per-cell noise is independent, so
    gate (C)'s |d − median3×3| statistic will expose this, and a correlated model with a single ρ
    would miss the direction dependence.
 6. **Quantisation structure.** The real depth sits on a disparity lattice (C ≈ 1000 m). Some Z16

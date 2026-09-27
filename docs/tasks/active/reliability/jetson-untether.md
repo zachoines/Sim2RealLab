@@ -210,8 +210,12 @@ supply.**
   - After "no RoboClaws found" the node opens `front_port` (`roboclaw_node.py`:136-157) and writes
     PID configuration to it (:156, :225). Its 50 Hz timer then sends a drive command to that port
     every tick (:210-211, :310-313). After 10 consecutive failures it sends one more stop to the
-    port and enters an error state (:74, :432-446), then reopens the port every 2 s (:77, :256). A
-    single missing controller falls back the same way to its default port (:120-135). `front_port` defaults to `/dev/ttyACM0` at
+    port and enters an error state (:74, :432-446), then reopens both ports every 2 s (:77, :256-257).
+    `reconnect()` counts a bare open as success (`roboclaw_interface.py`:143-150). So when both
+    reopen, the node clears the error state and the failure count, and the writes on its 50 Hz timer resume
+    (:258-261), in bursts about 2 s apart. With no RoboClaw at all the rear port is absent, the
+    reopen fails, and the node stays in the error state. A single missing controller falls back the
+    same way to its default port (:120-135). `front_port` defaults to `/dev/ttyACM0` at
     `base.launch.py`:30-33, and `driver.launch.py`:22-26, :38-43 passes it after the params file,
     so it beats `driver_params.yaml`:6.
   - With the D555 attached, `/dev/ttyACM0` is the camera's CDC interface (hardware readback
@@ -432,7 +436,7 @@ one it replaces comes out.
         `99-strafer.rules`:20, and the D555's CDC takes `/dev/ttyACM0`;
       - the cheatsheet's SSH target (:105) and wired pre-flight (:116-128);
       - the link brief's transport table (:52-58);
-      - `source/strafer_ros/README.md`:3, :124 and :180;
+      - `source/strafer_ros/README.md`:3, :124 and :182;
       - the `jetson-desktop` SSH target at `Readme.md`:349 and
         `docs/example_commands_cheatsheet.md`:383;
       - "Orin Nano" at `WIRING_GUIDE.md`:3 and :26;

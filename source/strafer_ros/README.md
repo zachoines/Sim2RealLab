@@ -131,10 +131,12 @@ map ← odom ← base_link ← {chassis, wheel_*, d555_link}
     driver (no `/dev/video*`) until it is unplugged and plugged back in.
   - **Do not start `base` with the camera attached unless both RoboClaws are connected.** With no
     `/dev/roboclaw*`, the driver's port detection probes every `/dev/ttyACM*`. A missing controller
-    falls back to its default port (`/dev/ttyACM0` front, `/dev/ttyACM1` rear). The node then writes
-    PID packets to that port, then drive commands at 50 Hz until ten failures stop it, and then
-    reopens the port every 2 s. With the camera attached, one of those ports is its serial
-    interface.
+    falls back to its default port (`/dev/ttyACM0` front, `/dev/ttyACM1` rear). With the camera
+    attached, one of those ports is its serial interface. The node writes PID packets to that port,
+    then drive commands on its 50 Hz timer. Ten failures put it in an error state, and every 2 s it reopens both
+    ports. A bare open counts as success, so the writes resume in bursts about 2 s apart unless a
+    reopen fails. With no RoboClaw at all the rear port is absent, and the node stays in the error
+    state.
   - **The Jetson's RTC does not hold time across power-off.** After a cold boot, check that the clock
     has synced (`timedatectl`) before recording anything.
 

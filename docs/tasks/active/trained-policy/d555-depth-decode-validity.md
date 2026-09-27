@@ -220,7 +220,7 @@ close-wall capture on hardware measures it; see the hardware item below.
       for the surface list and trigger heuristics.
       *(2026-09-25: `source/strafer_ros/README.md` now states the dual decode,
       the mask convention and the appended cadence counters; no context module
-      or guide claimed 32FC1-only. [`real-d555-depth-texture-capture`](real-d555-depth-texture-capture.md)
+      or guide claimed 32FC1-only. [`real-d555-depth-texture-capture`](../../completed/real-d555-depth-texture-capture.md)
       gains a dated note that an offline Z16 reduction must pass the mask.)*
 - [x] No regression in the workflows the touched code supports.
       *(2026-09-25: `tools/run_ros_tests.sh ros` — 809 passed across the seven

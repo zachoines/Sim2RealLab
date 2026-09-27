@@ -366,7 +366,7 @@ Direction A enters the retrain only if the wall-clock ratio is ≤ 2x **and** th
 within-block correlation ρ has been measured. The ratio is about 1.1x at 96
 environments, so the budget condition is met and the 2026-08-01 rejection does
 not survive on its own terms. ρ has **not** been measured — that is
-[`real-d555-depth-texture-capture`](../../tasks/active/trained-policy/real-d555-depth-texture-capture.md),
+[`real-d555-depth-texture-capture`](../../tasks/completed/real-d555-depth-texture-capture.md),
 unexecuted — and without it raw-resolution noise cannot be synthesised
 correctly: injecting i.i.d. noise at 640x360 and then medianing attenuates it
 6.46x, under-injecting by that factor if the real field is correlated.

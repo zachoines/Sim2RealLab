@@ -122,9 +122,9 @@ read wrong. Recorders and parity tooling do not survive them.
 ## Out of scope
 
 - **The texture capture.**
-  [`real-d555-depth-texture-capture`](../trained-policy/real-d555-depth-texture-capture.md)
-  can proceed without this: it dedupes and times on receive time. It needs the
-  IMU only for its second stillness check.
+  [`real-d555-depth-texture-capture`](../../completed/real-d555-depth-texture-capture.md)
+  was taken without this on 2026-09-26: it dedupes and times on receive time,
+  and without the IMU its stillness rests on depth alone.
 - **The decode brief's remaining hardware items** (`inferences` advancing, the
   close-wall check) and its `depth_qos` pin, owned by
   [`d555-depth-decode-validity`](../trained-policy/d555-depth-decode-validity.md).

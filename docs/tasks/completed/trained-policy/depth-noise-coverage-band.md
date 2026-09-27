@@ -41,7 +41,7 @@ against 0.00565 for the shipped realistic tier — an order of magnitude.
 That gap is not, by itself, a calibration error. Whether the *real* sensor is
 noisier or smoother than training after the block median turns on the
 within-block correlation ρ, which
-[`real-d555-depth-texture-capture`](../../active/trained-policy/real-d555-depth-texture-capture.md) exists
+[`real-d555-depth-texture-capture`](../real-d555-depth-texture-capture.md) exists
 to measure and which no capture has measured yet. **This brief changes no
 shipped σ_d.**
 
@@ -109,7 +109,7 @@ reports.
 - Any change to the tiers' `disparity_noise_px`, `hole_probability`, or the
   near-field conventions reconciled on 2026-09-13.
 - Calibrating σ_d against the real sensor — that needs ρ, and is owned by
-  [`real-d555-depth-texture-capture`](../../active/trained-policy/real-d555-depth-texture-capture.md).
+  [`real-d555-depth-texture-capture`](../real-d555-depth-texture-capture.md).
 - Rendering the policy camera at 640×360 and sharing the deploy reduction; its
   cost is re-measured in the 2026-09-18 record, not implemented.
 - Using any trained artifact as a pass/fail gate on a training distribution.

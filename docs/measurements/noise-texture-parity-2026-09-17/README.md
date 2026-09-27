@@ -315,6 +315,11 @@ which also evaluates a revisit trigger the 2026-08-04 record pre-registered and
 that has been dormant since, because that record reported raw σ only and the
 trigger is phrased on the reduction residual.
 
+*Update 2026-09-26: ρ is now measured, in [`real-d555-depth-texture-2026-09-26`](../real-d555-depth-texture-2026-09-26/README.md), at robot mount height.
+It is 0.64–0.90 in every band, above every crossover in the table above. At σ_d 0.08 the real
+post-reduction σ exceeds training's in every band, by 1.11–1.88×. That settles the sign on the
+surfaces measured, and gate (B) (§8) passes in all five bands.*
+
 Two adjacent readings that do **not** survive checking, recorded so they are not
 re-derived:
 

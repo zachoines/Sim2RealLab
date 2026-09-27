@@ -21,10 +21,12 @@ The last two block the real lane outright. The policy's watchdog needs the IMU, 
 depth from the aligned topic.
 
 The texture capture for
-[`real-d555-depth-texture-capture`](../../tasks/active/trained-policy/real-d555-depth-texture-capture.md)
-is **on hold**. The camera is tethered by USB to a Jetson that sits beside the DGX, so it cannot
-reach robot mount height across a room. One pose was recorded at benchtop height before that became
-clear, and is reported below as a pilot for the 0.4–1.0 m band only.
+[`real-d555-depth-texture-capture`](../../tasks/completed/real-d555-depth-texture-capture.md)
+stopped here after one benchtop pose, which is reported below as a pilot for the 0.4–1.0 m band
+only. The camera is tethered by USB to a Jetson that sits beside the DGX, so it could not reach
+robot mount height. It was taken the next day, at mount height, after the Jetson was moved next to
+the robot on longer Ethernet runs, and is recorded in
+[`real-d555-depth-texture-2026-09-26`](../real-d555-depth-texture-2026-09-26/README.md).
 
 ## Setup
 
@@ -170,7 +172,9 @@ kernel support for the HID IMU. **This was not tested.**
 These are filed as
 [`d555-l4t-stream-integrity`](../../tasks/active/reliability/d555-l4t-stream-integrity.md).
 
-## The texture capture: on hold, with a one-pose pilot
+## The texture capture: a one-pose benchtop pilot (superseded)
+
+*The full capture is [`real-d555-depth-texture-2026-09-26`](../real-d555-depth-texture-2026-09-26/README.md). This section stands as the pilot it was.*
 
 The capture needs at least 3 static poses at robot mount height across a room, together covering
 0.4 to 5.5 m. The Jetson is not on the robot, and the camera's USB tether does not reach floor

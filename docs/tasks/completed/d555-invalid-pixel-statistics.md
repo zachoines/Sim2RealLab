@@ -394,7 +394,7 @@ sentence in the setup: "Post-processing filters are disabled in
 Dockerfile or entrypoint reads it, and a repo-wide search finds the name only in
 documentation and in the file's own header; `setup.py` installs it to `share/`,
 which is what makes it look live. See
-[`d555-params-file-inert`](../active/reliability/d555-params-file-inert.md).
+[`d555-params-file-inert`](d555-params-file-inert.md).
 
 The filters therefore ran at whatever the driver defaults to during the
 2026-08-04 capture, which is not recorded. The measured numbers stand as
@@ -410,7 +410,7 @@ Two consequences for anything reading this record:
   still the right input to a commensurability argument; they are a lower bound
   on the raw quantity, not a point estimate of it.
 - Re-running the capture with the filter state pinned and recorded is part of
-  [`real-d555-depth-texture-capture`](../active/trained-policy/real-d555-depth-texture-capture.md),
+  [`real-d555-depth-texture-capture`](real-d555-depth-texture-capture.md),
   which needs the same bag for the within-block correlation ρ.
 
 No number above is changed.
@@ -424,7 +424,7 @@ trigger: "if this brief's measurement shows the real-sensor reduction residual
 is materially larger than sim's, the option re-enters the retrain conversation."
 That trigger has never been evaluated, because the measurement it names — the
 real sensor's residual either side of the reduction — does not exist. It is
-[`real-d555-depth-texture-capture`](../active/trained-policy/real-d555-depth-texture-capture.md).
+[`real-d555-depth-texture-capture`](real-d555-depth-texture-capture.md).
 
 What has been evaluated is the **budget** the option was parked on. Measured
 2026-09-18 on the canonical Isaac Sim 6.0.1.0 pair at v2's env count of 96:
@@ -456,3 +456,22 @@ under-injects by that factor if the real field is correlated.
 
 Numbers and the scratch patch:
 [`depth-noise-coverage-2026-09-18`](../../measurements/depth-noise-coverage-2026-09-18/README.md) §8.
+
+## Amendment, 2026-09-26 — the revisit trigger evaluated, and the lower-bound reading
+
+The mount-height capture is [`real-d555-depth-texture-2026-09-26`](../../measurements/real-d555-depth-texture-2026-09-26/README.md), with the filters read back
+off before every recording.
+
+**The revisit trigger in Out of scope is met.** The real reduction residual on the temporal-median
+frame is 5733 / 317 / 449 / 33 / 7.1× the sim figure of
+`deploy-resolution-depth-2026-09-19` §4. The option it re-opens is in two halves:
+- **Its render half has already shipped** in that record.
+- **Its native-resolution noise half stays parked, now on the measured ρ of 0.64–0.90 in the headline set.** i.i.d.
+  native injection would under-inject about 5–6×.
+
+**§4's table is not a lower bound on the sensor's per-band raw σ in other scenes.** With the
+filters verified off, the mount-height capture reads lower raw σ in three of five bands: 0.84
+against 1.1, 6.36 against 10.1, and 44.75 against 87.1 mm. A different scene at a different height
+cannot bear on the 2026-08-04 capture's own true raw σ, so the 2026-09-18 amendment's per-capture
+bound stands as written. What fails is carrying the table to other scenes as a floor. This
+qualifies how the table travels; it does not withdraw it.

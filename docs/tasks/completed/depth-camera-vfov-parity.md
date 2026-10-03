@@ -327,7 +327,14 @@ the right spatial correlation, and the within-block correlation of real sensor
 depth is measured nowhere. Injecting i.i.d. noise at 640×360 and then medianing
 attenuates it 6.46×, which under-injects by that factor if the real field is
 correlated. That measurement is
-[`real-d555-depth-texture-capture`](../active/trained-policy/real-d555-depth-texture-capture.md).
+[`real-d555-depth-texture-capture`](real-d555-depth-texture-capture.md).
+
+*Note 2026-09-26 ([`real-d555-depth-texture-2026-09-26`](../../measurements/real-d555-depth-texture-2026-09-26/README.md)).*
+- *ρ is measured: 0.64–0.90 by band in its headline set. So i.i.d. injection at 640×360 would under-inject about
+  5–6×, and the option stays parked on that measured reason.*
+- *The real unit's depth camera_info reads fx = fy = 321.522 px at 640×360: VFOV 58.48°, HFOV
+  89.73°. That contradicts the "real ~56.4°" this brief derives from 1.93 / 3.68 mm, which gives
+  335.65 px. It was read from one unit, firmware 7.56.19918.835, profile 640x360x30.*
 
 Numbers, arms and the scratch patch:
 [`depth-noise-coverage-2026-09-18`](../../measurements/depth-noise-coverage-2026-09-18/README.md) §8.

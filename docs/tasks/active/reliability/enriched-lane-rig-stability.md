@@ -228,6 +228,10 @@ path regardless so an adapter wedge no longer costs rig control. **Do not switch
 transports mid-session** — it changes latency and jitter and confounds any
 arm-to-arm comparison.
 
+> **Note 2026-09-27.** [`jetson-untether`](jetson-untether.md) reverses "keep wired as
+> the SSH path" for the real robot. It keeps the direct cable as a re-dock for
+> sim-bridge sessions. Its adapter choice and soak are the Jetson-side fix for this mode.
+
 > **UPDATE 2026-08-08 — the ask is half-applied, and the unapplied half is now
 > the binding constraint on the depth lane.** The `mt7921u` dongle is gone: the
 > Jetson (`strafer-nx`, now **192.168.50.161**) is on wired gigabit

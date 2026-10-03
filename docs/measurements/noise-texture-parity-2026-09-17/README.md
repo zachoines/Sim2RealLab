@@ -102,7 +102,7 @@ entrypoint loads it**. `perception.launch.py` includes `rs_launch.py` with an
 explicit argument dict and no `--params-file`. The filters are off by
 `realsense2_camera` default, not by that file. Same conclusion, void reason, and
 a wrapper version bump could change it silently:
-[`d555-params-file-inert`](../../tasks/active/reliability/d555-params-file-inert.md).
+[`d555-params-file-inert`](../../tasks/completed/d555-params-file-inert.md).
 
 ## 3. What separates the capture's depth from the training noise
 
@@ -310,10 +310,15 @@ the real sensor's post-reduction noise spans 0.017–0.043 px at ρ = 0 and
 0.110–0.275 px at ρ = 1, and the shipped **0.08 px lies inside that interval in
 every band**. Neither "training is smoother than the sensor" nor "the sensor is
 noisier than training" is established. The measurement that closes it is
-[`real-d555-depth-texture-capture`](../../tasks/active/trained-policy/real-d555-depth-texture-capture.md),
+[`real-d555-depth-texture-capture`](../../tasks/completed/real-d555-depth-texture-capture.md),
 which also evaluates a revisit trigger the 2026-08-04 record pre-registered and
 that has been dormant since, because that record reported raw σ only and the
 trigger is phrased on the reduction residual.
+
+*Update 2026-09-26: ρ is now measured, in [`real-d555-depth-texture-2026-09-26`](../real-d555-depth-texture-2026-09-26/README.md), at robot mount height.
+In its headline set it is 0.64–0.90 in every band, above every crossover in the table above. At σ_d 0.08 the real
+post-reduction σ exceeds training's in every band, by 1.11–1.88×. That settles the sign on the
+surfaces measured, and gate (B) (§8) passes in all five bands.*
 
 Two adjacent readings that do **not** survive checking, recorded so they are not
 re-derived:
@@ -433,7 +438,7 @@ Replacing the criterion §5 retires. None of it uses v2 as a gate.
 
 **Gate 0 — data prerequisite, before any training-side change is written.** A
 real-D555 bag per
-[`real-d555-depth-texture-capture`](../../tasks/active/trained-policy/real-d555-depth-texture-capture.md):
+[`real-d555-depth-texture-capture`](../../tasks/completed/real-d555-depth-texture-capture.md):
 640×360 Z16, ≥600 frames at each of ≥3 static poses at robot mount height, the
 filters and depth auto-exposure pinned by explicit launch arguments and their
 values recorded, and a matched sim capture through the 640×360 perception camera.
@@ -519,9 +524,9 @@ way.
 
 Filed from this record:
 
-- [`real-d555-depth-texture-capture`](../../tasks/active/trained-policy/real-d555-depth-texture-capture.md)
+- [`real-d555-depth-texture-capture`](../../tasks/completed/real-d555-depth-texture-capture.md)
   (Jetson, P1) — the measurement that settles ρ and unblocks §8.
-- [`d555-params-file-inert`](../../tasks/active/reliability/d555-params-file-inert.md)
+- [`d555-params-file-inert`](../../tasks/completed/d555-params-file-inert.md)
   (Jetson, P2) — the unloaded params file.
 - [`d555-depth-decode-validity`](../../tasks/active/trained-policy/d555-depth-decode-validity.md)
   amended with what the encoding gate blocks beyond deployment.

@@ -126,6 +126,19 @@ map ← odom ← base_link ← {chassis, wheel_*, d555_link}
 - `wheel_axis_signs = [-1, 1, -1, 1]` for `[FL, FR, RL, RR]` is applied inside `strafer_shared.mecanum_kinematics`. **Do not** re-apply sign inversion inside this package.
 - RoboClaw PID values (`P=15000`, `I=750`, `D=0`, `QPPS=2796`) live in `strafer_shared.constants` and are auto-written to RAM on every `roboclaw_node` startup.
 - udev rules in [`99-strafer.rules`](99-strafer.rules) create the stable `/dev/roboclaw0` + `/dev/roboclaw1` symlinks and grant IIO permissions for the D555 IMU stack.
+- **Before powering the robot** (evidence: [`jetson-untether`](../../docs/tasks/active/reliability/jetson-untether.md)):
+  - **Plug the D555 in after the Jetson has booted.** Attached at power-on, it enumerates without a
+    driver (no `/dev/video*`) until it is unplugged and plugged back in.
+  - **Do not start `base` with the camera attached unless both RoboClaws are connected.** With no
+    `/dev/roboclaw*`, the driver's port detection probes every `/dev/ttyACM*`. A missing controller
+    falls back to its default port (`/dev/ttyACM0` front, `/dev/ttyACM1` rear). With the camera
+    attached, one of those ports is its serial interface. The node writes PID packets to that port,
+    then drive commands on its 50 Hz timer. Ten failures put it in an error state, and every 2 s it reopens both
+    ports. A bare open counts as success, so the writes resume in bursts about 2 s apart unless a
+    reopen fails. With no RoboClaw at all the rear port is absent, and the node stays in the error
+    state.
+  - **The Jetson's RTC does not hold time across power-off.** After a cold boot, check that the clock
+    has synced (`timedatectl`) before recording anything.
 
 ## Containerized deployment (recommended)
 

@@ -1,5 +1,8 @@
 # Load the D555 params file, or delete it and pin the filters in the launch
 
+**Status:** Shipped 2026-09-25 in `b968242` (Jetson).
+**PR:** https://github.com/zachoines/Sim2RealLab/pull/231
+
 **Type:** task (deploy runtime — config hygiene)
 **Owner:** Jetson
 **Priority:** P2 — nothing is broken today, because the wrapper's defaults
@@ -18,9 +21,9 @@ wrapper version is installed.**
 
 ## Context bundle
 
-- [context/repo-topology.md](../../context/repo-topology.md)
-- [context/conventions.md](../../context/conventions.md)
-- [context/branching-and-prs.md](../../context/branching-and-prs.md)
+- [context/repo-topology.md](../context/repo-topology.md)
+- [context/conventions.md](../context/conventions.md)
+- [context/branching-and-prs.md](../context/branching-and-prs.md)
 
 ## Context
 
@@ -40,12 +43,12 @@ different mechanism — and the difference matters twice.
 First, the deploy depth path's one guarantee is that it applies no spatial
 smoothing: the only spatial operator between the sensor and the policy is the
 8×8 block median in `obs_pipeline.downsample_depth`
-([`noise-texture-parity-2026-09-17`](../../../measurements/noise-texture-parity-2026-09-17/README.md) §2).
+([`noise-texture-parity-2026-09-17`](../../measurements/noise-texture-parity-2026-09-17/README.md) §2).
 If a wrapper bump turned the spatial filter on, that guarantee would break with
 nothing in the repo changing and no test failing.
 
 Second, the file is already load-bearing in prose.
-[`d555-invalid-pixel-statistics.md`](../../completed/d555-invalid-pixel-statistics.md)
+[`d555-invalid-pixel-statistics.md`](d555-invalid-pixel-statistics.md)
 justifies its per-pixel σ table as the sensor's **raw** structure on the grounds
 that "post-processing filters are disabled in `d555_params.yaml`". That
 justification is void as written, so the filter state during that capture is
@@ -89,16 +92,18 @@ another setting the repo believes it controls and does not.
       warned about and dropped rather than failing the include; and checks no
       `config_file` or `params_file` is passed. The five value assertions fail
       against the pre-change launch (5 failed, 6 passed).*
-- [ ] Verified against the running node on hardware: the requested values are
+- [x] Verified against the running node on hardware: the requested values are
       the values the node reports.
-      *Open 2026-09-25: the D555 enumerates as 8086:0bdc "Intel RealSense
-      Generic Device" with no `/dev/video*` nodes and `realsense2_camera`
-      4.58.4 logs "No RealSense devices were found!", so there is no node to
-      read back from.*
+      *Met 2026-09-25, after a power cycle brought the D555 back as `8086:0b56` on
+      USB 3.2 (firmware 7.56.19918.835). `ros2 param get /d555` on the running
+      node, images `de3a865e5810`, reads `False` for all four filter enables and
+      `True` for `depth_module.enable_auto_exposure`, identically at three node
+      starts. Recorded in
+      [`real-d555-hardware-readback-2026-09-25`](../../measurements/real-d555-hardware-readback-2026-09-25/README.md).*
 - [x] If your work invalidates a fact in any referenced context module, package
       README, top-level `Readme.md`, or guide under `docs/`, update those in the
       same commit. See
-      [`conventions.md`'s user-facing documentation maintenance section](../../context/conventions.md#user-facing-documentation-maintenance)
+      [`conventions.md`'s user-facing documentation maintenance section](../context/conventions.md#user-facing-documentation-maintenance)
       for the surface list and trigger heuristics.
       *Met 2026-09-25: `source/strafer_ros/README.md` names the pinned filter
       state and its test. Two active briefs that described the file as live or
@@ -122,7 +127,7 @@ another setting the repo believes it controls and does not.
   installs the file to `share/`, which is what makes it look live.
 - `source/strafer_ros/strafer_inference/test/test_inference_config.py` — the
   idiom for asserting a launch-time value, already used to pin the depth topic.
-- [`completed/d555-invalid-pixel-statistics.md`](../../completed/d555-invalid-pixel-statistics.md),
+- [`completed/d555-invalid-pixel-statistics.md`](d555-invalid-pixel-statistics.md),
   the "Measurement 2026-08-04" setup paragraph — the citation that rests on this
   file being loaded.
 
@@ -143,7 +148,7 @@ affect `timestamp_fixer`, which in its default restamp mode replaces every heade
 stamp with the reception clock and so is indifferent to global time; it bears on
 consumers of the raw header stamps — bag parity work, and the fixer's own
 first-frame delta log. The same gap applies to `depth_qos`, which
-[`d555-depth-decode-validity`](../trained-policy/d555-depth-decode-validity.md)
+[`d555-depth-decode-validity`](../active/trained-policy/d555-depth-decode-validity.md)
 plans to pin.
 
 Suggested follow-up: pass these through `rs_launch.py`'s declared
@@ -164,6 +169,17 @@ which raw-stamp consumers assumed global time was off. Also add
 a test that every `launch_arguments` key is declared by the installed wrapper,
 which would have caught all three. That test would fail today, which is why it
 is not in this change.
+
+**Read back on hardware (2026-09-25).** The running node reports
+`depth_module.global_time_enabled` and `rgb_camera.global_time_enabled` as
+`True`, and `motion_module.global_time_enabled` as "Parameter not set", because
+the IMU is disabled on this host. That confirms the prediction above. The raw
+header stamps do not advance at all on this host, for a reason below global
+time: with global time switched off at runtime, the device's per-frame timestamp
+reads 0. That, and the other stream defects seen alongside it, is filed as
+[`d555-l4t-stream-integrity`](../active/reliability/d555-l4t-stream-integrity.md),
+per
+[`real-d555-hardware-readback-2026-09-25`](../../measurements/real-d555-hardware-readback-2026-09-25/README.md).
 
 ## Out of scope
 

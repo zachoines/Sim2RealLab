@@ -1,5 +1,8 @@
 # Measure the real D555's depth texture either side of the block reduction
 
+**Status:** Shipped 2026-09-27 in `e6647d4` (Jetson).
+**PR:** https://github.com/zachoines/Sim2RealLab/pull/233
+
 **Type:** investigation (bench measurement, feeds a training decision)
 **Owner:** Jetson
 **Priority:** P1 — it is the only blocker on deciding whether the training depth
@@ -7,7 +10,7 @@ noise term is mis-calibrated, and every depth sim-to-real claim in the
 depth-subgoal line currently rests on a quantity nobody has measured.
 **Estimate:** S–M (one bagging sitting plus an offline analysis; M only if the
 filter pinning in `perception.launch.py` has to land first)
-**Branch:** `task/real-d555-depth-texture-capture`
+**Branch:** `task/real-d555-hardware-readback` (shipped in PR #233 with the hardware read-back record)
 
 ## Story
 
@@ -19,10 +22,10 @@ figure that is not the same quantity.**
 
 ## Context bundle
 
-- [context/repo-topology.md](../../context/repo-topology.md)
-- [context/conventions.md](../../context/conventions.md)
-- [context/branching-and-prs.md](../../context/branching-and-prs.md)
-- [completed/d555-invalid-pixel-statistics.md](../../completed/d555-invalid-pixel-statistics.md)
+- [context/repo-topology.md](../context/repo-topology.md)
+- [context/conventions.md](../context/conventions.md)
+- [context/branching-and-prs.md](../context/branching-and-prs.md)
+- [completed/d555-invalid-pixel-statistics.md](d555-invalid-pixel-statistics.md)
   — the 2026-08-04 capture this extends, including the parked option whose
   revisit trigger this measurement evaluates.
 
@@ -31,7 +34,7 @@ figure that is not the same quantity.**
 `DepthNoiseModel` injects σ_z = z²·σ_d/(f·B) **i.i.d. per policy pixel at
 80×45**, with no reduction stage. The deploy path applies the same physical
 per-raw-pixel error at 640×360 and then collapses every 8×8 block with
-`np.median` ([`obs_pipeline.py`](../../../../source/strafer_ros/strafer_inference/strafer_inference/obs_pipeline.py)).
+`np.median` ([`obs_pipeline.py`](../../../source/strafer_ros/strafer_inference/strafer_inference/obs_pipeline.py)).
 So training's σ and the deploy path's delivered σ are different quantities, and
 which is larger depends on how correlated the noise is **inside** a block.
 
@@ -40,7 +43,7 @@ samples attenuates σ by √(ρ + (1−ρ)·π/128) — a factor of 6.46× at ρ
 at ρ = 1. ρ is measured nowhere.
 
 The consequence is that the existing measurement cannot settle the question it
-looks like it settles. [`d555-invalid-pixel-statistics.md`](../../completed/d555-invalid-pixel-statistics.md)
+looks like it settles. [`d555-invalid-pixel-statistics.md`](d555-invalid-pixel-statistics.md)
 §4 reports per-pixel temporal σ at **raw** 640×360 — p50 1.1 / 2.7 / 10.1 / 15.5
 / 87.1 mm over its five range bands. Put through the reduction, the 3.5–5.5 m
 band lands anywhere between 13.6 mm (ρ = 0) and 87.1 mm (ρ = 1) against
@@ -49,11 +52,11 @@ is 0.293 / 0.512 / 0.227 / 0.516 / 0.062, and the shipped `disparity_noise_px =
 0.08` sits inside every band's [ρ = 0, ρ = 1] equivalent interval. **The sign of
 the training-versus-real noise inequality is undetermined**, so no σ change can
 be justified in either direction yet. That is measured in
-[`noise-texture-parity-2026-09-17`](../../../measurements/noise-texture-parity-2026-09-17/README.md).
+[`noise-texture-parity-2026-09-17`](../../measurements/noise-texture-parity-2026-09-17/README.md).
 
 A second reason this is P1 rather than P2: the reduction residual is exactly the
 statistic the parked training-lane option needs.
-[`d555-invalid-pixel-statistics.md`](../../completed/d555-invalid-pixel-statistics.md)
+[`d555-invalid-pixel-statistics.md`](d555-invalid-pixel-statistics.md)
 parks "render the policy camera at 640×360 in training and share
 `downsample_depth`" with the revisit trigger "if this brief's measurement shows
 the real-sensor reduction residual is materially larger than sim's, the option
@@ -62,7 +65,7 @@ the trigger was neither met nor refuted and has been dormant since.
 
 Note the sensor has never fed the depth policy: the node requires `32FC1` and
 the driver publishes `16UC1`
-([`d555-depth-decode-validity`](d555-depth-decode-validity.md)). This brief does
+([`d555-depth-decode-validity`](../active/trained-policy/d555-depth-decode-validity.md)). This brief does
 **not** need that fixed — it bags the camera topic directly and runs
 `downsample_depth` offline. (2026-09-25: that brief's branch adds the node-side `16UC1` decode; an
 offline run on bagged Z16 must decode through
@@ -70,10 +73,24 @@ offline run on bagged Z16 must decode through
 `downsample_depth(..., valid_mask=...)`, or Z16's invalid `0` reaches the
 reduction as a near return instead of `DEPTH_MAX`.)
 
+## Outcome
+
+Measured on 2026-09-26/27 in
+[`real-d555-depth-texture-2026-09-26`](../../measurements/real-d555-depth-texture-2026-09-26/README.md). It has five static recordings with the robot on the
+floor, the lens 0.278 m above the floor and level within 1°. The Jetson was moved next to the robot on
+longer Ethernet runs. The one-pose benchtop pilot of 2026-09-25, recorded in
+[`real-d555-hardware-readback-2026-09-25`](../../measurements/real-d555-hardware-readback-2026-09-25/README.md),
+is superseded.
+
+**Method deviation.** Method 2 asks for static poses. By the stillness rule registered during the
+capture, two of the five recordings count as still. The other three fail it with no motion signature,
+and the set of the two still recordings gives the same gate (B) verdict. The record gives the
+mechanism and the full pre-registration trail.
+
 ## Method
 
 1. **Confirm the filter state before bagging.**
-   [`d555-params-file-inert`](../reliability/d555-params-file-inert.md)
+   [`d555-params-file-inert`](d555-params-file-inert.md)
    deleted the never-loaded `d555_params.yaml` and pins the four
    post-processing filters off and depth auto-exposure on as explicit
    `rs_launch.py` arguments in `perception.launch.py`. Its on-hardware
@@ -110,29 +127,59 @@ reduction as a near return instead of `DEPTH_MAX`.)
 
 ## Acceptance criteria
 
-- [ ] Raw and post-`downsample_depth` per-pixel temporal σ, tabulated per range
+- [x] Raw and post-`downsample_depth` per-pixel temporal σ, tabulated per range
       band, with n per band and the survivorship rule stated.
-- [ ] **ρ reported per band**, with the arithmetic shown, plus a plain statement
+      *Met: record §1. Set A (poses 1, 2, 3) gives raw 0.84 / 2.98 / 6.36 / 23.51 / 44.75 mm and
+      post-reduction 0.700 / 2.396 / 5.397 / 21.282 / 35.986 mm, with n and both survivorship
+      rules stated. The cell rule keeps almost none of the glossy floor, so these describe walls,
+      furniture and the box; record §6 covers the floor.*
+- [x] **ρ reported per band**, with the arithmetic shown, plus a plain statement
       of which side of each band's crossover value it falls on.
-- [ ] The 80×45 texture statistic (high-pass p95 and its exact-zero share) per
+      *Met: record §2. ρ is 0.688 / 0.637 / 0.713 / 0.815 / 0.638 by ratio of band medians and
+      0.79–0.90 on flat cells. It is above both the 2026-09-17 crossovers and this capture's
+      own, in every band and on every estimator. 0.4–1.0 m is quantisation-limited.*
+- [x] The 80×45 texture statistic (high-pass p95 and its exact-zero share) per
       band, on the same frames.
-- [ ] The share of 80×45 pixels the deploy path near-fills, and the far-clamp
+      *Met on the real side: record §3. No training-side frames were captured, so gate (C) is
+      not evaluated; that is handed to
+      [`depth-noise-real-structure`](../active/trained-policy/depth-noise-real-structure.md).*
+- [x] The share of 80×45 pixels the deploy path near-fills, and the far-clamp
       share for comparison with training.
-- [ ] The filter and auto-exposure state during the capture recorded as read
+      *Met: record §4. The deployed path near-fills 0.00 % of cells and far-clamps 13.1 % per
+      frame, identical cell for cell to the training convention. The pre-#232 path would have
+      near-filled 9.3 %.*
+- [x] The filter and auto-exposure state during the capture recorded as read
       back off the running node, not as read out of the unloaded params file.
-- [ ] A recommendation against
-      [`noise-texture-parity-2026-09-17`](../../../measurements/noise-texture-parity-2026-09-17/README.md) §8
+      *Met: `ros2 param get /d555` was run before each of the five bags. All four filters read
+      False, depth auto-exposure reads True, and the profile is 640x360x30 Z16.*
+- [x] A recommendation against
+      [`noise-texture-parity-2026-09-17`](../../measurements/noise-texture-parity-2026-09-17/README.md) §8
       gate (B): the training term's injected σ at 80×45 is within [0.5×, 2.0×] of
       the measured post-reduction σ below 3.5 m and [0.33×, 3.0×] above it, or it
       is not. **`disparity_noise_px = 0.08` may already pass, in which case the
       correct outcome is no code change** and the recommendation says so.
-- [ ] The parked 640×360-render option's revisit trigger explicitly evaluated —
+      *Met: record §5. **0.08 passes gate (B) in all five bands (0.899 / 0.876 / 0.860 /
+      0.531 / 0.745); no code change.** Sets B and C and the band-midpoint convention agree.
+      Limits:*
+      - *2.5–3.5 m is marginal, on one box face.*
+      - *The pass covers surfaces valid in every frame, not the glossy floor.*
+      - *The robust tier's σ_d range mostly sits below the passing interval [0.075, 0.178].*
+- [x] The parked 640×360-render option's revisit trigger explicitly evaluated —
       met or not met — so it stops being dormant either way.
-- [ ] If your work invalidates a fact in any referenced context module, package
+      *Met: record §7. The trigger is **met**: the real residual is at least 7× sim's in every
+      band. The render half has already shipped. The native-resolution noise half stays parked
+      on the measured ρ, since i.i.d. native injection would under-inject about 5–6×.*
+- [x] If your work invalidates a fact in any referenced context module, package
       README, top-level `Readme.md`, or guide under `docs/`, update those in the
       same commit. See
-      [`conventions.md`'s user-facing documentation maintenance section](../../context/conventions.md#user-facing-documentation-maintenance)
+      [`conventions.md`'s user-facing documentation maintenance section](../context/conventions.md#user-facing-documentation-maintenance)
       for the surface list and trigger heuristics.
+      *Met: dated notes carry the measured ρ into the records and briefs that said it was
+      unmeasured. They are `noise-texture-parity-2026-09-17` §6,
+      `deploy-resolution-depth-2026-09-19`, `depth-noise-coverage-2026-09-18` §8,
+      `depth-noise-coverage-band`, `depth-camera-vfov-parity`, and
+      `d555-invalid-pixel-statistics`, which also gets the revisit trigger and the lower-bound
+      reading. No context module, package README or guide stated these facts.*
 
 ## Investigation pointers
 
@@ -140,7 +187,7 @@ reduction as a near return instead of `DEPTH_MAX`.)
   — the reduction this brief measures either side of: the `isfinite` rescue, the
   8×8 block median over `reshape(45,8,80,8)`, the near-field fill and the clip.
   Run it offline on the bagged frames rather than reimplementing it.
-- [`completed/d555-invalid-pixel-statistics.md`](../../completed/d555-invalid-pixel-statistics.md)
+- [`completed/d555-invalid-pixel-statistics.md`](d555-invalid-pixel-statistics.md)
   §4 — the raw per-pixel σ table this extends, and §5 for the sub-0.4 m
   behaviour that makes the near-fill contract load-bearing. Its "Out of scope"
   section holds the parked 640×360-render option and its revisit trigger.
@@ -153,7 +200,7 @@ reduction as a near return instead of `DEPTH_MAX`.)
   = 45×80, with `torch.randn_like` and no reduction stage.
 - `source/strafer_shared/strafer_shared/constants.py` — `DEPTH_*` and
   `PERCEPTION_*`, for the 8×8 ratio and the fill/clip constants both sides share.
-- [`noise-texture-parity-2026-09-17`](../../../measurements/noise-texture-parity-2026-09-17/README.md)
+- [`noise-texture-parity-2026-09-17`](../../measurements/noise-texture-parity-2026-09-17/README.md)
   §6 for the commensurability algebra and the crossover-ρ table, and its
   deposited `probes/sensor_commensurability.py` for the arithmetic in runnable
   form.
@@ -165,12 +212,12 @@ reduction as a near return instead of `DEPTH_MAX`.)
   change are separate. A change made before ρ is known is unjustified in either
   direction.
 - **The 16UC1 decode.** Owned by
-  [`d555-depth-decode-validity`](d555-depth-decode-validity.md). This capture
+  [`d555-depth-decode-validity`](../active/trained-policy/d555-depth-decode-validity.md). This capture
   reads the camera topic directly and does not need the policy path working.
 - **Re-surveying the reliable depth range.** That is
-  [`real-d555-depth-range-survey`](../investigations/real-d555-depth-range-survey.md);
+  [`real-d555-depth-range-survey`](../active/investigations/real-d555-depth-range-survey.md);
   if one sitting can serve both, good, but the range question is not this
   brief's acceptance.
 - **Anything about the retrain.** The retrain is not held on this
-  ([`noise-texture-parity-2026-09-17`](../../../measurements/noise-texture-parity-2026-09-17/README.md)
+  ([`noise-texture-parity-2026-09-17`](../../measurements/noise-texture-parity-2026-09-17/README.md)
   §11 records why).

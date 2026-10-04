@@ -182,6 +182,16 @@ Per-step budgets are derived in the executor:
   - `STRAFER_NAV_BUDGET_SETUP_OVERHEAD_S` / `nav_budget_setup_overhead_s` (5.0)
   - `STRAFER_NAV_STALL_PROGRESS_M` / `nav_stall_progress_m` (0.10 m)
   - `STRAFER_NAV_STALL_WINDOW_S` / `nav_stall_window_s` (20.0 s)
+
+  A goal dispatched to a trained-policy backend (`strafer_direct`,
+  `hybrid_nav2_strafer`) — a navigate step or a translate leg — gets
+  no distance budget and no stall watchdog. Its deadline is the
+  inference node's own completion bound, the shared
+  `POLICY_MISSION_TIMEOUT_S` (60 s on the node clock, the node's
+  `mission_timeout_s` default), plus `policy_budget_margin_s` (5 s), so
+  the node's `SUCCEEDED` / `ABORTED` arrives before the executor
+  cancels. It is still capped at `STRAFER_NAVIGATION_TIMEOUT_S`. A
+  per-mission fallback to Nav2 keeps the Nav2 budget.
 - **Legacy mode (`STRAFER_NAV_PROGRESS_AWARE=0`).** Every motion
   step uses `STRAFER_NAVIGATION_TIMEOUT_S` as the single deadline,
   no stall watchdog. Bisection escape hatch only.

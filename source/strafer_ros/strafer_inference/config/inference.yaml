@@ -58,7 +58,10 @@
 
     # goal_reached_distance_m defaults to strafer_shared GOAL_ARRIVAL_RADIUS_M
     # (train/deploy parity); uncomment to override with an intentional value.
-    mission_timeout_s: 60.0
+
+    # mission_timeout_s defaults to strafer_shared POLICY_MISSION_TIMEOUT_S,
+    # which the executor also sizes its policy-backend navigate budget from;
+    # an override here is not seen by the executor.
 
     # ONNX Runtime provider preference, priority order. ORT binds the first
     # provider whose libs load and drops to the next; the node logs the bound

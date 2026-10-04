@@ -196,6 +196,14 @@ SUBGOAL_LOOKAHEAD_M = 1.0
 # two lanes cannot drift on what counts as "reached".
 GOAL_ARRIVAL_RADIUS_M = 0.30
 
+# Completion bound of a navigate_to_pose goal on the trained-policy backends:
+# strafer_inference aborts the goal once it has run this long on its node clock.
+# The executor sizes its own deadline for a policy-backend goal from the same
+# value plus a margin, so the node — not a Nav2-sized executor budget — decides
+# when the policy has run out of time. Pin both references here so the two
+# cannot drift.
+POLICY_MISSION_TIMEOUT_S = 60.0
+
 # Autonomous navigation velocity scaling (fraction of hardware max).
 # Hardware max is ~1.57 m/s / ~4.10 rad/s — too fast for indoor autonomy.
 NAV_VEL_SCALE = 0.5  # forward/strafe: 50% of MAX_LINEAR_VEL (~0.78 m/s)

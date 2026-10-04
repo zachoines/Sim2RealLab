@@ -101,6 +101,7 @@ from strafer_shared.constants import (
     NAV_LINEAR_VEL,
     PERCEPTION_HEIGHT,
     PERCEPTION_WIDTH,
+    POLICY_MISSION_TIMEOUT_S,
 )
 from strafer_shared.policy_interface import (
     LoadedPolicy,
@@ -209,7 +210,7 @@ class InferenceNode(Node):
         self.declare_parameter("vel_cap_linear_m_s", _DEFAULT_VEL_CAP_LINEAR)
         self.declare_parameter("vel_cap_angular_rad_s", _DEFAULT_VEL_CAP_ANGULAR)
         self.declare_parameter("goal_reached_distance_m", GOAL_ARRIVAL_RADIUS_M)
-        self.declare_parameter("mission_timeout_s", 60.0)
+        self.declare_parameter("mission_timeout_s", POLICY_MISSION_TIMEOUT_S)
         self.declare_parameter(
             "onnx_providers", [
                 "TensorrtExecutionProvider",

@@ -43,8 +43,13 @@ STRAFER_NAV_PROGRESS_AWARE : Toggle progress-aware motion timeouts (optional; de
                          ``STRAFER_NAVIGATION_TIMEOUT_S``. Additionally, a stall watchdog on Nav2's
                          ``distance_remaining`` feedback aborts the active goal with
                          ``error_code=navigation_stalled`` if no progress is made for
-                         ``nav_stall_window_s`` (default 20 s) of sim-time. Set to 0 to fall back
-                         to the legacy single-deadline behavior for bisection.
+                         ``nav_stall_window_s`` (default 20 s) of sim-time. A navigate goal that a
+                         trained-policy backend (``strafer_direct`` / ``hybrid_nav2_strafer``)
+                         executes is not distance-budgeted: it gets the inference node's
+                         ``POLICY_MISSION_TIMEOUT_S`` (60 s) plus ``policy_budget_margin_s``
+                         (5 s), capped at ``STRAFER_NAVIGATION_TIMEOUT_S``, and no stall
+                         watchdog. Set to 0 to fall back to the legacy single-deadline behavior
+                         for bisection.
 STRAFER_NAV_BUDGET_SAFETY_FACTOR : Override the multiplier on the (distance / nominal_speed) term in
                          the progress-aware budget formula (optional, float; default 2.0). Raise on
                          cluttered sim scenes where Nav2 plans a longer path than the straight-line

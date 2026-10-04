@@ -344,7 +344,8 @@ Numbers, arms and the scratch patch:
   unit's fx (321.522 px, VFOV 58.48°) against the shipped 335.652 px (56.41°). The two arms share
   each environment's first start pose, 128 in all.*
   - *On its first tick v3 steers 0.146° further right at the real intrinsics (standard error across
-    eight seeds 0.045). That exceeds the yardstick registered before the runs, so the gap is
+    eight seeds 0.045). That is the mean of a slight pull toward the subgoal bearing, not a fixed
+    bias (the record's §3). It exceeds the yardstick registered before the runs, so the gap is
     recorded as mattering.*
   - *Over the first second v3 at the real intrinsics steers 0.250° left (A − B −0.250°, standard
     error 0.324), inside it. Commands near ±180° make that statistic construction-dependent.*

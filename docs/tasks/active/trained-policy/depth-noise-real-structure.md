@@ -57,7 +57,8 @@ hardwood floor and found:
    - The policy camera renders at fx = fy = 335.652 px (VFOV 56.41°); the capture read 321.522 px
      (58.48°) from this unit. The effect on v3 was measured separately, in sim.
    - On v3's closed-loop eval the difference crosses the yardstick registered for it at tick 0: v3
-     steers 0.146° further right at the real intrinsics, 3.2 standard errors across seeds.
+     steers 0.146° further right at the real intrinsics, 3.2 standard errors across seeds. That is
+     the mean of a slight pull toward the subgoal bearing, not a fixed bias.
    - At those first-episode poses, tick 0's depth is the floor-only frame rendered before the
      reset, which the deployed node never sees.
    - Over the first second the difference stays inside the yardstick as registered. The two other
@@ -65,7 +66,14 @@ hardwood floor and found:
      ([`vfov-gap-v3-2026-10-03`](../../../measurements/vfov-gap-v3-2026-10-03/README.md)).
    - So the next depth-policy training renders the policy camera at the measured intrinsics,
      together with whatever items 2–6 decide rather than as a change of its own. v3 is not changed.
-   - The sim camera takes no principal-point offset, so the real (318.44, 180.32) stays unmatched.
+   - Isaac Lab ignores camera aperture offsets and forces the principal point to the image centre,
+     so the real (318.44, 180.32) stays unmatched.
+8. **The stereo constant (noted 2026-10-03).** The noise term's f = 673 px at 1280 wide matches
+   neither the sim prim (671.3 px) nor this unit (643.0 px, from its 321.522 px at 640). At a given
+   σ_d, training's σ_z is therefore about 4.5 % lower than the real geometry implies (643.044 /
+   673). Gate (B) computed training's σ_z with the same 673 px training injects with, so its
+   verdict stands. The next training's band decision is made on the real baseline, 643.0 px, and
+   the σ_d window gate (B) found at 673 px scales by 643.044 / 673 on that baseline.
 
 Gate (C) and any training-side change need §8 Gate 0's matched sim capture through the 640×360
 perception camera. It was not taken.
@@ -81,7 +89,7 @@ perception camera. It was not taken.
 - [ ] If a change is made, it ships with its own record and gate readings. No change is also a
       valid outcome and says so.
 - [ ] The training this brief feeds renders the policy camera at fx = fy = 321.522 px (item 7),
-      whatever items 2–6 decide, or the brief records why not.
+      whatever items 2–6 decide.
 - [ ] If your work invalidates a fact in any referenced context module, package
       README, top-level `Readme.md`, or guide under `docs/`, update those in the
       same commit. See

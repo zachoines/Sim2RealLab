@@ -176,6 +176,7 @@ The learned components here share one frozen text-capable backbone — see [`con
 | [`executor-slam-tracking-precheck-mid-mission`](active/reliability/executor-slam-tracking-precheck-mid-mission.md) | P2 | active | Jetson |
 | [`verify-arrival-occlusion-robustness`](active/reliability/verify-arrival-occlusion-robustness.md) | P2 | active | Jetson |
 | [`planner-rotate-direction-prompt`](active/reliability/planner-rotate-direction-prompt.md) | P2 | active | DGX |
+| [`planner-translate-two-axis-sign`](active/reliability/planner-translate-two-axis-sign.md) | P2 | active | DGX |
 | [`rotate-in-place-large-angle-correctness`](active/reliability/rotate-in-place-large-angle-correctness.md) | P2 | active | Jetson |
 | [`grounding-publisher-extraction`](active/reliability/grounding-publisher-extraction.md) | P2 | active | Jetson |
 | [`nav-stall-multilayer-watchdog`](parked/reliability/nav-stall-multilayer-watchdog.md) | P3 | parked | Jetson |
@@ -268,6 +269,7 @@ _None._
 | [`isaac-sim-rt-2-default-renderer`](active/sim-performance/isaac-sim-rt-2-default-renderer.md) | S | Flip default renderer to Real-Time 2.0 + 4× FPS multiplier + Performance mode; re-measure bridge perf |
 | [`sim-depth-render-rate-parity`](active/sim-performance/sim-depth-render-rate-parity.md) | S | The sim publishes depth on a strict 30 Hz sim-stamp grid but renders at 15 Hz — 583 duplicate runs, all of length 2, in the 2026-07-31 join window. Training shows the same 15 Hz, but only after t_sim ~66 s. Establish which rate is the contract and make a divergence fail loud. Filed off `inference-cadence-shortfall`. |
 | [`planner-rotate-direction-prompt`](active/reliability/planner-rotate-direction-prompt.md) | S | Quick win — prompt edit |
+| [`planner-translate-two-axis-sign`](active/reliability/planner-translate-two-axis-sign.md) | S | The planner compiled "move 1.712 meters forward and 1.372 meters right" as a move 1.372 m to the **left** (`dy_m` +1.372); four two-axis moves to the left compiled correctly. The prompt has one single-axis right example and no two-axis one. Prompt examples plus live-planner fixtures. Filed off `goal-a-cli-confirmation-2026-10-03` |
 | [`goal-noise-training`](active/trained-policy/goal-noise-training.md) | M | Targeted DEPTH-baseline training pass with goal-position noise; gates VLM-grounded mission quality for `strafer_direct` |
 | [`policy-rate-shared-constants`](active/trained-policy/policy-rate-shared-constants.md) | S (~1 hr) | Delegate `_DEFAULT_NAV_SIM_DT` / `_DEFAULT_NAV_DECIMATION` in `strafer_env_cfg.py` to the new `strafer_shared.constants.POLICY_SIM_DT` / `POLICY_DECIMATION`, **plus** (added 2026-07-03) a shared `CMD_WATCHDOG_TIMEOUT_S` that `roboclaw_node.WATCHDOG_TIMEOUT_SEC` and `BridgeConfig.cmd_watchdog_sim_s` (PR #134) both default from — same stream-relative window, each side's own clock domain. Closes the duplications so neither the training rate nor the stop-on-silence window can silently desync sim from real |
 | [`planner-far-target-staging`](active/multi-room/planner-far-target-staging.md) | M–L | World-state schema + planner prompt |
@@ -330,6 +332,7 @@ Briefs estimated **S** that any agent can knock out in <1 day. Useful
 for fresh-session pickup. Cross-cut — these also appear above.
 
 - [`planner-rotate-direction-prompt`](active/reliability/planner-rotate-direction-prompt.md) (DGX, P2)
+- [`planner-translate-two-axis-sign`](active/reliability/planner-translate-two-axis-sign.md) (DGX, P2)
 - [`grounding-publisher-extraction`](active/reliability/grounding-publisher-extraction.md) (Jetson, P2)
 - [`isaac-sim-rt-2-default-renderer`](active/sim-performance/isaac-sim-rt-2-default-renderer.md) (DGX, P2)
 

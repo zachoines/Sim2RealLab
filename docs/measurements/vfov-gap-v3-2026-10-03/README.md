@@ -12,6 +12,9 @@ them against a reading written down and committed before the first scored launch
 - At 128 start poses that both arms share, v3 at the real intrinsics steers 0.146° to the right of
   v3 at the shipped ones on its first tick. The standard error across seeds is 0.045, so the shift
   is 3.2 standard errors from zero, and it has the same sign at all eight seeds.
+- That rightward mean is not a fixed bias. B's tick-0 commands sit slightly closer to the subgoal
+  bearing than A's, and 106 of the 128 point left of it, so the pull reads as rightward on average
+  (§3).
 - Over the first second, the registered statistic is 0.250° the other way, against a standard
   error of 0.324: inside the spread. That holds only for the construction registered. Ten tick
   pairs straddle the ±180° seam, and the two other ways of building the same difference put it
@@ -32,7 +35,8 @@ at two focal lengths (§4).
 - **Direction.** The shift is positive over ticks 0–3: +0.15°, +0.12°, +0.14° and +0.10° (A − B;
   3.2, 3.3, 1.6 and 1.8 standard errors).
   - What the frames show: ticks 0–1 are the pre-reset floor frame at every shared pose. By tick 2,
-    36 of the 128 show the room, and by tick 3, 72 do.
+    36 of the 128 show the room, and by tick 3, 72 do. These counts are summed from the seed 42–49
+    rows of `tick0_frames.txt`.
   - From tick 4, when 121 do, the sign is mixed. Tick 4 gives −0.26° (1.9 standard errors), and
     the first second −0.25°, as registered.
   - At each pose's first frame with room geometry the mean is +0.16° (1.0 standard error), and the
@@ -60,7 +64,7 @@ at two focal lengths (§4).
   is beyond G7's own standard error (0.28° at eight launches per arm), and 2.2 standard errors
   across these seeds.
 - **Absolute offset.** The median absolute offset goes from 15.06° to 14.18°.
-- **Completion** goes from 0.895 to 0.906 (+0.011, standard error 0.015).
+- **Completion** goes from 0.895 to 0.906 (A − B −0.011, standard error 0.015).
 - **Other outcomes.** Off-path divergence is the only outcome metric past its standard error: 0.88
   % of episodes against 0.50 %, 1.1 / 1.2 standard errors. Collisions, near-arrival and progress
   stay inside theirs.
@@ -92,13 +96,19 @@ per-pixel ratio of that range to the image-plane depth, over two environments' f
 leave an rms residual of 1.2e-7 to 8.1e-7 on r² − 1 (largest single pixel 8.8e-6), so the renderer
 is an exact pinhole at the authored focal length in both arms.
 
-**Read back in every launch.** Each launch read the running camera's intrinsic matrix and USD focal
-length on all 16 environments before its first step, and again after its rollout
-(`policy_camera_after_arm` in the results JSONL). All 18 launches carry their arm's value.
+**Read back in every launch.**
+- **Asserted.** Before its first step, each launch refuses to roll out unless the running camera's
+  intrinsic matrix gives environment 0 its arm's fx within 0.01 px, and the 16 environments agree
+  to within 0.01 px.
+- **Recorded, not asserted.** The USD focal length on every prim, and a second read-back after the
+  rollout (`policy_camera_after_arm` in the results JSONL).
+- All 18 launches carry their arm's values in all three.
 
 **What stays the same in both arms.**
-- The principal point stays at (320, 180). The sim camera takes no aperture offset, so the real
-  unit's (318.44, 180.32) is not reproduced.
+- The principal point stays at (320, 180), so the real unit's (318.44, 180.32) is not reproduced.
+  Isaac Lab's camera cfg does carry aperture offsets, but its spawner ignores them, warning that
+  Omniverse does not support them, and its camera forces the principal point to the image centre.
+  The pre-registration's "takes no aperture offset" was imprecise on that point.
 - The depth noise model's stereo coefficient uses its own constant (673 px at 1280 wide), not the
   camera, so the injected noise is the same in both arms.
 - The env has no perception camera.
@@ -145,17 +155,27 @@ lead and share none: 0 of 603 later starts match.
   (left), defined above a commanded speed of 0.05.
 - **Speed** is the planar magnitude of the normalized command (1.0 is 1.568 m/s).
 - **Tick 0** is an episode's first policy tick. **The first second** is ticks 0–29 at 30 Hz.
+- **Per pose, at tick 0**, A − B is wrapped to ±180° and needs both arms' offsets defined.
+- **Per pose, over the first second**, the value is the mean of the wrapped per-tick A − B. It is
+  taken over the ticks before min(len A, len B, 30) where both arms' offsets are defined.
+  - Two of the 128 first episodes end before tick 30: seed 46 env 12 at tick 25 in arm A, and
+    seed 47 env 3 at tick 22 in arm A and 24 in arm B.
+  - So 3 743 of the 3 840 tick pairs enter: 13 are cut by those endings, and 84 have a command
+    below 0.05 in one arm.
+  - These counts were taken from the onset records in the deposited eval files.
 
 **The reading.**
 - Per pose: A − B in steering at tick 0, and A − B in mean steering over the first second.
 - Per seed: the mean over its poses.
 - |A − B| is the mean of those over the eight seeds, and the yardstick is its standard error across
   seeds.
-- The gap matters if |A − B| exceeds that standard error at tick 0 or over the first second.
+- The rule, as registered: "The gap matters if |A − B| in steering exceeds that standard error at
+  tick 0 or over the first second; otherwise it is recorded as inside the spread."
 
-A one-standard-error rule flags a true null about a third of the time per statistic. That was
-accepted before the runs, because a false "matters" costs only that the next training uses the
-measured intrinsics. The z-scores below let a stricter reading be applied to the same numbers.
+The plan noted before the runs that a one-standard-error rule flags a true null "about a third of
+the time per statistic, and about half the time with two". It accepted that, because a false
+"matters" costs only that the next training uses the measured intrinsics. The z-scores below let a
+stricter reading be applied to the same numbers.
 
 **Why this yardstick and not G7's.** G7's own spread is run-to-run at one seed. At tick 0, at a
 fixed pose, that spread is nearly zero (§3), which would make any difference "matter". The standard
@@ -168,7 +188,7 @@ evidence repository at `ffd841b` (2026-10-03 18:51 CDT). The first scored launch
 
 Per-pose A − B at the 128 shared starts. Each per-seed value is the mean over that seed's 16 poses.
 
-| statistic | A − B | SE across seeds | z | per-seed values | per pose: mean \|A − B\|, sd |
+| statistic | A − B | SE across seeds | z | per-seed values | per pose: mean \|A − B\|, sd of signed A − B |
 |---|---|---|---|---|---|
 | **steering, tick 0** | **+0.146°** | 0.045 | **+3.24** | +0.04 +0.20 +0.04 +0.06 +0.13 +0.43 +0.17 +0.10 | 0.61°, 0.89° |
 | **steering, first second** | **−0.250°** | 0.324 | −0.77 | +0.53 −0.82 −0.05 −0.15 +0.12 −2.22 +0.68 −0.10 | 1.93°, 3.68° |
@@ -177,6 +197,15 @@ Per-pose A − B at the 128 shared starts. Each per-seed value is the mean over 
 
 A − B is positive when arm B, the real intrinsics, steers further right than arm A. So B steers
 0.15° right at tick 0 and 0.25° left over the first second.
+
+**What the tick-0 shift is.** It is the mean of a small pull toward the subgoal bearing, not a fixed
+rightward bias. These figures were computed after the runs, from the tick-0 rows of the deposited
+eval files.
+- B's tick-0 offsets are 1.9 % less dispersed than A's (sd 18.72° against 19.08°).
+- B's mean absolute offset is 0.17° lower: 3.7 standard errors across seeds, positive at all eight.
+- Across poses, A − B rises with the pose's mean offset (slope +0.019, Spearman p 4e-4).
+- 106 of the 128 tick-0 commands point left of the subgoal. B sits right of A at 63 of those 106
+  poses, but at only 10 of the 22 where A points right.
 
 **The first-second statistic and the ±180° seam.** A command nearly opposite the subgoal sits near
 ±180°, where offsets of −179° and +176° are 5° apart, not 355°. Ten tick pairs where both arms'
@@ -245,11 +274,15 @@ view. The depth block first changes at tick 2–8 (median 3), in all 1 515 later
 | steering, first live tick (registered) | +0.017° | 0.071 | +0.24 |
 | steering, first frame with room geometry (computed after the runs) | +0.162° | 0.156 | +1.04 |
 
-**Training sees the same thing.** The training env is the same cfg without the play settings, so it
-also leaves `num_rerenders_on_reset` at 0 and carries the same delay buffer. v3 therefore trained
-on stale episode starts that show the previous episode's last view. The floor-only frame itself
-occurs in training only at a run's initial reset, once per environment. The deployed node's first
-tick sees a live frame. What that difference does is not measured here.
+**Training is the same cfg, so it carries the same stale start.**
+- The training env is this cfg without the play settings. It also leaves `num_rerenders_on_reset`
+  at 0 and carries the same delay buffer, so v3 trained on stale episode starts that show the
+  previous episode's last view.
+- The floor-only frame itself occurs in training only at a run's initial reset, once per
+  environment.
+- On the robot there is no reset. The inference node assembles an observation only from the newest
+  depth frame the camera has delivered (`inference_node.py`), a view of where the robot stands.
+- What that difference does is not measured here.
 
 ## 5. Beside the reading: per-launch values
 
@@ -260,9 +293,9 @@ episodes, most of which the two arms do not share.
 | metric | A | B | A − B | SE (Welch / paired) | z (Welch / paired) |
 |---|---|---|---|---|---|
 | steering, tick 0, median over all episodes | 17.70° ± 3.23 | 14.00° ± 3.57 | +3.70° | 1.70 / 2.17 | +2.2 / +1.7 |
-| steering, first second, median over all episodes | 3.17° ± 3.77 | 0.79° ± 2.51 | +2.39° | 1.60 / 1.54 | +1.5 / +1.6 |
+| steering, first second, median over all first-second ticks pooled across episodes | 3.17° ± 3.77 | 0.79° ± 2.51 | +2.39° | 1.60 / 1.54 | +1.5 / +1.6 |
 | speed, tick 0, mean over all episodes | 0.349 ± 0.019 | 0.369 ± 0.019 | −0.020 | 0.010 / 0.006 | −2.1 / −3.1 |
-| speed, first second, mean over all episodes | 0.507 ± 0.014 | 0.514 ± 0.029 | −0.007 | 0.011 / 0.013 | −0.6 / −0.5 |
+| speed, first second, mean over all first-second ticks pooled across episodes | 0.507 ± 0.014 | 0.514 ± 0.029 | −0.007 | 0.011 / 0.013 | −0.6 / −0.5 |
 | direction-offset median, whole episode (G7) | 1.08° ± 0.32 | 0.57° ± 0.58 | +0.51° | 0.23 / 0.18 | +2.2 / +2.8 |
 | direction offset, median of the absolute | 15.06° ± 0.61 | 14.18° ± 0.65 | +0.88° | 0.32 / 0.30 | +2.8 / +2.9 |
 | fraction of commands left of the subgoal | 0.525 ± 0.008 | 0.514 ± 0.015 | +0.011 | 0.006 / 0.005 | +1.9 / +2.4 |
@@ -272,9 +305,14 @@ episodes, most of which the two arms do not share.
 | near-arrival | 0.504 ± 0.043 | 0.495 ± 0.049 | +0.009 | 0.023 / 0.023 | +0.4 / +0.4 |
 | progress, mean | 0.890 ± 0.014 | 0.892 ± 0.023 | −0.002 | 0.010 / 0.011 | −0.2 / −0.1 |
 
-- **Against G7's yardstick.** The whole-episode offset median moves by 0.51°. That is beyond G7's
-  own standard error at eight launches per arm, √(0.685²/8 + 0.407²/8) = 0.28°. Completion's G7
-  standard error at eight is 0.018, against a −0.011 difference.
+- **Against G7's yardstick.** The whole-episode offset median moves by 0.51°. G7 ran four launches
+  per pin at seed 42
+  ([`isaac-lab-upgrade-stage3-2026-08-23`](../isaac-lab-upgrade-stage3-2026-08-23/README.md)),
+  and its per-pin sds were 0.685° and 0.407° in offset and 0.0435 and 0.0289 in completion.
+  - At eight launches per arm, G7's standard error is √(0.685²/8 + 0.407²/8) = 0.28°, so the 0.51°
+    is beyond it.
+  - Check 4 quotes the same sds at four launches per arm, which gives about 0.40°.
+  - Completion's G7 standard error at eight is 0.018, against a −0.011 difference.
 - **Tick 0 over all episodes.** It moves more than the shared-pose tick 0: 3.70° against 0.15°. In
   a later episode, tick 0's stale frame is the previous episode's view, which differs between the
   arms in both pose and focal length.
@@ -313,9 +351,14 @@ episodes, most of which the two arms do not share.
 - **Two launches gave up and were relaunched.** A_s46 and B_s49 each stalled at boot on all three
   watchdog attempts and wrote nothing. Each was relaunched with the same command in the registered
   order (`vfov_series_resume.sh`). Their files are kept as `logs/launch1_stalled.*`.
-- **Boot stalls.** 17 of the 40 Kit boots on 2026-10-03 stalled at boot (about 75 MB resident, no
-  CPU, no output). The watchdog relaunched 15 of them. The other two were the third attempts of
-  A_s46 and B_s49, relaunched as above.
+- **Boot stalls.** 17 of the 40 Kit boots on 2026-10-03 are confirmed boot stalls (about 75 MB
+  resident, no CPU, no output for 60 s). One more, the hand-stopped first A_s42 boot, matched the
+  signature. It had written no Kit output when stopped, whereas the 11 launches that booted first
+  time printed their first Kit line within 1 s of starting (`logs/sampling.log` against each log).
+  - The watchdog relaunched 15 of the 17. The other two were the third attempts of A_s46 and
+    B_s49, relaunched as above.
+  - The rate is entered in
+    [`kit-boot-hang-2026-09-11`](../kit-boot-hang-2026-09-11/README.md).
 - **The reading understated how long the stale start lasts.** It said the first second carries
   "one to four stale ticks before live ones". The first depth change is usually a fresh noise draw
   on the same pre-reset frame, and room geometry arrives at tick 2–6.

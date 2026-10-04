@@ -190,8 +190,13 @@ Per-step budgets are derived in the executor:
   `POLICY_MISSION_TIMEOUT_S` (60 s on the node clock, the node's
   `mission_timeout_s` default), plus `policy_budget_margin_s` (5 s), so
   the node's `SUCCEEDED` / `ABORTED` arrives before the executor
-  cancels. It is still capped at `STRAFER_NAVIGATION_TIMEOUT_S`. A
-  per-mission fallback to Nav2 keeps the Nav2 budget.
+  cancels. That holds only while the executor and the inference node
+  run on the same clock: on the sim-bridge lane the inference service
+  takes `STRAFER_USE_SIM_TIME=true` from `sim_bridge.env`, but the
+  executor takes it only from the host-local autonomy overlay, which
+  must set it alongside the backend. It is still capped at
+  `STRAFER_NAVIGATION_TIMEOUT_S`. A per-mission fallback to Nav2 keeps
+  the Nav2 budget.
 - **Legacy mode (`STRAFER_NAV_PROGRESS_AWARE=0`).** Every motion
   step uses `STRAFER_NAVIGATION_TIMEOUT_S` as the single deadline,
   no stall watchdog. Bisection escape hatch only.
@@ -202,7 +207,8 @@ the `progress-aware-nav-timeouts` brief (per-step budgets + watchdog),
 `rotate_in_place`, completing the convention), and
 `nav-deadline-sim-time-audit` (replaced the `2 * timeout` wall caps
 with the `_ClockStallDetector`, confirmed the Nav2 `use_sim_time`
-flow-through).
+flow-through), and `executor-policy-nav-budget` (policy-backend goals
+get the node's own bound plus a margin).
 Live in
 [`source/strafer_autonomy/strafer_autonomy/clients/ros_client.py`](../../../source/strafer_autonomy/strafer_autonomy/clients/ros_client.py)
 and

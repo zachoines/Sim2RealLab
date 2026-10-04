@@ -385,12 +385,11 @@ class TestPolicyBackendBudget:
     """Goals a trained-policy backend executes get the inference node's
     ``mission_timeout_s`` plus a margin; Nav2 keeps its distance budget.
 
-    Sized against the 2026-09-25 v3 sim-bridge gate: G1 started 3.11 m out
-    and reached the arrival radius after 19.0 s sim, against a Nav2-sized
-    budget of 12.9 s.
+    A 3.1 m policy reach has been measured at 19.0 s sim, against a
+    Nav2-sized budget of 12.9 s for the same distance.
     """
 
-    V3_G1_REACH_S = 19.0
+    MEASURED_POLICY_REACH_3P1_M_S = 19.0
 
     def _dispatch(self, runner, ros, *, backend: str, distance_m: float = 3.1):
         ros.get_map_pose.return_value = {
@@ -409,17 +408,17 @@ class TestPolicyBackendBudget:
     def test_3p1_m_goal_policy_budget_covers_v3_reach(self, backend):
         runner, ros = _make_runner()
         kwargs = self._dispatch(runner, ros, backend=backend)
-        assert kwargs["policy_timeout_s"] >= self.V3_G1_REACH_S
+        assert kwargs["policy_timeout_s"] >= self.MEASURED_POLICY_REACH_3P1_M_S
         assert kwargs["policy_timeout_s"] == pytest.approx(
             POLICY_MISSION_TIMEOUT_S + MissionRunnerConfig().policy_budget_margin_s,
         )
         # The policy's bound must outlast the node's own abort.
         assert kwargs["policy_timeout_s"] > POLICY_MISSION_TIMEOUT_S
 
-    def test_3p1_m_goal_nav2_budget_unchanged(self):
+    def test_3p1_m_goal_nav2_budget_is_distance_derived(self):
         runner, ros = _make_runner()
         kwargs = self._dispatch(runner, ros, backend="nav2")
-        # 2 * 3.1 / 0.7841 + 5 s; the Nav2 budget and stall watchdog are as before.
+        # 2 * 3.1 / 0.7841 + 5 s, with the Nav2 stall watchdog.
         assert kwargs["timeout_s"] == pytest.approx(12.9072, abs=1e-3)
         assert kwargs["stall_progress_m"] == MissionRunnerConfig().nav_stall_progress_m
         assert kwargs["stall_window_s"] == MissionRunnerConfig().nav_stall_window_s

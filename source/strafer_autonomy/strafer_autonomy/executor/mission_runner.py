@@ -180,15 +180,8 @@ class MissionRunnerConfig:
     nav_progress_aware: bool = True
     nav_budget_safety_factor: float = 2.0
     nav_budget_setup_overhead_s: float = 5.0
-    # Navigate goals dispatched to a trained-policy backend
-    # (``strafer_direct`` / ``hybrid_nav2_strafer``) do not get the
-    # distance-derived budget above, which is sized for Nav2 at
-    # NAV_LINEAR_VEL: the policy's terminal approach can hold short of
-    # the arrival radius for longer than that budget allows. They get the
-    # inference node's own completion bound, ``POLICY_MISSION_TIMEOUT_S``,
-    # plus this margin, so the node's result (SUCCEEDED or ABORTED) lands
-    # before the executor would cancel. Still capped by
-    # ``STRAFER_NAVIGATION_TIMEOUT_S``.
+    # Added to POLICY_MISSION_TIMEOUT_S for a policy-backend goal, so the
+    # inference node's own result lands before the executor would cancel.
     policy_budget_margin_s: float = 5.0
     # Stall watchdog on Nav2 NavigateToPose feedback. Aborts the active
     # goal with ``error_code=navigation_stalled`` when ``distance_remaining``

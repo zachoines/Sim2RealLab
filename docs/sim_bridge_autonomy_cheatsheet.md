@@ -196,7 +196,7 @@ make submit-deploy CMD="go to the chair"
   directly on the policy's action server, reached the radius in 4 of 6 gate missions and 3 of 3
   fixed-goal repeats; three of those reaches took longer than the Nav2-sized budget the policy
   backends had until then (G1: 19.0 s sim against ~12.9 s for 3.1 m)
-  ([`executor-policy-nav-budget`](tasks/active/reliability/executor-policy-nav-budget.md)).
+  ([`executor-policy-nav-budget`](tasks/completed/executor-policy-nav-budget.md)).
   v2 reached 0 of 2 in the same session and 0 of 6 on 2026-08-17
   ([v3 record](measurements/goal-a-rig-gate-v3-2026-09-25/README.md),
   [2026-08-17 record](measurements/goal-a-rig-gate-2026-08-17/README.md)).

@@ -13,8 +13,8 @@ them against a reading written down and committed before the first scored launch
   v3 at the shipped ones on its first tick. The standard error across seeds is 0.045, so the shift
   is 3.2 standard errors from zero, and it has the same sign at all eight seeds.
 - That rightward mean is not a fixed bias. B's tick-0 commands sit slightly closer to the subgoal
-  bearing than A's, and 106 of the 128 point left of it, so the pull reads as rightward on average
-  (§3).
+  bearing than A's, and 106 of arm A's 128 point left of it, so the pull reads as rightward on
+  average (§3).
 - Over the first second, the registered statistic is 0.250° the other way, against a standard
   error of 0.324: inside the spread. That holds only for the construction registered. Ten tick
   pairs straddle the ±180° seam, and the two other ways of building the same difference put it
@@ -100,8 +100,9 @@ is an exact pinhole at the authored focal length in both arms.
 - **Asserted.** Before its first step, each launch refuses to roll out unless the running camera's
   intrinsic matrix gives environment 0 its arm's fx within 0.01 px, and the 16 environments agree
   to within 0.01 px.
-- **Recorded, not asserted.** The USD focal length on every prim, and a second read-back after the
-  rollout (`policy_camera_after_arm` in the results JSONL).
+- **Recorded, not asserted, by the launch.** The USD focal length on every prim, and a second
+  read-back after the rollout (`policy_camera_after_arm` in the results JSONL). The scorer then
+  voids a launch whose post-rollout fx or USD focal differs from the pre-rollout read.
 - All 18 launches carry their arm's values in all three.
 
 **What stays the same in both arms.**
@@ -204,8 +205,8 @@ eval files.
 - B's tick-0 offsets are 1.9 % less dispersed than A's (sd 18.72° against 19.08°).
 - B's mean absolute offset is 0.17° lower: 3.7 standard errors across seeds, positive at all eight.
 - Across poses, A − B rises with the pose's mean offset (slope +0.019, Spearman p 4e-4).
-- 106 of the 128 tick-0 commands point left of the subgoal. B sits right of A at 63 of those 106
-  poses, but at only 10 of the 22 where A points right.
+- 106 of arm A's 128 tick-0 commands point left of the subgoal (arm B: 105). B sits right of A at
+  63 of those 106 poses, but at only 10 of the 22 where A points right.
 
 **The first-second statistic and the ±180° seam.** A command nearly opposite the subgoal sits near
 ±180°, where offsets of −179° and +176° are 5° apart, not 355°. Ten tick pairs where both arms'
@@ -280,8 +281,9 @@ view. The depth block first changes at tick 2–8 (median 3), in all 1 515 later
   previous episode's last view.
 - The floor-only frame itself occurs in training only at a run's initial reset, once per
   environment.
-- On the robot there is no reset. The inference node assembles an observation only from the newest
-  depth frame the camera has delivered (`inference_node.py`), a view of where the robot stands.
+- On the robot there is no scene reset. The inference node assembles an observation only from the
+  newest depth frame the camera has delivered (`inference_node.py`), a view of where the robot
+  stands.
 - What that difference does is not measured here.
 
 ## 5. Beside the reading: per-launch values
@@ -347,7 +349,9 @@ episodes, most of which the two arms do not share.
 - **`--headless` replaces check 4's `--viz kit`.** Check 4 needed a visualizer to position its
   markers, and no tree since #224 renders one.
 - **The first A_s42 launch was stopped by hand during its boot**, before any rollout, so the series
-  could be restarted detached from the shell (started 18:51:15; `logs/aborted_launch/`).
+  could be restarted detached from the shell (started 18:51:15; `logs/aborted_launch/`). The
+  "stopped 18:52:07" stamp in that sampling log is when the line was written, not when the process
+  was killed.
 - **Two launches gave up and were relaunched.** A_s46 and B_s49 each stalled at boot on all three
   watchdog attempts and wrote nothing. Each was relaunched with the same command in the registered
   order (`vfov_series_resume.sh`). Their files are kept as `logs/launch1_stalled.*`.

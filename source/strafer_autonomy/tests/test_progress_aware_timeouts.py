@@ -383,13 +383,11 @@ class TestDispatchNavGoalProgressAware:
 
 class TestPolicyBackendBudget:
     """Goals a trained-policy backend executes get the inference node's
-    ``mission_timeout_s`` plus a margin; Nav2 keeps its distance budget.
-
-    A 3.1 m policy reach has been measured at 19.0 s sim, against a
-    Nav2-sized budget of 12.9 s for the same distance.
+    ``mission_timeout_s`` (``POLICY_MISSION_TIMEOUT_S``) plus
+    ``policy_budget_margin_s``: a deadline above the node's own bound at any
+    goal distance, so the node's result arrives before the executor cancels.
+    Nav2 keeps its distance budget.
     """
-
-    MEASURED_POLICY_REACH_3P1_M_S = 19.0
 
     def _dispatch(self, runner, ros, *, backend: str, distance_m: float = 3.1):
         ros.get_map_pose.return_value = {
@@ -405,10 +403,9 @@ class TestPolicyBackendBudget:
         return ros.navigate_to_pose.call_args.kwargs
 
     @pytest.mark.parametrize("backend", ["hybrid_nav2_strafer", "strafer_direct"])
-    def test_3p1_m_goal_policy_budget_covers_v3_reach(self, backend):
+    def test_3p1_m_goal_policy_budget_is_node_bound_plus_margin(self, backend):
         runner, ros = _make_runner()
         kwargs = self._dispatch(runner, ros, backend=backend)
-        assert kwargs["policy_timeout_s"] >= self.MEASURED_POLICY_REACH_3P1_M_S
         assert kwargs["policy_timeout_s"] == pytest.approx(
             POLICY_MISSION_TIMEOUT_S + MissionRunnerConfig().policy_budget_margin_s,
         )

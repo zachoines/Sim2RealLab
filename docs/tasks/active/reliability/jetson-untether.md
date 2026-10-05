@@ -254,6 +254,24 @@ supply.**
   `STRAFER_SLAM_TASK_ID=enrich` (:107), `STRAFER_SLAM_SCENE_TOKEN=rigv3gate1` (:117) and the v3
   artifact path (:42). The SLAM keys are passed through at `docker-compose.yml`:105-106, so a
   real-robot bring-up with them would key RTAB-Map to a sim scene's database.
+- **2026-10-04: the host changed for the camera (record
+  [`d555-stream-integrity-2026-10-04`](../../../measurements/d555-stream-integrity-2026-10-04/README.md)).**
+  - **New modules.** Six out-of-tree modules now sit under
+    `/lib/modules/5.15.148-tegra/updates/strafer-d555/`: the HID-sensor stack for the IMU, and a
+    `uvcvideo` with the D555 metadata entry. They load by alias.
+  - **Masked service.** `iio-sensor-proxy` is masked.
+  - **Container access.** The `perception` service's IIO access (`c 248:*`, a writable
+    `/sys/devices`) is in the tracked compose file.
+  - **`99-strafer.rules`.** It is still not installed, and its IIO line is not needed by the
+    root-run container.
+  - **Untested across a boot.** None of this has been through a reboot or a cold boot yet. The
+    three cold boots under "Cutover and cold boot" should confirm that
+    `/sys/module/uvcvideo/srcversion` reads `D0E2A5944399A529814A98C` and that the HID interface
+    binds `hid-sensor-hub`.
+  - **Kernel upgrades.** An `nvidia-l4t-kernel` upgrade within R36.4.x would keep the rebuilt
+    `uvcvideo` shadowing the new kernel's own; remove the modules first
+    (`docs/D555_IMU_KERNEL_FIX.md`).
+
 
 ### Mass and camera mount
 

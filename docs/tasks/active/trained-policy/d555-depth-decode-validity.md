@@ -213,6 +213,17 @@ close-wall capture on hardware measures it; see the hardware item below.
         [`real-d555-hardware-readback-2026-09-25`](../../../measurements/real-d555-hardware-readback-2026-09-25/README.md)
         and
         [`d555-l4t-stream-integrity`](../reliability/d555-l4t-stream-integrity.md).)*
+      *(2026-10-04: the IMU blocker is gone; `inferences` still waits on the chassis.*
+      - *With the host modules from
+        [`d555-stream-integrity-2026-10-04`](../../../measurements/d555-stream-integrity-2026-10-04/README.md),
+        `/d555/imu/filtered` publishes at 199.8 Hz.*
+      - *Raw depth arrives about once per frame at 30 Hz (3 repeats in 1804): `depth rx`
+        advances 30 a second, with `bad_encoding` 0.*
+      - *The node's `stale_sources` no longer include `imu`. They read
+        `goal joint_states odom subgoal tf`.*
+      - *`inferences` stays 0 for want of a goal, TF and odometry, which need `base` and the
+        RoboClaws.*
+      - *The close-wall check is still not run.)*
 - [x] If your work invalidates a fact in any referenced context module, package
       README, top-level `Readme.md`, or guide under `docs/`, update those in the
       same commit. See

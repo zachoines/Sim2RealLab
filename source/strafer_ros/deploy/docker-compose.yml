@@ -82,10 +82,13 @@ services:
   perception:
     <<: *cpu-svc
     container_name: strafer_perception
-    device_cgroup_rules: [ "c 81:* rmw", "c 189:* rmw" ]   # 81=video/UVC, 189=usb (USB RealSense)
+    # 81=video/UVC, 189=usb, 248=iio (D555 IMU via host hid-sensor modules, docs/D555_IMU_KERNEL_FIX.md).
+    # librealsense writes the IIO device's sysfs attributes, so /sys/devices is mounted rw.
+    device_cgroup_rules: [ "c 81:* rmw", "c 189:* rmw", "c 248:* rmw" ]
     volumes:
       - ../strafer_bringup/config/cyclonedds.xml:/opt/strafer/config/cyclonedds.xml:ro
       - /dev:/dev                                   # USB RealSense (Ethernet-DDS D555 uses host net instead)
+      - /sys/devices:/sys/devices
     command: ros2 launch strafer_perception perception.launch.py
 
   # --- slam: RTAB-Map (map->odom, /scan). Persistent DB. No hardware. ---------

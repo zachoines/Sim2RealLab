@@ -185,9 +185,10 @@ make submit-deploy CMD="go to the chair"
   `GOAL_ARRIVAL_RADIUS_M` (0.30 m, the node's `goal_reached_distance_m`) and aborts at
   `mission_timeout_s` = 60 s on the node clock (about 8 min wall at RTF ~0.13), the shared
   `POLICY_MISSION_TIMEOUT_S`. A mission routed through the executor on this lane's policy
-  backend gets that bound plus a 5 s margin for its navigate step (65 s on the executor's node
-  clock, sim time here), capped at `STRAFER_NAVIGATION_TIMEOUT_S` (90 s), so the node's own
-  `SUCCEEDED` or `ABORTED` decides the step. That needs the executor on sim time too: the
+  backend gets that bound plus a 5 s margin for each goal it sends, each leg of a staged
+  navigate included (65 s on the executor's node clock, sim time here), capped at
+  `STRAFER_NAVIGATION_TIMEOUT_S` (90 s), so the node's own `SUCCEEDED` or `ABORTED` decides
+  each goal. That needs the executor on sim time too: the
   autonomy overlay must set `STRAFER_USE_SIM_TIME: "true"` as well as the backend, or the 65 s
   runs on wall time (about 8.5 s sim at RTF 0.13). Only the Nav2 backend gets the distance-derived
   budget (2·d / `NAV_LINEAR_VEL` (0.784 m/s) + 5 s) and a progress (stall) watchdog; the policy

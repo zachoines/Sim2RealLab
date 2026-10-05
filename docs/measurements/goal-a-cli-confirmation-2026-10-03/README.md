@@ -267,7 +267,9 @@ no FATAL and no restart.
   `verify/` recomputes 201 of the summary's figures from `logs/`, plus `run_cli_one.sh`,
   `cli_mission.py` and the v3 deposit's `reach_terminal.json` for the harness and gate
   comparisons. It does not read `analysis/`, and it is by the same author as the analysis.
-  186 figures agree to the printed precision. Of the other 15:
+  186 agree within `compare.py`'s tolerances: half a unit in the last printed place, and 1.5
+  units on the old budgets and net advances, so G1's and L1's net advance count as agreeing at
+  one unit off. Of the other 15:
   - nine differ by one unit in the last printed place;
   - four are L1's and L2's old budget and margin: `analysis/SUMMARY.md` takes the distance
     from the policy start to the dispatched goal, while the verifier and this record take the
@@ -313,7 +315,8 @@ The deposit holds everything this record names:
 - the five container logs and the sim host's bridge, planner and VLM logs;
 - the stack checks before the first mission;
 - the test lanes and the image build at `9b80e99`;
-- the analysis with its exact commands, and an independent recomputation;
+- the analysis with its exact commands, and a recomputation from `logs/` that does not read
+  `analysis/` (`verify/`);
 - the harness.
 
 Thirteen text files had rig network addresses replaced with placeholders before deposit.

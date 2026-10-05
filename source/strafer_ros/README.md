@@ -180,7 +180,7 @@ source install/setup.bash
 Prerequisites:
 
 - Jetson Orin Nano with ROS 2 Humble.
-- RealSense D555 on USB 3 with the IMU stack enabled (see [`docs/D555_IMU_KERNEL_FIX.md`](../../docs/D555_IMU_KERNEL_FIX.md) for the kernel module build required on Tegra kernels).
+- RealSense D555 on USB 3 with the host kernel modules for its IMU and per-frame metadata (see [`docs/D555_IMU_KERNEL_FIX.md`](../../docs/D555_IMU_KERNEL_FIX.md) for the out-of-tree build required on Tegra kernels).
 - Two RoboClaw ST 2x45A controllers wired per [`docs/WIRING_GUIDE.md`](../../docs/WIRING_GUIDE.md).
 - `strafer_shared` and `strafer_autonomy` pip-installed into the ROS Python environment: `pip install -e source/strafer_shared -e source/strafer_autonomy --no-build-isolation`. One `-e` per package (a lone `-e` makes only the first editable); `--no-build-isolation` reuses the host `setuptools`, since the stock Jetson pip 22.0.2 otherwise build-isolates a `setuptools` too old for PEP 660 and the editable install fails with a missing `build_editable` hook.
 - `onnxruntime-gpu` for the `strafer_inference` node's TensorRT/CUDA execution providers — the stock CPU `onnxruntime` silently runs DEPTH inference on CPU (~84 ms, over the 33 ms budget). The CPU and GPU wheels share one install dir, so uninstall the CPU build first: `pip uninstall -y onnxruntime && pip install --index-url https://pypi.jetson-ai-lab.io/jp6/cu126 onnxruntime-gpu==1.23.0` (JetPack 6.2 / CUDA 12.6 → `jp6/cu126`). Verify with `python3 -c "import onnxruntime; print(onnxruntime.get_available_providers())"` (lists `TensorrtExecutionProvider`). Do **not** `pip install` the `nvidia-*-cu12` / `tensorrt` wheels — the Jetson build links the JetPack system CUDA/cuDNN/TensorRT and pip copies conflict.
@@ -330,7 +330,7 @@ Tracked in [`docs/tasks/DEFERRED_WORK.md`](../../docs/tasks/DEFERRED_WORK.md). I
 - [`source/strafer_shared/`](../strafer_shared/) — constants, mecanum kinematics, policy I/O contract. Authoritative for every shared value.
 - [`source/strafer_lab/README.md`](../strafer_lab/README.md) — sim-side counterpart; uses the same shared contract so trained policies transfer unchanged.
 - [`docs/WIRING_GUIDE.md`](../../docs/WIRING_GUIDE.md) — motor + encoder + RoboClaw + Jetson wiring, pinouts, address configuration.
-- [`docs/D555_IMU_KERNEL_FIX.md`](../../docs/D555_IMU_KERNEL_FIX.md) — Tegra-kernel HID sensor module build (mandatory for D555 IMU).
+- [`docs/D555_IMU_KERNEL_FIX.md`](../../docs/D555_IMU_KERNEL_FIX.md) — Tegra-kernel module build for the D555: HID-sensor modules (IMU) and a `uvcvideo` with the D555 metadata entry (advancing stamps, one message per frame, aligned depth).
 - [`docs/SIM_TO_REAL_TUNING_GUIDE.md`](../../docs/SIM_TO_REAL_TUNING_GUIDE.md) — actuator / sensor alignment procedure pairing this package with `strafer_lab`.
 - [`docs/INTEGRATION_SIM_IN_THE_LOOP.md`](../../docs/INTEGRATION_SIM_IN_THE_LOOP.md) — cross-host bringup runbook (Stage 3 covers `bringup_sim_in_the_loop.launch.py` consuming the DGX bridge).
 - [`docs/tasks/DEFERRED_WORK.md`](../../docs/tasks/DEFERRED_WORK.md) — open items.

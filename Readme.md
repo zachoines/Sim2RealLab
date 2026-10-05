@@ -263,7 +263,7 @@ sudo udevadm control --reload-rules && sudo udevadm trigger
 
 From the repo root, `make build` runs the colcon build and `make udev` installs rules.
 
-**D555 IMU on Tegra:** Jetson's Tegra kernel does not ship `CONFIG_HID_SENSOR_HUB`, so the D555 IMU is invisible until the five missing kernel modules are built out-of-tree. The full build recipe is in [`docs/D555_IMU_KERNEL_FIX.md`](docs/D555_IMU_KERNEL_FIX.md) — do it once per kernel upgrade.
+**D555 on Tegra:** Jetson's Tegra kernel ships without `CONFIG_HID_SENSOR_HUB` and without a D555 entry in `uvcvideo`, so the D555's IMU is invisible and its per-frame metadata never reaches librealsense (frozen stamps, doubled depth, no aligned depth) until six modules are built out-of-tree: the five HID-sensor modules and a `uvcvideo` carrying librealsense's metadata patch. The recipe is in [`docs/D555_IMU_KERNEL_FIX.md`](docs/D555_IMU_KERNEL_FIX.md) — redo it on every kernel upgrade, and remove the old modules before one.
 
 ## Run
 

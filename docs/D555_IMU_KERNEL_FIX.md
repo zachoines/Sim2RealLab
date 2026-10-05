@@ -1,340 +1,324 @@
-# Enabling the RealSense D555 IMU on Jetson Orin (Tegra Kernel)
+# Enabling the RealSense D555's IMU and per-frame metadata on Jetson (Tegra kernel)
 
-## Platform
+Two pieces of the D555 never reach librealsense on a stock Jetson kernel:
 
-| Component | Version |
-|---|---|
-| Board | NVIDIA Jetson Orin NX |
-| L4T | R36.5.0 |
-| Kernel | 5.15.185-tegra |
-| Ubuntu | 22.04 (Jammy) |
-| Camera | Intel RealSense D555 (USB PID `0B56`, FW 7.56.19918.835) |
-| librealsense | 2.56.4 (deb), pyrealsense2 2.56.5.9235 (pip) |
-| ROS 2 | Humble |
+1. **The IMU.** The Tegra kernel ships without the HID-sensor drivers, so the
+   accelerometer and gyroscope never become IIO devices.
+2. **Per-frame metadata.** The kernel's `uvcvideo` has no device entry for the
+   D555, so the camera's metadata block never reaches the driver. Without it the
+   frame stamps freeze, every depth frame is published twice, and aligned depth is
+   never produced.
 
-## The Problem
+Both are fixed with out-of-tree kernel modules for the running kernel: five HID/IIO
+modules for the IMU and a rebuilt `uvcvideo` for the metadata. No kernel rebuild is
+needed. The perception container also needs IIO device access, which the deploy
+compose file already grants.
 
-The RealSense D555 contains a Bosch BMI055 IMU (3-axis accelerometer + 3-axis
-gyroscope) exposed over USB as an HID Sensor Hub device (USB interface 5,
-`bInterfaceClass=3`).
+## Platforms
 
-On standard x86 Ubuntu systems this works out of the box because the kernel is
-compiled with `CONFIG_HID_SENSOR_HUB=m`. When the camera is plugged in the
-`hid-sensor-hub` driver claims the HID interface, creates IIO devices in
-`/sys/bus/iio/devices/`, and librealsense reads the IMU data through the Linux
-IIO subsystem (`iio_hid_sensor` backend).
+| | first applied (IMU only) | strafer-nx, 2026-10-04 (IMU + metadata) |
+|---|---|---|
+| Board | Jetson Orin NX | Jetson Orin NX 16 GB (Seeed image) |
+| L4T | R36.5.0 | R36.4.3 |
+| Kernel | `5.15.185-tegra` | `5.15.148-tegra` (Seeed build; NVIDIA headers are ABI-compatible) |
+| Module sources | Ubuntu `linux-source-5.15.0` tarball | the kernel's own tree: GitLab `nvidia/nv-tegra/3rdparty/canonical/linux-jammy`, tag `jetson_36.4.3` |
+| librealsense | 2.56.4 (deb) | 2.58.4 (deb, kernel V4L2/IIO backend), realsense-ros 4.58.4, in `strafer-cpu:humble` |
+| Camera | D555, USB PID `0B56`, FW 7.56.19918.835 | same, on USB 3.2 |
 
-On the **Jetson Orin's Tegra kernel** (5.15.185-tegra), `CONFIG_HID_SENSOR_HUB`
-is **not set**. The HID interface is instead bound to `hid-generic`, which does
-not create any IIO devices. As a result:
+The record for the second column is
+[`d555-stream-integrity-2026-10-04`](measurements/d555-stream-integrity-2026-10-04/README.md).
 
-- `/sys/bus/iio/devices/` is empty.
-- librealsense logs `"No HID info provided, IMU is disabled"`.
-- `rs-enumerate-devices` shows Stereo Module and RGB Camera but no Motion Module.
-- The policy observation vector (indices 0–5: `imu_accel`, `imu_gyro`) gets zeros.
+## The problems
 
-### How We Confirmed the Root Cause
+### IMU: no HID-sensor stack
 
-1. **USB descriptors** — `lsusb -v -d 8086:0b56` showed interface 5 with
-   `bInterfaceClass 3` (HID).
+The D555's Bosch BMI055 IMU is exposed as an HID Sensor Hub device (USB interface 5,
+`bInterfaceClass=3`). On a kernel with `CONFIG_HID_SENSOR_HUB=m`, `hid-sensor-hub`
+claims that interface and its accel and gyro drivers create IIO devices, which
+librealsense's `iio_hid_sensor` backend reads.
 
-2. **HID report descriptor** — Reading the 1002-byte report descriptor via
-   `/sys/bus/usb/devices/.../report_descriptor` and parsing with
-   `hidrd-convert` confirmed `Accelerometer 3D (0x73)` and
-   `Gyroscope 3D (0x76)` usage pages are present in the firmware.
+The Tegra kernel has `CONFIG_HID_SENSOR_HUB` unset, so the interface binds
+`hid-generic` and no IIO device appears. The symptoms:
+- `/sys/bus/iio/devices/` is empty;
+- librealsense logs `No HID info provided, IMU is disabled`;
+- `/d555/imu` has no publisher.
 
-3. **Driver binding** — `udevadm info` on the hidraw device showed
-   `DRIVER=hid-generic` instead of the expected `hid-sensor-hub`.
+`CONFIG_IIO`, `IIO_BUFFER`, `IIO_TRIGGER`, `IIO_KFIFO_BUF=m` and
+`IIO_TRIGGERED_BUFFER=m` are present. Only the HID-sensor drivers are missing.
+Reading `hidraw` does not help: librealsense reads the IMU only through IIO.
 
-4. **Kernel config** — `zcat /proc/config.gz | grep HID_SENSOR` confirmed
-   `CONFIG_HID_SENSOR_HUB is not set`.
+### Metadata: `uvcvideo` has no D555 entry
 
-5. **IIO dependencies satisfied** — The kernel *does* have the IIO subsystem
-   (`CONFIG_IIO=y`, `CONFIG_IIO_BUFFER=y`, `CONFIG_IIO_KFIFO_BUF=m`,
-   `CONFIG_IIO_TRIGGERED_BUFFER=m`), so only the HID sensor driver stack
-   is missing.
+The D555 sends a **248-byte UVC payload header** on every frame. It carries a PTS
+that advances once per exposure (about 33.3 ms at 30 fps), an **all-zero SCR**, and
+Intel's metadata block (hardware timestamp, exposure, gain, laser power). The stock
+`uvcvideo` alias table has no `8086:0b56` entry, so its metadata nodes offer only
+`UVCH`, the standard 12-byte header. Under `UVCH`:
+- `uvcvideo` writes an entry only for a payload whose SCR changed. The D555's SCR is
+  always zero, so **every metadata buffer comes back empty**.
+- librealsense 2.58.4 sizes metadata as `bytesused − 10` in a `uint8_t`, so an empty
+  buffer reads as 246 bytes of zeros. The frame timestamp is 0, so the stamps freeze:
+  one stamp for minutes on `global_time`, 0.0 on `hardware_clock`.
+- With every frame stamped alike, realsense-ros's syncer, which is on because
+  `align_depth.enable` is a filter, never pairs depth with colour. Each lone depth
+  frameset is published twice, so raw depth runs at 60 Hz, and aligned depth, made
+  only from a paired frameset, never appears.
 
-### Why Hidraw Alone Doesn't Work
+Turning `align_depth.enable` off at runtime confirmed the last step: raw depth then
+runs at 30 Hz, one message per frame, with the stamps still frozen.
 
-librealsense on Linux uses the `iio_hid_sensor` backend for IMU access. It does
-**not** read from `/dev/hidrawN` directly. Even with `MODE="0666"` on the hidraw
-device, librealsense still cannot see the IMU because no IIO devices exist.
-The fix must provide IIO devices, which requires the kernel's HID sensor driver
-stack.
+librealsense's own L4T patch,
+`scripts/realsense-metadata-jammy-master.patch` (v2.58.4), adds the D555 entry
+(`0x0b56`, VideoControl protocol `UVC_PC_PROTOCOL_15`,
+`UVC_INFO_META(V4L2_META_FMT_D4XX)`) and raises `UVC_MAX_STATUS_SIZE` from 16 to 32.
+With it the metadata nodes offer `D4XX`, which copies the whole header whenever it
+is longer than its standard part, and librealsense receives the metadata block.
 
-## The Fix — Building Out-of-Tree Kernel Modules
+## The fix: six out-of-tree modules
 
-Since recompiling the entire Tegra kernel is impractical (and risks breaking
-NVIDIA-specific patches), we build just the 5 missing modules out-of-tree from
-the Ubuntu `linux-source-5.15.0` package.
-
-### Prerequisites
-
-```bash
-# Kernel headers (already installed with JetPack)
-dpkg -l nvidia-l4t-kernel-headers
-# → 5.15.185-tegra-36.5.0-...
-
-# Ubuntu kernel source (provides compatible HID sensor code)
-sudo apt-get install -y linux-source-5.15.0
-# → /usr/src/linux-source-5.15.0/linux-source-5.15.0.tar.bz2
-
-# Build tools
-sudo apt-get install -y build-essential
-```
-
-### Step 1: Extract Source Files
-
-The tarball is large and bz2-decompression is slow on ARM. Use Python:
-
-```python
-import tarfile, bz2, io
-
-TARBALL = "/usr/src/linux-source-5.15.0/linux-source-5.15.0.tar.bz2"
-OUTDIR  = "/tmp/hid-sensor-build"
-
-with open(TARBALL, "rb") as f:
-    data = bz2.decompress(f.read())
-
-tf = tarfile.open(fileobj=io.BytesIO(data))
-members = [m for m in tf.getmembers() if any(x in m.name for x in [
-    "drivers/hid/hid-sensor-hub.c",
-    "drivers/hid/hid-sensor-custom.c",
-    "drivers/hid/hid-ids.h",
-    "drivers/iio/accel/hid-sensor-accel-3d.c",
-    "drivers/iio/gyro/hid-sensor-gyro-3d.c",
-    "drivers/iio/common/hid-sensors/",
-    "include/linux/hid-sensor-hub.h",
-    "include/linux/hid-sensor-ids.h",
-])]
-tf.extractall(OUTDIR, members)
-tf.close()
-```
-
-### Step 2: Install Missing Headers
-
-The Tegra kernel headers don't include the HID sensor headers. Copy them in:
+Everything below builds as a normal user. Installing and loading need root. `K` is
+the running kernel and `B` a build directory.
 
 ```bash
-SRC=/tmp/hid-sensor-build/linux-source-5.15.0
-sudo cp $SRC/include/linux/hid-sensor-hub.h /lib/modules/$(uname -r)/build/include/linux/
-sudo cp $SRC/include/linux/hid-sensor-ids.h /lib/modules/$(uname -r)/build/include/linux/
+K=$(uname -r)                  # e.g. 5.15.148-tegra
+B=$HOME/d555-modules/src       # any build directory
 ```
 
-### Step 3: Create Kbuild Files
+### 1. Headers and sources
 
-Each module directory needs a `Kbuild` file:
+The kernel headers come with JetPack (`nvidia-l4t-kernel-headers`), at
+`/lib/modules/$K/build`. Two checks before building:
+- The headers' `include/linux/hid-sensor-hub.h` and `hid-sensor-ids.h` must exist. On
+  R36.4.3 they ship; on R36.5.0 they had to be copied in from the Ubuntu source.
+- If the running kernel is not NVIDIA's own build (strafer-nx runs a Seeed build),
+  confirm the headers match it. On strafer-nx, every symbol CRC the new modules import
+  matches the running kernel's `__kcrctab`, and the stock `uvcvideo` imports the same
+  155 symbols as the rebuilt one.
+
+Fetch the sources from the kernel's own tree. For R36.4.3 the tag is
+`jetson_36.4.3`; raw files download without credentials.
 
 ```bash
-cd /tmp/hid-sensor-build/linux-source-5.15.0
+BASE=https://gitlab.com/nvidia/nv-tegra/3rdparty/canonical/linux-jammy/-/raw/jetson_36.4.3
+for f in drivers/hid/hid-sensor-hub.c drivers/hid/hid-ids.h \
+         drivers/iio/common/hid-sensors/hid-sensor-attributes.c \
+         drivers/iio/common/hid-sensors/hid-sensor-trigger.c \
+         drivers/iio/common/hid-sensors/hid-sensor-trigger.h \
+         drivers/iio/accel/hid-sensor-accel-3d.c drivers/iio/gyro/hid-sensor-gyro-3d.c \
+         drivers/media/usb/uvc/{Makefile,uvc_ctrl.c,uvc_debugfs.c,uvc_driver.c,uvc_entity.c,uvc_isight.c,uvc_metadata.c,uvc_queue.c,uvc_status.c,uvc_v4l2.c,uvc_video.c,uvcvideo.h}; do
+  mkdir -p "$B/$(dirname $f)"; curl -fsSL "$BASE/$f" -o "$B/$f"
+done
+```
 
-# HID sensor hub
-echo 'obj-m := hid-sensor-hub.o' > drivers/hid/Kbuild
+On R36.5.0, the same files came from `/usr/src/linux-source-5.15.0/linux-source-5.15.0.tar.bz2`
+(`apt-get install linux-source-5.15.0`).
 
-# IIO common (attributes + trigger)
+### 2. Patch `uvcvideo` with librealsense's metadata patch
+
+Use the librealsense release that matches the image's deb, unmodified. On
+`jetson_36.4.3` it applies with offsets only. Only the metadata patch is needed:
+Z16 and YUYV already enumerate, so the formats and power-line patches are not.
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/IntelRealSense/librealsense/v2.58.4/scripts/realsense-metadata-jammy-master.patch \
+  -o "$B/realsense-metadata-jammy-master.patch"
+sha256sum "$B/realsense-metadata-jammy-master.patch"   # b3d0a0c3b38a5a109855de71a13e320fa571a20c57cf6201d191fb4d94f63d60 (v2.58.4)
+cd "$B" && patch -p1 < realsense-metadata-jammy-master.patch
+grep -n 0x0b56 drivers/media/usb/uvc/uvc_driver.c       # the D555 entry
+```
+
+### 3. Build
+
+```bash
+KDIR=/lib/modules/$K/build
+echo 'obj-m := hid-sensor-hub.o' > $B/drivers/hid/Kbuild
 printf 'obj-m += hid-sensor-iio-common.o\nobj-m += hid-sensor-trigger.o\nhid-sensor-iio-common-y := hid-sensor-attributes.o\n' \
-    > drivers/iio/common/hid-sensors/Kbuild
+  > $B/drivers/iio/common/hid-sensors/Kbuild
+echo 'obj-m := hid-sensor-accel-3d.o' > $B/drivers/iio/accel/Kbuild
+echo 'obj-m := hid-sensor-gyro-3d.o'  > $B/drivers/iio/gyro/Kbuild
 
-# Accelerometer
-echo 'obj-m := hid-sensor-accel-3d.o' > drivers/iio/accel/Kbuild
+make -C $KDIR M=$B/drivers/hid modules
+make -C $KDIR M=$B/drivers/iio/common/hid-sensors KBUILD_EXTRA_SYMBOLS=$B/drivers/hid/Module.symvers modules
+make -C $KDIR M=$B/drivers/iio/accel KBUILD_EXTRA_SYMBOLS="$B/drivers/hid/Module.symvers $B/drivers/iio/common/hid-sensors/Module.symvers" modules
+make -C $KDIR M=$B/drivers/iio/gyro  KBUILD_EXTRA_SYMBOLS="$B/drivers/hid/Module.symvers $B/drivers/iio/common/hid-sensors/Module.symvers" modules
+make -C $KDIR M=$B/drivers/media/usb/uvc CONFIG_USB_VIDEO_CLASS=m modules
 
-# Gyroscope
-echo 'obj-m := hid-sensor-gyro-3d.o' > drivers/iio/gyro/Kbuild
+modinfo -F vermagic $B/drivers/media/usb/uvc/uvcvideo.ko    # must match the running kernel
+modinfo -F alias $B/drivers/media/usb/uvc/uvcvideo.ko | grep p0B56   # usb:v8086p0B56...ic0Eisc01ip01
 ```
 
-### Step 4: Compile Modules
+The "compiler differs" warning is cosmetic when the version matches.
 
-Build in dependency order, passing each previous module's `Module.symvers` so
-cross-module symbols resolve:
+### 4. Install under `updates/`
 
-```bash
-KDIR=/lib/modules/$(uname -r)/build
-SRC=/tmp/hid-sensor-build/linux-source-5.15.0
-
-# 1. hid-sensor-hub.ko
-make -C $KDIR M=$SRC/drivers/hid modules
-
-# 2. hid-sensor-iio-common.ko + hid-sensor-trigger.ko
-make -C $KDIR M=$SRC/drivers/iio/common/hid-sensors \
-    KBUILD_EXTRA_SYMBOLS=$SRC/drivers/hid/Module.symvers modules
-
-# 3. hid-sensor-accel-3d.ko
-make -C $KDIR M=$SRC/drivers/iio/accel \
-    KBUILD_EXTRA_SYMBOLS="$SRC/drivers/hid/Module.symvers $SRC/drivers/iio/common/hid-sensors/Module.symvers" modules
-
-# 4. hid-sensor-gyro-3d.ko
-make -C $KDIR M=$SRC/drivers/iio/gyro \
-    KBUILD_EXTRA_SYMBOLS="$SRC/drivers/hid/Module.symvers $SRC/drivers/iio/common/hid-sensors/Module.symvers" modules
-```
-
-> **Note:** The compiler version warning (`11.4.0 vs 11.4.0-2`) is cosmetic and
-> can be ignored — the ABI is identical.
-
-### Step 5: Install Modules
+`depmod` on these hosts searches `updates` before `ubuntu` and `built-in`
+(`/etc/depmod.d/ubuntu.conf`), so a module under `updates/` replaces the in-tree
+`uvcvideo`. `extra/`, which the R36.5.0 procedure used, ranks with `built-in`: it
+works for modules with no in-tree twin, but the in-tree `uvcvideo` would still win.
 
 ```bash
-sudo mkdir -p /lib/modules/$(uname -r)/extra
-sudo cp $SRC/drivers/hid/hid-sensor-hub.ko                         /lib/modules/$(uname -r)/extra/
-sudo cp $SRC/drivers/iio/common/hid-sensors/hid-sensor-iio-common.ko /lib/modules/$(uname -r)/extra/
-sudo cp $SRC/drivers/iio/common/hid-sensors/hid-sensor-trigger.ko    /lib/modules/$(uname -r)/extra/
-sudo cp $SRC/drivers/iio/accel/hid-sensor-accel-3d.ko               /lib/modules/$(uname -r)/extra/
-sudo cp $SRC/drivers/iio/gyro/hid-sensor-gyro-3d.ko                 /lib/modules/$(uname -r)/extra/
-
+D=/lib/modules/$K/updates/strafer-d555
+sudo install -d $D
+sudo install -m 0644 $B/drivers/hid/hid-sensor-hub.ko \
+  $B/drivers/iio/common/hid-sensors/hid-sensor-iio-common.ko \
+  $B/drivers/iio/common/hid-sensors/hid-sensor-trigger.ko \
+  $B/drivers/iio/accel/hid-sensor-accel-3d.ko $B/drivers/iio/gyro/hid-sensor-gyro-3d.ko \
+  $B/drivers/media/usb/uvc/uvcvideo.ko $D/
 sudo depmod -a
+modinfo -n uvcvideo hid-sensor-hub      # both under updates/strafer-d555/
 ```
 
-### Step 6: Load Modules (First Time)
+### 5. Keep `iio-sensor-proxy` off the IMU
 
-Load prerequisite IIO modules, then the HID sensor stack:
+Once the accelerometer is an IIO device, the host's `iio-sensor-proxy` (a desktop
+screen-rotation service) is started for it. It could take the IIO buffer that
+librealsense needs, and a robot has no screen to rotate, so mask it:
 
 ```bash
-sudo modprobe industrialio-triggered-buffer
-
-sudo insmod /lib/modules/$(uname -r)/extra/hid-sensor-hub.ko
-sudo insmod /lib/modules/$(uname -r)/extra/hid-sensor-iio-common.ko
-sudo insmod /lib/modules/$(uname -r)/extra/hid-sensor-trigger.ko
-sudo insmod /lib/modules/$(uname -r)/extra/hid-sensor-accel-3d.ko
-sudo insmod /lib/modules/$(uname -r)/extra/hid-sensor-gyro-3d.ko
+sudo systemctl mask --now iio-sensor-proxy.service
 ```
 
-After loading, verify IIO devices appeared:
+### 6. Load: no reboot needed
+
+With nothing streaming the camera (perception stopped), load the HID drivers and
+swap `uvcvideo`. The camera may stay attached.
 
 ```bash
-ls /sys/bus/iio/devices/
-# Expected:  iio:device0  iio:device1  trigger0  trigger1
-
-cat /sys/bus/iio/devices/iio:device0/name   # → accel_3d
-cat /sys/bus/iio/devices/iio:device1/name   # → gyro_3d
+sudo modprobe -a hid-sensor-accel-3d hid-sensor-gyro-3d  # pulls in the hub, iio-common, trigger
+[ "$(cat /sys/module/uvcvideo/refcnt)" = 0 ] && sudo modprobe -r uvcvideo && sudo modprobe uvcvideo
+cat /sys/module/uvcvideo/srcversion                       # the rebuilt module's, not the stock one
 ```
 
-### Step 7: Configure Auto-Load on Boot
+If the camera was attached while the HID drivers loaded, re-enumerate it so its HID
+interface binds `hid-sensor-hub`. Writing the device's `authorized` attribute
+unbinds and re-probes it without cutting power:
 
 ```bash
-cat <<'EOF' | sudo tee /etc/modules-load.d/hid-sensor-imu.conf
-# HID Sensor modules for RealSense D555 IMU
-hid-sensor-hub
-hid-sensor-iio-common
-hid-sensor-trigger
-hid-sensor-accel-3d
-hid-sensor-gyro-3d
-EOF
+P=$(for d in /sys/bus/usb/devices/*; do
+      [ "$(cat $d/idVendor 2>/dev/null)" = 8086 ] && [ "$(cat $d/idProduct 2>/dev/null)" = 0b56 ] && echo $d; done)
+[ -n "$P" ] || { echo "no D555 (8086:0b56) on the bus"; exit 1; }
+echo 0 | sudo tee $P/authorized; sleep 2; echo 1 | sudo tee $P/authorized
 ```
 
-### Step 8: Udev Rule for Non-Root Access
+The modules load by alias whenever the camera appears, so no `modules-load.d` entry
+is needed.
 
-librealsense needs write access to IIO sysfs attributes (`scan_elements/*_en`,
-`buffer/enable`, etc.) and read/write on `/dev/iio:device*`. The IIO devices
-are recreated on each USB plug/rebind, so a udev rule is required.
+### 7. Container access
 
-Add to `99-strafer.rules`:
+librealsense writes the IIO devices' `scan_elements`, `buffer` and
+`sampling_frequency` attributes, and reads `/dev/iio:deviceN` (character major 248 on
+these kernels; check with `grep iio /proc/devices`). The `perception` service in
+`source/strafer_ros/deploy/docker-compose.yml` therefore has:
+- `c 248:* rmw` in its device cgroup rules;
+- `/sys/devices` mounted writable over the container's read-only sysfs.
 
-```
-SUBSYSTEM=="iio", KERNEL=="iio:device*", MODE="0666", \
-    RUN+="/bin/sh -c 'find /sys%p -type f -exec chmod a+rw {} + 2>/dev/null'"
-```
+Without both, librealsense finds the Motion Module but cannot start it.
+- **Scope.** The writable `/sys/devices` lets the root-run container write any host
+  device attribute, not only the IIO ones. It is narrower than a privileged container
+  or a writable `/sys`, which would also expose debugfs, configfs and module
+  parameters.
+- **AppArmor.** It works on these hosts because Docker runs there without AppArmor.
+  Docker's default AppArmor profile denies these writes.
 
-> **Gotcha:** On this udev version, `DEVTYPE=="iio_device"` is reported as an
-> invalid key. Use `KERNEL=="iio:device*"` instead.
+Recreate perception the same way the stack was brought up (`docker compose up` in
+`deploy/`), so any host-local overrides still apply. The images must carry the
+perception launch with the `timestamp_fixer` passthrough (see Verification).
 
-Install the rule:
-
-```bash
-sudo cp 99-strafer.rules /etc/udev/rules.d/
-sudo udevadm control --reload-rules
-sudo udevadm trigger --subsystem-match=iio
-```
+A non-root process on the host would instead need the IIO line of
+`source/strafer_ros/99-strafer.rules`. The container runs as root and does not.
 
 ## Verification
 
-### pyrealsense2 — Motion Module Visible
+Read back on the deployed launch, over windows of at least 60 s:
 
-```python
-import pyrealsense2 as rs
-ctx = rs.context()
-dev = ctx.query_devices()[0]
-for s in dev.query_sensors():
-    print(s.get_info(rs.camera_info.name))
-```
+| check | expected |
+|---|---|
+| `meta_fmt_probe.py` from the record's deposit (`tools/`; QUERYCAP and ENUM_FMT on each `/dev/video*`, no root) | metadata nodes offer `['UVCH', 'D4XX']` |
+| `/sys/bus/hid/devices/*:8086:0B56.*/driver` | `hid-sensor-hub` |
+| `cat /sys/bus/iio/devices/iio:device*/name` | `accel_3d`, `gyro_3d` |
+| perception log | `Starting Sensor: Motion Module`; no `No HID info provided`; `timestamp_fixer` first-frame delta near 0 s |
+| `/d555/depth/image_rect_raw` | ~30 Hz, header stamps advancing ~33.3 ms, one message per frame (rare repeats; see below) |
+| `/d555/depth/metadata` | `clock_domain global_time`; `hw_timestamp`, `actual_exposure`, `gain_level` present; `frame_timestamp` distinct per frame |
+| `/d555/aligned_depth_to_color/image_raw`, `.../image_sync` | ~30 Hz |
+| `/d555/imu`, `/d555/imu/filtered` | ~200 Hz, stamps every 5 ms |
+| `strafer_inference` cadence line | `imu` absent from `stale_sources` |
+| `depth_to_pointcloud` (in `slam`) | no "do not appear to be synchronized" warnings; `/scan` publishing. This needs `timestamp_fixer` to pass stamps through, which the perception launch does, so images built from an older launch must be rebuilt |
 
-Expected output includes **Motion Module** alongside Stereo Module and RGB Camera.
+The record's probes and figures are in
+[`d555-stream-integrity-2026-10-04`](measurements/d555-stream-integrity-2026-10-04/README.md).
 
-### pyrealsense2 — Live IMU Data
+## IMU stream profiles
 
-```python
-import pyrealsense2 as rs
-
-pipe = rs.pipeline()
-cfg = rs.config()
-cfg.enable_stream(rs.stream.accel, rs.format.motion_xyz32f, 100)
-cfg.enable_stream(rs.stream.gyro, rs.format.motion_xyz32f, 200)
-pipe.start(cfg)
-
-for _ in range(5):
-    frames = pipe.wait_for_frames(1000)
-    for f in frames:
-        m = f.as_motion_frame()
-        d = m.get_motion_data()
-        stream = "Accel" if f.get_profile().stream_type() == rs.stream.accel else "Gyro"
-        print(f"{stream}: x={d.x:.4f}  y={d.y:.4f}  z={d.z:.4f}")
-
-pipe.stop()
-```
-
-Expected: Accel ≈ (0, -9.8, 0) for gravity, Gyro ≈ (0, 0, 0) at rest.
-
-### ROS 2 — /d555/imu Topic
-
-```bash
-ros2 launch strafer_perception perception.launch.py
-# In another terminal:
-ros2 topic hz /d555/imu        # → ~200 Hz
-ros2 topic echo /d555/imu --once
-```
-
-The message should be `sensor_msgs/Imu` with populated `linear_acceleration`
-and `angular_velocity` fields.
-
-## IMU Stream Profiles
-
-| Stream | Rates Available | Format |
+| Stream | Rates available | Format |
 |---|---|---|
 | Accelerometer | 100 Hz, 200 Hz | MOTION_XYZ32F |
 | Gyroscope | 200 Hz, 400 Hz | MOTION_XYZ32F |
 
-The perception launch uses 200 Hz unified IMU (`unite_imu_method: 2`) which
-combines accel and gyro into a single `/d555/imu` topic.
+The perception launch uses the unified IMU (`unite_imu_method: 2`): gyro at 200 Hz,
+accel at 100 Hz, published together on `/d555/imu` at 200 Hz.
 
-## Known Issues
+## Known issues
 
-### `initial_reset` Causes USB Errors
+### Remaining duplicate depth frames
 
-Setting `initial_reset: true` in the RealSense ROS 2 launch triggers a USB
-device reset that causes `tegra-xusb` transfer errors
-(`xioctl(VIDIOC_QBUF) failed: No such device`). The camera re-enumerates 2–3
-times during the reset cycle, sometimes degrading to SuperSpeed (5 Gbps) from
-SuperSpeed+ (10 Gbps). **Leave `initial_reset: false`.**
+realsense-ros publishes raw depth twice for any frameset without a colour frame. With
+the metadata path this happens only when depth and colour land at the edge of the
+syncer's half-frame window: 3 of 1804 messages over 60 s on strafer-nx, against half
+of all messages before.
 
-### Permissions Lost on USB Re-Plug
+### The camera attached at power-on comes up without a driver
 
-The IIO devices are destroyed and recreated when the camera is unplugged or the
-USB bus resets. The udev rule automatically reapplies permissions, but if
-running a pipeline at the time, it will crash and need restarting.
+On strafer-nx the D555 came up driverless (PID `0bdc`, no `/dev/video*`) in 5 of 5
+boots with it attached at power-on. Plug it in after the host boots, and unplug it
+before a reboot.
 
-### Kernel Updates
+### `initial_reset` causes USB errors
 
-If the Tegra kernel is updated (e.g., JetPack upgrade), the modules in
-`/lib/modules/<old-version>/extra/` will no longer load. You'll need to
-rebuild them against the new kernel headers. The same procedure applies — just
-point `KDIR` at the new `/lib/modules/$(uname -r)/build`.
+`initial_reset: true` triggers a reset that causes `tegra-xusb` transfer errors
+(`xioctl(VIDIOC_QBUF) failed: No such device`) and repeated re-enumeration. Leave it
+`false`.
 
-## File Inventory
+### `HID set_power 1 failed` after an unclean stop
+
+If perception was stopped while streaming, the IIO buffers stay enabled, and the next
+start's attempt to enable them logs this warning. The IMU streams anyway.
+
+### Kernel package upgrades do not remove these modules
+
+R36.4.x kernels share one module directory (`/lib/modules/5.15.148-tegra`), and the
+kernel package does not own `updates/strafer-d555`. After an `nvidia-l4t-kernel`
+upgrade, the rebuilt `uvcvideo` would keep shadowing the new kernel's own.
+- **Before** upgrading, remove `updates/strafer-d555` and run `depmod -a`.
+- After upgrading, rebuild against the new headers and reinstall.
+- Alternatively, hold the `nvidia-l4t-kernel*` packages.
+
+When the kernel version string changes, modules under the old directory simply stop
+being used, and the procedure is repeated for the new one.
+
+## Rollback
+
+With perception stopped, in this order:
+
+```bash
+echo 0 | sudo tee $P/authorized       # 1. detach the camera ($P as in step 6): its IIO buffers
+                                      #    hold the accel and gyro modules in use otherwise
+sudo modprobe -r hid_sensor_gyro_3d hid_sensor_accel_3d hid_sensor_trigger hid_sensor_iio_common hid_sensor_hub
+sudo modprobe -r uvcvideo             # 2. unload while the modules are still indexed
+sudo rm -r /lib/modules/$(uname -r)/updates/strafer-d555 && sudo depmod -a   # 3. remove, re-index
+sudo modprobe uvcvideo                # 4. the stock module
+sudo systemctl unmask iio-sensor-proxy.service
+echo 1 | sudo tee $P/authorized       # 5. re-attach; the HID interface binds hid-generic again
+```
+
+Removing the modules before unloading them fails: once re-indexed, `modprobe -r` no
+longer finds them. A reboot with the camera unplugged also unloads everything.
+
+## File inventory
 
 | File | Purpose |
 |---|---|
-| `/lib/modules/5.15.185-tegra/extra/*.ko` | 5 compiled kernel modules |
-| `/etc/modules-load.d/hid-sensor-imu.conf` | Auto-load modules on boot |
-| `/etc/udev/rules.d/99-strafer.rules` | Device permissions (IIO + hidraw) |
-| `/lib/modules/5.15.185-tegra/build/include/linux/hid-sensor-hub.h` | Installed header |
-| `/lib/modules/5.15.185-tegra/build/include/linux/hid-sensor-ids.h` | Installed header |
-| `/tmp/hid-sensor-build/linux-source-5.15.0/` | Build tree (ephemeral) |
-| `source/strafer_ros/99-strafer.rules` | Source-controlled copy of udev rules |
+| `/lib/modules/<kernel>/updates/strafer-d555/*.ko` | the five HID/IIO modules and the rebuilt `uvcvideo` (R36.4.3 layout) |
+| `/lib/modules/5.15.185-tegra/extra/*.ko`, `/etc/modules-load.d/hid-sensor-imu.conf` | the R36.5.0 layout (IMU only) |
+| `/etc/systemd/system/iio-sensor-proxy.service` → `/dev/null` | the mask |
+| `source/strafer_ros/deploy/docker-compose.yml` (`perception`) | IIO device access for the container |
+| `source/strafer_ros/99-strafer.rules` | host udev rules, including the IIO permissions for non-root use |

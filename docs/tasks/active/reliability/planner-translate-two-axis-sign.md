@@ -2,9 +2,13 @@
 
 **Type:** bug (planner prompt)
 **Owner:** DGX agent
-**Priority:** P2 — a translate that names both axes and turns right is
+**Priority:** P1 — a translate that names both axes and turns right is
 compiled as a move to the left. The executor composes and dispatches it
-faithfully, so the robot goes to the mirror-image goal.
+faithfully, so the robot goes to the mirror-image goal. On the real robot a
+language mission that mirrors a lateral command is a safety defect, and the
+product path (`make submit-deploy` → planner → executor) has no dry-check:
+the one that caught this is harness-only (`tools/plan_check.py` in the
+confirmation set's deposit).
 **Estimate:** S (prompt examples + planner fixtures)
 **Branch:** `task/planner-translate-two-axis-sign`
 
@@ -32,7 +36,10 @@ right, as the single-axis "strafe right" example already does.**
   submitting it.
 - For `"move 1.712 meters forward and 1.372 meters right"`, Qwen3-4B (greedy
   decoding, the prompt at `ed0d5af`) returned one `translate` step with
-  `dx_m = 1.712`, `dy_m = +1.372`. That is 1.372 m to the left.
+  `dx_m = 1.712`, `dy_m = +1.372`. That is 1.372 m to the left. The deposit
+  (`goal-a-cli-confirmation-2026-10-03`) holds the check's output in
+  `logs/runs/R1.plancheck.out` (plan `dy_m` 1.372, expected
+  `[1.712, -1.372]`) and its failure marker `logs/runs/R1.plancheck_failed`.
 - The four two-axis commands to the left in the same set (`… meters left`)
   compiled with the correct sign and magnitudes to 0.001 m.
 - The system prompt
@@ -43,9 +50,19 @@ right, as the single-axis "strafe right" example already does.**
 - The plan compiler and the executor pass the sign through unchanged
   (`plan_compiler._compile_translate`; `mission_runner._translate`), so the
   fix is in the prompt.
+- The finding is one observation; how often the prompt mis-signs is not
+  measured.
+- **Operating rule until this ships:** every real-robot submission is
+  compiled through the planner first and dispatched only if the returned
+  plan matches the intended motion.
 
 ## Acceptance criteria
 
+- [ ] Before any prompt change, the mis-sign rate at the prompt of `ed0d5af`
+      is measured against the live Qwen3-4B (greedy) over N two-axis
+      phrasings: forward and backward × left and right, several magnitudes
+      and wordings. The count is recorded, so the post-fix fixtures show the
+      fix changed something.
 - [ ] The translate section of the system prompt carries two-axis examples on
       both sides (e.g. "move 1.5 meters forward and 0.5 meters right" →
       `[1.5, -0.5]`; "… left" → `[1.5, 0.5]`), and one with a backward

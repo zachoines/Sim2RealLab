@@ -24,7 +24,7 @@ STRAFER_CLOCK_STALL_BAIL_WALL_S : Override the wall-clock window after which a n
                          clock trips it. Set to 0 to disable the stall detector entirely (the sim-clock
                          deadline then becomes the sole bound). On real hardware (``use_sim_time=False``)
                          the detector never fires regardless of this value.
-STRAFER_NAVIGATION_TIMEOUT_S : Operator's per-mission navigation timeout ceiling (optional, seconds;
+STRAFER_NAVIGATION_TIMEOUT_S : Operator's navigation timeout ceiling per motion goal (optional, seconds;
                          default 90.0). With ``STRAFER_NAV_PROGRESS_AWARE`` enabled (default), the
                          executor synthesizes per-step budgets from the requested displacement and
                          caps them at this value — short translates / rotations get tight budgets,
@@ -43,13 +43,14 @@ STRAFER_NAV_PROGRESS_AWARE : Toggle progress-aware motion timeouts (optional; de
                          ``STRAFER_NAVIGATION_TIMEOUT_S``. Additionally, a stall watchdog on Nav2's
                          ``distance_remaining`` feedback aborts the active goal with
                          ``error_code=navigation_stalled`` if no progress is made for
-                         ``nav_stall_window_s`` (default 20 s) of sim-time. A navigate goal that a
-                         trained-policy backend (``strafer_direct`` / ``hybrid_nav2_strafer``)
-                         executes is not distance-budgeted: it gets the inference node's
-                         ``POLICY_MISSION_TIMEOUT_S`` (60 s) plus ``policy_budget_margin_s``
-                         (5 s), capped at ``STRAFER_NAVIGATION_TIMEOUT_S``, and no stall
-                         watchdog. Set to 0 to fall back to the legacy single-deadline behavior
-                         for bisection.
+                         ``nav_stall_window_s`` (default 20 s) of sim-time. A navigate or
+                         translate goal that a trained-policy backend (``strafer_direct`` /
+                         ``hybrid_nav2_strafer``) executes is not distance-budgeted: it gets the
+                         inference node's ``POLICY_MISSION_TIMEOUT_S`` (60 s) plus
+                         ``policy_budget_margin_s`` (5 s; config-only, no environment variable),
+                         capped at ``STRAFER_NAVIGATION_TIMEOUT_S``, and no stall watchdog. The
+                         budget applies to each dispatched goal, staging legs included. Set to 0
+                         to fall back to the legacy single-deadline behavior for bisection.
 STRAFER_NAV_BUDGET_SAFETY_FACTOR : Override the multiplier on the (distance / nominal_speed) term in
                          the progress-aware budget formula (optional, float; default 2.0). Raise on
                          cluttered sim scenes where Nav2 plans a longer path than the straight-line

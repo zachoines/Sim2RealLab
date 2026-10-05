@@ -163,7 +163,8 @@ that already exist, and the launch arg (`use_sim_time:=true`) flips them
 to true at runtime. Don't delete them or hardcode them `true`.
 
 `STRAFER_NAVIGATION_TIMEOUT_S` (default 90 s; 180 s in
-`env_sim_in_the_loop.env`) is the operator's per-mission ceiling.
+`env_sim_in_the_loop.env`) is the operator's ceiling on each motion
+goal's budget; nothing totals a mission.
 Per-step budgets are derived in the executor:
 
 - **Progress-aware mode (default, `STRAFER_NAV_PROGRESS_AWARE=1`).**
@@ -195,8 +196,13 @@ Per-step budgets are derived in the executor:
   takes `STRAFER_USE_SIM_TIME=true` from `sim_bridge.env`, but the
   executor takes it only from the host-local autonomy overlay, which
   must set it alongside the backend. It is still capped at
-  `STRAFER_NAVIGATION_TIMEOUT_S`. A per-mission fallback to Nav2 keeps
-  the Nav2 budget.
+  `STRAFER_NAVIGATION_TIMEOUT_S`, so a ceiling below 60 s puts the
+  deadline under the node's bound and the executor cancels first
+  (`navigation_timeout`). The budget applies to each dispatched goal: a
+  staged navigate step gets it once for each clamped leg (at most
+  `STRAFER_NAV_STAGING_BUDGET`, default 4) and once for its final goal,
+  so up to five goals and 325 s on the node clock. A per-mission
+  fallback to Nav2 keeps the Nav2 budget.
 - **Legacy mode (`STRAFER_NAV_PROGRESS_AWARE=0`).** Every motion
   step uses `STRAFER_NAVIGATION_TIMEOUT_S` as the single deadline,
   no stall watchdog. Bisection escape hatch only.

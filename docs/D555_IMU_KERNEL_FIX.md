@@ -239,8 +239,8 @@ Read back on the deployed launch, over windows of at least 60 s:
 | `meta_fmt_probe.py` from the record's deposit (`tools/`; QUERYCAP and ENUM_FMT on each `/dev/video*`, no root) | metadata nodes offer `['UVCH', 'D4XX']` |
 | `/sys/bus/hid/devices/*:8086:0B56.*/driver` | `hid-sensor-hub` |
 | `cat /sys/bus/iio/devices/iio:device*/name` | `accel_3d`, `gyro_3d` |
-| perception log | `Starting Sensor: Motion Module`; no `No HID info provided`; `timestamp_fixer` first-frame delta near 0 s |
-| `/d555/depth/image_rect_raw` | ~30 Hz, header stamps advancing ~33.3 ms, one message per frame apart from a repeat about every 29 s (see below) |
+| perception log | `Starting Sensor: Motion Module`; no `No HID info provided`; `timestamp_fixer`: `TimestampFixer ready (passthrough)`, then `First frame relayed unchanged: stamp=…` |
+| `/d555/depth/image_rect_raw` | ~30 Hz, header stamps advancing ~33.3 ms, one message per frame apart from one or two repeats at each depth/colour crossing, about every 29 s (see below) |
 | `/d555/depth/metadata` | `clock_domain global_time`; `hw_timestamp`, `actual_exposure`, `gain_level` present; `frame_timestamp` distinct per frame |
 | `/d555/aligned_depth_to_color/image_raw`, `.../image_sync` | ~30 Hz |
 | `/d555/imu`, `/d555/imu/filtered` | ~200 Hz, stamps every 5 ms |
@@ -308,8 +308,7 @@ these modules again. After an `nvidia-l4t-kernel` upgrade:
   no longer indexed, so the camera gets no `/dev/video*`. The HID modules fail the same
   way, leaving no IMU.
 
-The R36.4.7 headers keep the R36.4.3 CRC of every symbol these modules import (checked
-2026-10-05), so that upgrade falls in the first case.
+To avoid both:
 - **Before** upgrading, remove `updates/strafer-d555` and run `depmod -a`.
 - After upgrading, rebuild against the new headers and reinstall.
 - Alternatively, hold the `nvidia-l4t-kernel*` packages.

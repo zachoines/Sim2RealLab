@@ -18,7 +18,7 @@ talks to these packages through ROS topics, services, and actions.
 |---|---|---|
 | `strafer_msgs` | Interface (action/srv) | Shared ROS interface types: `ExecuteMission.action`, `GetMissionStatus.srv`, `ProjectDetectionToGoalPose.srv` |
 | `strafer_driver` | Python | RoboClaw motor control, odometry, joint states, watchdog |
-| `strafer_perception` | Python | RealSense D555 timestamp correction, depth downsampling, IMU filter, goal projection service |
+| `strafer_perception` | Python | RealSense D555 `*_sync` relay (stamps passed through), depth downsampling, IMU filter, goal projection service |
 | `strafer_description` | URDF + Python | Robot URDF, `robot_state_publisher`, TF frames |
 | `strafer_slam` | Launch / config | RTAB-Map SLAM + `depth_to_pointcloud` → `pointcloud_to_laserscan` (no custom nodes) |
 | `strafer_navigation` | Launch / config + Python | Nav2 with MPPI holonomic controller; `start_cell_planner_selector` names the planner for the navigate-to-pose BT from the robot's own costmap cell |
@@ -330,7 +330,7 @@ Tracked in [`docs/tasks/DEFERRED_WORK.md`](../../docs/tasks/DEFERRED_WORK.md). I
 - [`source/strafer_shared/`](../strafer_shared/) — constants, mecanum kinematics, policy I/O contract. Authoritative for every shared value.
 - [`source/strafer_lab/README.md`](../strafer_lab/README.md) — sim-side counterpart; uses the same shared contract so trained policies transfer unchanged.
 - [`docs/WIRING_GUIDE.md`](../../docs/WIRING_GUIDE.md) — motor + encoder + RoboClaw + Jetson wiring, pinouts, address configuration.
-- [`docs/D555_IMU_KERNEL_FIX.md`](../../docs/D555_IMU_KERNEL_FIX.md) — Tegra-kernel module build for the D555: HID-sensor modules (IMU) and a `uvcvideo` with the D555 metadata entry (advancing stamps, one message per frame, aligned depth).
+- [`docs/D555_IMU_KERNEL_FIX.md`](../../docs/D555_IMU_KERNEL_FIX.md) — Tegra-kernel module build for the D555: HID-sensor modules (IMU) and a `uvcvideo` with the D555 metadata entry (advancing stamps, raw-depth repeats down from 50 % to 0.17 %, aligned depth).
 - [`docs/SIM_TO_REAL_TUNING_GUIDE.md`](../../docs/SIM_TO_REAL_TUNING_GUIDE.md) — actuator / sensor alignment procedure pairing this package with `strafer_lab`.
 - [`docs/INTEGRATION_SIM_IN_THE_LOOP.md`](../../docs/INTEGRATION_SIM_IN_THE_LOOP.md) — cross-host bringup runbook (Stage 3 covers `bringup_sim_in_the_loop.launch.py` consuming the DGX bridge).
 - [`docs/tasks/DEFERRED_WORK.md`](../../docs/tasks/DEFERRED_WORK.md) — open items.

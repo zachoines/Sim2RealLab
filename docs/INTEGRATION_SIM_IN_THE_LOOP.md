@@ -516,12 +516,13 @@ export ROS_DOMAIN_ID=42
 strafer-autonomy-cli submit "move forward 1 meter"
 ```
 
-Expected console flow:
+Expected console flow (the CLI prints each feedback message as a JSON object; the
+lines below abbreviate them):
 
 ```
 {"accepted": true, "request_id": "..."}
 feedback: state=planning  step_id= skill=
-feedback: state=in_progress  step_id=step_0  skill=navigate_to_pose
+feedback: state=executing  step_id=step_01  skill=translate
 ...
 {"accepted": true, "mission_id": "...", "final_state": "succeeded", ...}
 ```

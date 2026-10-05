@@ -257,11 +257,23 @@ no FATAL and no restart.
   - The joins re-run byte-identically from the working root. The deposit's copies embed
     absolute input paths.
   - Nothing that measures was changed, and the pinned tools are as deposited.
+  - The wrapper's own test (`tools/test/wrapper/test_run_cli_one.sh`) passed because its
+    stand-in observer, `tools/test/wrapper/fake_observer.py`, writes `observer.started_wall`.
+    The real observer's records have no `observer` block, so the fixture hid the defect.
 - **Analysis helpers written after the set.** `analysis/tools/session_summary.py`,
   `distinct.py` and `decision.py` were written after the last mission. They are not in the
   pre-registration's tool list or its pinned digests. They apply the pre-registered
-  definitions mechanically. The per-mission readings also come from the pinned join, and
-  `verify/` recomputes the headline figures independently from the raw evidence.
+  definitions mechanically. The per-mission readings also come from the pinned join.
+  `verify/` recomputes 201 of the summary's figures from `logs/`, plus `run_cli_one.sh`,
+  `cli_mission.py` and the v3 deposit's `reach_terminal.json` for the harness and gate
+  comparisons. It does not read `analysis/`, and it is by the same author as the analysis.
+  186 figures agree to the printed precision. Of the other 15:
+  - nine differ by one unit in the last printed place;
+  - four are L1's and L2's old budget and margin: `analysis/SUMMARY.md` takes the distance
+    from the policy start to the dispatched goal, while the verifier and this record take the
+    translate step's `hypot(dx, dy)`, as the executor does (L2 14.080 against 14.012 s);
+  - two are the G1/FX point-wise distances: `distinct.py` rounds samples to four decimals
+    before matching them in time (map-frame maximum 0.2948 against 0.2967 m).
 - **Images at the branch head, not a merge.** The change is unmerged, so the images were
   built from a clean checkout of `9b80e99`.
 - **Service URLs.** The executor reached the planner and VLM over the direct cable,

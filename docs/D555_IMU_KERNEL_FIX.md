@@ -151,10 +151,13 @@ The "compiler differs" warning is cosmetic when the version matches.
 
 ### 4. Install under `updates/`
 
-`depmod` on these hosts searches `updates` before `ubuntu` and `built-in`
-(`/etc/depmod.d/ubuntu.conf`), so a module under `updates/` replaces the in-tree
-`uvcvideo`. `extra/`, which the R36.5.0 procedure used, ranks with `built-in`: it
-works for modules with no in-tree twin, but the in-tree `uvcvideo` would still win.
+`/etc/depmod.d/ubuntu.conf` (`search updates ubuntu built-in`) ranks `updates/` above
+every other directory, so a module under `updates/` replaces the in-tree `uvcvideo`.
+A directory the search line does not name, including the `extra/` the R36.5.0
+procedure used, ranks equal to `kernel/` as `built-in`. When two copies rank equal,
+`depmod` keeps the first one it finds, and that order depends on the filesystem, so
+`extra/` works for modules with no in-tree twin but cannot be relied on to replace
+`uvcvideo`.
 
 ```bash
 D=/lib/modules/$K/updates/strafer-d555
@@ -237,12 +240,13 @@ Read back on the deployed launch, over windows of at least 60 s:
 | `/sys/bus/hid/devices/*:8086:0B56.*/driver` | `hid-sensor-hub` |
 | `cat /sys/bus/iio/devices/iio:device*/name` | `accel_3d`, `gyro_3d` |
 | perception log | `Starting Sensor: Motion Module`; no `No HID info provided`; `timestamp_fixer` first-frame delta near 0 s |
-| `/d555/depth/image_rect_raw` | ~30 Hz, header stamps advancing ~33.3 ms, one message per frame (rare repeats; see below) |
+| `/d555/depth/image_rect_raw` | ~30 Hz, header stamps advancing ~33.3 ms, one message per frame apart from a repeat about every 29 s (see below) |
 | `/d555/depth/metadata` | `clock_domain global_time`; `hw_timestamp`, `actual_exposure`, `gain_level` present; `frame_timestamp` distinct per frame |
 | `/d555/aligned_depth_to_color/image_raw`, `.../image_sync` | ~30 Hz |
 | `/d555/imu`, `/d555/imu/filtered` | ~200 Hz, stamps every 5 ms |
 | `strafer_inference` cadence line | `imu` absent from `stale_sources` |
-| `depth_to_pointcloud` (in `slam`) | no "do not appear to be synchronized" warnings; `/scan` publishing. This needs `timestamp_fixer` to pass stamps through, which the perception launch does, so images built from an older launch must be rebuilt |
+| `depth_to_pointcloud` (in `slam`) | no "do not appear to be synchronized" warnings; `/d555/aligned_depth_to_color/points` publishing. This needs `timestamp_fixer` to pass stamps through, which the perception launch does, so images built from an older launch must be rebuilt. `/scan` also needs `base_link`, which `base` publishes |
+| `systemctl is-enabled iio-sensor-proxy` | `masked` |
 
 The record's probes and figures are in
 [`d555-stream-integrity-2026-10-04`](measurements/d555-stream-integrity-2026-10-04/README.md).
@@ -259,12 +263,21 @@ accel at 100 Hz, published together on `/d555/imu` at 200 Hz.
 
 ## Known issues
 
-### Remaining duplicate depth frames
+### Remaining duplicate depth frames, and the depth stamp's clock
 
 realsense-ros publishes raw depth twice for any frameset without a colour frame. With
-the metadata path this happens only when depth and colour land at the edge of the
-syncer's half-frame window: 3 of 1804 messages over 60 s on strafer-nx, against half
-of all messages before.
+the metadata path this happens only at a beat between the two streams: on strafer-nx,
+under realsense-ros with colour auto-exposure on, depth ran at 30.0000 fps and colour at
+29.9655 fps (camera clock), so depth gains a frame every 29.0 s. The period depends on
+colour's delivered rate, so it is not a constant. At each crossing librealsense's syncer, which pairs frames within
+about half a frame interval, releases at least one depth frame alone, and sometimes a
+colour frame too, which then gets no aligned depth. That gave 3 repeats in 1804
+messages over 60 s, against half of all messages before.
+
+realsense-ros stamps every message of a frameset with the frameset's time, which is the
+colour frame's. A paired depth image therefore carries the colour frame's time, up to
+±16.7 ms from the depth frame's own timestamp. A tool that needs the depth frame's own time reads
+`frame_timestamp` on `/d555/depth/metadata`.
 
 ### The camera attached at power-on comes up without a driver
 
@@ -285,9 +298,18 @@ start's attempt to enable them logs this warning. The IMU streams anyway.
 
 ### Kernel package upgrades do not remove these modules
 
-R36.4.x kernels share one module directory (`/lib/modules/5.15.148-tegra`), and the
-kernel package does not own `updates/strafer-d555`. After an `nvidia-l4t-kernel`
-upgrade, the rebuilt `uvcvideo` would keep shadowing the new kernel's own.
+R36.4.x kernels share one module directory (`/lib/modules/5.15.148-tegra`). The kernel
+package does not own `updates/strafer-d555`, and its post-install `depmod -a` indexes
+these modules again. After an `nvidia-l4t-kernel` upgrade:
+- if the new kernel exports the same symbol CRCs, the rebuilt `uvcvideo` loads and keeps
+  shadowing the new kernel's own;
+- if any symbol it imports changed CRC, it fails to load (`disagrees about version of
+  symbol` in `dmesg`). `modprobe` does not fall back to the in-tree `uvcvideo`, which is
+  no longer indexed, so the camera gets no `/dev/video*`. The HID modules fail the same
+  way, leaving no IMU.
+
+The R36.4.7 headers keep the R36.4.3 CRC of every symbol these modules import (checked
+2026-10-05), so that upgrade falls in the first case.
 - **Before** upgrading, remove `updates/strafer-d555` and run `depmod -a`.
 - After upgrading, rebuild against the new headers and reinstall.
 - Alternatively, hold the `nvidia-l4t-kernel*` packages.

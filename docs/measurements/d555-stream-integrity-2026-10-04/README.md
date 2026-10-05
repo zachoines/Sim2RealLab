@@ -30,7 +30,7 @@ first, and nobody was on site.
 | host | Jetson Orin NX 16 GB (Seeed image), L4T R36.4.3, kernel `5.15.148-tegra` built by Seeed; NVIDIA's `nvidia-l4t-kernel-headers 5.15.148-tegra-36.4.3` |
 | camera | D555, `8086:0b56`, bcdDevice `50c5`, FW 7.56.19918.835, USB 3.2 at 5 Gb/s; plugged in after boot (uptime 24 days); `base` never started |
 | stack | `strafer-cpu:humble` / `strafer-gpu:humble` revision `9b80e9976961`; `realsense2_camera` 4.58.4 on librealsense 2.58.4 (deb, kernel V4L2/IIO backend); the deployed `perception` launch, with the #231 filter pins |
-| probes | the 2026-09-25 record's `depth_stamp_probe.py` and `metadata_probe.py`; `uvc_header_probe.py` (raw V4L2 metadata, read-only); `imu_stamp_probe.py`; the 2026-09-26 record's `bag_frame_numbers.py` (sha256 `c1bd7b5d21ffbb5c725d8ade99d42d721f4e0ab4c7933a8c00a6a33ca0a36a58`); `record_figures.py` recomputes the figures below from the deposited JSON |
+| probes | the 2026-09-25 record's `depth_stamp_probe.py` and `metadata_probe.py`; `uvc_header_probe.py` (raw V4L2 metadata, read-only); `imu_stamp_probe.py`; the 2026-09-26 record's `bag_frame_numbers.py` (sha256 `c1bd7b5d21ffbb5c725d8ade99d42d721f4e0ab4c7933a8c00a6a33ca0a36a58`); `record_figures.py` recomputes the figures below from the deposited JSON and the stage-2 metadata printouts (`readback/stage2/*_metadata.txt`) |
 | windows | 60 s for raw depth and colour; 20 s for metadata topics; the other rows name their own |
 | clock | NTP-synchronized; no reboot during the measurements |
 
@@ -153,7 +153,10 @@ pairs and stamps frames, which the kernel fix does not touch:
   frame's own time reads `/d555/depth/metadata` `frame_timestamp` (601 distinct values in 20 s);
   a recorder dedupes by stamp or `frame_number`.
 
-`tools/record_figures.py` recomputes these figures from the deposited JSON.
+`tools/record_figures.py` recomputes these figures from the deposited JSON and the stage-2 metadata
+printouts (`readback/stage2/*_metadata.txt`); `gain_level`, the 601 distinct `frame_timestamp`
+values and the bag's 2 in 346 are read from those printouts and
+`readback/stage2_supp/bag_frame_numbers.txt`.
 
 ## Consumers
 

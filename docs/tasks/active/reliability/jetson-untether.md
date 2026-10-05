@@ -477,8 +477,9 @@ one it replaces comes out.
       `enriched-lane-rig-stability.md`:226-227 is superseded there, with a pointer here.
 
       *2026-10-05 (#236): `Readme.md`:72, :84 and :125 and `source/strafer_ros/README.md`:3 and
-      :182 now name the host as the Orin NX 16 GB on L4T R36.4.3. Their other topology
-      statements still wait for cutover.*
+      :182 now name the host as the Orin NX, with 16 GB and L4T R36.4.3 at `Readme.md`:125 and
+      `source/strafer_ros/README.md`:182. Their other topology statements still wait for
+      cutover.*
 - [x] The reboot hazard to the camera and the stale clock at boot are recorded where an operator
       reads before powering the robot off.
       *Met 2026-09-27 (PR #233): `source/strafer_ros/README.md` "Hardware / addressing" states the

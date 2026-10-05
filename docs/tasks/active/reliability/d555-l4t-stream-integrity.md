@@ -112,8 +112,9 @@ read wrong. Recorders and parity tooling do not survive them.
         metadata window (603 messages, 601 distinct frame numbers, no gaps) and an 11.5 s bag.*
       - *`bag_frame_numbers.py` dedupes consecutive repeats: the bag holds 346 depth messages
         and 344 distinct stamps for 344 distinct frame numbers. Its 2 in 346 (0.58 %) is over
-        the bound because the short window holds a crossing; repeats come once per crossing, so
-        the bound needs the ≥ 60 s window.*
+        the bound because the short window holds a crossing. Repeats cluster at crossings (one
+        or two per crossing in the deposited windows), so a window shorter than the beat can
+        exceed the bound, and the bound needs the ≥ 60 s window.*
 - [x] `/d555/aligned_depth_to_color/image_raw` publishes at the colour rate,
       and `/d555/aligned_depth_to_color/image_sync` reaches RTAB-Map.
       *Met 2026-10-04 ([`d555-stream-integrity-2026-10-04`](../../../measurements/d555-stream-integrity-2026-10-04/README.md)):*

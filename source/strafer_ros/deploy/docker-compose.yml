@@ -84,6 +84,7 @@ services:
     container_name: strafer_perception
     # 81=video/UVC, 189=usb, 248=iio (D555 IMU via host hid-sensor modules, docs/D555_IMU_KERNEL_FIX.md).
     # librealsense writes the IIO device's sysfs attributes, so /sys/devices is mounted rw.
+    # That rw bind lets the container write every host device attribute, not only the IIO ones.
     device_cgroup_rules: [ "c 81:* rmw", "c 189:* rmw", "c 248:* rmw" ]
     volumes:
       - ../strafer_bringup/config/cyclonedds.xml:/opt/strafer/config/cyclonedds.xml:ro

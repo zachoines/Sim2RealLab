@@ -1,6 +1,6 @@
 # strafer_ros
 
-ROS 2 runtime for the Strafer robot on the Jetson Orin Nano — motor driver, perception, SLAM, navigation, URDF, shared ROS interfaces, and bringup launches.
+ROS 2 runtime for the Strafer robot on the Jetson Orin NX — motor driver, perception, SLAM, navigation, URDF, shared ROS interfaces, and bringup launches.
 
 `strafer_ros` is the robot-local execution layer. It owns every
 safety-critical and real-time concern: wheel commands, odometry,
@@ -20,7 +20,7 @@ talks to these packages through ROS topics, services, and actions.
 | `strafer_driver` | Python | RoboClaw motor control, odometry, joint states, watchdog |
 | `strafer_perception` | Python | RealSense D555 timestamp correction, depth downsampling, IMU filter, goal projection service |
 | `strafer_description` | URDF + Python | Robot URDF, `robot_state_publisher`, TF frames |
-| `strafer_slam` | Launch / config | RTAB-Map SLAM + `depthimage_to_laserscan` (no custom nodes) |
+| `strafer_slam` | Launch / config | RTAB-Map SLAM + `depth_to_pointcloud` → `pointcloud_to_laserscan` (no custom nodes) |
 | `strafer_navigation` | Launch / config + Python | Nav2 with MPPI holonomic controller; `start_cell_planner_selector` names the planner for the navigate-to-pose BT from the robot's own costmap cell |
 | `strafer_inference` | Python | Trained-policy execution: `inference_node` (obs assembly, ONNX/TorchScript load, `navigate_to_pose` action server, six-source watchdog, L1 velocity clamp) + `subgoal_generator_node` (mission-anchored path + rolling subgoal cursor over Nav2-planned paths) for the `strafer_direct` / `hybrid_nav2_strafer` backends; diagnostic parity CLIs under `scripts/` |
 | `strafer_bringup` | Launch-only | Layered composition: `base` → `perception` → `slam` → `navigation` → `autonomy` |
@@ -39,7 +39,7 @@ Sibling packages it interacts with:
 - **RealSense D555 stack** (`strafer_perception/`) — launch wiring for the RealSense ROS 2 node (stream profiles, depth alignment, and the four post-processing filters off plus depth auto-exposure on, pinned as `rs_launch.py` arguments and asserted by `test_perception_launch.py`), `timestamp_fixer` (relays colour and aligned depth as the `*_sync` topics, stamps unchanged), `depth_downsampler` (640×360 depth → 80×45 float32 meters; diagnostic, not the policy input), `imu_filter_madgwick` for filtered `/d555/imu/filtered`.
 - **Goal projection service** (`strafer_perception/goal_projection_node.py`) — implements `ProjectDetectionToGoalPose.srv`: VLM bbox (Qwen normalized `[0, 1000]`) → pixel → depth lookup (5×5 median) → 3D camera frame → TF to map → standoff offset → reachability check.
 - **URDF + TF tree** (`strafer_description/`) — URDF with chassis, 4 wheels, and `d555_link`; `robot_state_publisher` broadcasts `base_link → {chassis, wheels, d555_link}` from joint states and URDF.
-- **RTAB-Map SLAM** (`strafer_slam/`) — launch composition for `depthimage_to_laserscan` (virtual 2D scan from aligned depth) + `rtabmap` (RGB-D SLAM with odom + IMU fusion, 2 Hz detection rate, 5 cm grid).
+- **RTAB-Map SLAM** (`strafer_slam/`) — launch composition for `depth_to_pointcloud` (point cloud from aligned depth) + `pointcloud_to_laserscan` (virtual 2D `/scan`, height-filtered in `base_link`) + `rtabmap` (RGB-D SLAM with odom + IMU fusion, 2 Hz detection rate, 5 cm grid).
 - **Nav2 navigation** (`strafer_navigation/`) — launch composition for the full Nav2 stack with MPPI holonomic controller, `Omni` motion model (produces `vx, vy, wz` for mecanum), costmaps patched from `strafer_shared` constants. `start_cell_planner_selector` publishes `planner_selector` from the cost of the robot's own global-costmap cell, so the navigate-to-pose BT admits the inflated-start escape-hatch planner only when the primary planner refuses the start — and logs, rate-limited, whenever it does.
 - **Bringup layers** (`strafer_bringup/launch/`) — 6 launch files that compose progressively: `base` (driver + URDF), `perception` (+ RealSense), `slam` (+ RTAB-Map), `navigation` (+ Nav2), `autonomy` (+ goal projection + executor), and `bringup_sim_in_the_loop` (no real hardware — consumes topics published by the DGX Isaac Sim ROS 2 bridge).
 - **Diagnostic / tuning scripts** (top-level in `source/strafer_ros/`) — RoboClaw PID tuning, RoboClaw direct-drive diagnostics, D555 camera + IMU verification, perception-stack recording, SLAM + motion verification with map-building video output.
@@ -179,7 +179,7 @@ source install/setup.bash
 
 Prerequisites:
 
-- Jetson Orin Nano with ROS 2 Humble.
+- Jetson Orin NX 16 GB (L4T R36.4.3) with ROS 2 Humble.
 - RealSense D555 on USB 3 with the host kernel modules for its IMU and per-frame metadata (see [`docs/D555_IMU_KERNEL_FIX.md`](../../docs/D555_IMU_KERNEL_FIX.md) for the out-of-tree build required on Tegra kernels).
 - Two RoboClaw ST 2x45A controllers wired per [`docs/WIRING_GUIDE.md`](../../docs/WIRING_GUIDE.md).
 - `strafer_shared` and `strafer_autonomy` pip-installed into the ROS Python environment: `pip install -e source/strafer_shared -e source/strafer_autonomy --no-build-isolation`. One `-e` per package (a lone `-e` makes only the first editable); `--no-build-isolation` reuses the host `setuptools`, since the stock Jetson pip 22.0.2 otherwise build-isolates a `setuptools` too old for PEP 660 and the editable install fails with a missing `build_editable` hook.
@@ -203,7 +203,7 @@ From the repo root, `make build` runs the colcon build and `make udev` installs 
 |---|---|
 | `base.launch.py` | driver + description |
 | `perception.launch.py` | base + RealSense + timestamp fixer + depth downsampler + IMU filter |
-| `slam.launch.py` | perception + `depthimage_to_laserscan` + RTAB-Map |
+| `slam.launch.py` | perception + `depth_to_pointcloud` → `pointcloud_to_laserscan` + RTAB-Map |
 | `navigation.launch.py` | slam + Nav2 (MPPI holonomic) |
 | `autonomy.launch.py` | navigation + `goal_projection_node` + `strafer-executor` (needs `VLM_URL` + `PLANNER_URL`) |
 | `bringup_sim_in_the_loop.launch.py` | perception + SLAM + Nav2 + executor + `foxglove_bridge` (default :8765) consuming topics from the DGX Isaac Sim ROS 2 bridge (no real hardware) |

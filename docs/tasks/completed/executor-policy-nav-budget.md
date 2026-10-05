@@ -91,8 +91,10 @@ centimetres: 7–14 s sim held between 0.30 and 0.42 m. The node's own bound is 
 - [x] A test pins the policy-backend budget for a 3.1 m goal at or above the v3 gate's 19.0 s sim
       reach, and the Nav2 budget for the same goal at today's value.
       *Met 2026-10-03:*
-      - *`test_progress_aware_timeouts.py::TestPolicyBackendBudget` pins 65 s, ≥ 19.0 s and
-        above the node's own 60 s, on both policy backends. It pins the Nav2 budget at
+      - *`test_progress_aware_timeouts.py::TestPolicyBackendBudget` pins 65 s (above the gate's
+        19.0 s reach) and above the node's own 60 s, on both policy backends.
+        (2026-10-05: the test is now `test_3p1_m_goal_policy_budget_is_node_bound_plus_margin`;
+        its 19.0 s assertion gave way to a 65 s value pin.) It pins the Nav2 budget at
         12.9072 s with its stall watchdog. It also covers the explicit-timeout, ceiling, legacy
         and translate paths, and checks distance independence.*
       - *`test_ros_client.py::TestNavigateToPoseDeadlineRouting` checks that only a policy

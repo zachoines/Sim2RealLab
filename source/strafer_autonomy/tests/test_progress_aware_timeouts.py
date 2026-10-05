@@ -409,6 +409,8 @@ class TestPolicyBackendBudget:
         assert kwargs["policy_timeout_s"] == pytest.approx(
             POLICY_MISSION_TIMEOUT_S + MissionRunnerConfig().policy_budget_margin_s,
         )
+        # The shipped values: the node's 60 s plus the 5 s margin.
+        assert kwargs["policy_timeout_s"] == pytest.approx(65.0)
         # The policy's bound must outlast the node's own abort.
         assert kwargs["policy_timeout_s"] > POLICY_MISSION_TIMEOUT_S
 

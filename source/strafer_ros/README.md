@@ -36,7 +36,7 @@ Sibling packages it interacts with:
 ## What ships today
 
 - **RoboClaw driver** (`strafer_driver/roboclaw_node.py`) — single-threaded executor, 50 Hz timer for all serial I/O, auto-writes PID/QPPS from `strafer_shared.constants` at startup, dual-controller addressing (0x80 front, 0x81 rear), `/cmd_vel` → per-wheel mecanum IK, 500 ms watchdog.
-- **RealSense D555 stack** (`strafer_perception/`) — launch wiring for the RealSense ROS 2 node (stream profiles, depth alignment, and the four post-processing filters off plus depth auto-exposure on, pinned as `rs_launch.py` arguments and asserted by `test_perception_launch.py`), `timestamp_fixer` (fixes Tegra USB clock drift), `depth_downsampler` (640×360 depth → 80×45 float32 meters; diagnostic, not the policy input), `imu_filter_madgwick` for filtered `/d555/imu/filtered`.
+- **RealSense D555 stack** (`strafer_perception/`) — launch wiring for the RealSense ROS 2 node (stream profiles, depth alignment, and the four post-processing filters off plus depth auto-exposure on, pinned as `rs_launch.py` arguments and asserted by `test_perception_launch.py`), `timestamp_fixer` (relays colour and aligned depth as the `*_sync` topics, stamps unchanged), `depth_downsampler` (640×360 depth → 80×45 float32 meters; diagnostic, not the policy input), `imu_filter_madgwick` for filtered `/d555/imu/filtered`.
 - **Goal projection service** (`strafer_perception/goal_projection_node.py`) — implements `ProjectDetectionToGoalPose.srv`: VLM bbox (Qwen normalized `[0, 1000]`) → pixel → depth lookup (5×5 median) → 3D camera frame → TF to map → standoff offset → reachability check.
 - **URDF + TF tree** (`strafer_description/`) — URDF with chassis, 4 wheels, and `d555_link`; `robot_state_publisher` broadcasts `base_link → {chassis, wheels, d555_link}` from joint states and URDF.
 - **RTAB-Map SLAM** (`strafer_slam/`) — launch composition for `depthimage_to_laserscan` (virtual 2D scan from aligned depth) + `rtabmap` (RGB-D SLAM with odom + IMU fusion, 2 Hz detection rate, 5 cm grid).
@@ -80,10 +80,10 @@ Streaming inputs the autonomy layer and RL runtime consume:
 
 | Topic | Type | Purpose |
 |---|---|---|
-| `/d555/color/image_raw` | `sensor_msgs/Image` | Raw RGB (hardware timestamp) |
-| `/d555/color/image_sync` | `sensor_msgs/Image` | RGB with ROS-clock timestamps (fixed by `timestamp_fixer`) |
+| `/d555/color/image_raw` | `sensor_msgs/Image` | Raw RGB (librealsense global time) |
+| `/d555/color/image_sync` | `sensor_msgs/Image` | RGB relayed by `timestamp_fixer`, stamps unchanged |
 | `/d555/color/camera_info_sync` | `sensor_msgs/CameraInfo` | RGB intrinsics matching `image_sync` |
-| `/d555/aligned_depth_to_color/image_sync` | `sensor_msgs/Image` | Timestamp-fixed aligned depth in RGB frame |
+| `/d555/aligned_depth_to_color/image_sync` | `sensor_msgs/Image` | Aligned depth in the RGB frame, relayed by `timestamp_fixer` |
 | `/d555/aligned_depth_to_color/camera_info_sync` | `sensor_msgs/CameraInfo` | Aligned-depth camera info |
 | `/d555/depth/downsampled` | `sensor_msgs/Image` (32FC1, meters) | 80×45 (diagnostic, not the policy input) |
 | `/d555/imu/filtered` | `sensor_msgs/Imu` | Madgwick-filtered IMU with orientation quaternion |
@@ -282,7 +282,7 @@ cat /proc/sys/net/core/rmem_max   # expect 16777216
 
 **The autonomy layer is not a ROS package.** `strafer_autonomy` is a pip-installed Python package that uses `rclpy` at runtime for the command server and ROS client. This keeps the mission runner, schemas, and HTTP clients testable in plain Python environments while still running inside the ROS 2 graph on the Jetson.
 
-**Timestamp-fixed `*_sync` topics are authoritative for grounding and projection.** The RealSense D555 on Tegra USB produces hardware-clock timestamps that drift unpredictably (observed ~44× faster than system clock on Tegra). `timestamp_fixer` re-stamps all four camera topics with the current ROS clock at reception. `approximate_sync`-based consumers (RTAB-Map, `goal_projection_node`) must subscribe to the `*_sync` versions, never to the raw topics.
+**The `*_sync` topics are authoritative for grounding and projection.** `timestamp_fixer` relays the four camera topics as `*_sync` with their stamps unchanged: with the host modules in [`docs/D555_IMU_KERNEL_FIX.md`](../../docs/D555_IMU_KERNEL_FIX.md) the D555 stamps on librealsense's global time, about 25 ms behind receive time, and a frame's image and camera_info share one stamp, which `depth_to_pointcloud`'s exact sync needs. Consumers (RTAB-Map, `depth_to_pointcloud`, `goal_projection_node`) subscribe to the `*_sync` versions, never to the raw topics.
 
 **URDF is the single source of truth for `base_link → d555_link`.** `strafer_perception` also publishes a static TF of the same transform — a historical wart to be removed. Consumers should treat the URDF transform as authoritative.
 

@@ -3,7 +3,8 @@
 Launches:
   1. RealSense D555 camera node (depth + color + IMU if available)
   2. IMU orientation filter (Madgwick) — fuses accel+gyro → quaternion
-  3. Timestamp fixer — shifts HW clock timestamps to system time
+  3. Timestamp fixer — relays colour, aligned depth and their camera_info as
+     the *_sync topics SLAM reads, stamps unchanged
   4. Depth downsampler node (full-res → 80x45; diagnostic, not the policy input)
 
 The base_link → d555_link static TF is published by strafer_description
@@ -17,8 +18,10 @@ Published topics (matching the sim-to-real perception contract):
   /d555/imu/filtered          - sensor_msgs/Imu     @ 200 Hz (with orientation quaternion)
   /d555/depth/downsampled     - sensor_msgs/Image   @ 30 Hz (80x45 32FC1)
 
-NOTE: IMU requires the
-hid-sensor-hub kernel modules (see /etc/modules-load.d/hid-sensor-imu.conf).
+NOTE: the IMU, and the D555's per-frame metadata (advancing stamps, one message
+per frame, aligned depth), need the host kernel modules in
+docs/D555_IMU_KERNEL_FIX.md; the compose service gives this container the IIO
+device access the IMU needs.
 """
 
 from launch import LaunchDescription
@@ -77,12 +80,10 @@ def generate_launch_description():
                 # re-enumeration.  Camera state is clean at module load.
                 "initial_reset": "false",
 
-                # Global-time maps HW timestamps to system clock.
-                # Broken on Jetson (Tegra USB SOF timing) — falls back
-                # to system time when disabled.
-                "depth_module.global_time_enabled": "false",
-                "rgb_camera.global_time_enabled": "false",
-                "motion_module.global_time_enabled": "false",
+                # global_time_enabled is left at the wrapper's default (on):
+                # rs_launch.py does not declare it, so a value here is dropped.
+                # With the metadata path in docs/D555_IMU_KERNEL_FIX.md it maps
+                # the device's per-frame timestamp onto host time.
             }.items(),
         ),
 
@@ -106,15 +107,15 @@ def generate_launch_description():
             ],
         ),
 
-        # ── Timestamp fixer (HW clock → system clock) ───────────────────
-        # RealSense D555 on Jetson uses hardware timestamps that are offset
-        # from system time.  This node shifts camera message stamps so they
-        # match wheel odometry for RTAB-Map's approximate sync.
+        # ── Timestamp fixer (relay, stamps passed through) ──────────────
+        # A frame's image and camera_info share the camera's stamp, which
+        # depth_to_pointcloud's exact sync needs.
         Node(
             package="strafer_perception",
             executable="timestamp_fixer",
             name="timestamp_fixer",
             output="screen",
+            parameters=[{"restamp": False}],
         ),
 
         # ── Depth downsampler (full-res → 80x45; diagnostic) ───────────

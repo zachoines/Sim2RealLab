@@ -43,6 +43,26 @@ def _load_module(path, name):
     return mod
 
 
+class _CaptureNode:
+    """Stand-in for launch_ros Node that records each node's kwargs."""
+
+    nodes = []
+
+    def __init__(self, *args, **kwargs):
+        self.kwargs = kwargs
+        _CaptureNode.nodes.append(self)
+
+
+@pytest.fixture
+def launched_nodes(monkeypatch):
+    mod = _load_module(LAUNCH_PATH, "perception_launch_nodes")
+    monkeypatch.setattr(mod, "IncludeLaunchDescription", _CaptureInclude)
+    monkeypatch.setattr(mod, "Node", _CaptureNode)
+    _CaptureNode.nodes = []
+    mod.generate_launch_description()
+    return {n.kwargs.get("name"): n.kwargs for n in _CaptureNode.nodes}
+
+
 @pytest.fixture
 def rs_launch_args(monkeypatch):
     # Loaded from the source tree, not share/: the test runner does not
@@ -84,3 +104,23 @@ class TestRealsenseFilterContract:
             f"installed rs_launch.py no longer declares {name!r}; the value "
             "perception.launch.py pins for it would be silently dropped"
         )
+
+
+class TestTimestampFixerPassthrough:
+
+    def test_relay_passes_stamps_through(self, launched_nodes):
+        # A frame's image and camera_info share the camera's stamp; restamping
+        # each on arrival splits them and depth_to_pointcloud's exact sync
+        # then makes no pairs.
+        params = {}
+        for p in launched_nodes["timestamp_fixer"].get("parameters", []):
+            params.update(p)
+        assert params.get("restamp") is False
+
+    def test_no_dropped_global_time_arguments(self, rs_launch_args):
+        # rs_launch.py does not declare these, so a value would be dropped and
+        # read as if it applied.
+        for name in ("depth_module.global_time_enabled",
+                     "rgb_camera.global_time_enabled",
+                     "motion_module.global_time_enabled"):
+            assert name not in rs_launch_args

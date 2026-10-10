@@ -96,6 +96,9 @@ read wrong. Recorders and parity tooling do not survive them.
       - *`timestamp_fixer` now passes stamps through on the real lane: restamping split a
         frame's image and camera info, so `depth_to_pointcloud`'s exact sync made no pairs.
         The deployed images carry the change only after `make images`.*
+      - *2026-10-09: the re-stamping mode is removed, so the node is a pure relay on every
+        lane. The relay's name and whether it should stay are filed as
+        [`camera-relay-rename-or-retire`](camera-relay-rename-or-retire.md) (P3).*
 - [x] `/d555/depth/image_rect_raw` repeats at most 0.5 % of its messages over
       ≥ 60 s, the mechanism of the repeats is recorded, and recorders dedupe by
       stamp or `frame_number`.
@@ -167,6 +170,10 @@ read wrong. Recorders and parity tooling do not survive them.
       - *2026-10-05: the host named as the Orin NX 16 GB on L4T R36.4.3, and the SLAM pipeline as
         `depth_to_pointcloud` → `pointcloud_to_laserscan`, in both READMEs; the kernel doc's
         depmod ranking, upgrade failure mode, mask check and depth-stamp clock.*
+      - *2026-10-09: for the pure relay, the kernel doc's container-access note and
+        `depth_to_pointcloud` verification row, the `*_sync` consumers in
+        `source/strafer_ros/README.md`, the `timestamp_fixer` docstring and the two sim launches'
+        relay comments.*
 
 ## Investigation pointers
 
@@ -179,7 +186,7 @@ read wrong. Recorders and parity tooling do not survive them.
   wrapper's default.)*
 - `source/strafer_ros/strafer_perception/strafer_perception/timestamp_fixer.py`:
   what it relays and restamps. *(2026-10-04: every launch now runs it with
-  `restamp:=false`.)*
+  `restamp:=false`. 2026-10-09: the re-stamping mode and its parameter are removed.)*
 - `source/strafer_ros/strafer_inference/strafer_inference/inference_node.py`
   (`imu_topic`) and `watchdog.py` (`stale_sources`): why a missing IMU holds
   the policy.

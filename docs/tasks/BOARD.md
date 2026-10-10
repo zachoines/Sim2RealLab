@@ -202,6 +202,7 @@ The learned components here share one frozen text-capable backbone — see [`con
 | [`archive-interim-architecture-docs`](active/tooling/archive-interim-architecture-docs.md) | P3 | active | DGX |
 | [`python-lint-format-baseline`](active/tooling/python-lint-format-baseline.md) | P3 | active | Either |
 | [`brief-link-depth-on-ship`](active/tooling/brief-link-depth-on-ship.md) | P2 | active | Either |
+| [`sim-bridge-cheatsheet-trim`](active/tooling/sim-bridge-cheatsheet-trim.md) | P2 | active | Either |
 | [`deployed-artifact-test-discovery`](active/tooling/deployed-artifact-test-discovery.md) | P3 | active | Jetson |
 | [`scene-corpus-test-fixture-consolidation`](active/tooling/scene-corpus-test-fixture-consolidation.md) | P3 | active | DGX |
 | [`tools-package-reorg`](parked/tooling/tools-package-reorg.md) | P3 | parked (land when no large `tools/`-touching PR is in flight — after the R1 detections column + `depth-ffv1-video-column` settle) | DGX |
@@ -306,6 +307,7 @@ _None._
 |---|---|---|
 | [`strafer-direct-sim-validation`](active/trained-policy/strafer-direct-sim-validation.md) | M (1–2 days, rig-dependent) | Operator-driven sim validation extracted from the [`inference-package`](completed/inference-package.md) PR so it could merge with unit-testable acceptance closed. Three independent runs: rosbag parity (≤1e-5 NOCAM / ≤1e-3 depth), TRT-EP latency p95 < 10 ms, and the architectural-win mission (≥ 1.0 m/s sustained + obstacle avoidance). Last item gates on a deployable DEPTH checkpoint; the first two only need the sim-in-the-loop rig. |
 | [`brief-link-depth-on-ship`](active/tooling/brief-link-depth-on-ship.md) | M | Shipping a brief moves it from `active/<epic>/` (depth 3) to `completed/` (depth 2), so every relative link keeps a `../` count that is now one too many. Measured on `main`: **578 broken relative links in 70 files** under `docs/tasks/` — 338 pure depth shift, 223 targets that themselves moved, 17 needing a human. [`brief-cross-reference-sweep`](completed/brief-cross-reference-sweep.md) (#31) fixed the same symptom once with no guard and it regrew, so the deliverable is resolver + **checker in the test umbrellas** + the missing step in `README.md`'s shipping sequence. |
+| [`sim-bridge-cheatsheet-trim`](active/tooling/sim-bridge-cheatsheet-trim.md) | M | Cut the sim-bridge runbook to commands, and descriptions or gotchas of at most three lines. About 80 of its 240 lines are mechanism, history or measurements that other docs already hold; the brief lists each passage with its home. Filed off the review of [#235](https://github.com/zachoines/Sim2RealLab/pull/235) |
 
 ### P3 — pickable, low priority
 

@@ -198,6 +198,8 @@ GOAL_ARRIVAL_RADIUS_M = 0.30
 
 # Completion bound of a navigate_to_pose goal on the trained-policy backends:
 # strafer_inference aborts the goal once it has run this long on its node clock.
+# It is one flat bound per goal: it does not scale with distance and is not
+# derived from the training episode length or a closing rate.
 # The executor sizes its own deadline for a policy-backend goal from the same
 # value plus a margin, so the node — not a Nav2-sized executor budget — decides
 # when the policy has run out of time. Pin both references here so the two

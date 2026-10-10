@@ -17,8 +17,8 @@ Each mission has two videos:
   and the elapsed sim time drawn over it.
 
 This record is descriptive evidence for people to watch. It does not re-score the CLI set or change
-its reading. The livestream slows the bridge (session RTF 0.107, against 0.132 in the scored set),
-and both reaches took longer in sim time than they did there.
+its reading. The livestream slows the bridge (session RTF 0.107, against 0.132 in the scored set,
+both by the ride-along), and both reaches took longer in sim time than they did there.
 
 ## Setup
 
@@ -27,8 +27,8 @@ and both reaches took longer in sim time than they did there.
 | change on the rig | `9b80e99` (the policy-backend navigate budget, PR #235), as in the CLI set; images `strafer-cpu:humble` and `strafer-gpu:humble` with revision label `9b80e9976961`, read from all five running containers |
 | scene | `Isaac-Strafer-Nav-Capture-Bridge-ProcRoom-Enriched-v0`, `Environment seed : 42`, one bridge launch for both missions. The room is open-topped: its ceiling is parked below the floor (z −10) |
 | cadence contract | `publish 30.00 Hz sim`, `frame_skip=3 (derived, derived 3)`, bridge tick 120 Hz, script defaults |
-| bridge launch | the CLI set's launch line with three changes: `tools/bridge_fixed_view.py` runs the unchanged bridge script and holds the viewport camera at a fixed pose; `--livestream 2` with the RTSP extension enabled and selected; no `--headless`. With the livestream, Isaac Lab loads the `isaaclab.python.rendering.kit` experience, where the scored set ran `isaaclab.python.headless.rendering.kit` |
-| viewport | world-frame eye (−7.6, −0.6, 4.6), target (−3.1, −0.6, 0.0); the robot spawned at world (−1.65, −0.55), and on the sim bridge the map frame starts at the spawn. The camera sits about 5 m west of the room's west wall, 4.6 m up, looking east and down, so the start, the doorway and both goals outside it are in frame. Kit's editor UI is hidden (`/app/window/hideUi`), so the stream carries only the viewport. The pose was set before the robot stack started and did not change |
+| bridge launch | the CLI set's launch line with three changes (`session/launch_bridge.sh`): `tools/bridge_fixed_view.py` runs the unchanged bridge script and holds the viewport camera at a fixed pose; `--livestream 2` with the RTSP extension enabled and selected; no `--headless`. With the livestream, Isaac Lab loads the `isaaclab.python.rendering.kit` experience, where the scored set ran `isaaclab.python.headless.rendering.kit` (the `Applied configs` line of each launch's Kit log, this set's two and the scored set's, in `host_facts.txt`) |
+| viewport | world-frame eye (−7.6, −0.6, 4.6), target (−3.1, −0.6, 0.0); the robot spawned at world (−1.65, −0.55), and on the sim bridge the map frame starts at the spawn, with the world's axes. Compass words in this record take +x as east and +y as north. The camera sits about 5 m west of the room's west wall, 4.6 m up, looking east and down, so the start, the doorway and both goals outside it are in frame. Kit's editor UI is hidden (`/app/window/hideUi`), so the 1440×900 stream carries the viewport window alone: the 16:9 render inside black bands (49 px above, 45 px below, 4 px at each side), with the viewport's small chip at the left of the lower band (`logs/frames/view_check_2.png`). The pose was set before the robot stack started and did not change |
 | SLAM key | `enrich_goalavideo1` (fresh for this bridge launch) |
 | policy | `strafer_depth_subgoal_v3_999.onnx`, sha256 `c866bfd54ec1a8352159e33d7875d41e3f07a442ff8301ba3700867932e2eb91`, sidecar `d22e3504…33ab5`, verified inside the running `inference` container |
 | lane | `hybrid_nav2_strafer` + `DEPTH_SUBGOAL`, node `mission_timeout_s` 60 s, arrival radius 0.30 m; executor `use_sim_time` true on both nodes, policy budget 65.0 s |
@@ -81,13 +81,13 @@ Each mission ran with one or two mid-mission watchdog skips in the inference nod
 The two real-time files are deposited in three parts each and reassemble to the digests in
 `DEPOSIT.md`.
 
-**Third person.** The robot starts inside the room, about 0.8 m (G1) and 1.0 m (L2) east of its
-west doorway, and is seen through it. The start is the same nominal pose in the map frame for both
+**Third person.** The robot starts inside the room, about 0.8 m (G1) and 1.0 m (L2) east of its west
+doorway, and is seen through it. The start is the same nominal pose in the map frame for both
 missions, but SLAM had moved that frame about 0.56 m by L2 (`map→odom` in the observer records'
-`start.mo`), so in the sim L2 started 0.57 m further north-east than G1, partly behind the north
-wall segment. The robot leaves through the doorway and drives to a goal outside the room:
-north-west for G1, on the left of the frame, and south-west for L2, on the right. The approach then
-slows as the robot closes on the radius.
+`start.mo`), so in the sim L2 started 0.57 m north-north-east of G1 (70° from east), partly behind
+the wall north of the doorway. The robot leaves through the doorway and drives to a goal outside the
+room: north-west for G1, on the left of the frame, and south-west for L2, on the right. The approach
+then slows as the robot closes on the radius.
 - In L2 the robot first turns in place by 81°, which is the executor's pre-rotation (the
   observer's pose series). The policy takes over once that turn ends.
 - The stream runs at wall speed, at about 9.5 wall seconds per sim second. The 8× time-lapse brings
@@ -100,10 +100,21 @@ slows as the robot closes on the radius.
 stamped on sim time), the same frames the robot stack receives. Every frame was written: no gaps,
 none out of order, at a median of 30.0 Hz of sim time. The video therefore plays at sim speed. The
 overlay has two lines:
-- the label, the command, and the node's status (`EXECUTING`, then `SUCCEEDED`);
+- the label, the command, and the status: "waiting for the mission", then the executor's state
+  or skill while no policy goal exists ("executor planning, no policy goal yet"), then the node's
+  `EXECUTING` and `SUCCEEDED`;
 - the distance from TF to the goal, and the sim seconds since the mission was accepted. Until the
   policy goal is seen, the goal is the intended one and is labelled so; then it is the dispatched
   goal, under 1 mm away.
+
+Each file opens with about 0.7 s of "waiting for the mission" (20 and 22 frames), line 2 giving
+absolute sim time ("t_sim 32.0 s, not started"). After the result, G1's overlay holds 0.30 m.
+L2's falls to 0.29 m while a non-zero `/cmd_vel` twist, logged 3 ms after the zero twist at the
+result, moves the robot about 0.08 m, mostly sideways, until the bridge's 0.5 s sim watchdog
+zeroes it (`series.cmd` and `series.pose` in `logs/runs/container_gate_all/L2.json`;
+`logs/dgx/goal_a_video_bridge.log` line 274). It reads 0.28 m from 331.5 s sim, with the robot
+still, after a SLAM `map→odom` update moved its map position by about 0.01 m
+(`logs/runs/container_gate_all/tf_video.jsonl`). The twist's publisher is not recorded.
 
 During L2's pre-rotation the status reads "executor translate, no policy goal yet", because the
 executor turns the robot inside its `translate` skill before it sends the policy its goal.
@@ -118,11 +129,12 @@ executor turns the robot inside its `translate` skill before it sends the policy
     north jamb at map (−1.35, 0.13). Its first try ran out of its 150 s sim budget; its one retry
     stalled at the same place and was stopped (SIGINT). Nothing was submitted
     (`logs/runs/stale/L2.1791568274/`, `logs/attempts/L2.1/`).
-  - `tools/nudge.py` then moved the robot 0.37 m south-west, off the jamb, closed-loop on TF, in
-    3.3 s sim (`logs/L2_nudge.out`). It first checked that no policy goal was active and that nobody
-    else was commanding `/cmd_vel`. Its target, (−1.55, −0.20) in the map frame, was the doorway's
-    centre line in the map as first built. The map frame had since moved about 0.6 m, so the robot
-    stopped at the opening's northern edge (`logs/frames/l2_after_nudge.png`).
+  - `tools/nudge.py` then moved the robot 0.37 m south-south-west in the map frame (0.36 m in the
+    sim, through the `map→odom` ride-along), off the jamb, closed-loop on TF, in 3.3 s sim
+    (`logs/L2_nudge.out`). It first checked that no policy goal was active and that nobody else was
+    commanding `/cmd_vel`. Its target, (−1.55, −0.20) in the map frame, was the doorway's centre
+    line in the map as first built. The map frame had since moved about 0.6 m, so the robot stopped
+    at the opening's northern edge (`logs/frames/l2_after_nudge.png`).
   - The second attempt's transit reached the start in 23.0 s sim. Everything L2 reports is from that
     attempt.
   - The scored set's FX had a transit run out its budget the same way; there the retry succeeded.
@@ -152,8 +164,9 @@ executor turns the robot inside its `translate` skill before it sends the policy
 
 - **A re-score.** The CLI set's reading stands as recorded. These two runs do not add to it or
   subtract from it.
-- **The scored set's timing.** RTF is lower with the livestream on, Kit runs another experience
-  file, and both reaches took longer in sim time. The longer terminal approaches are not attributed.
+- **The scored set's timing.** RTF is lower with the livestream on, Kit runs another experience file
+  (Setup, bridge launch), and both reaches took longer in sim time. The longer terminal approaches
+  are not attributed.
 - **A neutral camera.** The third-person viewport was chosen to frame these two goals and held
   fixed for both missions. The goal itself is not drawn in the scene, because a prim in the stage
   would also be seen by the robot's camera.
@@ -171,7 +184,7 @@ executor turns the robot inside its `translate` skill before it sends the policy
 |---|---|
 | repository | https://github.com/zachoines/Sim2RealLab-Artifacts |
 | deposit directory | `goal-a-cli-video-2026-10-09/record-files/` |
-| deposit commit | `198ad07639c2015f4d4765634614f36c711490fa` |
+| deposit commit | `eb22396b80d26b32d4bd5dd9d3b50acda7fda4a7` |
 
 The deposit holds:
 - the six videos and six stills;
@@ -180,7 +193,10 @@ The deposit holds:
 - the ride-along, the five container logs, and the sim host's bridge, planner, VLM and ffmpeg logs;
 - the stack checks before the first mission;
 - the analysis with its exact commands (`analysis/COMMANDS.md`);
-- the three tools written for this set, and the session scripts.
+- the three tools written for this set, and the session scripts;
+- `host_facts.txt`, the host identities behind the provenance: the session console's launch
+  lines, the identity lines of this set's two Kit logs and the scored set's, and both hosts read
+  on 2026-10-10.
 
 The CLI set's own tools ran unchanged. Their digests are in `cli_set_tools_sha256.txt`, a copy of
 that deposit's list. Nine text files had rig network addresses replaced with placeholders before
@@ -210,6 +226,7 @@ ed9f559218f2cb7aac51d9d040114a68d5af40f026a0b61bad602a29af98e68b  analysis/scrap
 98805b009c652cd92c557e3685cdbab4129c61ba494181d24f56e05bdc183dae  analysis/tools/video_times.py
 b37c8aa0972788e1bc7551aa68e4a971c70d8a9211d9ba2176ead6e9a0870597  analysis/video_times.txt
 73179029e156bb428fe16596d7be709b309ec01c2ffda825fdbdacb7675c0cd9  cli_set_tools_sha256.txt
+c24f9633821374cad3978c24a2493a9168d3d94bf77b784ff074b99b22f2cd4b  host_facts.txt
 65cd736f9e2043d451ef5ab0ec361fd5fe5a41d2ac87997b79275e56f278fb8f  logs/G1.video_one.log
 65cd736f9e2043d451ef5ab0ec361fd5fe5a41d2ac87997b79275e56f278fb8f  logs/G1.video_one.stdout
 e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855  logs/G1.wrapper.out

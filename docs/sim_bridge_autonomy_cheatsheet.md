@@ -171,29 +171,30 @@ make submit-deploy CMD="go to the chair"
   `strafer_bringup/config/env_sim_bridge.env` (`STRAFER_NAV_BACKEND=hybrid_nav2_strafer`,
   `STRAFER_POLICY_VARIANT=DEPTH_SUBGOAL`, `STRAFER_USE_SIM_TIME=true`, and the two
   sim-rate timeout widenings) — generated into `deploy/compose/sim_bridge.env`, which
-  `docker-compose.override.sim-bridge.yml` loads as a second `env_file` on top of
-  `autonomy.env`. Edit canon, `make env-sync`, force-recreate. **Do not** look for these
-  in `deploy/compose/sim.env` — that file (nav2 / `DEPTH`) belongs to the *standalone*
-  `docker-compose.sim.yml` lane, which this stack does not use. The overlay's
-  `environment:` carries only the host levers (`STRAFER_INFERENCE_MODEL_PATH`,
+  `docker-compose.override.sim-bridge.yml` loads into `inference` as a second `env_file` on top
+  of `autonomy.env`; the executor does not get it (next bullet). Edit canon, `make env-sync`,
+  force-recreate. **Do not** look for these in `deploy/compose/sim.env` — that file (nav2 /
+  `DEPTH`) belongs to the *standalone* `docker-compose.sim.yml` lane, which this stack does not
+  use. The overlay's `environment:` carries only the host levers (`STRAFER_INFERENCE_MODEL_PATH`,
   `STRAFER_OBS_DUMP_PATH`). Every key has exactly one home and `make env-check` fails
-  on a key in both, so nothing here shadows the canon path — see
+  on a key in both, so nothing in the tracked overlay shadows the canon path — see
   [`context/deploy-env-config.md`](tasks/context/deploy-env-config.md).
 - The executor is set to the **hybrid (policy) backend** via `docker-compose.override.autonomy-local.yml`, so semantic goals drive the DEPTH_SUBGOAL policy (not plain nav2). That override is **untracked** (host-specific URLs) — it lives in the deploy dir.
+  It must also set `STRAFER_USE_SIM_TIME: "true"`, which no tracked file gives the executor;
+  without it the executor's 65 s goal budget runs on wall time. Check (expect
+  `hybrid_nav2_strafer`, `true`):
+  ```bash
+  docker exec strafer_autonomy printenv STRAFER_NAV_BACKEND STRAFER_USE_SIM_TIME
+  ```
 - If the VLM can't find the named object, the mission fails at grounding ("target not found"). Pick something clearly in frame.
-- **Mission completion.** The policy's action server reports `SUCCEEDED` at the shared
-  `GOAL_ARRIVAL_RADIUS_M` (0.30 m, the node's `goal_reached_distance_m`) and aborts at
-  `mission_timeout_s` = 60 s on the node clock (about 8 min wall at RTF ~0.13), the shared
-  `POLICY_MISSION_TIMEOUT_S`. On the policy backends the executor gives each goal it sends,
-  each leg of a staged navigate included, that bound plus a 5 s margin (65 s on the executor's
-  node clock, sim time here), capped at `STRAFER_NAVIGATION_TIMEOUT_S` (90 s), so the node's own
-  `SUCCEEDED` or `ABORTED` decides each goal. That needs the executor on sim time too: the
-  autonomy overlay must set `STRAFER_USE_SIM_TIME: "true"` as well as the backend, or the 65 s
-  runs on wall time (about 8.5 s sim at RTF 0.13). The Nav2 backend keeps the distance-derived
-  budget (2·d / `NAV_LINEAR_VEL` (0.7841 m/s) + 5 s, under the same cap) and the progress (stall)
-  watchdog; the policy backends have neither. When the executor's budget expires it cancels the
-  goal and reports `navigation_timeout`
-  ([`executor-policy-nav-budget`](tasks/completed/executor-policy-nav-budget.md)).
+- **How a policy goal ends** (`error_code` in `make submit-deploy`'s result). Success within
+  0.30 m; `navigation_failed`: the node aborted, at 60 s sim (~8 min wall) if line 1 matches;
+  `navigation_timeout`: the executor gave up first, on wall time (check above) or, if line 2
+  matches, on a frozen `/clock`. Budgets: [`bridge-runtime-invariants`](tasks/context/bridge-runtime-invariants.md#sim-time-aware-navigation-timeout-jetson-side).
+  ```bash
+  docker logs strafer_inference 2>&1 | grep 'mission timed out'
+  docker logs strafer_autonomy 2>&1 | grep 'Nav2 wait: /clock stalled'
+  ```
 - **If the robot parks within ~0.4 m of an obstacle** it lands in the costmap
   inflation halo, where `GridBased` refuses its own pose as a planning start.
   On the **hybrid** lane the subgoal generator escapes that itself — it retries

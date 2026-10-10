@@ -210,6 +210,8 @@ class InferenceNode(Node):
         self.declare_parameter("vel_cap_linear_m_s", _DEFAULT_VEL_CAP_LINEAR)
         self.declare_parameter("vel_cap_angular_rad_s", _DEFAULT_VEL_CAP_ANGULAR)
         self.declare_parameter("goal_reached_distance_m", GOAL_ARRIVAL_RADIUS_M)
+        # The executor budgets policy goals from POLICY_MISSION_TIMEOUT_S, so it
+        # does not see an override of this parameter.
         self.declare_parameter("mission_timeout_s", POLICY_MISSION_TIMEOUT_S)
         self.declare_parameter(
             "onnx_providers", [

@@ -184,23 +184,16 @@ make submit-deploy CMD="go to the chair"
 - **Mission completion.** The policy's action server reports `SUCCEEDED` at the shared
   `GOAL_ARRIVAL_RADIUS_M` (0.30 m, the node's `goal_reached_distance_m`) and aborts at
   `mission_timeout_s` = 60 s on the node clock (about 8 min wall at RTF ~0.13), the shared
-  `POLICY_MISSION_TIMEOUT_S`. A mission routed through the executor on this lane's policy
-  backend gets that bound plus a 5 s margin for each goal it sends, each leg of a staged
-  navigate included (65 s on the executor's node clock, sim time here), capped at
-  `STRAFER_NAVIGATION_TIMEOUT_S` (90 s), so the node's own `SUCCEEDED` or `ABORTED` decides
-  each goal. That needs the executor on sim time too: the
+  `POLICY_MISSION_TIMEOUT_S`. On the policy backends the executor gives each goal it sends,
+  each leg of a staged navigate included, that bound plus a 5 s margin (65 s on the executor's
+  node clock, sim time here), capped at `STRAFER_NAVIGATION_TIMEOUT_S` (90 s), so the node's own
+  `SUCCEEDED` or `ABORTED` decides each goal. That needs the executor on sim time too: the
   autonomy overlay must set `STRAFER_USE_SIM_TIME: "true"` as well as the backend, or the 65 s
-  runs on wall time (about 8.5 s sim at RTF 0.13). Only the Nav2 backend gets the distance-derived
-  budget (2·d / `NAV_LINEAR_VEL` (0.784 m/s) + 5 s) and a progress (stall) watchdog; the policy
-  backends pass none. When the executor's budget expires it cancels the goal and reports
-  `navigation_timeout`. On 2026-09-25 the v3 artifact (`strafer_depth_subgoal_v3_999`), driven
-  directly on the policy's action server, reached the radius in 4 of 6 gate missions and 3 of 3
-  fixed-goal repeats; three of those reaches took longer than the Nav2-sized budget the policy
-  backends had until then (G1: 19.0 s sim against ~12.9 s for 3.1 m)
+  runs on wall time (about 8.5 s sim at RTF 0.13). The Nav2 backend keeps the distance-derived
+  budget (2·d / `NAV_LINEAR_VEL` (0.7841 m/s) + 5 s, under the same cap) and the progress (stall)
+  watchdog; the policy backends have neither. When the executor's budget expires it cancels the
+  goal and reports `navigation_timeout`
   ([`executor-policy-nav-budget`](tasks/completed/executor-policy-nav-budget.md)).
-  v2 reached 0 of 2 in the same session and 0 of 6 on 2026-08-17
-  ([v3 record](measurements/goal-a-rig-gate-v3-2026-09-25/README.md),
-  [2026-08-17 record](measurements/goal-a-rig-gate-2026-08-17/README.md)).
 - **If the robot parks within ~0.4 m of an obstacle** it lands in the costmap
   inflation halo, where `GridBased` refuses its own pose as a planning start.
   On the **hybrid** lane the subgoal generator escapes that itself — it retries

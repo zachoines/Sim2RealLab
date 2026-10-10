@@ -4,7 +4,7 @@ Launches:
   1. RealSense D555 camera node (depth + color + IMU if available)
   2. IMU orientation filter (Madgwick) — fuses accel+gyro → quaternion
   3. Timestamp fixer — relays colour, aligned depth and their camera_info as
-     the *_sync topics SLAM reads, stamps unchanged
+     the *_sync topics, stamps unchanged
   4. Depth downsampler node (full-res → 80x45; diagnostic, not the policy input)
 
 The base_link → d555_link static TF is published by strafer_description
@@ -110,7 +110,6 @@ def generate_launch_description():
             executable="timestamp_fixer",
             name="timestamp_fixer",
             output="screen",
-            parameters=[{"restamp": False}],
         ),
 
         # ── Depth downsampler (full-res → 80x45; diagnostic) ───────────

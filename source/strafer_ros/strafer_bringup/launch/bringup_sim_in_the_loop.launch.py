@@ -92,8 +92,8 @@ def _launch_setup(context, *args, **kwargs):
         ),
 
         # ── Timestamp fixer ─────────────────────────────────────────────
-        # Re-stamps camera frames from the sim bridge so message sync
-        # across odom / depth / color works in RTAB-Map and Nav2.
+        # Relays the sim bridge's camera topics as the *_sync topics, stamps
+        # unchanged (they are the bridge's /clock).
         #
         # In sim the D555 is a single co-registered RGB+D sensor, so the
         # bridge's raw depth is already aligned to color. The real-robot
@@ -105,11 +105,7 @@ def _launch_setup(context, *args, **kwargs):
             executable="timestamp_fixer",
             name="timestamp_fixer",
             output="screen",
-            # restamp=False — bridge already publishes with /clock-derived
-            # sim time; restamping rewrites each message with the current
-            # sim time at relay, which advances between depth + camera_info
-            # callbacks and breaks depth_image_proc's exact synchronizer.
-            parameters=[{"use_sim_time": True, "restamp": False}],
+            parameters=[{"use_sim_time": True}],
             remappings=[
                 ("/d555/aligned_depth_to_color/image_raw",
                  "/d555/depth/image_rect_raw"),

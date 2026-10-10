@@ -1,13 +1,14 @@
-"""Relay the D555's colour, aligned depth and camera_info to the *_sync topics SLAM reads.
+"""Relay the D555's colour, aligned depth and camera_info as the *_sync topics.
 
-Stamps pass through. With the D555's per-frame metadata reaching librealsense (the
-uvcvideo D4XX entry in docs/D555_IMU_KERNEL_FIX.md), its stamps are on global time,
-within a frame of host time, and a frame's image and camera_info share one stamp, so
-depth_to_pointcloud's exact sync pairs them and RTAB-Map's approximate sync matches
-them with odometry. On the sim lanes the stamps are the bridge's /clock.
+A pure relay: every message is republished unchanged, stamp included. With the D555's
+per-frame metadata reaching librealsense (the uvcvideo D4XX entry in
+docs/D555_IMU_KERNEL_FIX.md), its stamps are on global time, within a frame of host
+time, and a frame's image and camera_info share one stamp, so depth_to_pointcloud's
+exact sync pairs them and RTAB-Map's approximate sync matches them with odometry. On
+the sim lanes the stamps are the bridge's /clock.
 
-``restamp:=true`` replaces each stamp with the ROS clock at reception, which gives an
-image and its camera_info different stamps and breaks exact synchronizers.
+The *_sync topics are read by RTAB-Map and depth_to_pointcloud (slam.launch.py),
+goal_projection_node, the executor's ROS client and the Foxglove layout.
 
 Subscriptions (from RealSense):
     /d555/color/image_raw
@@ -33,9 +34,6 @@ class TimestampFixer(Node):
 
     def __init__(self):
         super().__init__("timestamp_fixer")
-
-        self.declare_parameter("restamp", False)
-        self._restamp = self.get_parameter("restamp").value
 
         self._first_logged = False
 
@@ -71,34 +69,17 @@ class TimestampFixer(Node):
                 qos,
             )
 
-        mode = "restamp" if self._restamp else "passthrough"
         self.get_logger().info(
-            f"TimestampFixer ready ({mode}) — waiting for first frame"
+            "TimestampFixer ready (passthrough) — waiting for first frame"
         )
 
     def _relay(self, msg, pub):
-        if not self._restamp:
-            if not self._first_logged:
-                self._first_logged = True
-                hw_s = msg.header.stamp.sec + msg.header.stamp.nanosec / 1e9
-                self.get_logger().info(
-                    f"First frame relayed unchanged: stamp={hw_s:.3f}"
-                )
-            pub.publish(msg)
-            return
-
-        now = self.get_clock().now().to_msg()
-
         if not self._first_logged:
             self._first_logged = True
-            hw_s = msg.header.stamp.sec + msg.header.stamp.nanosec / 1e9
-            sys_s = now.sec + now.nanosec / 1e9
+            stamp_s = msg.header.stamp.sec + msg.header.stamp.nanosec / 1e9
             self.get_logger().info(
-                f"First frame re-stamped: hw={hw_s:.3f} → sys={sys_s:.3f} "
-                f"(delta={sys_s - hw_s:.3f}s)"
+                f"First frame relayed unchanged: stamp={stamp_s:.3f}"
             )
-
-        msg.header.stamp = now
         pub.publish(msg)
 
 

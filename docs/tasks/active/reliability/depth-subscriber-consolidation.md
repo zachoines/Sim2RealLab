@@ -68,7 +68,8 @@ checked against that, not just against subscriber count.
 - [ ] **RTAB-Map's `_sync` contract is unchanged.** `timestamp_fixer` runs with
       `restamp: False` because stamps already come off `/clock` and restamping
       breaks the exact synchronizer; whatever consolidation lands must not
-      quietly acquire a restamp.
+      quietly acquire a restamp. *(2026-10-09: the relay's re-stamping mode and
+      its `restamp` parameter are removed; it passes stamps through on every lane.)*
 - [ ] **State plainly whether this closes the gap. It does not.** Combined with
       [`sim-bridge-16uc1-depth-publish`](../sim-performance/sim-bridge-16uc1-depth-publish.md)
       the census falls 608 → 277 × RTF Mbit/s, still 64 Mbit/s at RTF 0.231.

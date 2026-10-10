@@ -224,8 +224,8 @@ Without both, librealsense finds the Motion Module but cannot start it.
   Docker's default AppArmor profile denies these writes.
 
 Recreate perception the same way the stack was brought up (`docker compose up` in
-`deploy/`), so any host-local overrides still apply. The images must carry the
-perception launch with the `timestamp_fixer` passthrough (see Verification).
+`deploy/`), so any host-local overrides still apply. The images must carry a
+`timestamp_fixer` that passes stamps through (see Verification).
 
 A non-root process on the host would instead need the IIO line of
 `source/strafer_ros/99-strafer.rules`. The container runs as root and does not.
@@ -245,7 +245,7 @@ Read back on the deployed launch, over windows of at least 60 s:
 | `/d555/aligned_depth_to_color/image_raw`, `.../image_sync` | ~30 Hz |
 | `/d555/imu`, `/d555/imu/filtered` | ~200 Hz, stamps every 5 ms |
 | `strafer_inference` cadence line | `imu` absent from `stale_sources` |
-| `depth_to_pointcloud` (in `slam`) | no "do not appear to be synchronized" warnings; `/d555/aligned_depth_to_color/points` publishing. This needs `timestamp_fixer` to pass stamps through, which the perception launch does, so images built from an older launch must be rebuilt. `/scan` also needs `base_link`, which `base` publishes |
+| `depth_to_pointcloud` (in `slam`) | no "do not appear to be synchronized" warnings; `/d555/aligned_depth_to_color/points` publishing. This needs `timestamp_fixer` to pass stamps through; an image whose perception log reads `TimestampFixer ready (restamp)` re-stamps and must be rebuilt. `/scan` also needs `base_link`, which `base` publishes |
 | `systemctl is-enabled iio-sensor-proxy` | `masked` |
 
 The record's probes and figures are in

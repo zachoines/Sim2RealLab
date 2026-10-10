@@ -2,7 +2,8 @@
 
 **Status:** Shipped 2026-10-03 in `9b80e99` (Jetson).
 **PR:** https://github.com/zachoines/Sim2RealLab/pull/235
-**Follow-ups:** [`planner-translate-two-axis-sign`](../active/reliability/planner-translate-two-axis-sign.md) — the planner's two-axis "right" sign
+**Follow-ups:** [`planner-translate-two-axis-sign`](../active/reliability/planner-translate-two-axis-sign.md) — the planner's two-axis "right" sign;
+[`policy-time-to-goal-objective`](../active/trained-policy/policy-time-to-goal-objective.md) — a per-goal bound derived from training
 
 **Type:** bug (mission outcome, trained-policy backends)
 **Owner:** Jetson (`strafer_autonomy` executor lane)
@@ -171,6 +172,11 @@ centimetres: 7–14 s sim held between 0.30 and 0.42 m. The node's own bound is 
     radius.
   - It belongs to the terminal-approach parity brief, to be filed before the real-lane gate is
     pre-registered.
+  - *2026-10-10.* 60 s stays in the meantime. The bound is to come from training instead:
+    [`policy-time-to-goal-objective`](../active/trained-policy/policy-time-to-goal-objective.md)
+    makes time to goal an objective and derives the bound from the arrival times of the policy
+    trained on it, or from v3's measured baseline if no objective is adopted. The deploy success
+    rule, against training's dwell, stays with the terminal-approach parity brief.
 
 ## Out of scope
 

@@ -79,11 +79,6 @@ def generate_launch_description():
                 # NOTE: Disabled — causes tegra-xusb transfer errors on
                 # re-enumeration.  Camera state is clean at module load.
                 "initial_reset": "false",
-
-                # global_time_enabled is left at the wrapper's default (on):
-                # rs_launch.py does not declare it, so a value here is dropped.
-                # With the metadata path in docs/D555_IMU_KERNEL_FIX.md it maps
-                # the device's per-frame timestamp onto host time.
             }.items(),
         ),
 

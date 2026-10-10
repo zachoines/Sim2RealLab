@@ -135,6 +135,43 @@ centimetres: 7–14 s sim held between 0.30 and 0.42 m. The node's own bound is 
       - *The container lane now mounts the tree's `strafer_shared`, as the ROS lane already did,
         so a shared-constant change is tested against the tree.*
 
+## Open question: the 60 s bound itself
+
+*2026-10-09.* This brief deferred the executor to the node's bound; it did not choose the bound.
+- **What 60 s is.** The inference node's `mission_timeout_s` default since the DEPTH MVP
+  (`e857d33`, 2026-05-25), counted on the node clock since `86e9590` (2026-07-03), and unchanged
+  through v2, v3 and both gates. This brief moved it into `strafer_shared` without changing it.
+- **What it is not derived from.**
+  - *Training.* A training episode is one goal tracked along a planned path, capped at 20 s
+    (`_DEFAULT_NAV_EPISODE_LENGTH_S`). v3's mean episode is 163.9 steps (about 5.5 s), with a
+    time_out termination share of 0.0010. So 60 s is three times the horizon the policy was
+    trained on, and a goal can run the recurrent policy for up to 1800 steps against training's
+    600, which [`goal-a-rig-gate-2026-08-17`](../../measurements/goal-a-rig-gate-2026-08-17/README.md)
+    lists as untested.
+  - *A closing rate.* Nor is it derived from one.
+- **Against the reaches measured so far.** Its headroom depends on the artifact.
+  - **v3.** The gate's longest reach was 19.0 s sim (G1, 13.9 s of it between 0.42 m and the
+    radius). The longest to date is 24.98 s sim for the same goal, through the executor with the
+    livestream on (`goal-a-cli-video-2026-10-09`, #237), 18.7 s of it in that band. 60 s is
+    about 3.2× and 2.4× those.
+  - **v2.** Its one reach on the rig, the 2026-08-17 pilot (`PILOT_uncontrolled_heading`), took
+    53.6 s sim for 3.03 m: 6.4 s inside the bound.
+  - **Aborts at the bound.** Two v3 gate missions, R2 and R3, ended `ABORTED` there. R2 had held
+    0.347–0.420 m for 52.7 s sim.
+- **Distance.** No part of the bound scales with distance.
+  - *A projected navigate goal* lies within the projection's depth range
+    (`STRAFER_PROJECTION_DEPTH_MAX_M`: 6 m by default, 15 m on the sim-in-the-loop lane).
+  - *Staging* drives such a goal in clamped legs, each with its own bound, only when it falls
+    outside the global costmap. That is the mapped area, not a window.
+  - *A translate* is dispatched as one goal without staging. Its displacement is what the step
+    commands, which the executor does not cap; this time bounds only how long it may run.
+- **Open.** A principled per-goal time bound for the policy backends has not been established.
+  - Candidates: measured closing rates per artifact; a distance term with a floor, which has to
+    hold a terminal approach that does not scale with distance; or a dwell rule at the arrival
+    radius.
+  - It belongs to the terminal-approach parity brief, to be filed before the real-lane gate is
+    pre-registered.
+
 ## Out of scope
 
 - Changing `mission_timeout_s`, or the policy itself.

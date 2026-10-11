@@ -78,25 +78,102 @@ read wrong. Recorders and parity tooling do not survive them.
       and read back. Consumers of raw stamps are checked against it:
       `timestamp_fixer`'s first-frame log, the inference node's `depth_age`,
       and bag tooling.
-- [ ] `/d555/depth/image_rect_raw` carries one message per exposure: distinct
-      payloads equal messages, and each `frame_number` appears once, over
-      ≥ 60 s.
-- [ ] `/d555/aligned_depth_to_color/image_raw` publishes at the colour rate,
+      *2026-10-04 ([`d555-stream-integrity-2026-10-04`](../../../measurements/d555-stream-integrity-2026-10-04/README.md)):*
+      - *Met except `depth_age`. Raw depth carries 1801 unique stamps in 1804 messages
+        over 60 s and colour 1798 of 1798, about 33.3 ms apart.*
+      - *Both are on librealsense's `global_time`; receive − stamp has a median of 25 ms on
+        depth and 22 ms on colour over 60 s.*
+      - *A depth image's stamp is the time of the colour frame it was paired with: realsense-ros
+        stamps a frameset with its first frame, the colour frame. It sits up to ±16.7 ms from
+        the depth frame's own time and sweeps that range every 29.0 s, the beat between depth
+        (30.0000 fps) and colour (29.9655 fps under realsense-ros); the period is measured, not
+        a camera constant. The depth frame's own time is
+        `/d555/depth/metadata` `frame_timestamp`.*
+      - *`timestamp_fixer`'s first frame reads a 0.007 s delta.*
+      - *`bag_frame_numbers.py` reads 344 distinct stamps for 344 frames.*
+      - *`depth_age` reads n/a, because the inference node runs no inference without a goal,
+        TF and odometry, and those need the chassis.*
+      - *`timestamp_fixer` now passes stamps through on the real lane: restamping split a
+        frame's image and camera info, so `depth_to_pointcloud`'s exact sync made no pairs.
+        The deployed images carry the change only after `make images`.*
+      - *2026-10-09: the re-stamping mode is removed, so the node is a pure relay on every
+        lane. The relay's name and whether it should stay are filed as
+        [`camera-relay-rename-or-retire`](camera-relay-rename-or-retire.md) (P3).*
+- [x] `/d555/depth/image_rect_raw` repeats at most 0.5 % of its messages over
+      ≥ 60 s, the mechanism of the repeats is recorded, and recorders dedupe by
+      stamp or `frame_number`.
+      *(Reworded 2026-10-05 from "carries one message per exposure: distinct payloads
+      equal messages, and each `frame_number` appears once, over ≥ 60 s". The residual
+      repeats come from the wrapper's half-frame sync window; removing them would need a
+      realsense-ros change.)*
+      *Met 2026-10-04 ([`d555-stream-integrity-2026-10-04`](../../../measurements/d555-stream-integrity-2026-10-04/README.md)):*
+      - *3 repeats in 1804 messages over 60 s (0.17 %; 50 % before), 1801 distinct payloads.*
+      - *Mechanism: depth gains a frame on colour every 29.0 s. At each crossing librealsense's
+        syncer releases at least one depth frame alone, 16.6–16.7 ms from the nearest colour
+        frame, and realsense-ros publishes a depth-only frameset twice.*
+      - *`frame_number` was read over two short windows only, neither ≥ 60 s: the 20 s
+        metadata window (603 messages, 601 distinct frame numbers, no gaps) and an 11.5 s bag.*
+      - *`bag_frame_numbers.py` dedupes consecutive repeats: the bag holds 346 depth messages
+        and 344 distinct stamps for 344 distinct frame numbers. Its 2 in 346 (0.58 %) is over
+        the bound because the short window holds a crossing. Repeats cluster at crossings (one
+        or two per crossing in the deposited windows), so a window shorter than the beat can
+        exceed the bound, and the bound needs the ≥ 60 s window.*
+- [x] `/d555/aligned_depth_to_color/image_raw` publishes at the colour rate,
       and `/d555/aligned_depth_to_color/image_sync` reaches RTAB-Map.
-- [ ] `/d555/imu` publishes gyro and accelerometer samples, and
+      *Met 2026-10-04 ([`d555-stream-integrity-2026-10-04`](../../../measurements/d555-stream-integrity-2026-10-04/README.md)):*
+      - *Both publish at 29.93 Hz over 60 s.*
+      - *RTAB-Map is a matched subscriber of `image_sync`, of the colour topics and of `/scan`.*
+      - *With stamps passed through, the point cloud behind `/scan` read 26.6 Hz over the last
+        600 messages of a 65 s run, but `/scan` itself stays silent: it projects into
+        `base_link`, which `base` publishes.*
+      - *Its only input without a publisher is `/strafer/odom`, from `base`, so it does not map
+        on this rig state.*
+- [x] `/d555/imu` publishes gyro and accelerometer samples, and
       `/d555/imu/filtered` follows; with `inference` up, `imu` drops out of its
       stale sources.
+      *Met 2026-10-04 ([`d555-stream-integrity-2026-10-04`](../../../measurements/d555-stream-integrity-2026-10-04/README.md)):*
+      - *`/d555/imu` and `/d555/imu/filtered` publish at 199.8 Hz, stamps every 5.01 ms.*
+      - *The inference node's `stale_sources` are `goal joint_states odom subgoal tf`, without
+        `imu`.*
 - [ ] Whatever host or image change this takes survives a reboot and is
       written down for the host's actual L4T and kernel.
       `docs/D555_IMU_KERNEL_FIX.md` is updated or generalised if the IMU route
       goes through it.
-- [ ] Each item is read back with the record's probes (its deposit's
+      *2026-10-04: written down; reboot not yet checked.*
+      - *The procedure, generalised to R36.4.3 / `5.15.148-tegra` with the `uvcvideo` metadata
+        entry, the container access, the `iio-sensor-proxy` mask and the kernel-upgrade
+        caveat, is in `docs/D555_IMU_KERNEL_FIX.md`.*
+      - *The modules are under `updates/strafer-d555/` and load by alias.*
+      - *The reboot check needs the camera unplugged first, so it waits for someone on site:
+        unplug, reboot, check `timedatectl`, replug, confirm `/sys/module/uvcvideo/srcversion`
+        `D0E2A5944399A529814A98C`, the `hid-sensor-hub` binding and
+        `systemctl is-enabled iio-sensor-proxy` (`masked`). It is required before the real-lane
+        gate is pre-registered.*
+      - *Process: both stages' root steps were run by the work session over SSH, under the
+        maintainer's remote authorization and against the standing rule that host changes are
+        the maintainer's commands. That was a one-off: host changes stay the maintainer's unless
+        delegated again, step by step, in writing.*
+- [x] Each item is read back with the record's probes (its deposit's
       `hw/probe/`) and recorded.
-- [ ] If your work invalidates a fact in any referenced context module, package
+      *Met 2026-10-04: baseline, after stage 1 and after stage 2, in [`d555-stream-integrity-2026-10-04`](../../../measurements/d555-stream-integrity-2026-10-04/README.md).*
+- [x] If your work invalidates a fact in any referenced context module, package
       README, top-level `Readme.md`, or guide under `docs/`, update those in the
       same commit. See
       [`conventions.md`'s user-facing documentation maintenance section](../../context/conventions.md#user-facing-documentation-maintenance)
       for the surface list and trigger heuristics.
+      *Met 2026-10-04 ([`d555-stream-integrity-2026-10-04`](../../../measurements/d555-stream-integrity-2026-10-04/README.md)):*
+      - *`docs/D555_IMU_KERNEL_FIX.md` (generalised);*
+      - *the top-level `Readme.md` and `source/strafer_ros/README.md` D555 notes;*
+      - *`install-host-prereqs.sh`'s hardware note;*
+      - *the perception launch and `timestamp_fixer` docstrings, whose "falls back to system
+        time" and "HW clock drifts" premises no longer hold;*
+      - *2026-10-05: the host named as the Orin NX 16 GB on L4T R36.4.3, and the SLAM pipeline as
+        `depth_to_pointcloud` → `pointcloud_to_laserscan`, in both READMEs; the kernel doc's
+        depmod ranking, upgrade failure mode, mask check and depth-stamp clock.*
+      - *2026-10-09: for the pure relay, the kernel doc's container-access note and
+        `depth_to_pointcloud` verification row, the `*_sync` consumers in
+        `source/strafer_ros/README.md`, the `timestamp_fixer` docstring and the two sim launches'
+        relay comments.*
 
 ## Investigation pointers
 
@@ -105,8 +182,11 @@ read wrong. Recorders and parity tooling do not survive them.
   `global_time_enabled` arguments are dropped by 4.58.4 (see
   [`d555-params-file-inert`](../../completed/d555-params-file-inert.md),
   "Adjacent finding").
+  *(2026-10-04: the three arguments are removed; global time stays at the
+  wrapper's default.)*
 - `source/strafer_ros/strafer_perception/strafer_perception/timestamp_fixer.py`:
-  what it relays and restamps.
+  what it relays and restamps. *(2026-10-04: every launch now runs it with
+  `restamp:=false`. 2026-10-09: the re-stamping mode and its parameter are removed.)*
 - `source/strafer_ros/strafer_inference/strafer_inference/inference_node.py`
   (`imu_topic`) and `watchdog.py` (`stale_sources`): why a missing IMU holds
   the policy.

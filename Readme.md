@@ -35,7 +35,7 @@ Isaac Sim without changing any Jetson-side code.
 - **Nine mission intent types** compiled into bounded plans: `go_to_target`, `wait_by_target`, `go_to_targets`, `patrol`, `rotate`, `describe`, `query`, `cancel`, `status`.
 - **Fourteen executor skills** including the composite `scan_for_target` (rotate + ground loop), `explore_until_visible` (frontier-driven cross-room target discovery), `verify_arrival` (CLIP top-k ranking), `describe_scene`, and `query_environment`.
 - **Agentic `POST /plan_with_grounding`** endpoint — planner pre-grounds targets via a co-located VLM call, saving one LAN image round-trip per mission.
-- **Full Jetson ROS stack** — RoboClaw driver, RealSense D555 with timestamp-fixed `*_sync` topics, RTAB-Map SLAM, Nav2 MPPI holonomic controller, goal projection service.
+- **Full Jetson ROS stack** — RoboClaw driver, RealSense D555 with relayed `*_sync` topics, RTAB-Map SLAM, Nav2 MPPI holonomic controller, goal projection service.
 - **9 registered Isaac Lab environments** — three RL families (depth-real, depth-robust, no-cam), each with a `-Play` evaluation variant, plus three capture variants (teleop, bridge, coverage). Composed over sensor stack × scene source × realism; see [`strafer_lab` README](source/strafer_lab/README.md#contracts).
 - **Synthetic-data pipeline** — Infinigen procedural scene generation, per-scene metadata embedded in the USD's `customData` with `UsdSemantics` detection labels, 4-stage description pipeline (programmatic spatial → Qwen2.5-VL-7B → ground-truth filter → human spot-check), OpenCLIP contrastive fine-tune with ONNX export, comprehensive VLM LoRA SFT data prep.
 - **Isaac Sim ROS 2 bridge + sim-in-the-loop harness** — drive the Jetson autonomy stack against simulated sensors on the DGX without changing any Jetson code; capture reachability-labelled datasets from Jetson-driven missions.
@@ -69,7 +69,7 @@ The repository is five packages plus shared interfaces, spread across two hosts:
 |---|---|---|---|
 | `strafer_lab` | DGX Spark (preferred) or Windows GPU | Isaac Lab environments, PPO training, Infinigen scene generation, synthetic-data pipeline, Isaac Sim ROS 2 bridge, sim-in-the-loop harness | [README](source/strafer_lab/README.md) · [Install](source/strafer_lab/README.md#install) · [Run](source/strafer_lab/README.md#run) |
 | `strafer_shared` | both | Physical constants, mecanum kinematics, policy I/O contract (the sim-to-real boundary) | — (library; no install of its own) |
-| `strafer_ros` | Jetson Orin Nano | ROS 2 driver, perception, SLAM, Nav2, URDF, bringup launches, shared ROS interface types | [README](source/strafer_ros/README.md) · [Install](source/strafer_ros/README.md#install) · [Run](source/strafer_ros/README.md#run) |
+| `strafer_ros` | Jetson Orin NX | ROS 2 driver, perception, SLAM, Nav2, URDF, bringup launches, shared ROS interface types | [README](source/strafer_ros/README.md) · [Install](source/strafer_ros/README.md#install) · [Run](source/strafer_ros/README.md#run) |
 | `strafer_autonomy` | Jetson (executor + CLI) + DGX (planner service) | Mission planning, mission execution, shared schemas, service clients, semantic spatial map | [README](source/strafer_autonomy/README.md) · [Install](source/strafer_autonomy/README.md#install) · [Run](source/strafer_autonomy/README.md#run) |
 | `strafer_vlm` | DGX Spark | Qwen2.5-VL grounding / description / multi-object detection service + LoRA fine-tuning tooling | [README](source/strafer_vlm/README.md) · [Install](source/strafer_vlm/README.md#install) · [Run](source/strafer_vlm/README.md#run) |
 
@@ -81,7 +81,7 @@ paths for each host.
 ## Architecture
 
 ```text
-Jetson Orin Nano (robot)                   DGX Spark (workstation)
+Jetson Orin NX (robot)                     DGX Spark (workstation)
 ──────────────────────────                 ──────────────────────────
 strafer_ros                                strafer_vlm (:8100)
   ├─ strafer_driver    (RoboClaws)          ├─ POST /ground
@@ -122,7 +122,7 @@ limit for the bridged camera streams, not a free channel — see
 | Component | Model | Purpose |
 |---|---|---|
 | Workstation | NVIDIA DGX Spark (Grace ARM64 + Blackwell GB10, 128 GB unified memory) | Isaac Lab / Sim, VLM + planner services, synthetic-data pipeline |
-| Robot compute | Jetson Orin Nano (JetPack 6.2, L4T R36.5.0) | ROS 2 runtime, executor, Nav2, SLAM |
+| Robot compute | Jetson Orin NX 16 GB (L4T R36.4.3) | ROS 2 runtime, executor, Nav2, SLAM |
 | Camera | Intel RealSense D555 | RGB 640×360 + aligned depth + BMI055 IMU |
 | Motors | 4× GoBilda 5203 Yellow Jacket (19.2:1, 537.7 PPR) | Mecanum drive |
 | Motor controllers | 2× RoboClaw ST 2x45A | USB serial, dual-controller addressing (0x80 / 0x81) |
@@ -149,7 +149,7 @@ Sim2RealLab/
     ├── SYSTEM_FLOW_DIAGRAMS.md          # cross-package runtime flow reference
     ├── SIM_TO_REAL_TUNING_GUIDE.md      # deep-dive actuator + sensor alignment
     ├── WIRING_GUIDE.md                  # motor + encoder + RoboClaw + Jetson wiring
-    ├── D555_IMU_KERNEL_FIX.md           # Tegra kernel module build for D555 IMU
+    ├── D555_IMU_KERNEL_FIX.md           # Tegra kernel modules for the D555: IMU and per-frame metadata
     ├── INTEGRATION_SIM_IN_THE_LOOP.md    # cross-host bridge runbook (DGX + Jetson)
     ├── example_commands_cheatsheet.md   # one-liners operators copy-paste during ops
     ├── tasks/                           # one-shot Jira-style task briefs for follow-on work
@@ -235,7 +235,7 @@ python -m pip install -e "source/strafer_vlm[qwen,live,service]"
 
 Windows does not run the planner / VLM services or Isaac Sim on ARM, but it works for PPO training and live VLM evaluation.
 
-### Jetson Orin Nano
+### Jetson Orin NX
 
 The Jetson checks the repo out at `~/workspaces/Sim2RealLab` — note the
 lowercase, plural `workspaces`, distinct from the DGX's `~/Workspace`.
@@ -263,7 +263,7 @@ sudo udevadm control --reload-rules && sudo udevadm trigger
 
 From the repo root, `make build` runs the colcon build and `make udev` installs rules.
 
-**D555 IMU on Tegra:** Jetson's Tegra kernel does not ship `CONFIG_HID_SENSOR_HUB`, so the D555 IMU is invisible until the five missing kernel modules are built out-of-tree. The full build recipe is in [`docs/D555_IMU_KERNEL_FIX.md`](docs/D555_IMU_KERNEL_FIX.md) — do it once per kernel upgrade.
+**D555 on Tegra:** Jetson's Tegra kernel ships without `CONFIG_HID_SENSOR_HUB` and without a D555 entry in `uvcvideo`, so the D555's IMU is invisible and its per-frame metadata never reaches librealsense (frozen stamps, doubled depth, no aligned depth) until six modules are built out-of-tree: the five HID-sensor modules and a `uvcvideo` carrying librealsense's metadata patch. The recipe is in [`docs/D555_IMU_KERNEL_FIX.md`](docs/D555_IMU_KERNEL_FIX.md) — redo it on every kernel upgrade, and remove the old modules before one.
 
 ## Run
 
@@ -426,7 +426,7 @@ Cross-package docs:
 - [`docs/tasks/`](docs/tasks/) — Jira-style work-brief queue + context modules
 - [`docs/SIM_TO_REAL_TUNING_GUIDE.md`](docs/SIM_TO_REAL_TUNING_GUIDE.md) — actuator / sensor alignment
 - [`docs/WIRING_GUIDE.md`](docs/WIRING_GUIDE.md) — hardware wiring reference
-- [`docs/D555_IMU_KERNEL_FIX.md`](docs/D555_IMU_KERNEL_FIX.md) — Tegra kernel module build for D555 IMU
+- [`docs/D555_IMU_KERNEL_FIX.md`](docs/D555_IMU_KERNEL_FIX.md) — Tegra kernel module build for the D555: HID-sensor modules (IMU) and a `uvcvideo` with the D555 metadata entry
 
 External references:
 

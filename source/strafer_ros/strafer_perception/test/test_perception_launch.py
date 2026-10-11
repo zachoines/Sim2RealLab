@@ -84,3 +84,11 @@ class TestRealsenseFilterContract:
             f"installed rs_launch.py no longer declares {name!r}; the value "
             "perception.launch.py pins for it would be silently dropped"
         )
+
+    def test_no_dropped_global_time_arguments(self, rs_launch_args):
+        # rs_launch.py does not declare these, so a value would be dropped and
+        # read as if it applied.
+        for name in ("depth_module.global_time_enabled",
+                     "rgb_camera.global_time_enabled",
+                     "motion_module.global_time_enabled"):
+            assert name not in rs_launch_args

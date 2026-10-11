@@ -1,6 +1,6 @@
 # strafer_ros
 
-ROS 2 runtime for the Strafer robot on the Jetson Orin Nano — motor driver, perception, SLAM, navigation, URDF, shared ROS interfaces, and bringup launches.
+ROS 2 runtime for the Strafer robot on the Jetson Orin NX — motor driver, perception, SLAM, navigation, URDF, shared ROS interfaces, and bringup launches.
 
 `strafer_ros` is the robot-local execution layer. It owns every
 safety-critical and real-time concern: wheel commands, odometry,
@@ -18,9 +18,9 @@ talks to these packages through ROS topics, services, and actions.
 |---|---|---|
 | `strafer_msgs` | Interface (action/srv) | Shared ROS interface types: `ExecuteMission.action`, `GetMissionStatus.srv`, `ProjectDetectionToGoalPose.srv` |
 | `strafer_driver` | Python | RoboClaw motor control, odometry, joint states, watchdog |
-| `strafer_perception` | Python | RealSense D555 timestamp correction, depth downsampling, IMU filter, goal projection service |
+| `strafer_perception` | Python | RealSense D555 `*_sync` relay (stamps passed through), depth downsampling, IMU filter, goal projection service |
 | `strafer_description` | URDF + Python | Robot URDF, `robot_state_publisher`, TF frames |
-| `strafer_slam` | Launch / config | RTAB-Map SLAM + `depthimage_to_laserscan` (no custom nodes) |
+| `strafer_slam` | Launch / config | RTAB-Map SLAM + `depth_to_pointcloud` → `pointcloud_to_laserscan` (no custom nodes) |
 | `strafer_navigation` | Launch / config + Python | Nav2 with MPPI holonomic controller; `start_cell_planner_selector` names the planner for the navigate-to-pose BT from the robot's own costmap cell |
 | `strafer_inference` | Python | Trained-policy execution: `inference_node` (obs assembly, ONNX/TorchScript load, `navigate_to_pose` action server, six-source watchdog, L1 velocity clamp) + `subgoal_generator_node` (mission-anchored path + rolling subgoal cursor over Nav2-planned paths) for the `strafer_direct` / `hybrid_nav2_strafer` backends; diagnostic parity CLIs under `scripts/` |
 | `strafer_bringup` | Launch-only | Layered composition: `base` → `perception` → `slam` → `navigation` → `autonomy` |
@@ -36,10 +36,10 @@ Sibling packages it interacts with:
 ## What ships today
 
 - **RoboClaw driver** (`strafer_driver/roboclaw_node.py`) — single-threaded executor, 50 Hz timer for all serial I/O, auto-writes PID/QPPS from `strafer_shared.constants` at startup, dual-controller addressing (0x80 front, 0x81 rear), `/cmd_vel` → per-wheel mecanum IK, 500 ms watchdog.
-- **RealSense D555 stack** (`strafer_perception/`) — launch wiring for the RealSense ROS 2 node (stream profiles, depth alignment, and the four post-processing filters off plus depth auto-exposure on, pinned as `rs_launch.py` arguments and asserted by `test_perception_launch.py`), `timestamp_fixer` (fixes Tegra USB clock drift), `depth_downsampler` (640×360 depth → 80×45 float32 meters; diagnostic, not the policy input), `imu_filter_madgwick` for filtered `/d555/imu/filtered`.
+- **RealSense D555 stack** (`strafer_perception/`) — launch wiring for the RealSense ROS 2 node (stream profiles, depth alignment, and the four post-processing filters off plus depth auto-exposure on, pinned as `rs_launch.py` arguments and asserted by `test_perception_launch.py`), `timestamp_fixer` (relays colour and aligned depth as the `*_sync` topics, stamps unchanged), `depth_downsampler` (640×360 depth → 80×45 float32 meters; diagnostic, not the policy input), `imu_filter_madgwick` for filtered `/d555/imu/filtered`.
 - **Goal projection service** (`strafer_perception/goal_projection_node.py`) — implements `ProjectDetectionToGoalPose.srv`: VLM bbox (Qwen normalized `[0, 1000]`) → pixel → depth lookup (5×5 median) → 3D camera frame → TF to map → standoff offset → reachability check.
 - **URDF + TF tree** (`strafer_description/`) — URDF with chassis, 4 wheels, and `d555_link`; `robot_state_publisher` broadcasts `base_link → {chassis, wheels, d555_link}` from joint states and URDF.
-- **RTAB-Map SLAM** (`strafer_slam/`) — launch composition for `depthimage_to_laserscan` (virtual 2D scan from aligned depth) + `rtabmap` (RGB-D SLAM with odom + IMU fusion, 2 Hz detection rate, 5 cm grid).
+- **RTAB-Map SLAM** (`strafer_slam/`) — launch composition for `depth_to_pointcloud` (point cloud from aligned depth) + `pointcloud_to_laserscan` (virtual 2D `/scan`, height-filtered in `base_link`) + `rtabmap` (RGB-D SLAM with odom + IMU fusion, 2 Hz detection rate, 5 cm grid).
 - **Nav2 navigation** (`strafer_navigation/`) — launch composition for the full Nav2 stack with MPPI holonomic controller, `Omni` motion model (produces `vx, vy, wz` for mecanum), costmaps patched from `strafer_shared` constants. `start_cell_planner_selector` publishes `planner_selector` from the cost of the robot's own global-costmap cell, so the navigate-to-pose BT admits the inflated-start escape-hatch planner only when the primary planner refuses the start — and logs, rate-limited, whenever it does.
 - **Bringup layers** (`strafer_bringup/launch/`) — 6 launch files that compose progressively: `base` (driver + URDF), `perception` (+ RealSense), `slam` (+ RTAB-Map), `navigation` (+ Nav2), `autonomy` (+ goal projection + executor), and `bringup_sim_in_the_loop` (no real hardware — consumes topics published by the DGX Isaac Sim ROS 2 bridge).
 - **Diagnostic / tuning scripts** (top-level in `source/strafer_ros/`) — RoboClaw PID tuning, RoboClaw direct-drive diagnostics, D555 camera + IMU verification, perception-stack recording, SLAM + motion verification with map-building video output.
@@ -80,10 +80,10 @@ Streaming inputs the autonomy layer and RL runtime consume:
 
 | Topic | Type | Purpose |
 |---|---|---|
-| `/d555/color/image_raw` | `sensor_msgs/Image` | Raw RGB (hardware timestamp) |
-| `/d555/color/image_sync` | `sensor_msgs/Image` | RGB with ROS-clock timestamps (fixed by `timestamp_fixer`) |
+| `/d555/color/image_raw` | `sensor_msgs/Image` | Raw RGB (librealsense global time) |
+| `/d555/color/image_sync` | `sensor_msgs/Image` | RGB relayed by `timestamp_fixer`, stamps unchanged |
 | `/d555/color/camera_info_sync` | `sensor_msgs/CameraInfo` | RGB intrinsics matching `image_sync` |
-| `/d555/aligned_depth_to_color/image_sync` | `sensor_msgs/Image` | Timestamp-fixed aligned depth in RGB frame |
+| `/d555/aligned_depth_to_color/image_sync` | `sensor_msgs/Image` | Aligned depth in the RGB frame, relayed by `timestamp_fixer` |
 | `/d555/aligned_depth_to_color/camera_info_sync` | `sensor_msgs/CameraInfo` | Aligned-depth camera info |
 | `/d555/depth/downsampled` | `sensor_msgs/Image` (32FC1, meters) | 80×45 (diagnostic, not the policy input) |
 | `/d555/imu/filtered` | `sensor_msgs/Imu` | Madgwick-filtered IMU with orientation quaternion |
@@ -179,8 +179,8 @@ source install/setup.bash
 
 Prerequisites:
 
-- Jetson Orin Nano with ROS 2 Humble.
-- RealSense D555 on USB 3 with the IMU stack enabled (see [`docs/D555_IMU_KERNEL_FIX.md`](../../docs/D555_IMU_KERNEL_FIX.md) for the kernel module build required on Tegra kernels).
+- Jetson Orin NX 16 GB (L4T R36.4.3) with ROS 2 Humble.
+- RealSense D555 on USB 3 with the host kernel modules for its IMU and per-frame metadata (see [`docs/D555_IMU_KERNEL_FIX.md`](../../docs/D555_IMU_KERNEL_FIX.md) for the out-of-tree build required on Tegra kernels).
 - Two RoboClaw ST 2x45A controllers wired per [`docs/WIRING_GUIDE.md`](../../docs/WIRING_GUIDE.md).
 - `strafer_shared` and `strafer_autonomy` pip-installed into the ROS Python environment: `pip install -e source/strafer_shared -e source/strafer_autonomy --no-build-isolation`. One `-e` per package (a lone `-e` makes only the first editable); `--no-build-isolation` reuses the host `setuptools`, since the stock Jetson pip 22.0.2 otherwise build-isolates a `setuptools` too old for PEP 660 and the editable install fails with a missing `build_editable` hook.
 - `onnxruntime-gpu` for the `strafer_inference` node's TensorRT/CUDA execution providers — the stock CPU `onnxruntime` silently runs DEPTH inference on CPU (~84 ms, over the 33 ms budget). The CPU and GPU wheels share one install dir, so uninstall the CPU build first: `pip uninstall -y onnxruntime && pip install --index-url https://pypi.jetson-ai-lab.io/jp6/cu126 onnxruntime-gpu==1.23.0` (JetPack 6.2 / CUDA 12.6 → `jp6/cu126`). Verify with `python3 -c "import onnxruntime; print(onnxruntime.get_available_providers())"` (lists `TensorrtExecutionProvider`). Do **not** `pip install` the `nvidia-*-cu12` / `tensorrt` wheels — the Jetson build links the JetPack system CUDA/cuDNN/TensorRT and pip copies conflict.
@@ -203,7 +203,7 @@ From the repo root, `make build` runs the colcon build and `make udev` installs 
 |---|---|
 | `base.launch.py` | driver + description |
 | `perception.launch.py` | base + RealSense + timestamp fixer + depth downsampler + IMU filter |
-| `slam.launch.py` | perception + `depthimage_to_laserscan` + RTAB-Map |
+| `slam.launch.py` | perception + `depth_to_pointcloud` → `pointcloud_to_laserscan` + RTAB-Map |
 | `navigation.launch.py` | slam + Nav2 (MPPI holonomic) |
 | `autonomy.launch.py` | navigation + `goal_projection_node` + `strafer-executor` (needs `VLM_URL` + `PLANNER_URL`) |
 | `bringup_sim_in_the_loop.launch.py` | perception + SLAM + Nav2 + executor + `foxglove_bridge` (default :8765) consuming topics from the DGX Isaac Sim ROS 2 bridge (no real hardware) |
@@ -282,7 +282,7 @@ cat /proc/sys/net/core/rmem_max   # expect 16777216
 
 **The autonomy layer is not a ROS package.** `strafer_autonomy` is a pip-installed Python package that uses `rclpy` at runtime for the command server and ROS client. This keeps the mission runner, schemas, and HTTP clients testable in plain Python environments while still running inside the ROS 2 graph on the Jetson.
 
-**Timestamp-fixed `*_sync` topics are authoritative for grounding and projection.** The RealSense D555 on Tegra USB produces hardware-clock timestamps that drift unpredictably (observed ~44× faster than system clock on Tegra). `timestamp_fixer` re-stamps all four camera topics with the current ROS clock at reception. `approximate_sync`-based consumers (RTAB-Map, `goal_projection_node`) must subscribe to the `*_sync` versions, never to the raw topics.
+**The `*_sync` topics are authoritative for grounding and projection.** `timestamp_fixer` relays the four camera topics as `*_sync` with their stamps unchanged: with the host modules in [`docs/D555_IMU_KERNEL_FIX.md`](../../docs/D555_IMU_KERNEL_FIX.md) the D555 stamps on librealsense's global time, about 25 ms behind receive time, and a frame's image and camera_info share one stamp, which `depth_to_pointcloud`'s exact sync needs. Consumers (RTAB-Map, `depth_to_pointcloud`, `goal_projection_node`, the executor's ROS client) subscribe to the `*_sync` versions, never to the raw topics; the Foxglove layout's colour panels do too.
 
 **URDF is the single source of truth for `base_link → d555_link`.** `strafer_perception` also publishes a static TF of the same transform — a historical wart to be removed. Consumers should treat the URDF transform as authoritative.
 
@@ -330,7 +330,7 @@ Tracked in [`docs/tasks/DEFERRED_WORK.md`](../../docs/tasks/DEFERRED_WORK.md). I
 - [`source/strafer_shared/`](../strafer_shared/) — constants, mecanum kinematics, policy I/O contract. Authoritative for every shared value.
 - [`source/strafer_lab/README.md`](../strafer_lab/README.md) — sim-side counterpart; uses the same shared contract so trained policies transfer unchanged.
 - [`docs/WIRING_GUIDE.md`](../../docs/WIRING_GUIDE.md) — motor + encoder + RoboClaw + Jetson wiring, pinouts, address configuration.
-- [`docs/D555_IMU_KERNEL_FIX.md`](../../docs/D555_IMU_KERNEL_FIX.md) — Tegra-kernel HID sensor module build (mandatory for D555 IMU).
+- [`docs/D555_IMU_KERNEL_FIX.md`](../../docs/D555_IMU_KERNEL_FIX.md) — Tegra-kernel module build for the D555: HID-sensor modules (IMU) and a `uvcvideo` with the D555 metadata entry (advancing stamps, raw-depth repeats down from 50 % to 0.17 %, aligned depth).
 - [`docs/SIM_TO_REAL_TUNING_GUIDE.md`](../../docs/SIM_TO_REAL_TUNING_GUIDE.md) — actuator / sensor alignment procedure pairing this package with `strafer_lab`.
 - [`docs/INTEGRATION_SIM_IN_THE_LOOP.md`](../../docs/INTEGRATION_SIM_IN_THE_LOOP.md) — cross-host bringup runbook (Stage 3 covers `bringup_sim_in_the_loop.launch.py` consuming the DGX bridge).
 - [`docs/tasks/DEFERRED_WORK.md`](../../docs/tasks/DEFERRED_WORK.md) — open items.

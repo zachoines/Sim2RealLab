@@ -38,7 +38,8 @@ re-enumeration). Concretely:
 
 - [`source/strafer_ros/strafer_perception/strafer_perception/timestamp_fixer.py`](../../../../source/strafer_ros/strafer_perception/strafer_perception/timestamp_fixer.py)
   re-stamps every incoming frame and forwards it. Stale frames are
-  forwarded as-is.
+  forwarded as-is. *(2026-10-09: it relays every frame unchanged, stamp included; the
+  re-stamping mode is removed, so a frozen stream keeps its frozen stamps downstream.)*
 - [`source/strafer_ros/strafer_perception/strafer_perception/depth_downsampler.py`](../../../../source/strafer_ros/strafer_perception/strafer_perception/depth_downsampler.py)
   increments a `_frame_count` but never publishes a rate, never logs a
   collapse.

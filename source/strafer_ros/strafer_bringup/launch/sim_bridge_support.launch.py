@@ -49,9 +49,8 @@ def generate_launch_description():
             name="timestamp_fixer",
             output="screen",
             # Simulated depth is already registered to color, so the driver's
-            # aligned topics are fed from the raw depth stream. Stamps already
-            # come off /clock; restamping breaks the exact synchronizer.
-            parameters=[{"use_sim_time": sim_bool, "restamp": False}],
+            # aligned topics are fed from the raw depth stream.
+            parameters=[{"use_sim_time": sim_bool}],
             remappings=[
                 ("/d555/aligned_depth_to_color/image_raw",
                  "/d555/depth/image_rect_raw"),

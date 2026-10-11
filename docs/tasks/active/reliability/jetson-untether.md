@@ -254,6 +254,28 @@ supply.**
   `STRAFER_SLAM_TASK_ID=enrich` (:107), `STRAFER_SLAM_SCENE_TOKEN=rigv3gate1` (:117) and the v3
   artifact path (:42). The SLAM keys are passed through at `docker-compose.yml`:105-106, so a
   real-robot bring-up with them would key RTAB-Map to a sim scene's database.
+- **2026-10-04: the host changed for the camera (record
+  [`d555-stream-integrity-2026-10-04`](../../../measurements/d555-stream-integrity-2026-10-04/README.md)).**
+  - **New modules.** Six out-of-tree modules now sit under
+    `/lib/modules/5.15.148-tegra/updates/strafer-d555/`: the HID-sensor stack for the IMU, and a
+    `uvcvideo` with the D555 metadata entry. They load by alias.
+  - **Who applied it.** The work session ran the root steps over SSH, under the maintainer's
+    remote authorization and against the standing rule that host changes are the maintainer's
+    commands. It was a one-off.
+  - **Masked service.** `iio-sensor-proxy` is masked.
+  - **Container access.** The `perception` service's IIO access (`c 248:*`, a writable
+    `/sys/devices`) is in the tracked compose file.
+  - **`99-strafer.rules`.** It is still not installed, and its IIO line is not needed by the
+    root-run container.
+  - **Untested across a boot.** None of this has been through a reboot or a cold boot yet. The
+    three cold boots under "Cutover and cold boot" should confirm that
+    `/sys/module/uvcvideo/srcversion` reads `D0E2A5944399A529814A98C`, that the HID interface
+    binds `hid-sensor-hub`, and that `iio-sensor-proxy` is still masked.
+  - **Kernel upgrades.** An `nvidia-l4t-kernel` upgrade within R36.4.x would keep the rebuilt
+    `uvcvideo` shadowing the new kernel's own, or, if a symbol it imports changed CRC, leave it
+    unloadable with no fallback and the camera without `/dev/video*`. Remove the modules first
+    (`docs/D555_IMU_KERNEL_FIX.md`).
+
 
 ### Mass and camera mount
 
@@ -421,6 +443,12 @@ one it replaces comes out.
       the cable pulled, or a written boot procedure that avoids the failure.
 - [ ] The robot is carried through the range survey's 12 m span in a deployment room with SSH and
       the viewer staying up. The RSSI and round-trip time at the far end are recorded.
+- [ ] The `perception` service's writable sysfs bind is narrowed from `/sys/devices` to the
+      camera's xHCI controller, `/sys/devices/platform/bus@0/3610000.usb` (the IIO devices'
+      realpath in the 2026-10-04 record's perception logs), and the IMU still publishes after a
+      cold boot and after a replug. The full bind lets the container write every host device
+      attribute; it was accepted on 2026-10-04 as a conscious grant until the chassis work
+      touches the host anyway.
 - [ ] The rescue path is written down: which cable to plug back in, and what then works. The
       wall-modem profile autoconnects with no interface binding; the direct-link profile is bound
       to `enP7p1s0`.
@@ -447,6 +475,11 @@ one it replaces comes out.
       cheatsheet. The docs, `.env.example` and `Makefile` items are DGX-lane files.
 
       `enriched-lane-rig-stability.md`:226-227 is superseded there, with a pointer here.
+
+      *2026-10-05 (#236): `Readme.md`:72, :84 and :125 and `source/strafer_ros/README.md`:3 and
+      :182 now name the host as the Orin NX, with 16 GB and L4T R36.4.3 at `Readme.md`:125 and
+      `source/strafer_ros/README.md`:182. Their other topology statements still wait for
+      cutover.*
 - [x] The reboot hazard to the camera and the stale clock at boot are recorded where an operator
       reads before powering the robot off.
       *Met 2026-09-27 (PR #233): `source/strafer_ros/README.md` "Hardware / addressing" states the

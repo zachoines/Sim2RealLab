@@ -1,5 +1,8 @@
 # Keep the inference node's mission-end stop the last command it sends for a goal
 
+**Status:** Shipped 2026-10-10 in `2af556b` (Jetson).
+**PR:** https://github.com/zachoines/Sim2RealLab/pull/238
+
 **Type:** bug (safety: `/cmd_vel` ordering at the end of a trained-policy goal)
 **Owner:** Jetson (`strafer_inference`)
 **Priority:** P1 — before the real-lane gate. The base driver repeats the last `/cmd_vel` until
@@ -16,11 +19,11 @@ that goal**, so that **a goal that has ended cannot leave the robot moving.**
 
 ## Context bundle
 
-- [context/repo-topology.md](../../context/repo-topology.md)
-- [context/ownership-boundaries.md](../../context/ownership-boundaries.md)
-- [context/conventions.md](../../context/conventions.md)
-- [context/branching-and-prs.md](../../context/branching-and-prs.md)
-- [measurements/goal-a-cli-video-2026-10-09](../../../measurements/goal-a-cli-video-2026-10-09/README.md)
+- [context/repo-topology.md](../context/repo-topology.md)
+- [context/ownership-boundaries.md](../context/ownership-boundaries.md)
+- [context/conventions.md](../context/conventions.md)
+- [context/branching-and-prs.md](../context/branching-and-prs.md)
+- [measurements/goal-a-cli-video-2026-10-09](../../measurements/goal-a-cli-video-2026-10-09/README.md)
   — the mission that showed it (L2).
 
 ## Context
@@ -110,26 +113,26 @@ messages:
 
 ## Acceptance criteria
 
-- [ ] **The race, as a test.** A test in `strafer_inference/test/test_inference_runtime.py`
+- [x] **The race, as a test.** A test in `strafer_inference/test/test_inference_runtime.py`
       starts a goal on its own thread, as the action server does. It ends the goal from inside
       the policy call, between the tick's watchdog check and its publish, and asserts that the
       last `/cmd_vel` is a stop. It fails on `main`, and the PR shows that output.
-- [ ] **A plain end.** A goal that ends between ticks publishes exactly one stop, after the
+- [x] **A plain end.** A goal that ends between ticks publishes exactly one stop, after the
       policy's action, and the idle tick after it publishes nothing.
-- [ ] **Preemption.** A tick in flight across a preemption publishes its action and no stop.
-- [ ] **A successor that ends first.** A goal that ends while the goal it preempted is still in
+- [x] **Preemption.** A tick in flight across a preemption publishes its action and no stop.
+- [x] **A successor that ends first.** A goal that ends while the goal it preempted is still in
       its loop leaves its stop as the only command; a tick in between publishes nothing. The test
       fails on `main`.
-- [ ] `make test-ros` passes, read from each package's JUnit XML.
-- [ ] **On the sim-bridge lane.** One CLI mission is run with the fixed node, and its last
+- [x] `make test-ros` passes, read from each package's JUnit XML.
+- [x] **On the sim-bridge lane.** One CLI mission is run with the fixed node, and its last
       `/cmd_vel` in the observer's `series.cmd` is the zero twist. The check is descriptive: one
       mission cannot show the race is gone, which is the test's job. It is recorded on the video
       record or in a sibling record, with its files deposited.
-- [ ] If your work invalidates a fact in any referenced context module, package README,
+- [x] If your work invalidates a fact in any referenced context module, package README,
       top-level `Readme.md`, or guide under `docs/`, update those in the same commit. See
-      [`conventions.md`'s user-facing documentation maintenance section](../../context/conventions.md#user-facing-documentation-maintenance)
+      [`conventions.md`'s user-facing documentation maintenance section](../context/conventions.md#user-facing-documentation-maintenance)
       for the surface list and trigger heuristics.
-- [ ] No regression in the policy backends' goal handling: the existing goal-flag, reset and
+- [x] No regression in the policy backends' goal handling: the existing goal-flag, reset and
       preemption tests in `test_inference_runtime.py` pass with their assertions unchanged.
 
 ## Investigation pointers

@@ -6,6 +6,7 @@ correct step ordering, timeouts, retry limits, and skill arguments.
 
 from __future__ import annotations
 
+import re
 import time
 import uuid
 from typing import Callable
@@ -28,6 +29,14 @@ _STEPS_PER_TARGET = 5
 # threshold where MPPI's critic landscape resolves into a strafe-
 # while-turn on a mecanum chassis. ~5° in radians.
 _ALIGN_TOLERANCE_RAD = 0.087
+
+# Direction words that fix a translate component's sign (+x forward,
+# +y left). The LLM can drop the sign of a lateral component when the
+# command names two axes, so the command's words decide it.
+_FORWARD_WORDS = frozenset({"forward", "forwards", "ahead"})
+_BACKWARD_WORDS = frozenset({"backward", "backwards", "back"})
+_LEFT_WORDS = frozenset({"left"})
+_RIGHT_WORDS = frozenset({"right"})
 
 
 class CompilationError(Exception):
@@ -153,6 +162,20 @@ def _compile_status(intent: MissionIntent) -> list[SkillCall]:
     ]
 
 
+def _signed_from_command(
+    value: float, words: set[str], positive: frozenset[str], negative: frozenset[str],
+) -> float:
+    """Give a translate component the sign the command's own words name.
+
+    Applies only when the command names exactly one direction on that
+    axis; otherwise the LLM's value passes through unchanged.
+    """
+    has_pos, has_neg = bool(words & positive), bool(words & negative)
+    if value == 0.0 or has_pos == has_neg:
+        return value
+    return abs(value) if has_pos else -abs(value)
+
+
 def _compile_translate(intent: MissionIntent) -> list[SkillCall]:
     """Compile a translate intent into a single relative-motion step.
 
@@ -165,6 +188,9 @@ def _compile_translate(intent: MissionIntent) -> list[SkillCall]:
     if intent.translation_xy is None:
         raise CompilationError("translate requires translation_xy.")
     dx, dy = intent.translation_xy
+    words = set(re.findall(r"[a-z]+", intent.raw_command.lower()))
+    dx = _signed_from_command(dx, words, _FORWARD_WORDS, _BACKWARD_WORDS)
+    dy = _signed_from_command(dy, words, _LEFT_WORDS, _RIGHT_WORDS)
     return [
         SkillCall(
             step_id="step_01",

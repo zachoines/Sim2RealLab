@@ -178,6 +178,44 @@ executor turns the robot inside its `translate` skill before it sends the policy
   missions. L2's final distance is 0.2995 m in the map frame and 0.157 m in its own start frame
   (`analysis/reach_terminal.stdout`).
 
+## Later check: the stop after a goal
+
+L2's twist after the result led to `inference-post-goal-stop-race`. That fix makes the stop the
+inference node publishes when a goal ends the last command it sends for that goal. On 2026-10-10
+(CDT), one more CLI mission checked it on this lane. The check is descriptive: one mission end
+cannot show that the race is gone, which is what the fix's unit tests are for.
+
+- **Setup.**
+  - Images were built at `f4d9cb2`. The fix's `inference_node.py` (sha256 `a7c43f0e…`) was
+    mounted read-only over the image's installed copy, and its sha256 inside the container matched
+    (`stop-race-check/stage0/branch_node_mount.txt`). `node/SOURCE.txt` names `c712b42`, a commit that
+    never reached the repository: it was amended, in its tests and a docstring only, into the fix's
+    work commit, whose `inference_node.py` is this file.
+  - The bridge ran headless, with no livestream, from the sim host's checkout at `3b13ffa`, as in
+    the scored CLI set. SLAM had a new scene token.
+  - The CLI set's `run_cli_one.sh` and `cli_mission.py` ran unchanged
+    (`stop-race-check/stage0/harness_sha256.txt`).
+- **The mission.**
+  - From the measured start, the observer formed "move 3.063 meters forward and 0.088 meters left"
+    for G1's goal (−2.00, 2.25). The planner dry-check compiled it to one `translate` step matching
+    to 0.001 m (`stop-race-check/runs/G1.plancheck.out`), and it was submitted once.
+  - The node's 0.30 m gate fired: SUCCEEDED at t_sim 36.375, 5.79 s sim after the goal was sent,
+    0.286 m from the goal by TF. The CLI reported `succeeded`, and RTF was 0.125.
+  - The wrapper's first attempt refused the transit while SLAM's warm-up spin was still running,
+    and nothing was submitted (`stop-race-check/runs/stale/`).
+- **The last two commands** (`series.cmd` in `stop-race-check/runs/container_gate/G1.json`):
+
+  | t_sim (s) | t_wall (s) | vx | vy | wz |
+  |---|---|---|---|---|
+  | 36.375 | 1791683143.928 | +0.040 | +0.025 | +0.105 |
+  | 36.375 | 1791683143.973 | 0 | 0 | 0 |
+
+  - The zero is the last of 175 messages. SUCCEEDED reached the observer 6.4 ms after it.
+  - Nothing more arrived in the 0.5 s of sim time the observer kept listening, and in that time
+    the robot moved 0.003 m (`final_tf` and `settled_tf` in `G1.progress.jsonl`).
+  - The only other zero in the series is its first message, at the goal's first tick (t_sim
+    30.600).
+
 ## Evidence — deposit
 
 | | |
@@ -367,4 +405,70 @@ bcb668c620e2cf2116b6e017e01d9fa9cadcb228c603f6cb46c9a2e7de726e93  video/L2_third
 5f6d7e705f6d9fcdf481be203723a8653505eb7dd18f059db6b5abb52cceccc5  video/L2_third_person.mp4.part-01
 b3da1756f2d7771c82b8dafeb65129217ece9899cf40af0969d93d2088ed19f5  video/L2_third_person.mp4.part-02
 331cdefe529166f023849dcf21c45fa1fa45b66b6440275773c4ef35339b8adb  video/L2_third_person_8x.mp4
+```
+
+The later check (§ Later check) has its own deposit, beside `record-files/`. It holds the mission's
+files, the five containers' logs, the sim host's logs, the stack checks, the node file that was
+mounted, and the session scripts. Its paths are the ones the section names under `stop-race-check/`.
+Six of its text files had rig network addresses replaced with placeholders, and its `DEPOSIT.md`
+lists them.
+
+| | |
+|---|---|
+| repository | https://github.com/zachoines/Sim2RealLab-Artifacts |
+| deposit directory | `goal-a-cli-video-2026-10-09/stop-race-check/` |
+| deposit commit | `391bc3dbe1540128288841ace7f4f9b9e027a550` |
+
+```
+cd Sim2RealLab-Artifacts/goal-a-cli-video-2026-10-09/stop-race-check
+grep -E '^[0-9a-f]{64}  ' DEPOSIT.md | sha256sum -c -
+```
+
+sha256 of every file in that deposit:
+
+```
+70e6603bebafd22e3872d382f5f624d4bb49b8816ef3989298601c31d700ff80  logs/G1.runner.out
+af402b5cbf66384e3b247dbca6cc1afac691ca94a78a37bb94c7c20ad8837680  logs/dgx/race_check_bridge.log
+120590a338d1076e6321523c3e4998292d59038c0b99169af1169d7010f42250  logs/dgx/race_check_envsetup.log
+c9c6b82207fa7ce314957dcae9eee1c5625a32ad2dacaa2bf87199e2427f9d2f  logs/dgx/race_check_serve_planner.log
+ec4ef2bb6bbd7858ae8dfc356c7fe61e5795f16be52685a51006acbc4f3a6b0d  logs/dgx/race_check_serve_vlm.log
+10e1fad6c96a0879f3d7a0c92a0fe60b0157f0f0695e9d3e54a839c8c7d1efed  logs/strafer_autonomy.log
+448ee835a688af31220e72c1f0589704126747444167d1f8deb8b788d925a87c  logs/strafer_inference.log
+6ad32144751815193c2c786ae59cf4c3ab17e61ebffc8ca632eb0239d64c8b63  logs/strafer_navigation.log
+d1b144f212f27a2b452e5553bf64dfe69d91865e677b1cbfd15ff78a429d582d  logs/strafer_sim_perception.log
+5750e62ce4f6101c4f9ec8b8a0b20b0f3530d96ea9c0ff4e4728936a6f90f03f  logs/strafer_slam.log
+b9859b12bc3e24fa341f4d5f0baa14625547957fed646bd895e07fc96c09ec85  logs/up_t0.txt
+2f9b7c63e421b3cf424020ec215bc1fd423913efee802ac831a03ddaa1817912  node/SOURCE.txt
+928584b11bb18573163bce508d0fe925bf96689d8a33e12ff4a203f7a87b3215  node/inference-branch-node.yml
+a7c43f0ec7a6e9131dc57979fce011ffa342e3f9127c7378a81df9523f390c27  node/inference_node.py
+2c88b6be206dff2805ea4c6b90df75c2f88c142015efaf18e2517139c3257368  runs/G1.cli.meta
+ac6293f6f3c1b458c2acf2dcb7262d73c40a17ef9a3e6933821eb453d642bdc1  runs/G1.cli.out
+254b3f8815407756101bc7f74149d74b086ea5a7cba8fe3d921ef3417d75ecfe  runs/G1.cmd
+b9f8a6cf169bcf88cf4b2485273a65a452a70379fa5081edd7d39c61851d06f9  runs/G1.cmd.json
+e13acd17c2814661b4a436c31d625006b2024c6e790dc25ab06c34c540c47322  runs/G1.done
+d88dfe72562b47dd85ff0ba0b87fa7fb69b49c45c95ee62170cd87b9e7977728  runs/G1.plancheck.out
+048f8fa8651e6cb70bcbbf24053738dd295b2750c2cfc55b21a79a3ed247044c  runs/G1.run.log
+aa5c494df99d56d22a6e5290ae9f85d0f2d1470060d9737cb885fbf9602b7e62  runs/G1.to_start.out
+e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855  runs/container_gate/G1.cli_exited
+254b3f8815407756101bc7f74149d74b086ea5a7cba8fe3d921ef3417d75ecfe  runs/container_gate/G1.cmd
+b9f8a6cf169bcf88cf4b2485273a65a452a70379fa5081edd7d39c61851d06f9  runs/container_gate/G1.cmd.json
+d49e8ccfcd4f89e13aa4e8a4edd1cbff7554ac067c6c83b90ea8f82680f6a3dc  runs/container_gate/G1.json
+6e34f9c102e9e96ae0b7a63d75402edee194c079a9b152c379b6b1aee7fbfd47  runs/container_gate/G1.mission.out
+b7c8f69c72f19df5586bd776d0ee65a923947cdc059f1afe8f04308c91cacf9f  runs/container_gate/G1.progress.jsonl
+f032002edabea5ecaf61fabbc8e54c2ccebf0aba4f407eba82fdcf979ba6fda7  runs/container_gate/G1.to_start.json
+1887af96048ec0b2b7d4f40e902ae995ac229dada8c89fce10152ddd41aa5018  runs/container_gate/G1.to_start.json.1791682993.bak
+4c7a35b450599f84c491cf0391e3881640bd7d2dead09a0a5e3bb85d7b41f20d  runs/container_gate/G1.to_start_retry.json.1791682993.bak
+1887af96048ec0b2b7d4f40e902ae995ac229dada8c89fce10152ddd41aa5018  runs/stale/G1.1791682993/G1.to_start.json
+4c7a35b450599f84c491cf0391e3881640bd7d2dead09a0a5e3bb85d7b41f20d  runs/stale/G1.1791682993/G1.to_start_retry.json
+1f2a0c7488360cc93b37ab9f8722d14626ded131f8b38951257682353eb9418f  session/dgx.sh
+01dd2122d7792b97ce9fa659b87e228e581db1ed6d853b0aa71b47abf1134dfd  session/nx_up.sh
+b2c844e03d49c732caf401ee2d64fbe719706e29268b758f3f60d8e5423e2fdf  session/stage0.sh
+56a8f737a4b8bd7ea896cf5b74bbddb182a8ea97a1a71367e727af9a69bebc8c  stage0/branch_node_mount.txt
+417bcc69cead7640131a17e18eb4fc32acf2c4a366c12df9afd8b0a6a8da546f  stage0/cyclone_pin_in_containers.txt
+4cd3d7d109052a590ec7b14ea85f04f47fdea3347f95c49881d9c84a23ff33f0  stage0/depth_topic_info.txt
+444799f8a4350d1d583c97376492acbdea341185a149579928d11a11857d5721  stage0/executor_checks.txt
+b71742135d69d60246c4915070b63531d520186f59ac210548b9b171a2d14fc3  stage0/harness_sha256.txt
+eb27c037af35660f22b9995ad03e1d951e6608c641e1f4f85c1886b00e511509  stage0/images.txt
+1c02c451570c13854c8d5979300ddb24bf03c2946569d4dbf1ee2fc29b33eb68  stage0/in_container_artifact_checks.txt
+f10ddb17a0bd8765aa3ed5d9af9d289b329c29417741484459ffa4c776b9e8a2  stage0/service_health.txt
 ```

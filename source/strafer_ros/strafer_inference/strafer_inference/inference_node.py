@@ -62,7 +62,7 @@ silently infer on the wrong frame. Goal state is written under the goal
 lock by the accept and execute callbacks; the tick reads goal presence
 and the stop epoch together under it, and compares the epoch under it
 again at its publish, so a tick that read goal state before a
-mission-end stop publishes nothing after it. Every other cached source
+mission-end stop publishes no action after it. Every other cached source
 is written by a callback in the default mutex group, serialized against
 the tick.
 """
@@ -1031,8 +1031,8 @@ class InferenceNode(Node):
             goal_handle.abort()
             return NavigateToPose.Result()
         finally:
-            # A tick that read goal state before this stop publishes nothing
-            # after it.
+            # A tick that read goal state before this stop publishes no
+            # action after it.
             with self._goal_count_lock:
                 self._active_goal_count -= 1
                 # Explicit stop on mission end: consumers hold the last
@@ -1117,8 +1117,8 @@ class InferenceNode(Node):
             self._counts["skip_watchdog"] += 1
             for src in stale:
                 self._stale_counts[src] = self._stale_counts.get(src, 0) + 1
-            # Live, not the snapshot: a goal that has ended since takes the
-            # idle branch.
+            # Live, not the snapshot: if no goal is executing now, the tick
+            # takes the idle branch.
             if self._goal_active:
                 # A mission is executing but a source is stale — a real
                 # fault (e.g. the subgoal stream stopped). Throttled so a
@@ -1216,8 +1216,8 @@ class InferenceNode(Node):
                 self._last_action = action
                 self._cmd_vel_pub.publish(twist)
         if goal_ended:
-            # The goal this action was for has ended and published its stop,
-            # which stays the last command until the next goal.
+            # The goal this action was for has ended and published its stop;
+            # this tick leaves that stop as the last command.
             self._counts["skip_goal_ended"] += 1
 
         # Diagnostic dump strictly after the publish so it cannot delay control.

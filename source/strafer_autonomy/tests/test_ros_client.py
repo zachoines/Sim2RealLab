@@ -1908,6 +1908,81 @@ class TestNavigateToPoseDispatch(unittest.TestCase):
             self.assertIn("falling back to nav2", warned)
 
 
+class TestNavigateToPoseDeadlineRouting(unittest.TestCase):
+    """``policy_timeout_s`` reaches only a goal a policy backend executes;
+    Nav2 — selected, or as the per-mission fallback — keeps ``timeout_s``.
+    """
+
+    _GOAL = Pose3D(x=3.1, y=0.0, z=0.0, qx=0, qy=0, qz=0, qw=1)
+
+    def _client_recording(self, *, policy_result):
+        client = _make_client()
+        seen: dict[str, float | None] = {}
+
+        def _ok(**kw):
+            return SkillResult(
+                step_id=kw["step_id"], skill="navigate_to_pose",
+                status="succeeded", started_at=0.0, finished_at=0.0,
+            )
+
+        def fake_policy(name):
+            def _run(**kw):
+                seen[name] = kw["timeout_s"]
+                return _ok(**kw) if policy_result else None
+            return _run
+
+        def fake_nav2(**kw):
+            seen["nav2"] = kw["timeout_s"]
+            return _ok(**kw)
+
+        client._navigate_via_hybrid = fake_policy("hybrid")  # type: ignore
+        client._navigate_via_strafer_direct = fake_policy("direct")  # type: ignore
+        client._navigate_via_nav2 = fake_nav2  # type: ignore
+        return client, seen
+
+    def test_policy_backends_get_policy_deadline(self) -> None:
+        for backend, key in (
+            ("hybrid_nav2_strafer", "hybrid"), ("strafer_direct", "direct"),
+        ):
+            with self.subTest(backend=backend):
+                client, seen = self._client_recording(policy_result=True)
+                client.navigate_to_pose(
+                    step_id="d1", goal_pose=self._GOAL,
+                    execution_backend=backend,
+                    timeout_s=12.9, policy_timeout_s=65.0,
+                )
+                self.assertEqual(seen, {key: 65.0})
+
+    def test_nav2_ignores_policy_deadline(self) -> None:
+        client, seen = self._client_recording(policy_result=True)
+        client.navigate_to_pose(
+            step_id="d2", goal_pose=self._GOAL, execution_backend="nav2",
+            timeout_s=12.9, policy_timeout_s=65.0,
+        )
+        self.assertEqual(seen, {"nav2": 12.9})
+
+    def test_fallback_to_nav2_keeps_nav2_deadline(self) -> None:
+        for backend, key in (
+            ("hybrid_nav2_strafer", "hybrid"), ("strafer_direct", "direct"),
+        ):
+            with self.subTest(backend=backend):
+                client, seen = self._client_recording(policy_result=False)
+                client.navigate_to_pose(
+                    step_id="d3", goal_pose=self._GOAL,
+                    execution_backend=backend,
+                    timeout_s=12.9, policy_timeout_s=65.0,
+                )
+                self.assertEqual(seen, {key: 65.0, "nav2": 12.9})
+
+    def test_without_policy_deadline_policy_backends_use_timeout_s(self) -> None:
+        client, seen = self._client_recording(policy_result=True)
+        client.navigate_to_pose(
+            step_id="d4", goal_pose=self._GOAL,
+            execution_backend="hybrid_nav2_strafer", timeout_s=12.9,
+        )
+        self.assertEqual(seen, {"hybrid": 12.9})
+
+
 class TestNavigateViaHybridInternals(unittest.TestCase):
     """Direct coverage of _navigate_via_hybrid: the two-stage server
     fallback and the planner-only trigger contract (dispatch-level routing

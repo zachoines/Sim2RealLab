@@ -30,6 +30,7 @@ from sensor_msgs.msg import Image
 
 from strafer_shared.constants import (
     GOAL_ARRIVAL_RADIUS_M, PERCEPTION_HEIGHT, PERCEPTION_WIDTH,
+    POLICY_MISSION_TIMEOUT_S,
 )
 
 from strafer_inference.inference_node import (
@@ -818,6 +819,16 @@ class TestResetTriggers(unittest.TestCase):
             self.assertEqual(
                 node._goal_reached_distance_m, GOAL_ARRIVAL_RADIUS_M
             )
+        finally:
+            node.destroy_node()
+
+    def test_mission_timeout_defaults_to_shared_policy_bound(self) -> None:
+        """The node's completion bound defaults to the shared
+        POLICY_MISSION_TIMEOUT_S, which the executor sizes its
+        policy-backend navigate budget from."""
+        node, _fake = self._make_node_with_policy()
+        try:
+            self.assertEqual(node._mission_timeout_s, POLICY_MISSION_TIMEOUT_S)
         finally:
             node.destroy_node()
 

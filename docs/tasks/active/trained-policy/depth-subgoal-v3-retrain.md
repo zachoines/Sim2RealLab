@@ -140,9 +140,14 @@ camera can render a command marker.
       The record also carries the reaches' terminal behaviour and a stable-frame distance for
       every run: in stable frames R1 and L1 hold under every frame definition, G1 and L2 sit at
       the line depending on the frame, and the fixed leg reads 2 of 3. Goal-a's "via the autonomy CLI" clause stays open until
-      [`executor-policy-nav-budget`](../reliability/executor-policy-nav-budget.md) lands and a
+      [`executor-policy-nav-budget`](../../completed/executor-policy-nav-budget.md) lands and a
       CLI-submitted confirmation set runs; this gate drove the node's action server directly, as
       the 2026-08-17 set did.
+      *2026-10-03: met once
+      [`executor-policy-nav-budget`](../../completed/executor-policy-nav-budget.md) merges. In
+      [`goal-a-cli-confirmation-2026-10-03`](../../../measurements/goal-a-cli-confirmation-2026-10-03/README.md),
+      four missions were submitted through the CLI with the executor in the loop, and all four
+      ended on the node's own `SUCCEEDED`, with no executor cancel.*
 - [x] **Gate, second leg.** The 2026-08-19 addendum's fixed-goal leg is run as
       well: the one goal (−2.00, 2.25) from a fixed start pose and heading,
       repeated three times. The six-mission set measures coverage because each

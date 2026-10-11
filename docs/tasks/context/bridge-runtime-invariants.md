@@ -163,7 +163,8 @@ that already exist, and the launch arg (`use_sim_time:=true`) flips them
 to true at runtime. Don't delete them or hardcode them `true`.
 
 `STRAFER_NAVIGATION_TIMEOUT_S` (default 90 s; 180 s in
-`env_sim_in_the_loop.env`) is the operator's per-mission ceiling.
+`env_sim_in_the_loop.env`) is the operator's ceiling on each motion
+goal's budget; nothing totals a mission.
 Per-step budgets are derived in the executor:
 
 - **Progress-aware mode (default, `STRAFER_NAV_PROGRESS_AWARE=1`).**
@@ -182,6 +183,26 @@ Per-step budgets are derived in the executor:
   - `STRAFER_NAV_BUDGET_SETUP_OVERHEAD_S` / `nav_budget_setup_overhead_s` (5.0)
   - `STRAFER_NAV_STALL_PROGRESS_M` / `nav_stall_progress_m` (0.10 m)
   - `STRAFER_NAV_STALL_WINDOW_S` / `nav_stall_window_s` (20.0 s)
+
+  A goal dispatched to a trained-policy backend (`strafer_direct`,
+  `hybrid_nav2_strafer`) — a navigate step or a translate leg — gets
+  no distance budget and no stall watchdog. Its deadline is the
+  inference node's own completion bound, the shared
+  `POLICY_MISSION_TIMEOUT_S` (60 s on the node clock, the node's
+  `mission_timeout_s` default), plus `policy_budget_margin_s` (5 s), so
+  the node's `SUCCEEDED` / `ABORTED` arrives before the executor
+  cancels. That holds only while the executor and the inference node
+  run on the same clock: on the sim-bridge lane the inference service
+  takes `STRAFER_USE_SIM_TIME=true` from `sim_bridge.env`, but the
+  executor takes it only from the host-local autonomy overlay, which
+  must set it alongside the backend. It is still capped at
+  `STRAFER_NAVIGATION_TIMEOUT_S`, so a ceiling below 60 s puts the
+  deadline under the node's bound and the executor cancels first
+  (`navigation_timeout`). The budget applies to each dispatched goal: a
+  staged navigate step gets it once for each clamped leg (at most
+  `STRAFER_NAV_STAGING_BUDGET`, default 4) and once for its final goal,
+  so up to five goals and 325 s on the node clock. A per-mission
+  fallback to Nav2 keeps the Nav2 budget.
 - **Legacy mode (`STRAFER_NAV_PROGRESS_AWARE=0`).** Every motion
   step uses `STRAFER_NAVIGATION_TIMEOUT_S` as the single deadline,
   no stall watchdog. Bisection escape hatch only.
@@ -192,7 +213,8 @@ the `progress-aware-nav-timeouts` brief (per-step budgets + watchdog),
 `rotate_in_place`, completing the convention), and
 `nav-deadline-sim-time-audit` (replaced the `2 * timeout` wall caps
 with the `_ClockStallDetector`, confirmed the Nav2 `use_sim_time`
-flow-through).
+flow-through), and `executor-policy-nav-budget` (policy-backend goals
+get the node's own bound plus a margin).
 Live in
 [`source/strafer_autonomy/strafer_autonomy/clients/ros_client.py`](../../../source/strafer_autonomy/strafer_autonomy/clients/ros_client.py)
 and

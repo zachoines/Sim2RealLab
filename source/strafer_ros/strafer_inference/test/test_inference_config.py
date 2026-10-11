@@ -583,6 +583,12 @@ class TestObsPipelineConfigDefaults:
 
         assert node_params["odom_topic"] == TOPIC_ODOM
 
+    def test_mission_timeout_left_to_shared_constant(self, node_params):
+        # The executor sizes its policy-backend navigate budget from
+        # POLICY_MISSION_TIMEOUT_S, the node's declared default. A value set
+        # here would move the node's bound without moving the executor's.
+        assert "mission_timeout_s" not in node_params
+
 
 # =============================================================================
 # Params-file actually binds to the launched (namespaced) node

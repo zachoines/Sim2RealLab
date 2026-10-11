@@ -180,10 +180,14 @@ executor turns the robot inside its `translate` skill before it sends the policy
 
 ## Later check: the stop after a goal
 
-L2's twist after the result led to `inference-post-goal-stop-race`. That fix makes the stop the
-inference node publishes when a goal ends the last command it sends for that goal. A tick that the
-stop overtakes publishes nothing. On 2026-10-10 (CDT), one more CLI mission checked it on this
-lane. The check is descriptive: one mission end cannot show that the race is gone, which is what
+L2's twist after the result led to `inference-post-goal-stop-race`. After that fix, a tick of the
+inference node that read goal state before a mission-end stop publishes no action after it. The fix
+does not cover one ordering, a goal that ends while the goal it preempted is still leaving its loop;
+that is filed as
+[`inference-finished-successor-stop`](../../tasks/active/reliability/inference-finished-successor-stop.md).
+On 2026-10-10 (CDT), one more CLI mission checked the fix on this lane. It replaced an earlier run
+of this check, made on a superseded version of the node, and the deposit's `DEPOSIT.md` records the
+replacement. The check is descriptive: one mission end cannot show that the race is gone, which is what
 the fix's unit tests are for.
 
 - **Setup.**
@@ -415,7 +419,8 @@ b3da1756f2d7771c82b8dafeb65129217ece9899cf40af0969d93d2088ed19f5  video/L2_third
 The later check (§ Later check) has its own deposit, beside `record-files/`. It holds the mission's
 files, the five containers' logs, the sim host's logs, the stack checks, the node file that was
 mounted, and the session scripts. Under `tests/` it also holds the fix's unit-test runs on `main`
-and on variants of the node. Its paths are the ones the section names under `stop-race-check/`.
+and on variants of the node, and, under `tests/finished_successor/`, the runs that
+`inference-finished-successor-stop` cites. Its paths are the ones the section names under `stop-race-check/`.
 Six of its text files had rig network addresses replaced with placeholders, and its `DEPOSIT.md`
 lists them.
 
@@ -423,7 +428,7 @@ lists them.
 |---|---|
 | repository | https://github.com/zachoines/Sim2RealLab-Artifacts |
 | deposit directory | `goal-a-cli-video-2026-10-09/stop-race-check/` |
-| deposit commit | `d2bb6d504e8a9e34d31fe23ff4de5f4e28fe525e` |
+| deposit commit | `cf1da2d8b2fc65b898fef8cd293a7cbaf09eeef6` |
 
 ```
 cd Sim2RealLab-Artifacts/goal-a-cli-video-2026-10-09/stop-race-check
@@ -473,6 +478,23 @@ f790b1d386b7b84b09093a70cac9184b2bce46155cf5be146f440cd298919a7b  session/dgx.sh
 eb27c037af35660f22b9995ad03e1d951e6608c641e1f4f85c1886b00e511509  stage0/images.txt
 dba6d3e8d0507801af17ec72e7a95a864b6439b3304c58b4b319212f1f9fcce5  stage0/in_container_artifact_checks.txt
 b7184a75781ea705bc95d0bef7c4f9a6efa8c7b5adaff9e738f7203ed3219016  stage0/service_health.txt
+aa35a28a1fcb265b5b57834445a33c070ba6d1e7c948624734b4161e00a6cdc0  tests/finished_successor/INPUTS.txt
+6efa3ab15bdaf5419b56244d40728fa107f72610ca927d2b3acf0d1893ed3de1  tests/finished_successor/first_runs/test_four_on_main.log
+3decebbb2baefe1421736ac8908fbd329feb1210ff7f750ec0110cd9f81ee399  tests/finished_successor/first_runs/test_four_on_v1.log
+e554b41479d268a447daeca82c33d49be8851a28cf0fdf4849cb3715d1fa4a7b  tests/finished_successor/first_runs/test_four_on_v2.log
+f5c3ea659381ebb039bc28bc697c01c835ac1198cf635a7826580d835cf77d8d  tests/finished_successor/first_runs/test_four_on_v2_every_end.log
+27dd5801b52eb3d0b28a724a76c9d751fec4f647353f0fe15dae465f7aa78549  tests/finished_successor/nodes/epoch_only.py
+2767636237f4e7507ca7ce0ac04f0f6942b7abd8d608e2de6eb4ef375b42dc02  tests/finished_successor/nodes/first_runs_v2.diff
+fe114830a984e00671711fa320e36caa01860d58222638f9aeb12a72f231b82c  tests/finished_successor/nodes/flag_every_end.diff
+0fed561395362fe3cedc09c57f270d7aa06c3a0a9c6fd0a513b10306d9b9f401  tests/finished_successor/nodes/flag_every_end.py
+f28a1acea571963358bf49d6d11e69765fd1dab6b42e6e9d3e0734b7bdbc49ff  tests/finished_successor/runs/finished_successor_test_on_epoch_only.junit.xml
+341a0a34ce27e1cb9aec2df89d7f8743c3feba9965fa32020d33baf7b1e190d5  tests/finished_successor/runs/finished_successor_test_on_epoch_only.log
+bcfd2b6b81f0020e4f8ecbf2a53427a352250724491825c44e00b5d5b501de45  tests/finished_successor/runs/finished_successor_test_on_flag.junit.xml
+1715cd7d911246bbbb07822c69ebaa2bc7cb5f087b8df1c98a2ba9ec33292f29  tests/finished_successor/runs/finished_successor_test_on_flag.log
+aa2cb3d4313eac93f9eb784e968a7f89bb537fb504034897e660fb1a4fe0f0d4  tests/finished_successor/runs/finished_successor_test_on_flag_every_end.junit.xml
+7a2156ddf7ad4dee817d2c478ffd6c4fe14b97304608c7a4fef5d21252fa9768  tests/finished_successor/runs/finished_successor_test_on_flag_every_end.log
+20a4a4a1a64489f7a582a511290c667da65d3039a5cde211b57d2cabb66cb0da  tests/finished_successor/runs/finished_successor_test_on_main.junit.xml
+4f09127aec4507f7241ec270bcccf5619819f28aa5bb2832266734f2c5f9ede3  tests/finished_successor/runs/finished_successor_test_on_main.log
 efb23b2f9d91b1e4ee85031d74a70727fed963e409fd037c3537691853c13eb1  tests/make_test_ros/make_test_ros.log
 563552b6e29c9a20a2ae8065ed470a170e2e3051d1085ac76a361eff3059fc2f  tests/make_test_ros/strafer_bringup.xml
 391df59873ef1079226b3ab6887438482f179859f03df960cebcd90c787196f5  tests/make_test_ros/strafer_description.xml
@@ -497,6 +519,7 @@ f2ed47ca0bec1366fade9753517f36132a7a0abb1e4fe4076c947ea1027e91fd  tests/runs/sto
 e0cf083070efa9f88d58c44bb6b6b9536ab74b212103ed3af50214e52fcbd731  tests/runs/stop_tests_on_stop_outside_hold.log
 3c51e80d7b677a35ba3723f59e225f3ec1c00f309a26236060d03000e87fe782  tests/runs/stop_tests_on_zero_not_skip.junit.xml
 4c1d14a79a40119f036f091dd89a433837e06ee72a900d78f6494cab5b74d228  tests/runs/stop_tests_on_zero_not_skip.log
+825b36975e2fafbcb300aa07cbe242c5f2bdde70f502e24a7b269f5f62e527fd  tests/runs/test_module_sha256_111dc2b.txt
 932096eb5b3d01a7286418dcaa4795c2f10b4e265a7a8d2082f313d23b6afb4b  tests/variants/branch_inference_node.py
 5b171af8032ff701ceaf69a951e57eaf652591a93bfb6e9fac022955c0d83418  tests/variants/epoch_after_presence.diff
 584acc1798be5f937697e092171ac29bb6a915bad646eedfe66315e73851152a  tests/variants/every_end.diff

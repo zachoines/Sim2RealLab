@@ -117,7 +117,7 @@ messages:
 The new tests are in `TestMissionEndStopIsLast`, `strafer_inference/test/test_inference_runtime.py`.
 Each runs a goal on its own thread, as the action server does.
 
-- [x] **The race, as a test.**
+- [x] **The race, as a test** (`test_goal_ending_mid_tick_publishes_nothing_after_the_stop`).
   - The goal ends from inside the policy call, between the tick's watchdog check and its publish.
   - The test asserts:
     - the `/cmd_vel` publishes are exactly the stop;
@@ -181,7 +181,8 @@ Each runs a goal on its own thread, as the action server does.
   two reads, with another source stale, therefore takes the idle branch, not a mid-mission zero.
 
 **Residuals, by construction.**
-- A tick that a mission-end stop overtakes has run one inference and publishes nothing.
+- A tick that a mission-end stop overtakes publishes no action. If it reaches its policy call, that
+  inference is spent for nothing.
 - If a successor started inside that window, its first command comes one tick later: one period
   under the deployed `timer_reuse`.
 - The stop is published while the lock is held. Under DDS back-pressure (RELIABLE, depth 10) one
@@ -226,7 +227,7 @@ Each runs a goal on its own thread, as the action server does.
 - Recorded in
   [`goal-a-cli-video-2026-10-09`](../../measurements/goal-a-cli-video-2026-10-09/README.md),
   "Later check: the stop after a goal". The files are in the sibling deposit
-  `goal-a-cli-video-2026-10-09/stop-race-check/` (Sim2RealLab-Artifacts `d2bb6d50`).
+  `goal-a-cli-video-2026-10-09/stop-race-check/` (Sim2RealLab-Artifacts `cf1da2d8`).
 
 ## Investigation pointers
 

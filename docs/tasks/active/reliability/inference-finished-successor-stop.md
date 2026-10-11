@@ -58,7 +58,14 @@ still leaving its loop**, so that **a stop is the last command.**
    execute gate. The tick's goal presence becomes "count > 0 and the newest goal has not ended".
    - This was implemented and tested once, in #238's history (`2af556b`), before it was split out
      to this brief.
-   - Its test failed on `main` and on the epoch-only fix, and passed with the flag.
+   - Its test, `test_goal_ending_before_its_preempted_predecessor_leaves` at `2af556b`, fails on
+     `main` and on an epoch-only node from before #238's final form, which publishes a zero in place
+     of the action rather than skipping it. It passes with the flag.
+   - The runs are deposited in Sim2RealLab-Artifacts `cf1da2d8`,
+     `goal-a-cli-video-2026-10-09/stop-race-check/tests/finished_successor/`. The deposit holds a
+     re-run of `2af556b`'s test module against four nodes: `main`, that epoch-only node, `2af556b`'s
+     node with the flag, and that node with the epoch advanced on every goal end. It also holds the
+     first runs, made on the working tree before the work commit.
    - The stale-source branch's live read of goal presence would need the same condition. Otherwise
      a stale source during A's drain logs a mid-mission trip and publishes a zero.
 2. **Advance and stop when the decrement reaches zero.** A superseded goal whose exit leaves no goal

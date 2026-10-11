@@ -16,6 +16,12 @@ deciding every step. It contains no mission the old budget would have cancelled.
 case the change addresses is the v3 gate's: three of its seven reaches outlasted that
 budget ([`executor-policy-nav-budget`](../../tasks/completed/executor-policy-nav-budget.md)).
 
+*2026-10-09: two of these missions, G1 and L2, were run again on the same stack and recorded on
+video: a third-person view of the sim and the robot's own camera with the mission state drawn
+over it. See [`goal-a-cli-video-2026-10-09`](../goal-a-cli-video-2026-10-09/README.md). That record
+is descriptive. It ran with the livestream on, at a lower RTF, and it does not change this
+record's reading.*
+
 ## Setup
 
 | | |

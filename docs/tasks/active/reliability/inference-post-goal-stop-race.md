@@ -78,6 +78,15 @@ messages:
   - The window is the tick's observation assembly and policy call.
   - Every way a goal ends goes through the same `finally`, so success, the time-out abort and a
     cancel are all exposed.
+- **A second window.**
+  - Goal presence is a count, and a preempted goal stays in it until its loop next wakes, up to
+    50 ms later (`time.sleep(0.05)`, 1021).
+  - If its successor ends inside that time, the successor publishes the stop while the count is
+    still 1.
+  - Ticks keep driving until the predecessor leaves, and it leaves without a stop because it was
+    superseded.
+  - It takes a successor that ends on its first poll, inside its arrival radius, or one cancelled
+    as it starts.
 - **Preemption is different by design.** A superseded goal publishes no stop, because its
   successor owns `/cmd_vel` and a stop would fight the successor's commands. A tick in flight
   across a preemption publishing its action is that same rule, not the race.
@@ -95,6 +104,8 @@ messages:
   of its action.
 - To tell, the node advances a counter with each mission-end stop. The tick reads it together
   with goal presence before its watchdog check, and compares it again at its publish.
+- Once the most recently started goal has ended, the tick treats the node as idle, even while
+  goals it preempted are still leaving their loops.
 - Preemption keeps its rule.
 
 ## Acceptance criteria
@@ -106,6 +117,9 @@ messages:
 - [ ] **A plain end.** A goal that ends between ticks publishes exactly one stop, after the
       policy's action, and the idle tick after it publishes nothing.
 - [ ] **Preemption.** A tick in flight across a preemption publishes its action and no stop.
+- [ ] **A successor that ends first.** A goal that ends while the goal it preempted is still in
+      its loop leaves its stop as the only command; a tick in between publishes nothing. The test
+      fails on `main`.
 - [ ] `make test-ros` passes, read from each package's JUnit XML.
 - [ ] **On the sim-bridge lane.** One CLI mission is run with the fixed node, and its last
       `/cmd_vel` in the observer's `series.cmd` is the zero twist. The check is descriptive: one
@@ -116,7 +130,7 @@ messages:
       [`conventions.md`'s user-facing documentation maintenance section](../../context/conventions.md#user-facing-documentation-maintenance)
       for the surface list and trigger heuristics.
 - [ ] No regression in the policy backends' goal handling: the existing goal-flag, reset and
-      preemption tests in `test_inference_runtime.py` pass unchanged.
+      preemption tests in `test_inference_runtime.py` pass with their assertions unchanged.
 
 ## Investigation pointers
 

@@ -58,9 +58,11 @@ thread-safety point. Depth runs in its own callback group, so
 guards the depth ``(array, mask, stamp, rx_t, seq)`` tuple, and each tick snapshots
 it once so the watchdog, the freshness gate, and obs assembly all read
 one coherent frame — a bumped seq paired with the previous array would
-silently infer on the wrong frame. Every other cached source is written
-by a callback in the default mutex group, serialized against the tick,
-so only depth needs the lock.
+silently infer on the wrong frame. Goal state is written by the execute
+callback under the goal lock, and the tick holds that lock to read goal
+presence and again to publish its action, so no action follows a goal's
+mission-end stop. Every other cached source is written by a callback in
+the default mutex group, serialized against the tick.
 """
 
 from __future__ import annotations
@@ -396,6 +398,12 @@ class InferenceNode(Node):
         # Newest accepted goal; a superseded execute aborts. Never
         # cleared, only replaced — a finished successor still supersedes.
         self._current_goal_handle = None
+        # Advanced with each mission-end stop; a tick that read an older
+        # value publishes a stop in place of its action.
+        self._stop_epoch = 0
+        # Set when the most recently started goal ends: preempted goals
+        # still draining after it are not driven.
+        self._newest_goal_ended = False
         self._goal_count_lock = threading.Lock()
         self._last_subgoal_map: Optional[PoseStamped] = None
         self._last_subgoal_rx_t: Optional[float] = None
@@ -950,6 +958,7 @@ class InferenceNode(Node):
             if not superseded:
                 self._last_goal_map = goal_pose
                 self._active_goal_count += 1
+                self._newest_goal_ended = False
         if superseded:
             # A newer goal was accepted while this execute task was still
             # queued: abort without touching the live mission's goal pose
@@ -1023,14 +1032,18 @@ class InferenceNode(Node):
             goal_handle.abort()
             return NavigateToPose.Result()
         finally:
+            # The tick publishes under this lock too, so no policy action
+            # can follow the stop.
             with self._goal_count_lock:
                 self._active_goal_count -= 1
-            # Explicit stop on mission end: consumers hold the last
-            # /cmd_vel, so without this the robot keeps the last policy
-            # velocity. Skipped on preemption — the successor owns
-            # /cmd_vel and a stop would fight its commands.
-            if not self._superseded(goal_handle):
-                self._cmd_vel_pub.publish(Twist())
+                # Explicit stop on mission end: consumers hold the last
+                # /cmd_vel, so without this the robot keeps the last policy
+                # velocity. Skipped on preemption — the successor owns
+                # /cmd_vel and a stop would fight its commands.
+                if not self._superseded(goal_handle):
+                    self._newest_goal_ended = True
+                    self._stop_epoch += 1
+                    self._cmd_vel_pub.publish(Twist())
 
     def _current_goal_distance(self, goal_pose: PoseStamped) -> Optional[float]:
         # Distance to the caller's own captured goal, not the shared
@@ -1083,6 +1096,12 @@ class InferenceNode(Node):
         self._tick_depth_fresh = depth_seq != self._last_inferred_depth_seq
 
         tf_age = self._tf_age_s()
+        # One read, so goal presence and the epoch describe the same moment:
+        # otherwise a goal ending between them frees this tick to publish
+        # after its stop.
+        with self._goal_count_lock:
+            goal_active = self._goal_active and not self._newest_goal_ended
+            stop_epoch = self._stop_epoch
         stale = stale_sources(
             now_monotonic_s=time.monotonic(),
             last_imu_rx_t=self._last_imu_rx_t,
@@ -1094,13 +1113,13 @@ class InferenceNode(Node):
             depth_enabled=self._has_depth,
             last_subgoal_rx_t=self._last_subgoal_rx_t,
             subgoal_enabled=self._uses_subgoal,
-            goal_active=self._goal_active,
+            goal_active=goal_active,
         )
         if stale:
             self._counts["skip_watchdog"] += 1
             for src in stale:
                 self._stale_counts[src] = self._stale_counts.get(src, 0) + 1
-            if self._goal_active:
+            if goal_active:
                 # A mission is executing but a source is stale — a real
                 # fault (e.g. the subgoal stream stopped). Throttled so a
                 # persistent stall does not spam at the tick rate.
@@ -1193,7 +1212,12 @@ class InferenceNode(Node):
         twist.linear.x = vx
         twist.linear.y = vy
         twist.angular.z = omega
-        self._cmd_vel_pub.publish(twist)
+        with self._goal_count_lock:
+            if self._stop_epoch != stop_epoch:
+                # The goal this action was for has ended and published its
+                # stop.
+                twist = Twist()
+            self._cmd_vel_pub.publish(twist)
 
         # Diagnostic dump strictly after the publish so it cannot delay control.
         if self._obs_dump_enabled:

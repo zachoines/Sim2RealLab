@@ -114,6 +114,25 @@ class _WrongShapePolicy:
         pass
 
 
+class _ConstantPolicy:
+    """Recurrent stub with a fixed non-zero action, so a published policy
+    twist cannot be mistaken for a stop. ``on_call`` runs inside the policy
+    call, between the tick's watchdog check and its publish."""
+
+    is_recurrent = True
+
+    def __init__(self) -> None:
+        self.on_call = None
+
+    def __call__(self, obs: np.ndarray) -> np.ndarray:
+        if self.on_call is not None:
+            self.on_call()
+        return np.full(3, 0.5, dtype=np.float32)
+
+    def reset(self) -> None:
+        pass
+
+
 def _make_pose(x: float, y: float) -> PoseStamped:
     msg = PoseStamped()
     msg.header.frame_id = "map"
@@ -1014,10 +1033,11 @@ def _wait_until(cond, timeout_s: float = 2.0) -> None:
 
 
 class TestGoalActiveFlag(unittest.TestCase):
-    """``_goal_active`` models active-goal presence for the watchdog:
-    ``True`` for the whole blocking mission loop, ``False`` on every exit
-    path (succeed / cancel / timeout-abort / exception), and robust to
-    briefly overlapping goals via the underlying counter.
+    """``_goal_active`` is the goal count's side of the watchdog's goal
+    presence (the tick also reads ``_newest_goal_ended``): ``True`` for
+    the whole blocking mission loop, ``False`` on every exit path
+    (succeed / cancel / timeout-abort / exception), and robust to briefly
+    overlapping goals via the underlying counter.
     """
 
     def _make_node_with_policy(self, **overrides) -> InferenceNode:
@@ -1096,8 +1116,8 @@ class TestGoalActiveFlag(unittest.TestCase):
 
     def test_mission_end_publishes_final_stop(self) -> None:
         """On mission end (succeed / cancel / timeout) the loop publishes a
-        final zero Twist — consumers hold the last /cmd_vel, and the sim
-        bridge has no stop-on-silence watchdog, so without this the robot
+        final zero Twist — the base driver and the sim bridge hold the last
+        /cmd_vel until their own watchdogs fire, so without this the robot
         coasts at the last policy velocity past the goal."""
         node = self._make_node_with_policy(mission_timeout_s=5.0)
         try:
@@ -1164,7 +1184,7 @@ class TestGoalActiveFlag(unittest.TestCase):
     def test_overlapping_goal_exit_does_not_clear_survivor(self) -> None:
         """A goal exiting while another still executes (a client cancel
         is fire-and-forget, so the next goal's accept can overlap the
-        old loop's drain) must not clear goal freshness under the
+        old loop's drain) must not clear the goal count under the
         survivor.
         """
         node = self._make_node_with_policy()
@@ -1257,6 +1277,192 @@ class TestGoalActiveFlag(unittest.TestCase):
             node._on_tick()
             node._cmd_vel_pub.publish.assert_called_once()  # zero-twist
         finally:
+            node.destroy_node()
+
+
+# =============================================================================
+# Mission-end stop ordering — the stop stays the goal's last command
+# =============================================================================
+
+
+def _is_stop(twist) -> bool:
+    return (twist.linear.x, twist.linear.y, twist.angular.z) == (0.0, 0.0, 0.0)
+
+
+class TestMissionEndStopIsLast(unittest.TestCase):
+    """The stop a goal publishes when it ends must be the last /cmd_vel the
+    node sends for it: the base driver and the sim bridge hold the last
+    command until their own watchdogs fire. The tick and the goal's execute
+    loop run on different executor threads, so a goal can end while a tick
+    is between its watchdog check and its publish.
+    """
+
+    def _start_goal(self, node: InferenceNode):
+        """Accept a goal and run its execute loop on its own thread, as the
+        action server's reentrant group does. Setting the returned event
+        makes the loop's next distance poll reach the goal."""
+        reached = threading.Event()
+        polling = threading.Event()
+
+        def _distance(goal_pose):
+            polling.set()
+            return 0.0 if reached.is_set() else 1.0
+
+        node._current_goal_distance = _distance  # type: ignore
+        goal_handle = MagicMock()
+        goal_handle.request.pose = _make_pose(2.0, 0.0)
+        goal_handle.is_cancel_requested = False
+        node._handle_accepted(goal_handle)
+        thread = threading.Thread(
+            target=node._execute_callback, args=(goal_handle,))
+        thread.start()
+        # Polling means the goal's hidden-state reset is done, so a tick
+        # holding the policy lock cannot stall the loop.
+        self.assertTrue(polling.wait(timeout=2.0))
+        return goal_handle, thread, reached
+
+    def _tick(self, node: InferenceNode) -> None:
+        now = time.monotonic()
+        for attr in (
+            "_last_imu_rx_t", "_last_joint_states_rx_t",
+            "_last_odom_rx_t", "_last_subgoal_rx_t",
+        ):
+            setattr(node, attr, now)
+        node._on_depth(_depth_msg(fill=1.0))
+        node._on_tick()
+
+    def _published(self, node: InferenceNode) -> list:
+        return [c[0][0] for c in node._cmd_vel_pub.publish.call_args_list]
+
+    def _assert_only_stops_after_the_first(self, published: list) -> None:
+        stops = [i for i, twist in enumerate(published) if _is_stop(twist)]
+        self.assertTrue(stops)
+        self.assertTrue(all(_is_stop(t) for t in published[stops[0]:]))
+
+    def test_goal_ending_mid_tick_leaves_the_stop_last(self) -> None:
+        node = _ready_depth_node()
+        node._policy = _ConstantPolicy()
+        node._active_goal_count = 0
+        goal_handle, thread, reached = self._start_goal(node)
+        try:
+            def _goal_ends_mid_tick() -> None:
+                reached.set()
+                thread.join(timeout=2.0)  # succeed() and its stop have run
+            node._policy.on_call = _goal_ends_mid_tick
+
+            self._tick(node)
+
+            self.assertFalse(thread.is_alive())
+            goal_handle.succeed.assert_called_once()
+            self._assert_only_stops_after_the_first(self._published(node))
+        finally:
+            reached.set()
+            thread.join(timeout=2.0)
+            node.destroy_node()
+
+    def test_goal_ending_between_ticks_publishes_one_stop(self) -> None:
+        node = _ready_depth_node()
+        node._policy = _ConstantPolicy()
+        node._active_goal_count = 0
+        goal_handle, thread, reached = self._start_goal(node)
+        try:
+            self._tick(node)  # mid-goal: the policy's action
+            reached.set()
+            thread.join(timeout=2.0)
+            self._tick(node)  # idle: publishes nothing
+
+            self.assertFalse(thread.is_alive())
+            goal_handle.succeed.assert_called_once()
+            published = self._published(node)
+            self.assertEqual(len(published), 2)
+            self.assertFalse(_is_stop(published[0]))
+            self.assertTrue(_is_stop(published[1]))
+        finally:
+            reached.set()
+            thread.join(timeout=2.0)
+            node.destroy_node()
+
+    def test_tick_spanning_a_preemption_publishes_its_action(self) -> None:
+        """A preempted goal publishes no stop, because its successor owns
+        /cmd_vel; a tick in flight across the preemption must not send one
+        either."""
+        node = _ready_depth_node()
+        node._policy = _ConstantPolicy()
+        node._active_goal_count = 0
+        handle_a, thread_a, reached = self._start_goal(node)
+        handle_b = MagicMock()
+        handle_b.request.pose = _make_pose(-1.0, 0.0)
+        handle_b.is_cancel_requested = False
+        thread_b = threading.Thread(
+            target=node._execute_callback, args=(handle_b,))
+        try:
+            def _preempted_mid_tick() -> None:
+                node._handle_accepted(handle_b)
+                thread_b.start()
+                thread_a.join(timeout=2.0)  # A aborts as superseded
+            node._policy.on_call = _preempted_mid_tick
+
+            self._tick(node)
+
+            self.assertFalse(thread_a.is_alive())
+            handle_a.abort.assert_called_once()
+            published = self._published(node)
+            self.assertEqual(len(published), 1)
+            self.assertFalse(_is_stop(published[0]))
+        finally:
+            handle_b.is_cancel_requested = True
+            if thread_b.ident is not None:
+                thread_b.join(timeout=2.0)
+            reached.set()
+            thread_a.join(timeout=2.0)
+            node.destroy_node()
+
+    def test_goal_ending_before_its_preempted_predecessor_leaves(self) -> None:
+        """A goal can end while the goal it preempted is still in its execute
+        loop. That predecessor leaves without a stop, so no tick may drive
+        in between."""
+        node = _ready_depth_node()
+        node._policy = _ConstantPolicy()
+        node._active_goal_count = 0
+        pose_a, pose_b = _make_pose(2.0, 0.0), _make_pose(-1.0, 0.0)
+        a_polling = threading.Event()
+        release_a = threading.Event()
+
+        def _distance(goal_pose):
+            if goal_pose is pose_b:
+                return 0.0  # B starts inside its arrival radius
+            a_polling.set()
+            release_a.wait()  # A stays counted until the tick has run
+            return 1.0
+
+        node._current_goal_distance = _distance  # type: ignore
+        handle_a, handle_b = MagicMock(), MagicMock()
+        for handle, pose in ((handle_a, pose_a), (handle_b, pose_b)):
+            handle.request.pose = pose
+            handle.is_cancel_requested = False
+        node._handle_accepted(handle_a)
+        thread_a = threading.Thread(
+            target=node._execute_callback, args=(handle_a,))
+        thread_a.start()
+        try:
+            self.assertTrue(a_polling.wait(timeout=2.0))
+            node._handle_accepted(handle_b)
+            node._execute_callback(handle_b)  # succeeds on its first poll
+            handle_b.succeed.assert_called_once()
+
+            self._tick(node)  # A has not yet seen that it was preempted
+
+            release_a.set()
+            thread_a.join(timeout=2.0)
+            self.assertFalse(thread_a.is_alive())
+            handle_a.abort.assert_called_once()
+            published = self._published(node)
+            self.assertEqual(len(published), 1)
+            self.assertTrue(_is_stop(published[0]))
+        finally:
+            handle_a.is_cancel_requested = True
+            release_a.set()
+            thread_a.join(timeout=2.0)
             node.destroy_node()
 
 

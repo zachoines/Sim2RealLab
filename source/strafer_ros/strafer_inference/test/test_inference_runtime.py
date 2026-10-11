@@ -1408,9 +1408,10 @@ class TestMissionEndStopIsLast(unittest.TestCase):
             node.destroy_node()
 
     def test_goal_ending_before_the_watchdog_check_still_skips(self) -> None:
-        """Goal presence and the epoch are read in one hold before the
-        watchdog's inputs; a goal ending after that read must still keep
-        this tick's action off the channel."""
+        """Goal presence and the epoch are read in one hold before the TF age
+        read and the watchdog check, and that presence is what the watchdog
+        sees; a goal ending after the read must still keep this tick's
+        action off the channel."""
         node = self._node()
         distance = [1.0]
         node._current_goal_distance = lambda goal_pose: distance[0]  # type: ignore
@@ -1433,6 +1434,41 @@ class TestMissionEndStopIsLast(unittest.TestCase):
             published = self._published(node)
             self.assertEqual(len(published), 1)
             self.assertTrue(_is_stop(published[0]))
+            self.assertEqual(node._counts.get("skip_goal_ended", 0), 1)
+        finally:
+            distance[0] = 0.0
+            if thread is not None:
+                thread.join(timeout=2.0)
+            node.destroy_node()
+
+    def test_goal_ending_before_a_stale_watchdog_check_stays_idle(self) -> None:
+        """The stale-source branch reads goal presence live: a goal that ended
+        after the tick's read, with another source stale, takes the idle
+        branch rather than publishing a mid-mission zero after the stop."""
+        node = self._node()
+        distance = [1.0]
+        node._current_goal_distance = lambda goal_pose: distance[0]  # type: ignore
+        thread = None
+        try:
+            goal_handle, thread = self._start_goal(node, _make_pose(2.0, 0.0))
+
+            def _goal_ends_with_a_stale_source() -> float:
+                distance[0] = 0.0
+                thread.join(timeout=2.0)
+                _restamp(node)
+                node._last_imu_rx_t = time.monotonic() - 60.0
+                return 0.0
+            node._tf_age_s = _goal_ends_with_a_stale_source  # type: ignore
+
+            _restamp(node)
+            node._on_tick()
+
+            self.assertFalse(thread.is_alive())
+            goal_handle.succeed.assert_called_once()
+            published = self._published(node)
+            self.assertEqual(len(published), 1)
+            self.assertTrue(_is_stop(published[0]))
+            self.assertEqual(node._counts["skip_watchdog"], 1)
         finally:
             distance[0] = 0.0
             if thread is not None:
@@ -1446,14 +1482,14 @@ class TestMissionEndStopIsLast(unittest.TestCase):
         node = self._node()
         pose_a, pose_b = _make_pose(2.0, 0.0), _make_pose(-1.0, 0.0)
         a_entered, a_release = threading.Event(), threading.Event()
-        distance_b = [1.0]
+        distance_a, distance_b = [1.0], [1.0]
 
         def _distance(goal_pose):
             if goal_pose is pose_b:
                 return distance_b[0]
             a_entered.set()
             a_release.wait()  # A cannot see its supersession while held here
-            return 1.0
+            return distance_a[0]
 
         node._current_goal_distance = _distance  # type: ignore
         thread_a = thread_b = None
@@ -1489,8 +1525,8 @@ class TestMissionEndStopIsLast(unittest.TestCase):
             self.assertEqual(sum(_is_stop(t) for t in published), 0)
             self.assertEqual(node._counts.get("skip_goal_ended", 0), 0)
         finally:
+            distance_a[0] = distance_b[0] = 0.0
             a_release.set()
-            distance_b[0] = 0.0
             for thread in (thread_a, thread_b):
                 if thread is not None and thread.ident is not None:
                     thread.join(timeout=2.0)

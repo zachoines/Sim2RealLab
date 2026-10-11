@@ -58,11 +58,13 @@ thread-safety point. Depth runs in its own callback group, so
 guards the depth ``(array, mask, stamp, rx_t, seq)`` tuple, and each tick snapshots
 it once so the watchdog, the freshness gate, and obs assembly all read
 one coherent frame — a bumped seq paired with the previous array would
-silently infer on the wrong frame. Goal state is written by the execute
-callback under the goal lock, and the tick holds that lock to read goal
-presence and again to publish its action, so no action follows a goal's
-mission-end stop. Every other cached source is written by a callback in
-the default mutex group, serialized against the tick.
+silently infer on the wrong frame. Goal state is written under the goal
+lock by the accept and execute callbacks; the tick reads goal presence
+and the stop epoch together under it, and compares the epoch under it
+again at its publish, so a tick that read goal state before a
+mission-end stop publishes nothing after it. Every other cached source
+is written by a callback in the default mutex group, serialized against
+the tick.
 """
 
 from __future__ import annotations
@@ -1029,8 +1031,8 @@ class InferenceNode(Node):
             goal_handle.abort()
             return NavigateToPose.Result()
         finally:
-            # The tick publishes under this lock too, so no policy action
-            # can follow the stop.
+            # A tick that read goal state before this stop publishes nothing
+            # after it.
             with self._goal_count_lock:
                 self._active_goal_count -= 1
                 # Explicit stop on mission end: consumers hold the last
@@ -1115,6 +1117,8 @@ class InferenceNode(Node):
             self._counts["skip_watchdog"] += 1
             for src in stale:
                 self._stale_counts[src] = self._stale_counts.get(src, 0) + 1
+            # Live, not the snapshot: a goal that has ended since takes the
+            # idle branch.
             if self._goal_active:
                 # A mission is executing but a source is stale — a real
                 # fault (e.g. the subgoal stream stopped). Throttled so a

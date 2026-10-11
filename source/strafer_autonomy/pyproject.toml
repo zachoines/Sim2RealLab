@@ -25,6 +25,7 @@ strafer-executor = "strafer_autonomy.executor.main:main"
 testpaths = ["tests"]
 markers = [
     "requires_ros: marks tests that need rclpy and ROS 2 message packages (deselect with '-m \"not requires_ros\"')",
+    "live_planner: marks tests that call a running planner service (opt in with STRAFER_LIVE_PLANNER_URL)",
 ]
 
 [tool.setuptools.packages.find]

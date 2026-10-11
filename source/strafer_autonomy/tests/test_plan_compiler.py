@@ -241,6 +241,33 @@ class TestTranslate:
         step = plan.steps[0]
         assert step.args == {"dx_m": -0.5, "dy_m": 0.3}
 
+    @pytest.mark.parametrize(
+        ("command", "llm_xy", "expected"),
+        [
+            ("move 1.712 meters forward and 1.372 meters right", (1.712, 1.372), (1.712, -1.372)),
+            ("move 2.0 meters backward and 1.0 meters left", (-2.0, -1.0), (-2.0, 1.0)),
+            ("move 0.25 meters to the right and 3.0 meters backward", (3.0, 0.25), (-3.0, -0.25)),
+            ("drive 1.2 meters ahead then 0.4 meters left", (-1.2, -0.4), (1.2, 0.4)),
+        ],
+    )
+    def test_sign_follows_command_direction_words(self, command, llm_xy, expected):
+        intent = _make_intent("translate", raw_command=command, translation_xy=llm_xy)
+        step = compile_plan(intent).steps[0]
+        assert (step.args["dx_m"], step.args["dy_m"]) == expected
+
+    @pytest.mark.parametrize(
+        ("command", "llm_xy"),
+        [
+            ("move 1 meter left, then 1 meter right", (0.0, 1.0)),
+            ("move forward 1 meter and come back", (0.5, 0.0)),
+            ("strafe right 2 meters", (0.0, 0.0)),
+        ],
+    )
+    def test_sign_unchanged_when_command_is_ambiguous_or_zero(self, command, llm_xy):
+        intent = _make_intent("translate", raw_command=command, translation_xy=llm_xy)
+        step = compile_plan(intent).steps[0]
+        assert (step.args["dx_m"], step.args["dy_m"]) == llm_xy
+
     def test_missing_translation_raises(self):
         intent = _make_intent("translate", translation_xy=None)
         with pytest.raises(CompilationError):

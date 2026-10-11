@@ -3,8 +3,7 @@
 **Type:** bug (train/deploy observation parity at the start of a trained-policy goal)
 **Owner:** Jetson (`strafer_inference`)
 **Priority:** P3. It is one observation term on one tick per goal, but a recurrent policy carries
-that tick in its state. Raise it if the episode-start stale-depth question shows that a goal's
-first ticks matter on the rig.
+that tick in its state. Raise it if [the episode-start stale-depth question](../../../measurements/vfov-gap-v3-2026-10-03/README.md#4-what-tick-0-shows-and-when-the-room-arrives) shows that a goal's first ticks matter on the rig.
 **Estimate:** S
 **Branch:** `task/inference-last-action-mission-reset`
 
@@ -64,5 +63,5 @@ predecessor's hidden state, for one tick.
 ## Out of scope
 
 - The successor's hidden-state reset coming after its count bump (noted above).
-- The episode-start stale-depth question, which this brief is to be read alongside.
+- [The episode-start stale-depth question](../../../measurements/vfov-gap-v3-2026-10-03/README.md#4-what-tick-0-shows-and-when-the-room-arrives), which this brief is to be read alongside.
 - [`inference-finished-successor-stop`](../reliability/inference-finished-successor-stop.md).

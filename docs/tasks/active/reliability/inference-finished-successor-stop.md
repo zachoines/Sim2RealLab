@@ -11,8 +11,8 @@ deployed flow (see Context).
 ## Story
 
 As **the base driver, which holds the last `/cmd_vel` it received for 0.5 s**, I want **the inference
-node to stay idle once the newest goal has ended, even while a goal it preempted is still leaving
-its loop**, so that **the stop that newest goal published is the last command.**
+node not to leave a policy command after the newest goal's stop, even while a goal it preempted is
+still leaving its loop**, so that **a stop is the last command.**
 
 ## Context bundle
 
@@ -43,8 +43,8 @@ its loop**, so that **the stop that newest goal published is the last command.**
 
 **Why it is P2, not P1.**
 - **What the executor does on a replacement.** It does not overlap missions this way.
-  `MissionRunner.submit` (`executor/mission_runner.py`, 270–307 at `f4d9cb2`) refuses a second
-  mission unless `replace_active_mission` is set. On a replacement it:
+  `MissionRunner.start_mission` (`executor/mission_runner.py`, 262–307 at `f4d9cb2`) refuses a
+  second mission unless `replace_active_mission` is set. On a replacement it:
   - cancels the active navigation, waiting for the cancel response;
   - publishes a zero `/cmd_vel` (`_cancel_robot_actions`, 2329–2341);
   - joins the old mission's thread, for up to `replace_join_timeout_s` (5 s);
@@ -66,7 +66,9 @@ its loop**, so that **the stop that newest goal published is the last command.**
    - This closes the window by the stop that A sends.
    - It also sends a stop when a superseded goal leaves before its queued successor's execute gate
      has run. That is a stop while a successor exists, which the preemption rule avoids.
-   - Ticks during A's drain still publish actions before A's stop.
+   - Ticks during A's drain still publish actions before A's stop. The last command is then A's
+     stop, so it meets the test below, which asks for a stop last; candidate 1 also leaves no
+     action after B's stop.
 
 ## Acceptance criteria
 
@@ -78,7 +80,8 @@ its loop**, so that **the stop that newest goal published is the last command.**
   - A runs on its own thread, its distance stub blocked so it cannot see its supersession.
   - B is accepted and ends on its first poll, on the test thread.
   - A tick runs, then A is released.
-  - The test asserts that nothing but stops follows B's stop.
+  - The test asserts that, in publish order, the last `/cmd_vel` is a stop and no policy action
+    follows the final stop.
   - It fails on `main`.
 - [ ] **One fix chosen** from the candidates above, or another, with the reason. The test above
       passes, and the preemption test of `inference-post-goal-stop-race` (a tick in flight across

@@ -107,8 +107,8 @@ messages:
 
 **The fix.**
 - The goal's stop and the tick's publish are serialised under `_goal_count_lock`.
-- A counter counts mission-end stops. The tick reads it together with goal presence before its
-  watchdog inputs, and compares it again at its publish.
+- A counter counts mission-end stops. The tick reads it together with goal presence before the
+  TF age read and the watchdog check, and compares it again at its publish.
 - A tick whose goal published its stop in between publishes nothing in place of its action.
 - Preemption keeps its rule.
 
@@ -126,10 +126,17 @@ Each runs a goal on its own thread, as the action server does.
   - It fails on `main`, and the PR shows that output.
 - [x] **The stop goes out inside the goal lock, with the epoch already advanced**
       (`test_mission_end_stop_goes_out_inside_the_goal_lock`). It fails on `main`.
-- [x] **The read comes before the watchdog's inputs**
-      (`test_goal_ending_before_the_watchdog_check_still_skips`). The goal ends inside the tick's
-      TF read, and the publishes are exactly the stop. It fails if the epoch is read after goal
-      presence.
+- [x] **The read comes before the TF age read and the watchdog check**
+      (`test_goal_ending_before_the_watchdog_check_still_skips`).
+  - The goal ends inside the tick's TF read. The publishes are exactly the stop, and one skip is
+    counted.
+  - It fails on `main`, and when the epoch is read after goal presence or the watchdog is handed
+    a lockless presence read.
+- [x] **The stale branch reads goal presence live**
+      (`test_goal_ending_before_a_stale_watchdog_check_stays_idle`).
+  - The goal ends inside the TF read with another source stale. The publishes are exactly the
+    stop.
+  - It fails if the stale branch is handed the snapshot instead.
 - [x] **Preemption** (`test_tick_spanning_a_preemption_publishes_its_action`). A tick in flight
       across a preemption publishes its action, compared by value, and no stop. It fails if the
       epoch advances on every goal end.
@@ -168,8 +175,8 @@ Each runs a goal on its own thread, as the action server does.
   - Neither downstream watchdog needs a second zero: both reset on any command.
 
 **Where the tick reads.**
-- Goal presence and the counter are read in one hold, before the TF age and the watchdog's other
-  inputs, and that presence is what the watchdog sees.
+- Goal presence and the counter are read in one hold, before the TF age read and the watchdog
+  check, and that presence is what the watchdog sees.
 - The stale-source branch still reads goal presence live, as on `main`. A goal ending between the
   two reads, with another source stale, therefore takes the idle branch, not a mid-mission zero.
 
@@ -182,15 +189,19 @@ Each runs a goal on its own thread, as the action server does.
 - Cyclone's `max_blocking_time` on the robot has not been verified.
 
 **What the tests pin, and what they cannot.**
-- Each of the four new tests fails on a version of the node that breaks one rule:
+- Each new test fails on at least one version of the node that breaks a rule:
 
   | version | failing tests |
   |---|---|
-  | `main` | the race; the stop inside the lock |
+  | `main` | the race; the stop inside the lock; the read before the watchdog |
   | the counter advanced on every goal end | preemption |
   | a zero published in place of the skip | the race; the stop inside the lock; the read before the watchdog |
   | the counter read after goal presence | the read before the watchdog |
+  | a lockless presence read handed to the watchdog | the read before the watchdog |
+  | the snapshot handed to the stale branch | the live read |
   | the stop published outside the hold | the stop inside the lock |
+
+  The runs and their JUnit XML are deposited with the sim-bridge check, under `tests/`.
 
 - `Lock.locked()` has no owner. The single hold of decrement, check, counter and stop is
   therefore pinned by review, not by the lock test.
@@ -215,7 +226,7 @@ Each runs a goal on its own thread, as the action server does.
 - Recorded in
   [`goal-a-cli-video-2026-10-09`](../../measurements/goal-a-cli-video-2026-10-09/README.md),
   "Later check: the stop after a goal". The files are in the sibling deposit
-  `goal-a-cli-video-2026-10-09/stop-race-check/` (Sim2RealLab-Artifacts `57131f04`).
+  `goal-a-cli-video-2026-10-09/stop-race-check/` (Sim2RealLab-Artifacts `d2bb6d50`).
 
 ## Investigation pointers
 

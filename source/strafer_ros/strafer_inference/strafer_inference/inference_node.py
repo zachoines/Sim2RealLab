@@ -398,12 +398,9 @@ class InferenceNode(Node):
         # Newest accepted goal; a superseded execute aborts. Never
         # cleared, only replaced — a finished successor still supersedes.
         self._current_goal_handle = None
-        # Advanced with each mission-end stop; a tick that read an older
-        # value publishes a stop in place of its action.
+        # Counts mission-end stops; a tick that read an older value
+        # publishes nothing in place of its action.
         self._stop_epoch = 0
-        # Set when the most recently started goal ends: preempted goals
-        # still draining after it are not driven.
-        self._newest_goal_ended = False
         self._goal_count_lock = threading.Lock()
         self._last_subgoal_map: Optional[PoseStamped] = None
         self._last_subgoal_rx_t: Optional[float] = None
@@ -427,6 +424,7 @@ class InferenceNode(Node):
             "skip_no_policy": 0,
             "skip_obs_none": 0,
             "skip_action_shape": 0,
+            "skip_goal_ended": 0,
             "depth_rx": 0,
             "depth_bad_encoding": 0,
             "depth_bad_shape": 0,
@@ -958,7 +956,6 @@ class InferenceNode(Node):
             if not superseded:
                 self._last_goal_map = goal_pose
                 self._active_goal_count += 1
-                self._newest_goal_ended = False
         if superseded:
             # A newer goal was accepted while this execute task was still
             # queued: abort without touching the live mission's goal pose
@@ -1041,7 +1038,6 @@ class InferenceNode(Node):
                 # velocity. Skipped on preemption — the successor owns
                 # /cmd_vel and a stop would fight its commands.
                 if not self._superseded(goal_handle):
-                    self._newest_goal_ended = True
                     self._stop_epoch += 1
                     self._cmd_vel_pub.publish(Twist())
 
@@ -1095,13 +1091,13 @@ class InferenceNode(Node):
             depth_seq = self._depth_seq  # 0; unread for a camera-free variant
         self._tick_depth_fresh = depth_seq != self._last_inferred_depth_seq
 
-        tf_age = self._tf_age_s()
         # One read, so goal presence and the epoch describe the same moment:
         # otherwise a goal ending between them frees this tick to publish
         # after its stop.
         with self._goal_count_lock:
-            goal_active = self._goal_active and not self._newest_goal_ended
+            goal_active = self._goal_active
             stop_epoch = self._stop_epoch
+        tf_age = self._tf_age_s()
         stale = stale_sources(
             now_monotonic_s=time.monotonic(),
             last_imu_rx_t=self._last_imu_rx_t,
@@ -1119,7 +1115,7 @@ class InferenceNode(Node):
             self._counts["skip_watchdog"] += 1
             for src in stale:
                 self._stale_counts[src] = self._stale_counts.get(src, 0) + 1
-            if goal_active:
+            if self._goal_active:
                 # A mission is executing but a source is stale — a real
                 # fault (e.g. the subgoal stream stopped). Throttled so a
                 # persistent stall does not spam at the tick rate.
@@ -1200,8 +1196,6 @@ class InferenceNode(Node):
             self._cmd_vel_pub.publish(Twist())
             return
 
-        self._last_action = action
-
         vx, vy, omega = interpret_action(action)
         vx, vy, omega = l1_clamp_velocity(
             vx, vy, omega,
@@ -1213,11 +1207,14 @@ class InferenceNode(Node):
         twist.linear.y = vy
         twist.angular.z = omega
         with self._goal_count_lock:
-            if self._stop_epoch != stop_epoch:
-                # The goal this action was for has ended and published its
-                # stop.
-                twist = Twist()
-            self._cmd_vel_pub.publish(twist)
+            goal_ended = self._stop_epoch != stop_epoch
+            if not goal_ended:
+                self._last_action = action
+                self._cmd_vel_pub.publish(twist)
+        if goal_ended:
+            # The goal this action was for has ended and published its stop,
+            # which stays the last command until the next goal.
+            self._counts["skip_goal_ended"] += 1
 
         # Diagnostic dump strictly after the publish so it cannot delay control.
         if self._obs_dump_enabled:
@@ -1357,7 +1354,8 @@ class InferenceNode(Node):
             f"depth={c['ticks_depth']} | inferences={c['inferences']}{split} | "
             f"skips watchdog={c['skip_watchdog']} gate={c['skip_gate']} "
             f"obs_none={c['skip_obs_none']} no_policy={c['skip_no_policy']} "
-            f"action_shape={c['skip_action_shape']} | "
+            f"action_shape={c['skip_action_shape']} "
+            f"goal_ended={c['skip_goal_ended']} | "
             f"depth rx={c['depth_rx']} unconsumed={unconsumed} "
             f"repeat_content={c['depth_repeat_content']} "
             f"bad_encoding={c['depth_bad_encoding']} "

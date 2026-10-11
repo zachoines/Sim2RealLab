@@ -36,7 +36,11 @@ from strafer_autonomy.semantic_map.models import (
     DetectedObjectEntry,
     Pose2D,
 )
-from strafer_shared.constants import NAV_ANGULAR_VEL, NAV_LINEAR_VEL
+from strafer_shared.constants import (
+    NAV_ANGULAR_VEL,
+    NAV_LINEAR_VEL,
+    POLICY_MISSION_TIMEOUT_S,
+)
 
 
 def compute_motion_budget_s(
@@ -176,6 +180,9 @@ class MissionRunnerConfig:
     nav_progress_aware: bool = True
     nav_budget_safety_factor: float = 2.0
     nav_budget_setup_overhead_s: float = 5.0
+    # Added to POLICY_MISSION_TIMEOUT_S for a policy-backend goal, so the
+    # inference node's own result lands before the executor would cancel.
+    policy_budget_margin_s: float = 5.0
     # Stall watchdog on Nav2 NavigateToPose feedback. Aborts the active
     # goal with ``error_code=navigation_stalled`` when ``distance_remaining``
     # has not decreased by at least ``nav_stall_progress_m`` over the last
@@ -1184,6 +1191,26 @@ class MissionRunner(MissionCommandHandler):
             ceiling_s=ceiling,
         )
 
+    def _policy_motion_timeout_s(self, *, step: SkillCall) -> float:
+        """Budget for a navigate goal the trained-policy backends execute.
+
+        Same resolution order as ``_motion_timeout_s``, except that the
+        progress-aware branch defers to the inference node's completion
+        bound (``POLICY_MISSION_TIMEOUT_S`` + ``policy_budget_margin_s``)
+        instead of a distance / NAV_LINEAR_VEL estimate. ros_client applies
+        it only when the goal actually goes to a policy backend; a per-mission
+        fallback to Nav2 keeps the Nav2 budget.
+        """
+        if step.timeout_s is not None and step.timeout_s > 0:
+            return float(step.timeout_s)
+        ceiling = float(self._config.default_navigation_timeout_s)
+        if not self._config.nav_progress_aware:
+            return ceiling
+        return min(
+            ceiling,
+            POLICY_MISSION_TIMEOUT_S + self._config.policy_budget_margin_s,
+        )
+
     def _stall_watchdog_kwargs(self) -> dict[str, float]:
         """Return ``{stall_progress_m, stall_window_s}`` for ros_client when
         progress-aware mode is active; otherwise an empty dict so the
@@ -1257,6 +1284,7 @@ class MissionRunner(MissionCommandHandler):
             timeout_s=self._motion_timeout_s(
                 step=step, magnitude=straight_line_m, kind="linear",
             ),
+            policy_timeout_s=self._policy_motion_timeout_s(step=step),
             **self._stall_watchdog_kwargs(),
         )
 
@@ -1968,6 +1996,7 @@ class MissionRunner(MissionCommandHandler):
                 execution_backend=self._config.default_navigation_backend,
                 behavior_tree=None,
                 timeout_s=timeout_s,
+                policy_timeout_s=self._policy_motion_timeout_s(step=step),
                 **stall_kwargs,
             )
         except Exception as exc:

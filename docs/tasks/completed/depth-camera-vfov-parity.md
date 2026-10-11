@@ -338,3 +338,23 @@ correlated. That measurement is
 
 Numbers, arms and the scratch patch:
 [`depth-noise-coverage-2026-09-18`](../../measurements/depth-noise-coverage-2026-09-18/README.md) §8.
+
+*Note 2026-10-03 ([`vfov-gap-v3-2026-10-03`](../../measurements/vfov-gap-v3-2026-10-03/README.md)).*
+- *v3 was run on G7's closed-loop eval, eight seeds per arm, with the policy camera at the real
+  unit's fx (321.522 px, VFOV 58.48°) against the shipped 335.652 px (56.41°). The two arms share
+  each environment's first start pose, 128 in all.*
+  - *On its first tick v3 steers 0.146° further right at the real intrinsics (standard error across
+    eight seeds 0.045). That is the mean of a slight pull toward the subgoal bearing, not a fixed
+    bias (the record's §3). It exceeds the yardstick registered before the runs, so the gap is
+    recorded as mattering.*
+  - *Over the first second v3 at the real intrinsics steers 0.250° left (A − B −0.250°, standard
+    error 0.324), inside it. Commands near ±180° make that statistic construction-dependent.*
+  - *At the shared poses speed stays inside its standard error. Of the outcome metrics only
+    off-path divergence moves past its standard error (1.1 of them). Over whole episodes the
+    direction-offset median moves 0.51°, beyond G7's own standard error.*
+- *At those poses (each environment's first episode), tick 0's depth is a floor-only frame
+  rendered before the reset. So the shift that crosses the yardstick is v3's response to that frame
+  at the two focal lengths.*
+- *The policy camera's cfg is unchanged. The next training adopts the measured intrinsics, which is
+  recorded in [`depth-noise-real-structure`](../active/trained-policy/depth-noise-real-structure.md)
+  item 7.*

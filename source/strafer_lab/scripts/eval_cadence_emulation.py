@@ -663,7 +663,8 @@ class ScheduleSampler:
     ``warmup_ticks`` ticks after every episode boundary are forced fresh. A new
     episode is a new mission, and the node cannot infer before that mission's
     first frame arrives; the forced ticks also cover the depth delay buffer's
-    zero-filled warm-up, which would otherwise be what a cache captured.
+    warm-up, which repeats the episode's first frame and would otherwise be what
+    a cache captured.
     """
 
     def __init__(
@@ -1072,7 +1073,8 @@ def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
                         help="Override the episode cap in seconds (default: the cfg's)")
     parser.add_argument("--warmup-ticks", type=int, default=2,
                         help="Ticks forced fresh after each episode boundary, covering "
-                             "the depth delay buffer's zero-filled warm-up")
+                             "the depth delay buffer's warm-up, which repeats the "
+                             "episode's first frame")
     parser.add_argument("--min-command", type=float, default=0.05,
                         help="Normalized commanded speed below which the direction "
                              "offset is undefined and the tick leaves that metric")

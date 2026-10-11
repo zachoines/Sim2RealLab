@@ -76,11 +76,15 @@ class RosClient(Protocol):
         execution_backend: str | None = None,
         behavior_tree: str | None = None,
         timeout_s: float | None = None,
+        policy_timeout_s: float | None = None,
     ) -> SkillResult:
         """Execute goal-directed motion through the selected local backend.
 
         ``execution_backend=None`` defers to the ``STRAFER_NAV_BACKEND``
-        env var and ultimately to ``"nav2"``.
+        env var and ultimately to ``"nav2"``. ``policy_timeout_s``, when
+        given, replaces ``timeout_s`` for a goal a trained-policy backend
+        executes; a Nav2 dispatch (including the per-mission fallback)
+        uses ``timeout_s``.
         """
 
     def cancel_active_navigation(self) -> bool:
@@ -717,6 +721,7 @@ class JetsonRosClient:
         execution_backend: str | None = None,
         behavior_tree: str | None = None,
         timeout_s: float | None = None,
+        policy_timeout_s: float | None = None,
         stall_progress_m: float | None = None,
         stall_window_s: float | None = None,
     ) -> SkillResult:
@@ -738,6 +743,13 @@ class JetsonRosClient:
         the lookup so an operator who manually restarts the inference
         node recovers without a process restart here.
 
+        ``timeout_s`` is the deadline for a Nav2 dispatch.
+        ``policy_timeout_s``, when not ``None``, is the deadline for a goal
+        a trained-policy backend accepts (the executor sizes it to the
+        inference node's own ``mission_timeout_s``); without it the policy
+        backends use ``timeout_s``. The per-mission Nav2 fallback always
+        uses ``timeout_s``.
+
         When both ``stall_progress_m`` and ``stall_window_s`` are
         provided (Nav2 path only today), a watchdog cancels the goal
         with ``error_code=navigation_stalled`` if Nav2's
@@ -746,10 +758,13 @@ class JetsonRosClient:
         sim-time.
         """
         backend = _resolve_execution_backend(execution_backend)
+        policy_deadline_s = (
+            policy_timeout_s if policy_timeout_s is not None else timeout_s
+        )
         if backend == _BACKEND_STRAFER_DIRECT:
             result = self._navigate_via_strafer_direct(
                 step_id=step_id, goal_pose=goal_pose,
-                behavior_tree=behavior_tree, timeout_s=timeout_s,
+                behavior_tree=behavior_tree, timeout_s=policy_deadline_s,
             )
             if result is not None:
                 return result
@@ -765,7 +780,7 @@ class JetsonRosClient:
         elif backend == _BACKEND_HYBRID:
             result = self._navigate_via_hybrid(
                 step_id=step_id, goal_pose=goal_pose,
-                behavior_tree=behavior_tree, timeout_s=timeout_s,
+                behavior_tree=behavior_tree, timeout_s=policy_deadline_s,
             )
             if result is not None:
                 return result

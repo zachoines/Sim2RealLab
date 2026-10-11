@@ -95,7 +95,10 @@ if [ "$SUITE" = autonomy ] && docker image inspect "$IMAGE" >/dev/null 2>&1; the
   # The whole repo, not just the package: tests/conftest.py resolves a
   # strafer_lab stub relative to the repo root, and a package-only mount leaves
   # it unable to find source/strafer_lab, turning skips into collection errors.
+  # strafer_shared is imported from /opt/strafer, so the tree's copy is mounted
+  # over the image's, as in the ROS branch below.
   exec docker run --rm --network host -v "$REPO:/repo" \
+    -v "$REPO/source/strafer_shared:/opt/strafer/strafer_shared" \
     -e ARGS="$PYTEST_ARGS" "$IMAGE" bash -lc '
       cd /repo/source/strafer_autonomy
       eval "set -- $ARGS"

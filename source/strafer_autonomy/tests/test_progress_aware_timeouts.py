@@ -35,7 +35,11 @@ from strafer_autonomy.schemas import (
     SkillCall,
     SkillResult,
 )
-from strafer_shared.constants import NAV_ANGULAR_VEL, NAV_LINEAR_VEL
+from strafer_shared.constants import (
+    NAV_ANGULAR_VEL,
+    NAV_LINEAR_VEL,
+    POLICY_MISSION_TIMEOUT_S,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -370,6 +374,94 @@ class TestDispatchNavGoalProgressAware:
         kwargs = ros.navigate_to_pose.call_args.kwargs
         assert kwargs["stall_progress_m"] == MissionRunnerConfig().nav_stall_progress_m
         assert kwargs["stall_window_s"] == MissionRunnerConfig().nav_stall_window_s
+
+
+# ---------------------------------------------------------------------------
+# Policy-backend budget — the node's completion bound, not Nav2's speed
+# ---------------------------------------------------------------------------
+
+
+class TestPolicyBackendBudget:
+    """Goals a trained-policy backend executes get the inference node's
+    ``mission_timeout_s`` (``POLICY_MISSION_TIMEOUT_S``) plus
+    ``policy_budget_margin_s``: a deadline above the node's own bound at any
+    goal distance, so the node's result arrives before the executor cancels.
+    Nav2 keeps its distance budget.
+    """
+
+    def _dispatch(self, runner, ros, *, backend: str, distance_m: float = 3.1):
+        ros.get_map_pose.return_value = {
+            "x": 0.0, "y": 0.0, "z": 0.0,
+            "qx": 0.0, "qy": 0.0, "qz": 0.0, "qw": 1.0,
+        }
+        step = SkillCall(
+            step_id="nav", skill="navigate_to_pose",
+            args={"goal_source": "explicit", "execution_backend": backend},
+            timeout_s=None,
+        )
+        runner._dispatch_nav_goal(step, Pose3D(x=distance_m, y=0.0), 0.0)
+        return ros.navigate_to_pose.call_args.kwargs
+
+    @pytest.mark.parametrize("backend", ["hybrid_nav2_strafer", "strafer_direct"])
+    def test_3p1_m_goal_policy_budget_is_node_bound_plus_margin(self, backend):
+        runner, ros = _make_runner()
+        kwargs = self._dispatch(runner, ros, backend=backend)
+        assert kwargs["policy_timeout_s"] == pytest.approx(
+            POLICY_MISSION_TIMEOUT_S + MissionRunnerConfig().policy_budget_margin_s,
+        )
+        # The shipped values: the node's 60 s plus the 5 s margin.
+        assert kwargs["policy_timeout_s"] == pytest.approx(65.0)
+        # The policy's bound must outlast the node's own abort.
+        assert kwargs["policy_timeout_s"] > POLICY_MISSION_TIMEOUT_S
+
+    def test_3p1_m_goal_nav2_budget_is_distance_derived(self):
+        runner, ros = _make_runner()
+        kwargs = self._dispatch(runner, ros, backend="nav2")
+        # 2 * 3.1 / 0.7841 + 5 s, with the Nav2 stall watchdog.
+        assert kwargs["timeout_s"] == pytest.approx(12.9072, abs=1e-3)
+        assert kwargs["stall_progress_m"] == MissionRunnerConfig().nav_stall_progress_m
+        assert kwargs["stall_window_s"] == MissionRunnerConfig().nav_stall_window_s
+
+    def test_explicit_step_timeout_wins(self):
+        runner, _ = _make_runner()
+        step = SkillCall(skill="navigate_to_pose", step_id="n", timeout_s=42.5)
+        assert runner._policy_motion_timeout_s(step=step) == 42.5
+
+    def test_capped_at_env_knob_ceiling(self):
+        runner, _ = _make_runner(
+            MissionRunnerConfig(default_navigation_timeout_s=30.0),
+        )
+        step = SkillCall(skill="navigate_to_pose", step_id="n", timeout_s=None)
+        assert runner._policy_motion_timeout_s(step=step) == 30.0
+
+    def test_escape_hatch_returns_default_navigation_timeout(self):
+        runner, _ = _make_runner(MissionRunnerConfig(nav_progress_aware=False))
+        step = SkillCall(skill="navigate_to_pose", step_id="n", timeout_s=None)
+        assert (
+            runner._policy_motion_timeout_s(step=step)
+            == MissionRunnerConfig().default_navigation_timeout_s
+        )
+
+    def test_does_not_scale_with_distance(self):
+        runner, ros = _make_runner()
+        short = self._dispatch(runner, ros, backend="hybrid_nav2_strafer", distance_m=1.2)
+        long = self._dispatch(runner, ros, backend="hybrid_nav2_strafer", distance_m=8.0)
+        assert short["policy_timeout_s"] == long["policy_timeout_s"]
+
+    def test_translate_forwards_policy_budget(self):
+        runner, ros = _make_runner()
+        step = SkillCall(
+            skill="translate", step_id="t1",
+            args={"dx_m": 1.0, "dy_m": 0.0}, timeout_s=None,
+        )
+        runner._translate(_make_runtime(), step)
+        kwargs = ros.navigate_to_pose.call_args.kwargs
+        assert kwargs["timeout_s"] == pytest.approx(
+            _expected_budget(magnitude=1.0, nominal=NAV_LINEAR_VEL),
+        )
+        assert kwargs["policy_timeout_s"] == pytest.approx(
+            POLICY_MISSION_TIMEOUT_S + MissionRunnerConfig().policy_budget_margin_s,
+        )
 
 
 # ---------------------------------------------------------------------------

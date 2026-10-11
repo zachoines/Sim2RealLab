@@ -171,32 +171,30 @@ make submit-deploy CMD="go to the chair"
   `strafer_bringup/config/env_sim_bridge.env` (`STRAFER_NAV_BACKEND=hybrid_nav2_strafer`,
   `STRAFER_POLICY_VARIANT=DEPTH_SUBGOAL`, `STRAFER_USE_SIM_TIME=true`, and the two
   sim-rate timeout widenings) — generated into `deploy/compose/sim_bridge.env`, which
-  `docker-compose.override.sim-bridge.yml` loads as a second `env_file` on top of
-  `autonomy.env`. Edit canon, `make env-sync`, force-recreate. **Do not** look for these
-  in `deploy/compose/sim.env` — that file (nav2 / `DEPTH`) belongs to the *standalone*
-  `docker-compose.sim.yml` lane, which this stack does not use. The overlay's
-  `environment:` carries only the host levers (`STRAFER_INFERENCE_MODEL_PATH`,
+  `docker-compose.override.sim-bridge.yml` loads into `inference` as a second `env_file` on top
+  of `autonomy.env`; the executor does not get it (next bullet). Edit canon, `make env-sync`,
+  force-recreate. **Do not** look for these in `deploy/compose/sim.env` — that file (nav2 /
+  `DEPTH`) belongs to the *standalone* `docker-compose.sim.yml` lane, which this stack does not
+  use. The overlay's `environment:` carries only the host levers (`STRAFER_INFERENCE_MODEL_PATH`,
   `STRAFER_OBS_DUMP_PATH`). Every key has exactly one home and `make env-check` fails
-  on a key in both, so nothing here shadows the canon path — see
+  on a key in both, so nothing in the tracked overlay shadows the canon path — see
   [`context/deploy-env-config.md`](tasks/context/deploy-env-config.md).
 - The executor is set to the **hybrid (policy) backend** via `docker-compose.override.autonomy-local.yml`, so semantic goals drive the DEPTH_SUBGOAL policy (not plain nav2). That override is **untracked** (host-specific URLs) — it lives in the deploy dir.
+  It must also set `STRAFER_USE_SIM_TIME: "true"`, which no tracked file gives the executor;
+  without it the executor's 65 s goal budget runs on wall time. Check (expect
+  `hybrid_nav2_strafer`, `true`):
+  ```bash
+  docker exec strafer_autonomy printenv STRAFER_NAV_BACKEND STRAFER_USE_SIM_TIME
+  ```
 - If the VLM can't find the named object, the mission fails at grounding ("target not found"). Pick something clearly in frame.
-- **Mission completion.** The policy's action server reports `SUCCEEDED` at the shared
-  `GOAL_ARRIVAL_RADIUS_M` (0.30 m, the node's `goal_reached_distance_m`) and aborts at
-  `mission_timeout_s` = 60 s on the node clock (about 8 min wall at RTF ~0.13). A mission routed
-  through the executor gets a tighter, distance-derived budget for its navigate step:
-  2·d / `NAV_LINEAR_VEL` (0.784 m/s) + 5 s on the executor's node clock (sim time here), capped
-  at `STRAFER_NAVIGATION_TIMEOUT_S` (90 s). Only the Nav2 backend adds a progress (stall)
-  watchdog; the policy backends pass none. When the budget expires the executor cancels the
-  goal and reports `navigation_timeout`. On 2026-09-25 the v3 artifact
-  (`strafer_depth_subgoal_v3_999`), driven directly on the policy's action server, reached the
-  radius in 4 of 6 gate missions and 3 of 3 fixed-goal repeats; three of those reaches took
-  longer than that budget (G1: 19.0 s sim against ~12.9 s for 3.1 m), so through the executor
-  they would have been cancelled short of the goal
-  ([`executor-policy-nav-budget`](tasks/active/reliability/executor-policy-nav-budget.md)).
-  v2 reached 0 of 2 in the same session and 0 of 6 on 2026-08-17
-  ([v3 record](measurements/goal-a-rig-gate-v3-2026-09-25/README.md),
-  [2026-08-17 record](measurements/goal-a-rig-gate-2026-08-17/README.md)).
+- **How a policy goal ends** (`error_code` in `make submit-deploy`'s result). Success within
+  0.30 m; `navigation_failed`: the node aborted, at 60 s sim (~8 min wall) if line 1 matches;
+  `navigation_timeout`: the executor gave up first, on wall time (check above) or, if line 2
+  matches, on a frozen `/clock`. Budgets: [`bridge-runtime-invariants`](tasks/context/bridge-runtime-invariants.md#sim-time-aware-navigation-timeout-jetson-side).
+  ```bash
+  docker logs strafer_inference 2>&1 | grep 'mission timed out'
+  docker logs strafer_autonomy 2>&1 | grep 'Nav2 wait: /clock stalled'
+  ```
 - **If the robot parks within ~0.4 m of an obstacle** it lands in the costmap
   inflation halo, where `GridBased` refuses its own pose as a planning start.
   On the **hybrid** lane the subgoal generator escapes that itself — it retries

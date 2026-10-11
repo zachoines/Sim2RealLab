@@ -173,6 +173,15 @@ What does modulate the rate is not established. The practical consequence is sta
 the lead: only a run in which a known-affected control also stalls can support a claim
 that some change helped.
 
+*Update 2026-10-03: one measurement session on 6.0.1.0, on the host as upgraded on
+2026-09-12, stalled at boot on 17 of 40 Kit boots, 42.5 %. Each showed this signature: about
+75 MB resident, no CPU, no output for 60 s. One more boot, stopped by hand before the
+watchdog would have judged it, had written no Kit output and matched the signature
+([`vfov-gap-v3-2026-10-03`](../vfov-gap-v3-2026-10-03/README.md)). That makes 42.5–45 %. The
+watchdog relaunched all but two, which stalled on all three of their attempts. This record
+takes about half of boots as the rate at which the pin decision is revisited, and 42.5–45 %
+does not meet it.*
+
 ## Version ladder
 
 Two throwaway environments were built to fill in the ladder, then measured against the

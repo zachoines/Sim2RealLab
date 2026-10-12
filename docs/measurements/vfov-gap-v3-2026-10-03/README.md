@@ -264,6 +264,24 @@ following.
 **In later episodes**, tick 0 also shows a frame from before the reset: the previous episode's last
 view. The depth block first changes at tick 2–8 (median 3), in all 1 515 later episodes.
 
+*Correction 2026-10-11 ([`episode-start-stale-depth`](../../tasks/active/trained-policy/episode-start-stale-depth.md)).*
+*Five passages read a later episode's tick 0 as the previous episode's last view: the paragraph
+above; the opening of this section ("starts every episode on a frame rendered before its reset");
+"Training is the same cfg" below; the summary's "Speed over all episodes"; and §5's "Tick 0 over all
+episodes". That reading was inferred from the cfg. The deposited depth sums do not support it
+(`stale-start-check/later_episode_tick0.txt`, sibling deposit below):*
+- *in later episodes, the largest single-tick change of the depth-block sum over ticks 1–8 is 2.4 %
+  in the median (90th percentile 5.3 %; 12 of 1 515 above 20 %), against 53.2 % at a first
+  episode's room arrival and 46.2 % between two random episode starts;*
+- *where the previous episode is recorded to its end (12 cases), tick 0 differs from that episode's
+  last tick by 32.5 % in the median, and from its own tick 8 by 2.9 %.*
+
+*So in these headless launches a later episode's tick 0 shows the new episode. Isaac Lab's render
+path agrees: a camera renders when it is read, and after a reset inside a step the first read is
+the observation's, after the reset. Only the initial reset reuses a render taken before the room
+existed. The first-episode findings, the registered tick-0 statistics and the timing of the first
+depth change stand. The brief checks the later-episode reading on the camera's raw output.*
+
 **What the tick-0 statistics measure.**
 - The registered tick-0 statistic measures v3's response to the floor-only frame at the two focal
   lengths, under the start pose's scalars.
@@ -641,4 +659,22 @@ dca37f4ae6e1ece6dc429d986528ad1c9d3bf62f6c50e619cdab46fcc7edfcd6  tick0_frames.t
 3628a8466117064bd0ae77827bcd1f4e0b04a1e1c60059c19c3934a1038f0962  vfov_series.sh
 8b2fe71ce811f7f551edaf383087beb9744da21df847c19213aace5b5ece4d8e  vfov_series_resume.sh
 f7a87da56a7dfa8e755ae66acce4751284a560b251aa2f5fee3da275f7c6664b  vfov_summary.py
+```
+
+## Evidence — sibling deposit (2026-10-11 correction)
+
+| | |
+|---|---|
+| repository | https://github.com/zachoines/Sim2RealLab-Artifacts |
+| deposit directory | `vfov-gap-v3-2026-10-03/stale-start-check/` |
+| deposit commit | `39e8a98bbb79957580ad53a939f75631c706b2f1` |
+
+It holds `later_episode_tick0.py`, which reads only `record-files/eval/`, and its output
+`later_episode_tick0.txt`. `record-files/` is unchanged.
+
+sha256 of every file in the deposit:
+
+```
+0a62127acd32b7368e0cf51a882db2f25f63ead790613d1b294dd396702a2970  later_episode_tick0.py
+c3ff7ec6d43d10f56c3852258b97bd0f71d6ae39deca3586d9960fca18a74588  later_episode_tick0.txt
 ```

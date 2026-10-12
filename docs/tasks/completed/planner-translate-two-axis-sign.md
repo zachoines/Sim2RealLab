@@ -1,5 +1,8 @@
 # Planner drops the sign of "right" in a two-axis translate
 
+**Status:** Shipped 2026-10-11 in `e568e4a` (DGX).
+**PR:** https://github.com/zachoines/Sim2RealLab/pull/240
+
 **Type:** bug (planner prompt)
 **Owner:** DGX agent
 **Priority:** P1 — a translate that names both axes and turns right is
@@ -21,11 +24,11 @@ right, as the single-axis "strafe right" example already does.**
 
 ## Context bundle
 
-- [context/repo-topology.md](../../context/repo-topology.md)
-- [context/ownership-boundaries.md](../../context/ownership-boundaries.md)
-- [measurements/goal-a-cli-confirmation-2026-10-03](../../../measurements/goal-a-cli-confirmation-2026-10-03/README.md)
+- [context/repo-topology.md](../context/repo-topology.md)
+- [context/ownership-boundaries.md](../context/ownership-boundaries.md)
+- [measurements/goal-a-cli-confirmation-2026-10-03](../../measurements/goal-a-cli-confirmation-2026-10-03/README.md)
   — the observation, with the request and the returned plan in its deposit.
-- [`planner-rotate-direction-prompt`](planner-rotate-direction-prompt.md) — the
+- [`planner-rotate-direction-prompt`](../active/reliability/planner-rotate-direction-prompt.md) — the
   same sign class for rotations. Its out-of-scope note says translate had no
   field reports of mis-direction; this is one.
 
@@ -43,7 +46,7 @@ right, as the single-axis "strafe right" example already does.**
 - The four two-axis commands to the left in the same set (`… meters left`)
   compiled with the correct sign and magnitudes to 0.001 m.
 - The system prompt
-  ([`prompt_builder.py`](../../../../source/strafer_autonomy/strafer_autonomy/planner/prompt_builder.py))
+  ([`prompt_builder.py`](../../../source/strafer_autonomy/strafer_autonomy/planner/prompt_builder.py))
   states "Right = negative left" and has one right example, single-axis
   (`"strafe right 2 meters"` → `[0.0, -2.0]`). It has no two-axis example
   on either side.
@@ -75,11 +78,11 @@ right, as the single-axis "strafe right" example already does.**
 - [ ] If your work invalidates a fact in any referenced context module, package
       README, top-level `Readme.md`, or guide under `docs/`, update those in the
       same commit. See
-      [`conventions.md`'s user-facing documentation maintenance section](../../context/conventions.md#user-facing-documentation-maintenance)
+      [`conventions.md`'s user-facing documentation maintenance section](../context/conventions.md#user-facing-documentation-maintenance)
       for the surface list and trigger heuristics.
 
 ## Out of scope
 
 - The executor's translate handling (rotate-then-translate, budgets): it is
   sign-clean and dispatched each goal the set submitted to within 1.1 mm.
-- Rotation sign: [`planner-rotate-direction-prompt`](planner-rotate-direction-prompt.md).
+- Rotation sign: [`planner-rotate-direction-prompt`](../active/reliability/planner-rotate-direction-prompt.md).

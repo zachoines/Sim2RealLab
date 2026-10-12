@@ -182,7 +182,7 @@ The learned components here share one frozen text-capable backbone — see [`con
 | [`executor-slam-tracking-precheck-mid-mission`](active/reliability/executor-slam-tracking-precheck-mid-mission.md) | P2 | active | Jetson |
 | [`verify-arrival-occlusion-robustness`](active/reliability/verify-arrival-occlusion-robustness.md) | P2 | active | Jetson |
 | [`planner-rotate-direction-prompt`](active/reliability/planner-rotate-direction-prompt.md) | P2 | active | DGX |
-| [`planner-translate-two-axis-sign`](active/reliability/planner-translate-two-axis-sign.md) | P1 | active | DGX |
+| [`planner-translate-two-axis-sign`](completed/planner-translate-two-axis-sign.md) | P1 | **shipped 2026-10-11** ([#240](https://github.com/zachoines/Sim2RealLab/pull/240), `e568e4a`). A two-axis translate's signs come from the command's own direction words. The prompt gains three two-axis examples (forward+right, forward+left, backward+right), and `_compile_translate` gives each non-zero component the sign its words name when they name exactly one direction on that axis; otherwise the LLM's value passes through. On the live Qwen3-4B, 48 two-axis commands: 31 scored mis-sign before, 24 with the examples alone, 0 with the guard (by construction on these commands, whose words name each axis once), which was registered before its runs and meets the rule ([`planner-translate-sign-2026-10-11`](../measurements/planner-translate-sign-2026-10-11/README.md)). Residual: "strafe S Y meters while moving backward X meters" drops the backward component (4 of 48), and the guard cannot restore a zero. Live fixtures opt in with `STRAFER_LIVE_PLANNER_URL` (marker `live_planner`). The compile-first dry-check for real-robot submissions is not retired here | DGX |
 | [`rotate-in-place-large-angle-correctness`](active/reliability/rotate-in-place-large-angle-correctness.md) | P2 | active | Jetson |
 | [`grounding-publisher-extraction`](active/reliability/grounding-publisher-extraction.md) | P2 | active | Jetson |
 | [`nav-stall-multilayer-watchdog`](parked/reliability/nav-stall-multilayer-watchdog.md) | P3 | parked | Jetson |
@@ -259,7 +259,6 @@ _None._
 | [`harness-architecture`](active/harness/harness-architecture.md) | DGX | XL (split across PRs B/C/D — see brief's Implementation tiers) | Architecture spec for the consolidated harness: one `source/strafer_lab/scripts/capture.py` entry point with `--driver` × `--mission-source` flags + LeRobot v3 canonical output. **Next pickable slice: Tier 1 (writer + teleop driver)** unblocks v1 measurement and v2 VLA training data without depending on bridge perf. Subsumes the retired teleop-driver / behavior-cloning-data-expansion / trajectory-first-captioning / oracle-driver / output-format-alignment briefs. |
 | [`autonomy-stack`](active/multi-room/autonomy-stack.md) | Either | M | Lifts §1.10.1's multi-room deferral. Stored-map fallback in `scan_for_target` + planner transit-step emission + plan-compiler updates. Blocks on `observation-derived-room-state` and `frontier-exploration-primitive` (`planner-architecture-alignment` shipped in #36 as Option C). |
 | [`domain-randomization-audit`](active/trained-policy/domain-randomization-audit.md) | DGX | M | Bench-measure real-chassis variability (mass, battery, D555 latency, Jetson jitter) and widen REAL_ROBOT_CONTRACT to match. Resume-train DEPTH baseline against the audited DR. Filed off the 2026-05-15 trained-policy audit. |
-| [`planner-translate-two-axis-sign`](active/reliability/planner-translate-two-axis-sign.md) | DGX | S | The planner compiled "move 1.712 meters forward and 1.372 meters right" as a move 1.372 m to the **left** (`dy_m` +1.372); four two-axis moves to the left compiled correctly. The prompt has one single-axis right example and no two-axis one. P1: on the real robot a mirrored lateral command is a safety defect, and the product path has no dry-check; until this ships, every real-robot submission is compiled first and dispatched only on a match. A pre-fix mis-sign rate, then prompt examples plus live-planner fixtures. Filed off `goal-a-cli-confirmation-2026-10-03` |
 
 ### P2 — medium priority
 
@@ -342,7 +341,6 @@ Briefs estimated **S** that any agent can knock out in <1 day. Useful
 for fresh-session pickup. Cross-cut — these also appear above.
 
 - [`planner-rotate-direction-prompt`](active/reliability/planner-rotate-direction-prompt.md) (DGX, P2)
-- [`planner-translate-two-axis-sign`](active/reliability/planner-translate-two-axis-sign.md) (DGX, P1)
 - [`grounding-publisher-extraction`](active/reliability/grounding-publisher-extraction.md) (Jetson, P2)
 - [`isaac-sim-rt-2-default-renderer`](active/sim-performance/isaac-sim-rt-2-default-renderer.md) (DGX, P2)
 

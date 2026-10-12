@@ -114,6 +114,29 @@ dwell on the rig came before it. The baseline criterion shows which it is.
 [`policy-time-to-goal-baseline-2026-10-11`](../../../measurements/policy-time-to-goal-baseline-2026-10-11/README.md);
 see the Baseline and Deploy-cap boxes.*
 
+*2026-10-11, the referent offset
+([`subgoal-referent-offset-ab-2026-10-11`](../../../measurements/subgoal-referent-offset-ab-2026-10-11/README.md)):*
+- *On the bridge lane, twelve CLI reaches in one session compared the anchored plan's own last
+  point as the policy's referent (C) with that point moved onto the goal pose (T), six each. By the
+  rule stated before the run, the offset is **recorded as a minor term**. The rule tests for a
+  large effect, and a smaller one is not excluded.*
+- *Band time, 0.42 m to the node's result: median 4.37 s on T against 6.33 s on C, a ratio of 0.69
+  where the rule asked for at most 0.5. Quiet stop inside 0.30 m: 0 of 6 on T, where the rule
+  asked for at least 4. Every T reach went quiet 0.309–0.352 m from the goal, which was its
+  referent. All twelve succeeded.*
+- *The `vx` sign-flip share was lower on T than on C: median 0.009 against 0.147 by `band.py`'s
+  definition, and 0.095 against 0.204 by `reach_terminal.py`'s. It is a read reported beside the
+  rule, with n = 6 per arm, and the two definitions differ about tenfold on T, so it is suggestive,
+  not established.*
+- *With the referent on the goal, the policy still went quiet (ten ticks commanding under
+  0.05 m/s) outside 0.30 m on all six T reaches, 0.309–0.352 m out, before the node's first tick
+  within 0.30 m ended the goal.*
+  - *In its training env, over the first 600 steps, 6 of 179 band entries (3.35 %) went quiet at
+    or beyond 0.30 m without the node's caps, and 38 of 513 (7.41 %) under them (the baseline
+    record's §3, runs 2 and 3).*
+  - *The rig's read ends at the 0.30 m crossing, so no median comparable with the training env's
+    0.174 m can be read there.*
+
 **The scheme to evaluate.** Make time to goal an objective of its own, in addition to a target
 speed, and tune it together with the approach slowdown, so that travel time has an upper bound.
 - **The combined scheme:**

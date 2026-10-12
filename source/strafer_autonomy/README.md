@@ -28,7 +28,7 @@ Sibling packages it interacts with:
 ## What ships today
 
 - **LLM planner service** (`planner/app.py`) — FastAPI app wrapping `Qwen/Qwen3-4B` with a two-stage pipeline: LLM classifies commands into a `MissionIntent`, then a deterministic `plan_compiler` expands into a validated `MissionPlan`.
-- **Nine mission intent types** — `go_to_target`, `wait_by_target`, `go_to_targets`, `patrol`, `rotate`, `describe`, `query`, `cancel`, `status`. Enumerated in `planner/intent_parser.py`; compiled by `planner/plan_compiler.py`.
+- **Ten mission intent types** — `go_to_target`, `wait_by_target`, `go_to_targets`, `patrol`, `rotate`, `translate`, `describe`, `query`, `cancel`, `status`. Enumerated in `planner/intent_parser.py`; compiled by `planner/plan_compiler.py`.
 - **Agentic `POST /plan_with_grounding`** — planner pre-grounds the target via a co-located VLM call when the intent requires grounding, saving one LAN image round-trip per mission.
 - **Jetson executor** (`executor/mission_runner.py`, `executor/command_server.py`) — 13 implemented skills, mission state machine, cancel / timeout / retry, parallel VLM + planner health checks at startup.
 - **Operator CLI** (`cli.py`) — `submit` / `status` / `cancel` commands over the ROS action / service interfaces.
@@ -312,7 +312,7 @@ The Jetson never imports `mlflow` — only `strafer_autonomy.clients.databricks_
 
 **Planner and executor stay separate.** The LLM is a text-to-plan service; it never emits raw skill sequences or ROS messages. The executor owns mission state, validation, retries, cancel, timeout, and every robot-side control decision. This split lets the planner move between workstation and cloud without touching the robot-side execution boundary.
 
-**Deterministic plan compilation.** The LLM picks an intent and (for target-bearing intents) fills in labels; `plan_compiler.py` is the sole source of skill ordering, timeouts, retry limits, and argument defaults. Plans are bounded and testable.
+**Deterministic plan compilation.** The LLM picks an intent and (for target-bearing intents) fills in labels; `plan_compiler.py` is the sole source of skill ordering, timeouts, retry limits, and argument defaults. Plans are bounded and testable. For a `translate`, the compiler also sets the sign of each non-zero component of `translation_xy` (+x forward, +y left) from the command's own words — forward / forwards / ahead against backward / backwards / back, left against right — when the command names exactly one direction on that axis; otherwise the LLM's value passes through. The LLM can return a component with the wrong sign, most often the lateral one, when a command names both axes ([`planner-translate-sign-2026-10-11`](../../docs/measurements/planner-translate-sign-2026-10-11/README.md)).
 
 **`verify_arrival` is always appended after navigation.** Every compiler that ends in `navigate_to_pose` emits a `verify_arrival` step. The skill runs a CLIP top-k ranking against the semantic map — ranking-based, not threshold-based: if ≥3 of the top-5 neighbors are within `goal_radius_m=3.0` of the goal, verified. Threshold-based checks were rejected because they drift with CLIP model variant and environment. The semantic-map kwargs that back the skill are not yet wired into `executor/main.py`'s `build_command_server` call, so in production the skill returns `verified=False, reason=semantic_map_disabled` until that wiring lands. See [`docs/MISSION_VALIDATION_ARCHITECTURE.md`](../../docs/MISSION_VALIDATION_ARCHITECTURE.md) for the audit and the staged plan to graduate it.
 
@@ -336,6 +336,14 @@ python -m pytest source/strafer_autonomy/tests/ -v
 ```
 
 Tests marked `requires_ros` exercise the command server, CLI, and `JetsonRosClient` against live ROS interfaces. Everything else — planner pipeline, schemas, intent parsing, plan compilation, HTTP clients, Databricks clients, semantic map — runs without a ROS install.
+
+Tests marked `live_planner` call a running planner service and skip unless `STRAFER_LIVE_PLANNER_URL` names one. Once it is set, a service that does not report its model loaded makes them error at setup rather than skip:
+
+```bash
+make serve-planner   # in another shell, on the DGX
+STRAFER_LIVE_PLANNER_URL=http://127.0.0.1:8200 \
+    python -m pytest source/strafer_autonomy/tests/test_planner_live_translate.py -v
+```
 
 Some tests additionally need a **workstation-lane dependency** the robot does not
 install — `chromadb`, `networkx`, `shapely`, `strafer_vlm`, `fastapi`. Those call

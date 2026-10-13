@@ -35,16 +35,46 @@ flip share is a read the pre-registration reports beside the rule, not part of i
 - There are six reaches per arm in one session, and the two definitions differ by about a factor
   of ten on T. The difference is suggestive, not established (§5).
 
+**Computed after the run, with n = 6: where the plan end is the referent, the band time tracks how
+far short of the goal the referent sits** (§5a). The signed offset at band entry is the goal distance
+minus the held referent's distance; positive means the referent is short of the goal. In the C arm:
+
+| reach | offset | band |
+|---|---:|---:|
+| D10 | −0.051 m | 1.62 s |
+| D12 | +0.004 m | 4.62 s |
+| D02 | +0.037 m | 5.64 s |
+| D06 | +0.026 m | 7.02 s |
+| D04 | +0.026 m | 9.37 s |
+| D08 | +0.061 m | 41.81 s |
+
+Spearman's rank correlation is +0.77.
+- **Out of sample.** The same relation holds on the 13 earlier sim-bridge reaches with the plan end
+  as referent that succeeded: Spearman +0.76.
+  - The fourteenth, R2, ran to the bound and held its band quietly (flip share 0.00, 0.025 m/s
+    commanded) at an offset of 0.000 m.
+- **The flip share follows the same relation.** The reaches with the most back-and-forth are the
+  high-offset, high-commanded-speed ones: offset against flip share is +0.77 here and +0.88 on the
+  earlier reaches. So the flip-share drop with the referent on the goal reads as the same
+  phenomenon.
+- **The rule's outcome stands.** By the pre-registered rule the offset is a minor term. This is what
+  it governs: the tail of the band and its back-and-forth, not the stop-short.
+
 **The policy still goes quiet before the radius with the referent on the goal.** Here 11 of the 12
 reaches went quiet outside 0.30 m, all six T reaches among them. Quiet is ten ticks commanding
 under 0.05 m/s, not a standstill. Every reach still ended on the node's first tick within 0.30 m,
 the T reaches 0.30–4.21 s after going quiet (§5).
 
-As context, the pre-registration's prior cites v3 in its training env, in run 2 of
-[`policy-time-to-goal-baseline-2026-10-11`](../policy-time-to-goal-baseline-2026-10-11/README.md).
-Over that run's first 600 steps, v3 went quiet a median 0.174 m from its path end, and 6 of 179
-band entries went quiet at or beyond 0.30 m. This record does not identify what makes the policy
-go quiet outside the radius (§7).
+As context: the pre-registration's prior cites v3's training-env median quiet-stop distance,
+0.174 m. That median counts stops made after the dwell, inside 0.30 m, which this lane cannot
+observe. The comparable figure is the share of band entries that go quiet before the first 0.30 m
+crossing ([`policy-time-to-goal-baseline-2026-10-11`](../policy-time-to-goal-baseline-2026-10-11/README.md)
+§3, rows 0–599):
+- 4 of 179 (2.23 %) without the node's caps;
+- 37 of 513 (7.21 %) under them;
+- here, 11 of the 12 reaches.
+
+That difference is the finding. This record does not identify which lane condition produces it (§7).
 
 ## 1. Setup
 
@@ -286,6 +316,75 @@ the result are computed after the run from `ab_summary.json`.
   time between goals ("over 100.2 s sim"). Computed after the run from its cadence lines inside each
   goal: inferences rose at 29.88–30.20 per s sim, all fresh, with no further watchdog skip.
 
+## 5a. Band time against the referent's offset (computed after the run)
+
+`posthoc_offset_band.py` → `posthoc_offset_band.txt`, which was not pre-registered. For each reach
+with the anchored plan's end as the referent, at band entry (the first pose sample within 0.42 m of
+the goal):
+- **The signed offset.** The goal distance minus the distance to the subgoal held through the band.
+  Positive means the referent sits short of the goal, on the robot's side.
+- **The reads beside it.** The band time, the `vx` flip share (`band.py`'s definition) and the mean
+  commanded planar speed in the band, as `planend.py` and `band.py` read the same records.
+
+**This A/B's C arm** (n = 6):
+
+| reach | signed offset (m) | band time (s) | `vx` flip share | mean commanded speed (m/s) |
+|---|---:|---:|---:|---:|
+| D10 | −0.051 | 1.62 | 0.00 | 0.073 |
+| D12 | +0.004 | 4.62 | 0.09 | 0.054 |
+| D02 | +0.037 | 5.64 | 0.09 | 0.070 |
+| D06 | +0.026 | 7.02 | 0.20 | 0.149 |
+| D04 | +0.026 | 9.37 | 0.20 | 0.142 |
+| D08 | +0.061 | 41.81 | 0.24 | 0.208 |
+
+Spearman's rank correlation, using average ranks for the tied offsets:
+- offset against band time, +0.77;
+- offset against flip share, +0.77;
+- mean commanded speed against flip share, +0.77.
+
+On the T arm every offset is within 0.001 m of zero, so no correlation is computed there.
+
+**The earlier sim-bridge reaches with the plan end as the referent**: the gate
+([`goal-a-rig-gate-v3-2026-09-25`](../goal-a-rig-gate-v3-2026-09-25/README.md)), the CLI
+confirmation set ([`goal-a-cli-confirmation-2026-10-03`](../goal-a-cli-confirmation-2026-10-03/README.md))
+and the video set ([`goal-a-cli-video-2026-10-09`](../goal-a-cli-video-2026-10-09/README.md)).
+Two of their records are not in the table:
+- gate R3 never entered 0.42 m;
+- the CLI set's R1 was not submitted, so its record has no result.
+
+| reach | status | signed offset (m) | band time (s) | `vx` flip share | mean commanded speed (m/s) |
+|---|---|---:|---:|---:|---:|
+| gate G1 | succeeded | +0.014 | 13.88 | 0.26 | 0.226 |
+| gate R1 | succeeded | −0.088 | 2.29 | 0.00 | 0.107 |
+| gate L1 | succeeded | +0.051 | 7.05 | 0.24 | 0.222 |
+| gate L2 | succeeded | +0.001 | 7.85 | 0.15 | 0.092 |
+| gate R2 | aborted at the bound | −0.000 | 52.68 | 0.00 | 0.025 |
+| gate F1 | succeeded | −0.000 | 5.08 | 0.01 | 0.045 |
+| gate F2 | succeeded | −0.039 | 1.34 | 0.00 | 0.082 |
+| gate F3 | succeeded | −0.013 | 1.26 | 0.00 | 0.080 |
+| CLI FX | succeeded | +0.005 | 4.84 | 0.13 | 0.082 |
+| CLI G1 | succeeded | −0.008 | 3.46 | 0.03 | 0.048 |
+| CLI L1 | succeeded | +0.028 | 5.37 | 0.21 | 0.144 |
+| CLI L2 | succeeded | +0.016 | 6.50 | 0.14 | 0.112 |
+| video G1 | succeeded | +0.025 | 18.87 | 0.25 | 0.181 |
+| video L2 | succeeded | +0.033 | 11.18 | 0.31 | 0.236 |
+
+- **The 13 that succeeded.** Offset against band time is +0.76, and offset against flip share is
+  +0.88.
+- **All 14.** Offset against band time is +0.64, offset against flip share +0.87, and mean commanded
+  speed against flip share +0.83.
+- **R2 is the exception.** It ran to the bound, holding its band quietly (flip share 0.00,
+  0.025 m/s) at an offset of 0.000 m. That is a hold, not a dither.
+
+**How to read this.** These are rank correlations on small samples, computed after the run. The
+earlier reaches were not run to test them.
+- **The pattern.** Where the referent sits short of the goal, the policy's band runs long and its
+  `vx` changes sign often. Where the referent is at or past the goal, the band is short and quiet.
+- **A reading of why, not tested here.** The policy stops some 0.31–0.35 m from its referent. The
+  node ends a goal at 0.30 m from the goal. With the referent short of the goal, the node's line
+  lies inside the policy's own stopping distance, so the policy has to close in on a referent it
+  already treats as reached.
+
 ## 6. Deviations and notes
 
 - **None of the void conditions fired.** There was no bridge or robot-stack restart, and no reach
@@ -329,24 +428,21 @@ the result are computed after the run from `ab_summary.json`.
 - **The flip share's difference** as established, or what produces it (§5).
 - **The stop-short's cause**, the policy going quiet outside the radius. With the referent on the
   goal, it still went quiet 0.31–0.35 m out.
-  - In its training env, run without the node's caps and with the dwell's termination removed
-    (run 2), v3 went quiet a median 0.174 m from its path end over the first 600 steps (rows
-    0–599). Over those rows, 6 of 179 band entries (3.35 %) went quiet at or beyond 0.30 m.
-  - Under the node's speed cap and 60 s bound, where the dwell ends each episode (run 3), 38 of 513
-    band entries (7.41 %) did, over the same rows.
+  - In its training env, over rows 0–599, 4 of 179 band entries (2.23 %) went quiet before their
+    first 0.30 m crossing without the node's caps (run 2). Under the node's speed cap and 60 s
+    bound (run 3), 37 of 513 (7.21 %) did. Here 11 of 12 reaches did.
   - Both figures are from
     [`policy-time-to-goal-baseline-2026-10-11`](../policy-time-to-goal-baseline-2026-10-11/README.md)
-    §3. Here 11 of 12 did.
-  - The rig's read is censored at the 0.30 m crossing and the training env's run 2 is not, but a
-    quiet stop at or beyond 0.30 m is visible in both.
+    §3. All three are read before the first 0.30 m crossing, the only side of the line the node
+    lets this lane observe.
   - Computed after the run: `planend.py` (in `8a7648f`) also prints each quiet stop's distance to
     the held subgoal. The C reaches went quiet 0.312–0.354 m from theirs and the T reaches
     0.308–0.352 m, so all 11 quiet stops were also at or beyond 0.30 m from the referent the
     policy held.
   - With the offset removed, the stop-short persisted on all six T reaches, so an offset of
-    0.036–0.062 m does not account for it there. The baseline record's Reading 2 attributes the
-    stop-short to a bridge-lane difference by its rule. This record does not identify which
-    difference.
+    0.036–0.062 m does not account for it there. The training env has the same behaviour at a much
+    lower rate, so the lane raises the rate of something the policy already does. This record does
+    not identify which lane condition raises it.
 - **A larger offset.** The snap moved the plan's end 0.036–0.062 m. A plan that ends farther from
   its goal is not tested.
 - **Real hardware.** Everything ran on the sim bridge, with the rendered depth stream.
@@ -357,7 +453,7 @@ the result are computed after the run from `ab_summary.json`.
 |---|---|
 | repository | https://github.com/zachoines/Sim2RealLab-Artifacts |
 | deposit directory | `subgoal-referent-offset-ab-2026-10-11/record-files/` |
-| deposit commit | `ccec8bcdf683c708bd12a7722beedc1218b2253e` |
+| deposit commit | `c3168a0df072e84a8d909d0d9180708821a38cfa` |
 | pre-registration commit | `8a7648fad150d40cb7230eb0d16e038c61e36996` |
 
 The pre-registration commit, `8a7648f`, was made at 20:13:09 CDT, before the first slot at
@@ -370,7 +466,8 @@ The pre-registration commit, `8a7648f`, was made at 20:13:09 CDT, before the fir
 
 `a213f88` adds the other 239 files. Of the 22, it changes three, each only by replacing a
 direct-link address with a placeholder. `ccec8bc` corrects `DEPOSIT.md`'s account of the
-pre-registration commit and changes no other file.
+pre-registration commit and changes no other file. `c3168a0` adds the post-hoc offset read
+(`posthoc_offset_band.*`, §5a).
 
 The deposit holds:
 - the launch inputs: the pre-registration, the manifest, the patched and `main` node files, the
@@ -665,6 +762,8 @@ f4251f310ca6e72b353610beffe9a36564c417ee2af2b43af1ed6300dc4599ab  manifest.json
 39a25b551747c9bccf3197fc2787bb056b0449a320ce4a3f7e17b911b601f15f  node/inference-referent-node.yml
 52c9beed6bcec7392a6f625ee44b3cad8c8e6594b898924b5cb7564ea04fa9a5  node/subgoal_generator_node.main.py
 c8085992c6b1492c117ae103591152615f0031f9f35b94d0bac2fc7f48322fb5  node/subgoal_generator_node.py
+d45ae310388c4cfc4336de02e8f77af07ca025f0f9dc25de25986d82fed3daa0  posthoc_offset_band.py
+46658be0f6bc50e3101f725a54073c3a64c98cad5210519592e3b629125bee96  posthoc_offset_band.txt
 b34b9759c6e36bfc342ae6d583900afcb18c2a707e325bb1588f396aca1b8c1d  reach_terminal.json
 ec1cea9e83eed8f56a2f91c1a222d2184a4fecd5a8bf4217dc64fd95a210733c  reach_terminal.stdout
 ee2b1d9643a449feee3cd7fea7b15b130f592a32ca27408f994e0fdb0c218016  referent_arm.patch

@@ -30,13 +30,13 @@ _STEPS_PER_TARGET = 5
 # while-turn on a mecanum chassis. ~5° in radians.
 _ALIGN_TOLERANCE_RAD = 0.087
 
-# Direction words that fix a translate component's sign (+x forward,
-# +y left). The LLM can drop the sign of a lateral component when the
-# command names two axes, so the command's words decide it.
-_FORWARD_WORDS = frozenset({"forward", "forwards", "ahead"})
-_BACKWARD_WORDS = frozenset({"backward", "backwards", "back"})
-_LEFT_WORDS = frozenset({"left"})
-_RIGHT_WORDS = frozenset({"right"})
+# The two-axis translate template CLI-built commands use. The LLM can drop
+# the lateral sign there, so the template's words decide each sign (+x
+# forward, +y left).
+# Only this template is read; free text keeps the LLM's signs.
+_TRANSLATE_TEMPLATE = re.compile(
+    r"move \d+(?:\.\d+)? meters (forward|backward) and \d+(?:\.\d+)? meters (left|right)"
+)
 
 
 class CompilationError(Exception):
@@ -162,18 +162,11 @@ def _compile_status(intent: MissionIntent) -> list[SkillCall]:
     ]
 
 
-def _signed_from_command(
-    value: float, words: set[str], positive: frozenset[str], negative: frozenset[str],
-) -> float:
-    """Give a translate component the sign the command's own words name.
-
-    Applies only when the command names exactly one direction on that
-    axis; otherwise the LLM's value passes through unchanged.
-    """
-    has_pos, has_neg = bool(words & positive), bool(words & negative)
-    if value == 0.0 or has_pos == has_neg:
+def _signed(value: float, positive: bool) -> float:
+    """``value`` with the given sign; zero stays zero."""
+    if value == 0.0:
         return value
-    return abs(value) if has_pos else -abs(value)
+    return abs(value) if positive else -abs(value)
 
 
 def _compile_translate(intent: MissionIntent) -> list[SkillCall]:
@@ -188,9 +181,10 @@ def _compile_translate(intent: MissionIntent) -> list[SkillCall]:
     if intent.translation_xy is None:
         raise CompilationError("translate requires translation_xy.")
     dx, dy = intent.translation_xy
-    words = set(re.findall(r"[a-z]+", intent.raw_command.lower()))
-    dx = _signed_from_command(dx, words, _FORWARD_WORDS, _BACKWARD_WORDS)
-    dy = _signed_from_command(dy, words, _LEFT_WORDS, _RIGHT_WORDS)
+    template = _TRANSLATE_TEMPLATE.fullmatch(intent.raw_command.strip())
+    if template is not None:
+        dx = _signed(dx, template.group(1) == "forward")
+        dy = _signed(dy, template.group(2) == "left")
     return [
         SkillCall(
             step_id="step_01",

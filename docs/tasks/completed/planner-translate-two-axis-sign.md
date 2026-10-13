@@ -1,6 +1,6 @@
 # Planner drops the sign of "right" in a two-axis translate
 
-**Status:** Shipped 2026-10-11 in `e568e4a` (DGX).
+**Status:** Shipped 2026-10-12 in `14477af` (DGX).
 **PR:** https://github.com/zachoines/Sim2RealLab/pull/240
 
 **Type:** bug (planner prompt)
@@ -132,20 +132,24 @@ right, as the single-axis "strafe right" example already does.**
 
 **What shipped.**
 - `38ce883`: three two-axis translate examples in the system prompt.
-- `e568e4a`: a sign guard in `plan_compiler._compile_translate`.
-  - It reads the command's own words: "forward", "forwards" or "ahead" against "backward",
-    "backwards" or "back" for x, and "left" against "right" for y.
-  - When the command names exactly one direction on an axis, a non-zero component takes that
-    sign. Otherwise the LLM's value passes through, and a zero stays zero.
-  - It changes signs only, never a magnitude or an axis, and only in `translate` intents.
+- `e568e4a`: the first sign guard in `plan_compiler._compile_translate`. It read the command's
+  own direction words anywhere in the text, and when they named exactly one direction on an axis a
+  non-zero component took that sign.
 - `1031643`: the prompt-example tests, the guard's unit tests, and the live fixtures with their
   `live_planner` marker. The fixtures opt in through a variable of their own, not the executor's
   `PLANNER_URL`, so a host that sets the executor's does not run them.
+- `14477af`: the guard as it ships, narrowed after review. It applies only when the whole command
+  is the two-axis template CLI-built commands use, "move X meters forward|backward and Y meters
+  left|right"; the template's words then set each non-zero component's sign. Any other wording keeps
+  the LLM's signs, and a zero stays zero. It changes signs only, never a magnitude or an axis, and
+  only in `translate` intents.
+- `a80c30f`: its tests, including three commands whose direction words name a landmark's side,
+  which must keep the LLM's signs.
 
 **Deviation: the fix is not in the prompt alone.**
 - **Superseded in Context:** "The plan compiler and the executor pass the sign through unchanged
   (…), so the fix is in the prompt." The compiler now sets a translate component's sign when the
-  command names exactly one direction on that axis. The executor still passes the sign through.
+  command is the two-axis template. The executor still passes the sign through.
 - **Why.** Measured on the live planner in
   [`planner-translate-sign-2026-10-11`](../../measurements/planner-translate-sign-2026-10-11/README.md),
   against a rule registered before the runs:
@@ -154,15 +158,23 @@ right, as the single-axis "strafe right" example already does.**
   - the examples plus the fallback rule sentence left 22, with two of the five anchors flipped and
     forward-left's exact count at 8;
   - neither met the rule.
-- **The examples with the guard** meet it: 0 of 48 mis-signed, 44 exact, all five anchors exact,
-  and every class's exact count at or above before. This combination was registered, under the same
-  rule, before its first request, and after the first two combinations' results.
+- **The examples with the first guard** met it: 0 of 48 mis-signed, 44 exact, all five anchors
+  exact, and every class's exact count at or above before. This combination was registered, under
+  the same rule, before its first request, and after the first two combinations' results.
   - The zero is by construction. Each of these commands names each non-zero axis with exactly one
     of the guard's words, so the guard rules out a compiled mis-sign there. The runs measure the
     exact counts, the anchors and the dropped axis.
   - The guard changed 26 of the 52 compiled values, every one by sign alone.
-  - On 12 held-out commands it compiles 0 mis-signs and 11 exact. The prompt alone mis-signed 2 of
-    them.
+  - On 12 held-out commands it compiled 0 mis-signs and 11 exact. The prompt alone mis-signed 2 of
+    them. Every direction word in those commands is in the first guard's lists, so the held-out set
+    is evidence about the prompt, not about the commands the guard would misread.
+
+**Narrowed before merge.** A direction word in free text can name a landmark's side ("move 1 m away
+from the wall on your left"), and there the first guard flips a correct sign. The shipped guard reads
+only the template. On the record's deposited answers it leaves 22 of 48 two-axis commands mis-signed:
+the 8 in the template are exact and the other wordings keep the prompt's answers. The five anchors,
+all in the template, are exact. None of the 12 held-out commands is in the template, so their 2
+mis-signs stand (the record's §5b).
 
 **Residual.**
 - **A dropped axis.** It is not a sign error, and the guard cannot restore a zero.
@@ -170,14 +182,15 @@ right, as the single-axis "strafe right" example already does.**
     under every prompt measured, 4 of 48.
   - One held-out command, "head forward 2.25 m, then 0.35 m to the right", comes back as
     `[2.25, 0.0]`.
-- **Words, not meaning.** A command that names both directions on an axis keeps the model's sign.
-  A direction word outside the guard's lists keeps the model's sign. A "right" or "back" that is not
-  a direction still sets the sign of a non-zero component.
+- **Free text.** Any wording other than the template keeps the model's signs, 22 of the 48
+  measured two-axis commands under the shipped code.
 - **Coverage.** One model, greedy decoding, and the record's 64 commands. Other wordings are not
   measured.
 
-**The operating rule** in Context is not retired here. The residual above is what that dry-check
-still catches on these commands. No brief is filed for the dropped axis in this change.
+**The operating rule** in Context stays. The compile-first dry-check for real-robot submissions
+catches the free-text mis-signs and the dropped axis. The dropped axis is filed as
+[`planner-translate-dropped-axis`](../active/reliability/planner-translate-dropped-axis.md), and the
+dry-check stays until that class is measured or fixed.
 
 ## Out of scope
 

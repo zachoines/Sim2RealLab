@@ -1,13 +1,14 @@
 # The anchored plan's end against the goal pose as the policy's referent on the sim-bridge lane, 2026-10-11
 
 On the sim-bridge lane, the subgoal the DEPTH_SUBGOAL policy holds through its terminal approach
-is the last point of the anchored Nav2 plan. On the earlier rig reaches, in
-[`goal-a-rig-gate-v3-2026-09-25`](../goal-a-rig-gate-v3-2026-09-25/README.md) and
+is the last point of the anchored Nav2 plan. On the nine earlier rig reaches the pre-registration
+lists, in [`goal-a-rig-gate-v3-2026-09-25`](../goal-a-rig-gate-v3-2026-09-25/README.md) and
 [`goal-a-cli-video-2026-10-09`](../goal-a-cli-video-2026-10-09/README.md), that point sat
-0.012–0.065 m from the goal pose (the pre-registration's figures), while the inference node ends a
-goal on the TF distance to the goal pose itself. In training, the completion referent is the
-path's last point. This record asks whether making the anchored plan end at the goal pose shortens
-the terminal band and moves the policy's quiet stop inside the 0.30 m arrival radius.
+0.012–0.065 m from the goal pose; gate R1's, not listed, sat 0.143–0.160 m away in its band (§5a).
+The inference node ends a goal on the TF distance to the goal pose itself. In training, the
+completion referent is the path's last point. This record asks whether making the anchored plan
+end at the goal pose shortens the terminal band and moves the policy's quiet stop inside the
+0.30 m arrival radius.
 
 Twelve CLI-submitted reaches of v3 ran in one session, alternating two arms of the subgoal
 generator: **C**, as on `main`, holds the plan's own last point; **T**, a local patch, moves that
@@ -50,15 +51,16 @@ minus the held referent's distance; positive means the referent is short of the 
 
 Spearman's rank correlation is +0.77.
 - **Out of sample.** The same relation holds on the 13 earlier sim-bridge reaches with the plan end
-  as referent that succeeded: Spearman +0.76.
+  as referent that succeeded: Spearman +0.76. Gate R1's held subgoal moved in its band; without it,
+  the 12 read +0.71.
   - The fourteenth, R2, ran to the bound and held its band quietly (flip share 0.00, 0.025 m/s
     commanded) at an offset of 0.000 m.
 - **The flip share follows the same relation.** The reaches with the most back-and-forth are the
   high-offset, high-commanded-speed ones: offset against flip share is +0.77 here and +0.88 on the
   earlier reaches. So the flip-share drop with the referent on the goal reads as the same
   phenomenon.
-- **The rule's outcome stands.** By the pre-registered rule the offset is a minor term. This is what
-  it governs: the tail of the band and its back-and-forth, not the stop-short.
+- **The rule's outcome stands.** By the pre-registered rule the offset is a minor term. Computed
+  after the run, it tracks the tail of the band and its back-and-forth, not the stop-short.
 
 **The policy still goes quiet before the radius with the referent on the goal.** Here 11 of the 12
 reaches went quiet outside 0.30 m, all six T reaches among them. Quiet is ten ticks commanding
@@ -66,12 +68,13 @@ under 0.05 m/s, not a standstill. Every reach still ended on the node's first ti
 the T reaches 0.30–4.21 s after going quiet (§5).
 
 As context: the pre-registration's prior cites v3's training-env median quiet-stop distance,
-0.174 m. That median counts stops made after the dwell, inside 0.30 m, which this lane cannot
-observe. The comparable figure is the share of band entries that go quiet before the first 0.30 m
-crossing ([`policy-time-to-goal-baseline-2026-10-11`](../policy-time-to-goal-baseline-2026-10-11/README.md)
-§3, rows 0–599):
-- 4 of 179 (2.23 %) without the node's caps;
-- 37 of 513 (7.21 %) under them;
+0.174 m. That median is mostly of stops made after the dwell (121 of its 146), inside 0.30 m,
+which this lane cannot observe. The comparable figure is the share of band entries that go quiet
+before the first 0.30 m crossing
+([`policy-time-to-goal-baseline-2026-10-11`](../policy-time-to-goal-baseline-2026-10-11/README.md)
+§3):
+- 4 of 179 (2.23 %) without the node's caps, over rows 0–599 (run 2);
+- 37 of 513 (7.21 %) under the node's speed cap, to its 60 s bound (run 3);
 - here, 11 of the 12 reaches.
 
 That difference is the finding. This record does not identify which lane condition produces it (§7).
@@ -337,7 +340,8 @@ the goal):
 | D04 | +0.026 | 9.37 | 0.20 | 0.142 |
 | D08 | +0.061 | 41.81 | 0.24 | 0.208 |
 
-Spearman's rank correlation, using average ranks for the tied offsets:
+Spearman's rank correlation, on the unrounded values (the table rounds D04's and D06's offsets,
+and their flip shares, to the same figures; the correlation ranks them unrounded):
 - offset against band time, +0.77;
 - offset against flip share, +0.77;
 - mean commanded speed against flip share, +0.77.
@@ -375,15 +379,19 @@ Two of their records are not in the table:
   speed against flip share +0.83.
 - **R2 is the exception.** It ran to the bound, holding its band quietly (flip share 0.00,
   0.025 m/s) at an offset of 0.000 m. That is a hold, not a dither.
+- **Gate R1's held subgoal moved in its band.** It took 10 positions, the last 0.32 s after band
+  entry, going from 0.160 m to 0.143 m from the goal; every other reach held one. Its offset is read
+  at band entry. Without it, the 12 that succeeded read +0.71 (offset against band time) and +0.85
+  (offset against flip share).
 
 **How to read this.** These are rank correlations on small samples, computed after the run. The
 earlier reaches were not run to test them.
 - **The pattern.** Where the referent sits short of the goal, the policy's band runs long and its
   `vx` changes sign often. Where the referent is at or past the goal, the band is short and quiet.
-- **A reading of why, not tested here.** The policy stops some 0.31–0.35 m from its referent. The
-  node ends a goal at 0.30 m from the goal. With the referent short of the goal, the node's line
-  lies inside the policy's own stopping distance, so the policy has to close in on a referent it
-  already treats as reached.
+- **A reading of why, not tested here.** The policy goes quiet some 0.31–0.35 m from its
+  referent. The node ends a goal at 0.30 m from the goal. With the referent short of the goal, the
+  node's line lies inside the policy's own stopping distance, so the policy has to close in on a
+  referent it already treats as reached.
 
 ## 6. Deviations and notes
 
@@ -425,7 +433,8 @@ earlier reaches were not run to test them.
 - **A small effect.** Six reaches per arm, in one session, one room (seed 42), from one start, to
   two goals. The rule tests for a large effect (band time halved, and the quiet stop inside
   0.30 m). A smaller one is not excluded, and the band-time ratio of 0.69 is not an effect size.
-- **The flip share's difference** as established, or what produces it (§5).
+- **The flip share's difference** as established, or what produces it (§5; §5a's association with
+  the offset is post hoc).
 - **The stop-short's cause**, the policy going quiet outside the radius. With the referent on the
   goal, it still went quiet 0.31–0.35 m out.
   - In its training env, over rows 0–599, 4 of 179 band entries (2.23 %) went quiet before their
@@ -453,7 +462,7 @@ earlier reaches were not run to test them.
 |---|---|
 | repository | https://github.com/zachoines/Sim2RealLab-Artifacts |
 | deposit directory | `subgoal-referent-offset-ab-2026-10-11/record-files/` |
-| deposit commit | `c3168a0df072e84a8d909d0d9180708821a38cfa` |
+| deposit commit | `213371df1080189e4392a46c01217b3b172c2f0e` |
 | pre-registration commit | `8a7648fad150d40cb7230eb0d16e038c61e36996` |
 
 The pre-registration commit, `8a7648f`, was made at 20:13:09 CDT, before the first slot at
@@ -467,7 +476,9 @@ The pre-registration commit, `8a7648f`, was made at 20:13:09 CDT, before the fir
 `a213f88` adds the other 239 files. Of the 22, it changes three, each only by replacing a
 direct-link address with a placeholder. `ccec8bc` corrects `DEPOSIT.md`'s account of the
 pre-registration commit and changes no other file. `c3168a0` adds the post-hoc offset read
-(`posthoc_offset_band.*`, §5a).
+(`posthoc_offset_band.*`, §5a). The deposit commit above adds two lines to that read's output, the
+reach whose held subgoal moved in its band and the correlation without it, and leaves its other
+lines as they were.
 
 The deposit holds:
 - the launch inputs: the pre-registration, the manifest, the patched and `main` node files, the
@@ -478,7 +489,8 @@ The deposit holds:
 - the five container logs, and the sim host's bridge, watchdog, service, env-setup, GPU and chain
   logs;
 - the reads: `ab_summary.py` with `ab_summary.txt` and `ab_summary.json`, and `reach_terminal.json`
-  with its stdout.
+  with its stdout;
+- the post-hoc read, `posthoc_offset_band.py` with `posthoc_offset_band.txt`.
 
 **Redactions.** Rig network addresses were replaced with placeholders in 20 text files before the
 final commit, and `DEPOSIT.md` lists them. The session scripts do not run as deposited without the
@@ -510,6 +522,14 @@ diff /tmp/reach_terminal.json reach_terminal.json
 None of the three `diff`s shows anything. `ab_summary.py` also rewrites `ab_summary.json` in the
 working directory, with the same bytes as the deposited file. The restored files are not part of
 the record and want clearing before the next commit.
+
+The post-hoc read reads the gate, CLI-confirmation and video deposits at their places in the
+evidence repository, so it runs there, with numpy:
+
+```
+cd Sim2RealLab-Artifacts/subgoal-referent-offset-ab-2026-10-11/record-files
+python3 posthoc_offset_band.py | diff - posthoc_offset_band.txt
+```
 
 Verify digests with:
 
@@ -762,8 +782,8 @@ f4251f310ca6e72b353610beffe9a36564c417ee2af2b43af1ed6300dc4599ab  manifest.json
 39a25b551747c9bccf3197fc2787bb056b0449a320ce4a3f7e17b911b601f15f  node/inference-referent-node.yml
 52c9beed6bcec7392a6f625ee44b3cad8c8e6594b898924b5cb7564ea04fa9a5  node/subgoal_generator_node.main.py
 c8085992c6b1492c117ae103591152615f0031f9f35b94d0bac2fc7f48322fb5  node/subgoal_generator_node.py
-d45ae310388c4cfc4336de02e8f77af07ca025f0f9dc25de25986d82fed3daa0  posthoc_offset_band.py
-46658be0f6bc50e3101f725a54073c3a64c98cad5210519592e3b629125bee96  posthoc_offset_band.txt
+eebf91a6d15b9a4e4496356b97b6172ddab615b573a372e520896a8eadeb63e4  posthoc_offset_band.py
+899ece288f55bae0b59d0802eadbc73d22d9cc0d382bfe07631ce49c57789ff3  posthoc_offset_band.txt
 b34b9759c6e36bfc342ae6d583900afcb18c2a707e325bb1588f396aca1b8c1d  reach_terminal.json
 ec1cea9e83eed8f56a2f91c1a222d2184a4fecd5a8bf4217dc64fd95a210733c  reach_terminal.stdout
 ee2b1d9643a449feee3cd7fea7b15b130f592a32ca27408f994e0fdb0c218016  referent_arm.patch

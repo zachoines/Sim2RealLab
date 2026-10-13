@@ -131,15 +131,18 @@ see the Baseline and Deploy-cap boxes.*
 - *With the referent on the goal, the policy still went quiet (ten ticks commanding under
   0.05 m/s) outside 0.30 m on all six T reaches, 0.309–0.352 m out, before the node's first tick
   within 0.30 m ended the goal.*
-  - *In its training env, over the first 600 steps, 4 of 179 band entries (2.23 %) went quiet before
-    their first 0.30 m crossing without the node's caps, and 37 of 513 (7.21 %) under them (the
-    baseline record's §3, runs 2 and 3); on this lane 11 of 12 reaches did. That difference is the
-    finding, not the training env's median quiet-stop distance, which counts stops after the dwell.*
+  - *In its training env, 4 of 179 band entries (2.23 %) went quiet before their first 0.30 m
+    crossing without the node's caps (run 2, its first 600 steps), and 37 of 513 (7.21 %) under the
+    node's speed cap and 60 s bound (run 3) (the baseline record's §3); on this lane 11 of 12
+    reaches did. That difference is the finding, not the training env's median quiet-stop
+    distance, which is mostly of stops after the dwell (121 of 146).*
 - *Computed after the run, with n = 6 (the record's §5a): where the plan end is the referent, the
   band time tracks how far short of the goal it sits at band entry (Spearman +0.77; D08, 0.061 m
-  short, took 41.81 s), and so does the flip share. The same holds on the 13 earlier sim-bridge
-  reaches that succeeded (+0.76). By its pre-registered rule the offset stays a minor term; what it
-  governs is the band's tail and its back-and-forth, not the stop-short.*
+  short, took 41.81 s from its first entry, and 16.33 s from the last after leaving the band once),
+  and so does the flip share. The same holds on the 13 earlier sim-bridge reaches that succeeded
+  (+0.76; +0.71 without gate R1, whose held subgoal moved in its band). By its pre-registered rule
+  the offset stays a minor term; computed after the run, it tracks the band's tail and its
+  back-and-forth, not the stop-short.*
 
 **The scheme to evaluate.** Make time to goal an objective of its own, in addition to a target
 speed, and tune it together with the approach slowdown, so that travel time has an upper bound.

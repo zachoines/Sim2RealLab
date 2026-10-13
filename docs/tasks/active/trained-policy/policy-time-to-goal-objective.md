@@ -166,13 +166,23 @@ speed, and tune it together with the approach slowdown, so that travel time has 
   - *Two reads were added, each with its own rule stated before the run.*
     - *Quiet-stop geometry, with the dwell's termination removed and without the node's caps: v3
       goes quiet a median 0.174 m from the path end, at or under the rule's 0.25 m. Verdict: **a
-      bridge-lane difference**. 121 of the 146 quiet stops come after the dwell fired. 6 of 179
-      band entries stop at or beyond 0.30 m; on the rig, 8 of 11 runs went quiet 0.295–0.411 m
-      from the subgoal (§3).*
+      bridge-lane difference**. That median is not like-for-like with the lane: 121 of its 146
+      stops come after the dwell, and the node ends a goal at the first 0.30 m crossing.*
+      - *The like-for-like statistic, computed after the runs, is the share of band entries that
+        go quiet before their first 0.30 m crossing: 3.18 %, 2.23 % and 7.21 % in runs 1–3,
+        against 8 of 11 rig reaches (record §3).*
     - *Post-arrival behaviour, in the same run: the rig-like limit cycle appears in 1 of 178
       episodes (0.56 %), at or under the rule's 2 %. Verdict: **left with the lane's feedback
       path**. Post-arrival vx is not quiet: its half-range at +2 s is 0.327 m/s at the 90th
       percentile, and each condition of the cycle is common on its own (§4).*
+      - *The lane never enters that post-dwell regime. Computed after the runs, the same detector
+        before the first crossing fires on 0 of 25, 7 and 71 windows in runs 1–3, and on 5 of the
+        8 rig windows long enough to read (record §4).*
+  - *Read together, with the post-hoc reads (record §6): **the lane raises the rate of a terminal
+    behaviour the policy already has; the record does not identify which lane condition.** The
+    stop-short and its slow resolve occur in the training env at the rig's distances (run 1:
+    0.303–0.410 m, median 0.342 m), and run 1's time-outs within 0.42 m are R2-like holds, but in
+    3.18 % of band entries against the rig's 8 of 11.*
 - [x] **Deploy-cap evaluation.** v3, and any adopted variant, is evaluated again with the same
       seed and episode count, with its linear command capped at `NAV_LINEAR_VEL` as the node
       caps it, and with an episode cap long enough that arrivals past 20 s are seen. The bound
@@ -189,7 +199,7 @@ speed, and tune it together with the approach slowdown, so that travel time has 
   - *Without the speed cap, on 20 s episodes (the baseline run), the same read is
     8.45 + 1.03 L s, which passes 600 steps at L = 11.21 m (an extrapolation: run 1's longest
     path is 7.24 m).*
-- [ ] **Decision.** Unless the baseline attributes the band dwell to the env difference, the
+- [x] **Decision.** Unless the baseline attributes the band dwell to the env difference, the
       brief trains the combined scheme and at least one variation with a different time term.
       Before the first run it states the training budget that each run and its comparison
       share: either all warm-start from v3 for the same number of iterations, against a
@@ -201,6 +211,24 @@ speed, and tune it together with the approach slowdown, so that travel time has 
   - off-path share.
 
   It names the variant or combination adopted, or says why none is.
+
+  *Decided 2026-10-12 by the rule of the capped open-dwell read
+  ([`policy-time-to-goal-baseline-2026-10-11`](../../../measurements/policy-time-to-goal-baseline-2026-10-11/README.md) §9),
+  not by training runs:*
+  - *The baseline attributes the band dwell to a difference between the training env and the
+    bridge lane, as a rate the lane raises. So the brief trains no variant now, and none is
+    adopted.*
+  - *The capped open-dwell read asked whether the node's speed cap is that difference. In v3's
+    training env under the node's caps, with the dwell's termination off, 7 of 175 band entries
+    (4.00 %) go quiet before the first 0.30 m crossing, against 2.23 % without the caps. Its rule
+    needed twice that, 4.47 %, so the cap reads as **a minor term**, by one episode. Run 3, under
+    the same caps, read 7.21 %; at these counts the cap's effect is not settled either way.*
+  - *By that rule the next measurement controls the scene and depth content at the lane's goals.
+    The lane conditions no run has controlled are the body-velocity source (wheel kinematics in
+    training, the root velocity on the bridge), the actuation tier (`real` on the bridge, `robust`
+    in training) and the referent drift (off on the bridge).*
+  - *The time and speed variants above wait for that measurement and stay with the next training's
+    scoping.*
 - [ ] **The bound.** The brief gives the time-to-goal bound from the adopted objective, or from
       v3 if none is adopted, read from the deploy-cap evaluation:
   - as a function of path length;
@@ -230,4 +258,3 @@ speed, and tune it together with the approach slowdown, so that travel time has 
   arrival radius itself. That is a terminal-approach parity question, separate from the
   objective.
 - The retrain that ships an adopted variant, and its gate.
-- The deploy speed cap.

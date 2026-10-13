@@ -59,7 +59,7 @@ that its `l1_clamp_velocity` is `strafer_shared`'s `l1_clamp_twist`. It hashed t
   `plumbing/logs/*.gpu_before.txt`, all empty). `scored/chain.log` also reads `gpu_apps=0` at each
   scored start.
 
-## Timeline (CDT, 2026-10-11)
+## Timeline (CDT, 2026-10-11; the addendum 2026-10-12)
 
 | step | start | end | boot | eval wall / rollout | vector steps |
 |---|---|---|---|---|---|
@@ -71,6 +71,8 @@ that its `l1_clamp_velocity` is `strafer_shared`'s `l1_clamp_twist`. It hashed t
 | run 1 `baseline` | 19:13:33 | 19:26:07 | 3rd attempt; attempts 1–2 stalled at 61 s | 626 s / 602 s | 1 333 |
 | run 2 `open-dwell` | 19:26:07 | 19:44:28 | 1st attempt | 1 097 s / 1 073 s | 2 400 |
 | run 3 `deploy-cap` | 19:44:28 | 20:08:50 | 3rd attempt; attempts 1–2 stalled at 61 s | 1 334 s / 1 310 s | 2 923 |
+| addendum pre-registration committed, `9b045ab` (2026-10-12) | 20:22:27 written | | | | |
+| addendum, `capped-open-dwell` (2026-10-12) | 20:22:53 | 20:41:18 | 1st attempt | 1 102 s / 1 076 s | 2 400 |
 
 - **Sources.** Plumbing times are from `plumbing/logs/sampling.log` and scored times from
   `scored/chain.log`; `scored/logs/sampling.log` agrees within 1 s (its start stamps are 1 s

@@ -12,8 +12,11 @@ difference between that env and the bridge lane. This record runs v3 in its trai
 launches and scores them against readings written down and committed before the first scored
 launch.
 
-**By the registered rules, v3 in its training env, as trained, does not reproduce the rig's
-terminal behaviour.**
+**The lane raises the rate of a terminal behaviour the policy already has; this record does not
+identify which lane condition.** By the registered rules all three readings attribute the rig's
+terminal behaviour to a difference between the training env and the bridge lane. Computed after the
+runs (§6), the same stop-short and slow approach occur in the training env, at the rig's distances
+but at a far lower rate.
 - **Band dwell (Reading 1, the brief's rule).** Over the 524 completions that entered 0.42 m, the
   99th percentile of the time from 0.42 m to completion is 6.505 s. 2 of 576 episodes (0.35 %) end
   on time-out within 0.42 m. Both are inside the rule's 7.0 s and 1.0 %, so the rig's band dwell
@@ -22,12 +25,26 @@ terminal behaviour.**
   percentile past 7.0 s (§2).
 - **Quiet-stop geometry (Reading 2).** With the dwell's termination removed, 146 of the 179 band
   entries go quiet by row 599, a median 0.174 m from the path end. That is at or under the rule's
-  0.25 m, so the stop-short is attributed to **a bridge-lane difference**. 121 of the 146 go quiet
-  only after the dwell has fired. 6 of the 179 stop at or beyond 0.30 m; on the rig, 8 of 11 runs
-  went quiet 0.295–0.411 m from the subgoal (the pre-registration's figure).
+  0.25 m, so the stop-short is attributed to **a bridge-lane difference**.
+  - **Not like-for-like with the lane.** 121 of the 146 stops behind that median come after the
+    dwell, inside 0.30 m. The deployed node ends a goal at the first 0.30 m crossing, so the lane
+    can only record a quiet stop made before it.
+  - **The like-for-like statistic, computed after the runs.** The share of band entries that go
+    quiet before their first 0.30 m crossing is 3.18 %, 2.23 % and 7.21 % in runs 1, 2 and 3.
+    On the rig, 8 of 11 reaches went quiet 0.295–0.411 m from their subgoal, median 0.337 m (§3).
+    The direction is the same as the registered read.
 - **Post-arrival behaviour (Reading 3).** In the same run, 1 of 178 episodes shows the rig-like
   limit cycle after the dwell fires (0.56 %). That is at or under the rule's 2 %, so the
   oscillation is left with **the lane's feedback path**.
+  - **The registered window never occurs on the lane.** It starts at the dwell's firing, a regime
+    the deployed node never lets the policy enter. The rig's oscillation came before the crossing.
+  - **The same detector on the pre-crossing windows, computed after the runs.** From band entry
+    to the first 0.30 m crossing, it fires on 0 of 25, 0 of 7 and 0 of 71 windows in runs 1, 2 and
+    3. On the rig's own records it fires on 5 of the 8 windows long enough to read (gate G1, L1,
+    L2 and video G1, L2; not gate R1, R2 or F1), each before the crossing, so it can detect the
+    rig's cycle (§4).
+  - So the oscillation is a lane finding by the like-for-like read as well. The 1 of 178 is the
+    registered post-dwell figure only.
 - **The bound (Reading 4, not a verdict).** Under the inference node's speed cap and 60 s goal
   bound, 501 of 506 completions (99 %) finish within T(L) = 11.87 + 1.53 L s, L the path length in
   metres. The coverage is in sample: the intercept is set so that 501 sit under the line. In policy
@@ -35,6 +52,26 @@ terminal behaviour.**
   completions only; the 68 collisions and 2 time-outs of the 576 episodes are outside it (§5).
 
 **What the verdicts would otherwise hide.**
+- **The stop-short and its slow resolve exist in the training env, at the rig's distances.**
+  Computed after the runs (§6, `posthoc_terminal_modes.txt`):
+  - In run 1, 17 of 535 band entries (3.18 %) go quiet before their first 0.30 m crossing. They do
+    so 0.303–0.410 m from the path end, median 0.342 m, a median 0.77 s after band entry. On the
+    rig, the subgoal distance is 0.295–0.411 m, median 0.337 m.
+  - 14 of them resolve into the dwell, a median 2.27 s later (90th percentile 6.92 s, maximum
+    11.77 s). The other 3 never resolve: one collision and two time-outs.
+  - All five of run 1's band times above 7 s are among these episodes.
+  - In run 3, under the node's caps, 37 of 513 (7.21 %) do so, median 0.325 m, and two never
+    resolve.
+  - Counting instead every quiet stop at 0.30 m or more up to the dwell gives 18 and 38. The extra
+    episode in each run dipped inside 0.30 m first, then went quiet outside it.
+- **The time-outs within 0.42 m are R2-like holds.**
+  - Run 1, episodes 506 and 556: quiet 0.394 and 0.342 m out, in the band 14.5 and 14.9 s from
+    entry to the 20 s cap, and 0.300 and 0.324 m out at the cap.
+  - Run 3, episodes 572 and 575: quiet 0.350 and 0.338 m out, in the band 55.9 and 55.6 s to the
+    60 s bound, and 0.320 and 0.339 m out at the bound.
+  - On the rig, R2 held 0.347–0.420 m for 52.7 s to the bound.
+- **What differs is the rate:** 3.18 % of band entries in run 1 and 7.21 % in run 3, against 8 of
+  11 reaches on the lane.
 - **Under the node's caps, Reading 1's statistic reads past its threshold.** Run 3 applies the
   node's speed cap and its 60 s goal bound, which the rig runs under and training does not. There
   the same statistic reads 11.15 s, above 7.0 s. With one launch per run this is not separated from
@@ -47,12 +84,17 @@ terminal behaviour.**
   - At 1.98 %, at least four of eight band entries at 7.0 s or more, as at the gate, has a binomial
     probability of about 1e-5. That is a scale, not a test: the gate's reaches are not independent
     draws (§6).
-- **Readings 2 and 3 are read without the node's caps.** No run removes the dwell's termination
-  under the caps. Run 3's quiet stops are censored as run 1's are, but sit farther out: 38 of 513
-  band entries (7.41 %) stop at or beyond 0.30 m against 18 of 535 (3.36 %) in run 1, median *Q*
-  0.299 m against 0.199 m. Reading 2's rule would read run 3's median as undecided (§3).
-  Post-arrival behaviour under the caps is not measured: the dwell ends every run-3 episode it
-  fires in.
+- **Under the node's caps the stop-short share stays under its rule's margin.** The capped
+  open-dwell run (§9, an addendum registered before its launch) removes the dwell's termination
+  under the caps. There 7 of 175 band entries (4.00 %) go quiet before the first 0.30 m crossing,
+  against run 2's 4 of 179 (2.23 %).
+  - Its rule needed twice run 2's share, 4.47 %. It names the cap **a minor term**, by one episode:
+    8 of 175 would have named it.
+  - Run 3, under the same caps, read 7.21 % over 513 band entries. Run 3's dwell termination cannot
+    censor a stop made before the crossing.
+  - At these counts the cap's effect on the rate is not settled either way.
+  - Post-arrival behaviour under the caps is not read: the dwell ends run 3's episodes, and the
+    addendum reads only the pre-crossing side.
 - **Reading 2's censoring is visible.** In run 1 the dwell ends an episode as soon as it fires.
   There 460 of 535 band entries ended that way before any quiet run, and only 67 have a quiet stop
   (median 0.199 m, also at or under 0.25 m). In run 2, 146 of 179 band entries have one. The
@@ -82,8 +124,22 @@ terminal behaviour.**
   from depth sums that later episodes in a headless launch start live; #239's brief checks that on
   raw frames. If the merged reading holds, every scored episode starts on a pre-reset frame (§7).
 
+- **Lane conditions that differ from training, none controlled by any run here.** The deploy speed
+  cap is measured (above and §9). Three more differ:
+  - **The body-velocity observation.** In training it comes from the wheels' forward kinematics
+    (`observations.py`, `body_velocity_xy`). On the bridge it is the root's body velocity,
+    published as the odometry twist the node feeds the policy (`bridge/async_publisher.py`;
+    `inference_node.py`).
+  - **Actuation.** The bridge composes the `real` actuation tier
+    (`RealismCfg(level="real", localization_drift=False)` in `composed_env_cfg.py`), where v3
+    trained on `robust`.
+  - **Referent drift.** That `localization_drift=False` also removes `randomize_subgoal_drift`, the
+    referent drift v3 trained with. On the lane the referent moves only with the real SLAM.
+
+  Scene and depth content at the lane's goals is not compared either.
+
 This record supplies the measurements the brief's Baseline box asks for, and its Deploy-cap box's
-for v3. It does not decide the Decision or Bound boxes.
+for v3. The addendum's rule (§9) decides the brief's Decision box. The Bound box stays open.
 
 ## 1. Setup
 
@@ -265,10 +321,10 @@ between, undecided — both tails reported."
 | quiet stop at *Q* ≤ 0.25 m | 126 | 70.39 % |
 | no quiet stop by row 599 | 33 | 18.44 % |
 
-- On the rig, the policy went quiet 0.295–0.411 m from its subgoal (median about 0.34 m) on 8 of 11
-  runs. These are the pre-registration's rig figures; this record does not re-derive them. The rig
-  figure is measured to the subgoal; the pre-registration pairs it with *Q* to the observed
-  referent, below.
+- On the rig, the policy went quiet 0.295–0.411 m from its subgoal, median 0.337 m, on 8 of 11
+  runs. These are re-derived from the gate's and the video set's deposited records with
+  `planend.py`'s definition (`posthoc_terminal_modes.txt`). The rig figure is measured to the
+  subgoal; the pre-registration pairs it with *Q* to the observed referent, below.
 - The median distance to the referent the policy observes, its drifted `goal_position`, is
   0.172 m.
 - A quiet stop comes a median 2.5 s after band entry (90th percentile 10.7 s, maximum 15.5 s;
@@ -281,6 +337,24 @@ between, undecided — both tails reported."
   16.51 % of consecutive row pairs flip (per episode: median 11.32 %, 10th–90th percentile
   3.04–26.10 %). The pre-registration gives the rig's dithering as a median run of 2 rows with
   23–34 % flips.
+
+**Beside the rule, the like-for-like statistic, computed after the runs** (`posthoc_terminal_modes.txt`):
+the share of band entries that go quiet before their first 0.30 m crossing.
+
+| run | band entries | quiet before the first crossing | share |
+|---|---:|---:|---:|
+| 1 (as trained) | 535 | 17 | 3.18 % |
+| 2 (dwell termination off, rows 0–599) | 179 | 4 | 2.23 % |
+| 3 (the node's caps) | 513 | 37 | 7.21 % |
+| capped open-dwell (§9, rows 0–599) | 175 | 7 | 4.00 % |
+| the rig (gate and video set) | 11 reaches | 8 | — |
+
+- The registered median is not observable on the lane. The node ends a goal at the first 0.30 m
+  crossing, so a quiet stop made after it, as 121 of run 2's 146 are, never appears there.
+- The share above is the statistic both sides can read. It points the same way as the registered
+  verdict, by a wide margin.
+- Counting every quiet stop at 0.30 m or more up to the dwell instead adds one episode in run 1
+  (18) and one in run 3 (38). In each, the robot first dipped inside 0.30 m.
 
 **Run 1's literal read** (whole episodes, the dwell ending each completion):
 
@@ -298,10 +372,9 @@ or under 0.25 m.
 **Under the node's caps (run 3, descriptive).** The dwell ends run 3's episodes too, so its quiet
 stops are censored as run 1's are. Over rows 0–599, of 513 band entries, 429 parked inside 0.30 m
 before a quiet run, and 78 have a quiet stop, median *Q* 0.299 m. Reading 2's rule would read that
-as undecided (`summary/summary.json`, `run3_descriptive.reading2_rows_0_599.rule_outcome`). 38 of
-the 513 (7.41 %) stop at or beyond 0.30 m, against 18 of 535 (3.36 %) in run 1. No run removes
-the dwell's termination under the caps, so this record has no uncensored read of Reading 2 under
-them.
+as undecided (`summary/summary.json`, `run3_descriptive.reading2_rows_0_599.rule_outcome`). 37 of
+the 513 (7.21 %) go quiet before their first 0.30 m crossing, against 17 of 535 (3.18 %) in run 1.
+The capped open-dwell run (§9) removes the dwell's termination under the caps.
 
 ## 4. Reading 3 — post-arrival behaviour, from run 2
 
@@ -364,6 +437,28 @@ the window running to *t*₀ + 20 s or the dwell's firing, whichever comes first
 - No run 2 or run 1 window reaches row 600. Four of run 3's do, and none is rig-like there.
 - Run 3's dwell clock is empty by construction. The dwell ends run 3's episodes, so each of its 503
   dwell-clock windows ends on the row the dwell fires.
+
+**Beside the rule: the detector before the crossing, computed after the runs**
+(`posthoc_terminal_modes.txt`). The registered window starts at the dwell's firing. The deployed node
+never lets the policy enter that regime: it ends a goal at the first 0.30 m crossing, and the rig's
+oscillation came before that crossing. So the same detector, conditions (a)–(d) unchanged with (d)'s
+baseline on the window's first 30 rows, is read on each band entry's window from band entry to the
+first crossing, or to the episode's end.
+
+| | windows of at least 45 rows | rig-like limit cycle |
+|---|---:|---:|
+| run 1 | 25 | 0 |
+| run 2 (rows 0–599) | 7 | 0 |
+| run 3 | 71 | 0 |
+| capped open-dwell (§9, rows 0–599) | 24 | 0 |
+| the rig, from band entry to the crossing | 8 | 5 |
+
+- **On the rig's own records**, the gate's and the video set's, the detector fires on gate G1, L1
+  and L2 and video G1 and L2, each before the crossing. It does not fire on gate R1, R2 or F1.
+- **Too short to read.** Gate F2 and F3 cross within 41 and 39 ticks. Gate R3 never entered
+  0.42 m.
+- **So the detector can see the rig's cycle,** and in the training env it finds none before the
+  crossing. The oscillation stays a lane finding by this read too.
 
 ## 5. Reading 4 — the bound under the deploy cap, from run 3
 
@@ -432,6 +527,33 @@ is one goal run four times, and the rig is one room. The probability is a scale,
 - No band time in either run is exactly 7.0 s (210 steps), so the shares above 7.0 s equal the
   shares at 7.0 s or more (`summary/summary.json`, `runs.<run>.per_episode`).
 
+**The stop-short-and-slow-resolve mode** (`posthoc_terminal_modes.py` → `posthoc_terminal_modes.txt`,
+not pre-registered). It counts band entries whose first quiet stop comes before their first 0.30 m
+crossing. The quiet stop is the 10th row of the first run of ten rows below 0.05 m/s, counted from
+band entry; that is Reading 2's definition, and `planend.py` reads the rig the same way.
+
+| | run 1 | run 2 (rows 0–599) | run 3 |
+|---|---|---|---|
+| band entries | 535 | 179 | 513 |
+| quiet before the first crossing | 17 (3.18 %) | 4 (2.23 %) | 37 (7.21 %) |
+| their distance from the path end | 0.303–0.410 m, median 0.342 m | 0.314–0.344 m, median 0.322 m | 0.302–0.410 m, median 0.325 m |
+| time after band entry, median | 0.77 s | 0.65 s | 1.00 s |
+| resolve into the dwell | 14, a median 2.27 s later (90th percentile 6.92 s, max 11.77 s) | 4, median 2.18 s (max 3.43 s) | 35, median 2.13 s (90th percentile 7.57 s, max 24.43 s) |
+| never resolve | 3: one collision, two time-outs | 0 | 2, both time-outs |
+| band times above 7.0 s among them | all 5 of run 1's | — | 6 of run 3's 10 |
+
+**The time-outs within 0.42 m** are the four episodes behind Reading 1's time-out share and its
+run-3 descriptive read:
+
+| run | episode | quiet at | in the band, from entry to the cap |
+|---|---|---|---|
+| 1 | 506 | 0.394 m | 14.5 s, to the 20 s cap |
+| 1 | 556 | 0.342 m (after 9.6 s in the band) | 14.9 s |
+| 3 | 572 | 0.350 m | 55.9 s, to the 60 s bound |
+| 3 | 575 | 0.338 m | 55.6 s |
+
+On the rig, R2 held 0.347–0.420 m for 52.7 s to the bound (the gate record).
+
 ## 7. What this does not show
 
 - **Run-to-run spread.** One seed, one launch per run. No replicate launch was run, so the spread of
@@ -445,11 +567,15 @@ is one goal run four times, and the rig is one room. The probability is a scale,
   - The verdicts say that the rig's behaviour is not typical of v3's deterministic behaviour in
     this env at seed 42, by the registered thresholds. They do not say which lane difference
     produces it.
-  - The node's speed cap and 60 s goal bound, applied together in run 3, are the only lane
-    settings run here, besides the deterministic (Beta-mean) action, which all three runs use. The
-    cap and the bound are not separated.
-  - Readings 2 and 3 are not read under the node's caps: run 2 has no speed cap, and the dwell ends
-    run 3's episodes (§3).
+  - **The node's caps.** The speed cap and the 60 s goal bound are the only lane settings run here,
+    besides the deterministic (Beta-mean) action that every run uses. They are applied together in
+    run 3, so the cap and the bound are not separated. The capped open-dwell run (§9) applies the
+    speed cap with a 40 s cap.
+  - **What is read under the caps.** The pre-crossing reads are, by §9. Post-arrival behaviour
+    under the caps is not.
+  - **The other lane conditions** named in the summary are not controlled by any run: the
+    body-velocity source, the actuation tier and the referent drift. Neither is the scene and depth
+    content at the lane's goals.
 - **Stale first frames.** The env leaves `num_rerenders_on_reset` at 0. Each env's first episode
   starts on a floor-only depth frame rendered before its room existed
   ([`vfov-gap-v3-2026-10-03`](../vfov-gap-v3-2026-10-03/README.md) §4). Those episodes are 96 of
@@ -464,12 +590,14 @@ is one goal run four times, and the rig is one room. The probability is a scale,
   - The eval logs no depth, so this record does not check those frames itself.
 - **Other limit-cycle definitions.** Reading 3's limit cycle is the pre-registered joint
   definition, written from the rig's description: a five-row period, three axes together, growth
-  from about ±0.02 to ±0.5 m/s. Any one condition alone reads far higher (§4). This record does not
-  score the rig's own logs against the definition.
-- **The rig's figures.** The quiet-stop distances (8 of 11, 0.295–0.411 m), the dithering
-  figures, the five-row period, the growth from about ±0.02 to ±0.5 m/s and the oscillation's start
-  about 4 s after a stop outside the radius are the pre-registration's. This record does not
-  re-derive them.
+  from about ±0.02 to ±0.5 m/s. Any one condition alone reads far higher (§4). Read on the rig's own
+  deposited logs, from band entry to the crossing, it fires on 5 of the 8 windows long enough to
+  read (§4).
+- **The rig's figures.** The quiet-stop distances (8 of 11, 0.295–0.411 m, median 0.337 m) and the
+  detector's reads on the rig's windows are re-derived from the gate's and the video set's
+  deposited records (§3, §4). The rest are the pre-registration's, and this record does not
+  re-derive them: the dithering figures, the five-row period, the growth from about ±0.02 to
+  ±0.5 m/s, and the oscillation starting about 4 s after a stop outside the radius.
 - **A per-goal bound for the node.** Reading 4 is v3's bound in this env under the node's caps, over
   completions only. The per-goal bound belongs to the brief's Decision and Bound boxes.
 
@@ -491,7 +619,8 @@ is one goal run four times, and the rig is one room. The probability is a scale,
   booted on the third. Run 2 and the three plumbing launches booted on the first attempt.
   - Each stall was killed at 61 s, at about 80 MB resident with no CPU or output for 60 s
     (`scored/logs/baseline.log`, `scored/logs/deploy-cap.log`).
-  - So 4 of the 10 Kit boots in this series stalled. The pre-registration counts a relaunched
+  - So 4 of the 10 Kit boots in the 2026-10-11 series stalled. The addendum's one launch
+    (2026-10-12) booted on its first attempt. The pre-registration counts a relaunched
     stall as a fresh start, not a void. The hang is tracked in
     [`kit-boot-hang-2026-09-11`](../kit-boot-hang-2026-09-11/README.md).
 - **The scored summary's run directories.** `summary/summary.txt` and `summary/summary.json` name
@@ -501,18 +630,70 @@ is one goal run four times, and the rig is one room. The probability is a scale,
   `dir` fields of `summary.json`). Another numpy version also changes line 2 of `summary.txt`,
   which names the version, and can change the last digits of the fit in `summary.json`.
 
+## 9. Addendum 2026-10-12: the capped open-dwell run
+
+**The question.** Does the node's speed cap raise the rate of the pre-crossing stop-short in v3's
+training env? The cap scales |vx| + |vy| to 0.7841 m/s and clips |ω| to 2.0933 rad/s, and v3 never
+trained under it. This addendum was registered with its reads script before the launch
+(`addendum-2026-10-12/PREREGISTRATION.md`, committed at `9b045ab…`, stamped 20:22:27 CDT). The
+launch followed at 20:22:53.
+
+**The run.** One Kit boot of run 2's design with run 3's cap hook:
+- the dwell's termination removed, a 40 s cap, quota 2 (192 episodes);
+- 96 envs, seed 42, v3 deterministic;
+- the same eval and worktree as runs 1–3.
+
+It booted on the first attempt and completed in 2400 vector steps (1102 s), with no void. The
+record's scorer, under a fourth run-table row, applied every read-back, log and twist check:
+- the logged twist matches the node-capped twist of the logged action to 2.0e-7, with no
+  cap-flag mismatch;
+- no episode ended on `path_complete`;
+- the subgoal stayed on the path end after every dwell;
+- each env's first episode started from the start state its `meta.json` records
+  (`meta_start_states_vs_episode0_max_abs` 0.0 in `addendum-2026-10-12/capped_open_dwell_reads.txt`).
+
+**The reads,** on rows 0–599 with Reading 2's definitions:
+
+| | run 2, as trained | capped open-dwell |
+|---|---|---|
+| band entries | 179 | 175 |
+| 1. quiet before the first 0.30 m crossing | 4, 2.23 % | **7, 4.00 %** |
+| 2. their distance from the path end | 0.314–0.344 m, median 0.322 m | 0.303–0.410 m, median 0.335 m |
+| 3. pre-crossing detector, rig-like windows | 0 of 7 | 0 of 24 |
+
+**The rule, as committed** (`addendum-2026-10-12/PREREGISTRATION.md`). If the capped pre-crossing
+stop-short share is at least twice run 2's (2 × 4/179 = 4.47 %, about 8 of 179 band entries):
+- the speed cap is the first named lane term;
+- the time-to-goal brief's scope gains the cap;
+- v4 scoping carries "train under the deploy cap, or raise `NAV_VEL_SCALE` with the chassis limits
+  re-read".
+
+Otherwise the cap is a minor term, and the next measurement controls scene and depth content at the
+lane's goals.
+
+**Verdict: the speed cap is a minor term**, 4.00 % against 4.47 %.
+- **The margin is one episode.** 8 of 175 would have named the cap.
+- **Beside it.** Run 3, under the same caps with about three times the band entries (513), read
+  7.21 %. Both
+  capped reads sit above run 2's, and run 2's own 2.23 % rests on four episodes.
+- **So the cap's effect on this rate is not established** either way at these counts. By the rule
+  as registered, the next measurement is the scene and depth content at the lane's goals.
+
 ## Evidence — deposit
 
 | | |
 |---|---|
 | repository | https://github.com/zachoines/Sim2RealLab-Artifacts |
 | deposit directory | `policy-time-to-goal-baseline-2026-10-11/record-files/` |
-| deposit commit | `e7243f345662c1ad6a04081acb7d595988a14b2f` |
+| deposit commit | `f80345c43a24a60d9110d619e9857b0da4ad1544` |
 
 The pre-registration, the eval, the scoring script, its self-test, the launch script and the three
 plumbing launches are in the deposit's first commit, `675c0c59f159bf9cb2e8a16335461a9cf6bca848`. It
 was made at 19:13:20 CDT, before the first scored launch at 19:13:33. None of those files has
-changed since.
+changed since. The addendum's pre-registration and reads script went in at
+`9b045aba2ed6e760a92ac98f56d07e7e740f0a3a`, before its launch at 20:22:53 on 2026-10-12, and
+neither has changed since. The post-hoc terminal reads' script, first committed there, later gained
+two printed lines (the deposit's `DEPOSIT.md` says which).
 
 The deposit holds:
 - the launch inputs:
@@ -530,6 +711,10 @@ The deposit holds:
     `summary/summary.stdout`;
   - `ttg_selftest.py` and `selftest_out.txt`, the scorer's self-test;
   - `posthoc_band_tail.py` and `posthoc_band_tail.txt`, computed after the runs;
+  - `posthoc_terminal_modes.py` and `posthoc_terminal_modes.txt`, computed after the runs, which
+    read the gate's and the video set's deposited records in this repository as well;
+- `addendum-2026-10-12/`: the capped open-dwell run's pre-registration, its reads script and
+  output, and its run (`scored/eval/capped-open-dwell/`, logs, wrapper output);
 - `plumbing/`, the three seed-7 launches and their summary.
 
 Restore into this record's directory with:
@@ -566,6 +751,20 @@ sha256 of every file in the deposit:
 
 ```
 2955bb2bf078aef70a70bbe61d804074a5bfbd9aec1db6dca319a917d5df3118  PREREGISTRATION.md
+47b1e769014d722cf132467dbefb36b532d72ec3a7e3f94c346d218e3ddb9c20  addendum-2026-10-12/PREREGISTRATION.md
+065385f50b07bc88265d958d4f5662a4ac9c0812a3799e3ce8644057f9931430  addendum-2026-10-12/capped_open_dwell_reads.py
+6213abb164f7a0b36a20bb3d3b7cd323ffde94e262642415f3970c26eb157edc  addendum-2026-10-12/capped_open_dwell_reads.txt
+19eaf43821a7660ec323a87c8457bf74823beb296c39f5e01aa8a683aa50f061  addendum-2026-10-12/scored/a2.exit
+6191640abf0a4894d7ee361a22a4302181ad10fce0074c939815fee553ec68a5  addendum-2026-10-12/scored/a2.wrapper.out
+2fc34ced3d8b072a842320d1d9aad8dcffb90b673b3a585d145bd217409ebe8c  addendum-2026-10-12/scored/eval/capped-open-dwell/episodes.jsonl
+7a6a75d9f48654fa1210bc1ce489f48901ab86baabb3876241ed877689551afc  addendum-2026-10-12/scored/eval/capped-open-dwell/meta.json
+cb23370990398b2c6df3ddcecfad50e457c5d0d51985a4cdcccb503dacfa01fd  addendum-2026-10-12/scored/eval/capped-open-dwell/rows.npz
+f434dcb72a5ff8a9bace2b657b14f2215d663a00cb9f426dd290c56fab226667  addendum-2026-10-12/scored/logs/capped-open-dwell.binding.txt
+e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855  addendum-2026-10-12/scored/logs/capped-open-dwell.gpu_before.txt
+69a395230a5955a3bb8fee4b3a8bf63def50c553f566c99f9634ad2e048395eb  addendum-2026-10-12/scored/logs/capped-open-dwell.log
+6bbca11dda6d5e2cad0e7c13d135625d729a5664ac0161a2339375b70d6719db  addendum-2026-10-12/scored/logs/sampling.log
+afa433881f2152539b1f6a2a3eb09cd61562d7ceaf1d4015de95f819bfd27c93  addendum-2026-10-12/scored/logs/watchdog_capped-open-dwell.log
+afa433881f2152539b1f6a2a3eb09cd61562d7ceaf1d4015de95f819bfd27c93  addendum-2026-10-12/scored/logs/watchdog_capped-open-dwell.log.attempt1
 1fbe72fa3d576e2e1f10abe721a773488a07798c2f77f33327339fcb300549c5  plumbing/eval/plumb-baseline/episodes.jsonl
 668dccd32427261e3f27018e560c1acd9f33ccd81cae0cd51334579afcb0f1c3  plumbing/eval/plumb-baseline/meta.json
 561d2954a90a11dc5a60b035fd96b89a313b317fffa4811333f893b9bc339f12  plumbing/eval/plumb-baseline/rows.npz
@@ -600,6 +799,8 @@ aa81e63d652040aff8c6b65f4070f2ef29dad192a071d4469f4d2f0cb720d285  plumbing/summa
 aa81e63d652040aff8c6b65f4070f2ef29dad192a071d4469f4d2f0cb720d285  plumbing/summary/summary.txt
 5e8e550e678a2d25548927182f7d19d9f588d2538e751bb77e3aa34d898fb6d1  posthoc_band_tail.py
 daae4f445d806ae11cf6c13ec751489ad11f60975bc0eb7949c427e4badf8a49  posthoc_band_tail.txt
+9fbd01b4a12a44a07c4c37f7eab3bc257247f0dc9923e9112623a56e06ed7167  posthoc_terminal_modes.py
+08f165dc700d61f332ff6e3ff4fb08f47bfff6fa6b99ba12d31c1a5655283b90  posthoc_terminal_modes.txt
 0e0e5aca4ea687b49cdbbde0ff49b79124b76de295e32bf011673b17bc979619  run_ttg.sh
 c476fe506dba2a0ff47929d121025febaee2e966ed50f04e1bbcbed18d0ee55d  scored/baseline.wrapper.out
 875814c7a3fc5bdead71bf9a5f5ad7a145b0e20b14333adf62502669bb02e190  scored/chain.log

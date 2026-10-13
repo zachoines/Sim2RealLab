@@ -667,14 +667,18 @@ f7a87da56a7dfa8e755ae66acce4751284a560b251aa2f5fee3da275f7c6664b  vfov_summary.p
 |---|---|
 | repository | https://github.com/zachoines/Sim2RealLab-Artifacts |
 | deposit directory | `vfov-gap-v3-2026-10-03/stale-start-check/` |
-| deposit commit | `39e8a98bbb79957580ad53a939f75631c706b2f1` |
+| deposit commit | `237e7eadbcf60511d6c1a5ec110457a63089d389` |
 
 It holds `later_episode_tick0.py`, which reads only `record-files/eval/`, and its output
-`later_episode_tick0.txt`. `record-files/` is unchanged.
+`later_episode_tick0.txt`, and `exposure_from_train_log.py` with its output, which counts v3's
+training episodes from `depth-subgoal-v3-retrain-2026-09-21`'s training log. `record-files/` is
+unchanged.
 
 sha256 of every file in the deposit:
 
 ```
+6e2f1043c9f199ea4624b7af8fdf59a23cf348556376c2d8da8909310b74606e  exposure_from_train_log.py
+302b5cb5986dceb1f66472cbd9e5d4ca60f8cd81b68cb031dde8e0c311612ab2  exposure_from_train_log.txt
 0a62127acd32b7368e0cf51a882db2f25f63ead790613d1b294dd396702a2970  later_episode_tick0.py
 c3ff7ec6d43d10f56c3852258b97bd0f71d6ae39deca3586d9960fca18a74588  later_episode_tick0.txt
 ```

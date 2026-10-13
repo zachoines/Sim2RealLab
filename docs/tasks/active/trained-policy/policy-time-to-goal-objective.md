@@ -131,11 +131,15 @@ see the Baseline and Deploy-cap boxes.*
 - *With the referent on the goal, the policy still went quiet (ten ticks commanding under
   0.05 m/s) outside 0.30 m on all six T reaches, 0.309–0.352 m out, before the node's first tick
   within 0.30 m ended the goal.*
-  - *In its training env, over the first 600 steps, 6 of 179 band entries (3.35 %) went quiet at
-    or beyond 0.30 m without the node's caps, and 38 of 513 (7.41 %) under them (the baseline
-    record's §3, runs 2 and 3).*
-  - *The rig's read ends at the 0.30 m crossing, so no median comparable with the training env's
-    0.174 m can be read there.*
+  - *In its training env, over the first 600 steps, 4 of 179 band entries (2.23 %) went quiet before
+    their first 0.30 m crossing without the node's caps, and 37 of 513 (7.21 %) under them (the
+    baseline record's §3, runs 2 and 3); on this lane 11 of 12 reaches did. That difference is the
+    finding, not the training env's median quiet-stop distance, which counts stops after the dwell.*
+- *Computed after the run, with n = 6 (the record's §5a): where the plan end is the referent, the
+  band time tracks how far short of the goal it sits at band entry (Spearman +0.77; D08, 0.061 m
+  short, took 41.81 s), and so does the flip share. The same holds on the 13 earlier sim-bridge
+  reaches that succeeded (+0.76). By its pre-registered rule the offset stays a minor term; what it
+  governs is the band's tail and its back-and-forth, not the stop-short.*
 
 **The scheme to evaluate.** Make time to goal an objective of its own, in addition to a target
 speed, and tune it together with the approach slowdown, so that travel time has an upper bound.

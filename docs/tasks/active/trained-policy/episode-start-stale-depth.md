@@ -8,10 +8,11 @@ environment's first episode in a run started on a pre-reset depth frame: 96 of a
 episodes (0.47 %). Two things make it P2 rather than P3:
 - the next depth-policy training is being scoped now, and Isaac Lab's protection is one cfg field
   whose cost in a headless launch should be close to zero;
-- a camera-reading reward or termination with a nonzero weight would make every episode in that
-  training start stale, and the depth-proximity penalty ships at weight 0 with a note to re-enable
-  it in a hardened env (`strafer_env_cfg.py`:1988); so would a Kit visualizer that pumps the app
-  (the GUI, `--viz kit`, the livestream).
+- a camera-reading reward with a nonzero weight, or any camera-reading termination, would make
+  every episode in that training start stale, and the depth-proximity penalty ships at weight 0
+  with a note to re-enable it in a hardened env (`strafer_env_cfg.py`:1989); so would a Kit
+  visualizer that pumps the app (the GUI, or `--viz kit`, including a livestream launched with
+  it).
 **Estimate:** M (one raw-camera eval, two 96-environment training benches, eight eval launches,
 then a decision)
 **Branch:** `task/episode-start-stale-depth`
@@ -92,14 +93,15 @@ carries.**
   (`isaaclab/managers/reward_manager.py`:146). So the step's first
   camera read is the observation's, after the reset, on a new key.
 - **When a reset inside a step would be stale.** Two things make the observation's read reuse a
-  render from before the reset: a Kit visualizer whose `pumps_app_update()` is true (the GUI,
-  `--viz kit`, the livestream), which marks the read done without pumping
+  render from before the reset: a Kit visualizer whose `pumps_app_update()` is true (the GUI, or
+  `--viz kit`, including a livestream launched with it), which marks the read done without pumping
   (`isaac_rtx_renderer_utils.py`:133-136); and a camera read before the reset under the same key,
-  such as a camera-reading reward or termination with a nonzero weight. `--video` does not: its
+  such as a camera-reading reward with a nonzero weight or any camera-reading termination. A
+  livestream alone attaches no visualizer, and `--video` does not make the read stale either: its
   hook pumps before the render generation advances, so the read after the reset pumps again.
-  `num_rerenders_on_reset` ≥ 1 then
-  advances the render generation after the reset (`manager_based_rl_env.py`:256-258, gated on
-  `render_enabled`, `is_rendering` and `has_rtx_sensors`), so the observation's read renders anew.
+  `num_rerenders_on_reset` ≥ 1 then advances the render generation after the reset
+  (`manager_based_rl_env.py`:256-258, gated on `render_enabled`, `is_rendering` and
+  `has_rtx_sensors`), so the observation's read renders anew.
 - **The delay buffer** primes its ring with an environment's first frame after its reset ("Until
   an env's ring has been written it holds that env's first frame since its own reset",
   `mdp/noise_models.py`:48-49; priming at :147-156, reset at :117-128, called from
@@ -123,14 +125,15 @@ only the policy's recurrent state (:968-972). A frame older than `depth_timeout_
 trips the watchdog instead. So a mission's first tick sees where the robot stands.
 
 **What a re-render costs, read from the code (not measured).**
-- In a headless launch without `--video`, the extra `sim.render()` calls only advance the render
-  generation. The observation's camera read pumps Kit once, as on every step. So
+- In a launch with no Kit visualizer and no `--video`, the extra `sim.render()` calls only
+  advance the render generation. The observation's camera read pumps Kit once, as on every step. So
   `num_rerenders_on_reset = 1` should add one update per run, at the first reset, and nothing per
   step that carries a reset. A count above 1 adds nothing over 1.
 - With a Kit visualizer or `--video`, each call pumps Kit; with a camera-reading reward, the call
   advances the generation and the observation's read pumps again. In each case
-  `num_rerenders_on_reset = 1` adds one update of every camera per step that carries a reset. With 96 environments, a mean episode length of *L* steps and independent resets, that is
-  about 1 − e^(−96/*L*) of steps (arithmetic):
+  `num_rerenders_on_reset = 1` adds one update of every camera per step that carries a reset.
+  With 96 environments, a mean episode length of *L* steps and independent resets, that is about
+  1 − e^(−96/*L*) of steps (arithmetic):
 
   | mean episode length *L* | where it comes from | share of steps with a reset |
   |---|---|---|
@@ -209,10 +212,10 @@ repository, commit `b4c70ae`):
       [`depth-noise-real-structure`](depth-noise-real-structure.md) and
       [`policy-time-to-goal-objective`](policy-time-to-goal-objective.md): set
       `num_rerenders_on_reset` to 1, or leave it at 0. Give the reason from the price, the response
-      and the exposure (one episode per environment per run in a headless launch without a
-      camera-reading term; every episode otherwise). If it is set, the change carries an assertion
-      on the composed training variant, since the contract golden does not cover it. v3 is not
-      changed.
+      and the exposure (one episode per environment per run in a launch with no Kit visualizer
+      and no camera-reading term; every episode otherwise). If it is set, the change carries an
+      assertion on the composed training variant, since the contract golden does not cover it. v3
+      is not changed.
 - [ ] Record `episode-start-stale-depth-<date>` under `docs/measurements/`, deposited per
       [`docs/measurements/README.md`](../../../measurements/README.md).
 - [ ] If your work invalidates a fact in any referenced context module, package README,

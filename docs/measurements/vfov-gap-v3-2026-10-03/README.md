@@ -667,7 +667,7 @@ f7a87da56a7dfa8e755ae66acce4751284a560b251aa2f5fee3da275f7c6664b  vfov_summary.p
 |---|---|
 | repository | https://github.com/zachoines/Sim2RealLab-Artifacts |
 | deposit directory | `vfov-gap-v3-2026-10-03/stale-start-check/` |
-| deposit commit | `237e7eadbcf60511d6c1a5ec110457a63089d389` |
+| deposit commit | `3a6f23adbf9ca63154ddf4c4449547ee2ef1506f` |
 
 It holds `later_episode_tick0.py`, which reads only `record-files/eval/`, and its output
 `later_episode_tick0.txt`, and `exposure_from_train_log.py` with its output, which counts v3's

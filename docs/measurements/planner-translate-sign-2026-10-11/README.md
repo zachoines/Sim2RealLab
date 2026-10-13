@@ -33,11 +33,13 @@ template, so other wordings keep the prompt's answers.**
   backward X meters" comes back with the backward component at 0 (`dropped_axis`), in every arm.
 - **Held out.** On 12 commands written after arms A and B, arm C compiles 0 mis-signs and 11 exact.
   The prompt alone mis-signed 2 of them, both backward and left, and arm C's guard corrected both.
-  Every direction word in the sweep and held-out commands is in that guard's word lists and names
-  the motion itself, so its zeros follow from its construction and do not test the commands it
-  would misread; what the held-out set tests is the prompt (2 of 12 mis-signed). None of the 12 is
-  in the template, so the shipped guard leaves those two mis-signed. One more (H3) drops an axis:
-  "head forward 2.25 m, then 0.35 m to the right" gives `[2.25, 0.0]`.
+  The held-out vocabulary lies entirely inside that guard's word lists, so its 0 of 12 follows from
+  its construction, as the sweep's 0 of 48 does; what the held-out set tests is the prompt (2 of 12
+  mis-signed). One held-out "right" is not a direction (H12, "right away"). The guard would have
+  given a non-zero lateral component a sign there, and H12 compiled exactly only because the model
+  returned a lateral 0 (§6). None of the 12 is in the template, so the shipped guard leaves the two
+  mis-signs. One more (H3) drops an axis: "head forward 2.25 m, then 0.35 m to the right" gives
+  `[2.25, 0.0]`.
 - Every arm's two passes agree request by request, 52 of 52.
 
 **What follows.**

@@ -166,8 +166,10 @@ right, as the single-axis "strafe right" example already does.**
     exact counts, the anchors and the dropped axis.
   - The guard changed 26 of the 52 compiled values, every one by sign alone.
   - On 12 held-out commands it compiled 0 mis-signs and 11 exact. The prompt alone mis-signed 2 of
-    them. Every direction word in those commands is in the first guard's lists, so the held-out set
-    is evidence about the prompt, not about the commands the guard would misread.
+    them. The held-out vocabulary lies entirely inside the first guard's word lists, so its 0 there
+    also follows from its construction, and the held-out set is evidence about the prompt. Its one
+    "right" that is not a direction ("right away") compiled exactly only because the model returned
+    a lateral 0.
 
 **Narrowed before merge.** A direction word in free text can name a landmark's side ("move 1 m away
 from the wall on your left"), and there the first guard flips a correct sign. The shipped guard reads

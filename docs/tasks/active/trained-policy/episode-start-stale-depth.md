@@ -7,12 +7,13 @@ measure v3's response, then decide)
 environment's first episode in a run started on a pre-reset depth frame: 96 of about 20 200
 episodes (0.47 %). Two things make it P2 rather than P3:
 - the next depth-policy training is being scoped now, and Isaac Lab's protection is one cfg field
-  whose cost in a headless launch should be close to zero;
+  whose cost in a launch with no Kit visualizer, no `--video` and no camera-reading reward or
+  termination should be close to zero;
 - a camera-reading reward with a nonzero weight, or any camera-reading termination, would make
   every episode in that training start stale, and the depth-proximity penalty ships at weight 0
   with a note to re-enable it in a hardened env (`strafer_env_cfg.py`:1989); so would a Kit
-  visualizer that pumps the app (the GUI, or `--viz kit`, including a livestream launched with
-  it).
+  visualizer that pumps the app (the GUI, `--viz kit`, or a livestream through Isaac Lab's stock
+  scripts, which add one).
 **Estimate:** M (one raw-camera eval, two 96-environment training benches, eight eval launches,
 then a decision)
 **Branch:** `task/episode-start-stale-depth`
@@ -96,9 +97,19 @@ carries.**
   render from before the reset: a Kit visualizer whose `pumps_app_update()` is true (the GUI, or
   `--viz kit`, including a livestream launched with it), which marks the read done without pumping
   (`isaac_rtx_renderer_utils.py`:133-136); and a camera read before the reset under the same key,
-  such as a camera-reading reward with a nonzero weight or any camera-reading termination. A
-  livestream alone attaches no visualizer, and `--video` does not make the read stale either: its
-  hook pumps before the render generation advances, so the read after the reset pumps again.
+  such as a camera-reading reward with a nonzero weight or any camera-reading termination.
+  - **A livestream depends on the launcher.** The strafer train and eval scripts build
+    `AppLauncher` directly (`train_strafer_navigation.py`:188, `eval_cadence_emulation.py`:1485).
+    There a livestream alone attaches no visualizer: visualizers come only from the sim cfg's
+    `visualizer_cfgs` (default `[]`, `isaaclab/sim/simulation_cfg.py`:336; `git grep
+    visualizer_cfgs` finds no strafer source that sets it), from `--viz`, or from XR
+    (`isaaclab/sim/simulation_context.py`:532-605), and a livestream only forces headless
+    (`isaaclab/app/app_launcher.py`:838-843). Isaac Lab's `launch_simulation`, which its stock
+    rsl_rl `train.py` and `play.py` use, adds the Kit visualizer whenever a livestream is on
+    (`isaaclab_tasks/utils/sim_launcher.py`:132-154, called at 386), so a livestream through those
+    scripts makes every reset stale.
+  - `--video` does not make the read stale: its hook pumps before the render generation advances,
+    so the read after the reset pumps again.
   `num_rerenders_on_reset` ≥ 1 then advances the render generation after the reset
   (`manager_based_rl_env.py`:256-258, gated on `render_enabled`, `is_rendering` and
   `has_rtx_sensors`), so the observation's read renders anew.
@@ -125,12 +136,12 @@ only the policy's recurrent state (:968-972). A frame older than `depth_timeout_
 trips the watchdog instead. So a mission's first tick sees where the robot stands.
 
 **What a re-render costs, read from the code (not measured).**
-- In a launch with no Kit visualizer and no `--video`, the extra `sim.render()` calls only
-  advance the render generation. The observation's camera read pumps Kit once, as on every step. So
-  `num_rerenders_on_reset = 1` should add one update per run, at the first reset, and nothing per
-  step that carries a reset. A count above 1 adds nothing over 1.
-- With a Kit visualizer or `--video`, each call pumps Kit; with a camera-reading reward, the call
-  advances the generation and the observation's read pumps again. In each case
+- In a launch with no Kit visualizer, no `--video` and no camera-reading reward or termination, the
+  extra `sim.render()` calls only advance the render generation. The observation's camera read pumps
+  Kit once, as on every step. So `num_rerenders_on_reset = 1` should add one update per run, at the
+  first reset, and nothing per step that carries a reset. A count above 1 adds nothing over 1.
+- With a Kit visualizer or `--video`, each call pumps Kit; with a camera-reading reward or
+  termination, the call advances the generation and the observation's read pumps again. In each case
   `num_rerenders_on_reset = 1` adds one update of every camera per step that carries a reset.
   With 96 environments, a mean episode length of *L* steps and independent resets, that is about
   1 − e^(−96/*L*) of steps (arithmetic):
@@ -181,8 +192,8 @@ repository, commit `b4c70ae`):
       eval-only override, `tick0_frames.py`'s "tick-0 frames matching env 0's" falls below 16/16 in
       every launch, and a pose's tick-0 frame is floor-only only where its tick-1 raw frame is too
       (walls past the 6 m clamp). If one re-render leaves tick 0 on the pre-reset render, report
-      it; do not raise the count in a headless launch, where extra calls collapse into the one
-      update at the camera read.
+      it; do not raise the count in a launch with no Kit visualizer and no `--video`, where extra
+      calls collapse into the one update at the camera read.
 - [ ] **Price.** Measure `num_rerenders_on_reset = 1` on
       `Isaac-Strafer-Nav-RLDepth-Subgoal-Enriched-Robust-v0` against the unchanged cfg, in the same
       session, set with a scratch patch that is deposited and not merged. Use the method #222 used:
@@ -192,8 +203,9 @@ repository, commit `b4c70ae`):
   - The collection ratio is the firm figure; the learning phase does the same work in both arms
     yet drifts by about 10 % (#221 §8).
   - The code predicts no difference beyond the run-to-run spread in this launch; the record says
-    whether the collection ratio is inside it. If the next training is to run with `--video` or a
-    camera-reading reward, price that configuration too.
+    whether the collection ratio is inside it. If the next training is to run with a Kit
+    visualizer, `--video`, or a camera-reading reward or termination, price that configuration
+    too.
   - The price holds at 96 environments only.
 - [ ] **v3's response at identical poses.** One launch per seed 42–49 with the deposited launch
       (`vfov_run.sh` arm A: `--expect-fx-px 335.6522`, `--onset-ticks 30 --onset-obs-ticks 8`,
@@ -213,9 +225,9 @@ repository, commit `b4c70ae`):
       [`policy-time-to-goal-objective`](policy-time-to-goal-objective.md): set
       `num_rerenders_on_reset` to 1, or leave it at 0. Give the reason from the price, the response
       and the exposure (one episode per environment per run in a launch with no Kit visualizer
-      and no camera-reading term; every episode otherwise). If it is set, the change carries an
-      assertion on the composed training variant, since the contract golden does not cover it. v3
-      is not changed.
+      and no camera-reading reward or termination; every episode otherwise). If it is set, the
+      change carries an assertion on the composed training variant, since the contract golden does
+      not cover it. v3 is not changed.
 - [ ] Record `episode-start-stale-depth-<date>` under `docs/measurements/`, deposited per
       [`docs/measurements/README.md`](../../../measurements/README.md).
 - [ ] If your work invalidates a fact in any referenced context module, package README,
@@ -232,7 +244,11 @@ repository, commit `b4c70ae`):
   - `isaaclab/envs/manager_based_rl_env.py`:226-227 (the render in the step), 248-258 (the reset,
     then the re-render) and 270 (the observation).
   - `isaaclab/envs/manager_based_env.py`:422-437, the initial reset.
-  - `isaaclab/sim/simulation_context.py`:745-800, `render()` and the render generation.
+  - `isaaclab/sim/simulation_context.py`:745-800, `render()` and the render generation; 532-605,
+    where the visualizers come from.
+  - `isaaclab/app/app_launcher.py`:838-843, the livestream forcing headless, and
+    `isaaclab_tasks/utils/sim_launcher.py`:132-154 and 386, `launch_simulation` adding the Kit
+    visualizer for a livestream.
   - `isaaclab_physx/renderers/isaac_rtx_renderer_utils.py`:93-152, the once-per-key render update.
   - `isaaclab/sensors/sensor_base.py`:200-215, the lazy sensor update.
 - `source/strafer_lab/strafer_lab/tasks/navigation/strafer_env_cfg.py`:1174-1176 and 1196-1200 (the

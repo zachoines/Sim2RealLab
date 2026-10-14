@@ -669,6 +669,10 @@ f7a87da56a7dfa8e755ae66acce4751284a560b251aa2f5fee3da275f7c6664b  vfov_summary.p
 | deposit directory | `vfov-gap-v3-2026-10-03/stale-start-check/` |
 | deposit commit | `3a6f23adbf9ca63154ddf4c4449547ee2ef1506f` |
 
+*Dated note: this table first cited `39e8a98` (2026-10-11), which holds `later_episode_tick0.*`.
+`237e7ea` (2026-10-12) adds `exposure_from_train_log.*`, and `3a6f23a` (2026-10-13) changes only
+the directory's `DEPOSIT.md`; `later_episode_tick0.*` is unchanged since `39e8a98`.*
+
 It holds `later_episode_tick0.py`, which reads only `record-files/eval/`, and its output
 `later_episode_tick0.txt`, and `exposure_from_train_log.py` with its output, which counts v3's
 training episodes from `depth-subgoal-v3-retrain-2026-09-21`'s training log. `record-files/` is

@@ -114,6 +114,36 @@ dwell on the rig came before it. The baseline criterion shows which it is.
 [`policy-time-to-goal-baseline-2026-10-11`](../../../measurements/policy-time-to-goal-baseline-2026-10-11/README.md);
 see the Baseline and Deploy-cap boxes.*
 
+*2026-10-11, the referent offset
+([`subgoal-referent-offset-ab-2026-10-11`](../../../measurements/subgoal-referent-offset-ab-2026-10-11/README.md)):*
+- *On the bridge lane, twelve CLI reaches in one session compared the anchored plan's own last
+  point as the policy's referent (C) with that point moved onto the goal pose (T), six each. By the
+  rule stated before the run, the offset is **recorded as a minor term**. The rule tests for a
+  large effect, and a smaller one is not excluded.*
+- *Band time, 0.42 m to the node's result: median 4.37 s on T against 6.33 s on C, a ratio of 0.69
+  where the rule asked for at most 0.5. Quiet stop inside 0.30 m: 0 of 6 on T, where the rule
+  asked for at least 4. Every T reach went quiet 0.309–0.352 m from the goal, which was its
+  referent. All twelve succeeded.*
+- *The `vx` sign-flip share was lower on T than on C: median 0.009 against 0.147 by `band.py`'s
+  definition, and 0.095 against 0.204 by `reach_terminal.py`'s. It is a read reported beside the
+  rule, with n = 6 per arm, and the two definitions differ about tenfold on T, so it is suggestive,
+  not established.*
+- *With the referent on the goal, the policy still went quiet (ten ticks commanding under
+  0.05 m/s) outside 0.30 m on all six T reaches, 0.309–0.352 m out, before the node's first tick
+  within 0.30 m ended the goal.*
+  - *In its training env, 4 of 179 band entries (2.23 %) went quiet before their first 0.30 m
+    crossing without the node's caps (run 2, its first 600 steps), and 37 of 513 (7.21 %) under the
+    node's speed cap and 60 s bound (run 3) (the baseline record's §3); on this lane 11 of 12
+    reaches did. That difference is the finding, not the training env's median quiet-stop
+    distance, which is mostly of stops after the dwell (121 of 146).*
+- *Computed after the run, with n = 6 (the record's §5a): where the plan end is the referent, the
+  band time tracks how far short of the goal it sits at band entry (Spearman +0.77; D08, 0.061 m
+  short, took 41.81 s from its first entry, and 16.33 s from the last after leaving the band once),
+  and so does the flip share. The same holds on the 13 earlier sim-bridge reaches that succeeded
+  (+0.76; +0.71 without gate R1, whose held subgoal moved in its band). By its pre-registered rule
+  the offset stays a minor term; computed after the run, it tracks the band's tail and its
+  back-and-forth, not the stop-short.*
+
 **The scheme to evaluate.** Make time to goal an objective of its own, in addition to a target
 speed, and tune it together with the approach slowdown, so that travel time has an upper bound.
 - **The combined scheme:**

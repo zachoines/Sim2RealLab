@@ -153,7 +153,7 @@ start. The policy's start is the pose at goal acceptance, after any pre-rotation
 - **The prompt.** Its only right-hand translate example is single-axis ("strafe right 2
   meters" → `[0.0, -2.0]`).
 - **Follow-up.** Filed as
-  [`planner-translate-two-axis-sign`](../../tasks/active/reliability/planner-translate-two-axis-sign.md).
+  [`planner-translate-two-axis-sign`](../../tasks/completed/planner-translate-two-axis-sign.md).
   The executor composes and dispatches a translate faithfully, so a submitted R1 would have
   driven the robot toward (−2.12, 0.35), not (−0.05, 2.15).
 

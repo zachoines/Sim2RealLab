@@ -91,6 +91,15 @@ User: "drive back 0.5 meters"
 User: "strafe right 2 meters"
 {"intent_type": "translate", "translation_xy": [0.0, -2.0], "requires_grounding": false}
 
+User: "move 1.5 meters forward and 0.5 meters right"
+{"intent_type": "translate", "translation_xy": [1.5, -0.5], "requires_grounding": false}
+
+User: "move 1.5 meters forward and 0.5 meters left"
+{"intent_type": "translate", "translation_xy": [1.5, 0.5], "requires_grounding": false}
+
+User: "move 0.8 meters backward and 0.3 meters right"
+{"intent_type": "translate", "translation_xy": [-0.8, -0.3], "requires_grounding": false}
+
 User: "what do you see?"
 {"intent_type": "describe", "requires_grounding": false}
 

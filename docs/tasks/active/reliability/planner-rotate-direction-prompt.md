@@ -29,7 +29,7 @@ its right (CW). The downstream code path is sign-clean end-to-end:
 
 - [`source/strafer_autonomy/strafer_autonomy/planner/intent_parser.py:109-113`](../../../../source/strafer_autonomy/strafer_autonomy/planner/intent_parser.py)
   — `orientation_mode` is passed through unchanged.
-- [`source/strafer_autonomy/strafer_autonomy/planner/plan_compiler.py:174-183`](../../../../source/strafer_autonomy/strafer_autonomy/planner/plan_compiler.py)
+- [`source/strafer_autonomy/strafer_autonomy/planner/plan_compiler.py:204-223`](../../../../source/strafer_autonomy/strafer_autonomy/planner/plan_compiler.py)
   — `float(mode)` with no sign munging.
 - [`source/strafer_autonomy/strafer_autonomy/executor/mission_runner.py:1453`](../../../../source/strafer_autonomy/strafer_autonomy/executor/mission_runner.py)
   — `yaw_delta = math.radians(degrees)` — no sign flip.
@@ -100,3 +100,14 @@ Strengthen the rotate section of the system prompt:
 - **Translate sign convention.** Already covered with explicit
   forward/backward + left/right examples in the same prompt; no
   field reports of mis-direction there.
+  *Note 2026-10-11 ([`planner-translate-sign-2026-10-11`](../../../measurements/planner-translate-sign-2026-10-11/README.md)):*
+  - *No longer true. The prompt had single-axis translate examples only. On 2026-10-03 it
+    compiled "move 1.712 meters forward and 1.372 meters right" to the left, and on `main` at
+    `9f7d207` it mis-signed 31 of the record's 48 two-axis commands.*
+  - *[`planner-translate-two-axis-sign`](../../completed/planner-translate-two-axis-sign.md)
+    addresses it with two-axis examples and a sign guard in `_compile_translate` (0 of the
+    record's 48 mis-signed). The examples alone left 24 of 48 scored mis-sign.*
+  - *2026-10-13: the guard was withdrawn before merge and only the examples shipped. The fix
+    moved to [`planner-translate-direction-schema`](planner-translate-direction-schema.md), which
+    has the planner report direction words that the compiler maps to signs.*
+  - *The translate sign stays out of this brief's scope.*

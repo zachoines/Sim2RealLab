@@ -1,5 +1,8 @@
 """Tests for planner prompt builder."""
 
+import json
+import re
+
 from strafer_autonomy.planner.prompt_builder import SYSTEM_PROMPT, build_messages
 from strafer_autonomy.schemas import PlannerRequest
 
@@ -55,3 +58,31 @@ class TestBuildMessages:
         )
         messages = build_messages(req)
         assert messages[1]["content"].startswith("go to the chair")
+
+
+def _translate_examples() -> list[tuple[str, list[float]]]:
+    pairs = re.findall(r'User: "([^"]+)"\n(\{[^\n]*\})', SYSTEM_PROMPT)
+    examples = [(cmd, json.loads(obj)) for cmd, obj in pairs]
+    return [(cmd, obj["translation_xy"]) for cmd, obj in examples if obj["intent_type"] == "translate"]
+
+
+class TestTranslateExamples:
+    """The translate examples carry the [forward, left] sign convention."""
+
+    def test_signs_follow_each_example_command(self):
+        for cmd, (dx, dy) in _translate_examples():
+            words = set(cmd.split())
+            if "right" in words:
+                assert dy < 0, cmd
+            if "left" in words:
+                assert dy > 0, cmd
+            if words & {"back", "backward"}:
+                assert dx < 0, cmd
+            if "forward" in words:
+                assert dx > 0, cmd
+
+    def test_two_axis_examples_cover_both_sides_and_backward(self):
+        two_axis = [(dx, dy) for _, (dx, dy) in _translate_examples() if dx != 0 and dy != 0]
+        assert any(dy < 0 for _, dy in two_axis)
+        assert any(dy > 0 for _, dy in two_axis)
+        assert any(dx < 0 for dx, _ in two_axis)

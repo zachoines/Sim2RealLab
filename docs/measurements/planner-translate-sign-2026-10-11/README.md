@@ -1,0 +1,708 @@
+# The planner's sign on a two-axis translate, 2026-10-11
+
+On 2026-10-03 the planner compiled `move 1.712 meters forward and 1.372 meters right` to a move
+1.372 m to the robot's left
+([`goal-a-cli-confirmation-2026-10-03`](../goal-a-cli-confirmation-2026-10-03/README.md), R1).
+This record measures how often the planner returns a wrong sign on a two-axis translate. It sends 52
+commands to the live Qwen3-4B planner in the executor's request shape, before the change and under
+three candidate changes. Each is scored against a rule committed before its first request.
+
+**On these commands, the prompt change alone does not fix the sign. A sign guard in the plan compiler
+fixed it on the measured commands, but the guard was withdrawn before merge (§5c). What ships is the
+prompt examples, 24 of 48 mis-signed, and the fix moves to the planner's schema.**
+- **Before the change**, 31 of 48 balanced two-axis commands come back with a component of the wrong
+  sign, and 12 are exact. R1 reproduces. Its messages, rebuilt locally, hash to the 2026-10-03
+  value (`f809e9804bbf…`), and the model returns `[1.712, 1.372]`.
+- **Three two-axis examples in the prompt** (arm A) leave 24 of 48 scored mis-sign. **A rule
+  sentence on top of them** (arm B) leaves 22. Counting the dropped-axis plans that also carry a
+  wrong sign, 26 and 23 (§3). Neither meets the rule.
+- **Arm A's prompt plus a guard in `_compile_translate`** (arm C) gives 0 mis-signs of 48, 44 exact,
+  and all five anchors exact, and meets the rule as registered. That guard gave each non-zero
+  component the sign that the command's own words name, when they name exactly one direction on that
+  axis. Its result was computable before its run: arm C's prompt is arm A's, so its raw answers are
+  arm A's (§5), and the guard is a function of the words. What arm C measured is the held-out set
+  and the live service.
+- **The guard was narrowed, then withdrawn** (§5b, §5c). A direction word in free text can name a
+  landmark's side ("move 1 m away from the wall on your left"), and there that guard flips a
+  correct sign. The narrowed guard read only the template CLI-built commands use, "move X meters
+  forward|backward and Y meters left|right". Compiled from the deposited raw answers it left 22 of
+  48 balanced commands mis-signed: the 8 in the template exact, the 40 in other wordings with the
+  prompt's answers. On review it was withdrawn before merge, as brittle and opaque to an operator.
+  The shipped tree passes the model's values through. Live, it reproduces arm A's plans on all 52
+  commands: 24 of 48 mis-signed, 20 exact, all five anchors exact.
+- **The 4 inexact commands under arm C are not sign errors.** "strafe S Y meters while moving
+  backward X meters" comes back with the backward component at 0 (`dropped_axis`), in every arm.
+- **Held out.** On 12 commands written after arms A and B, arm C compiles 0 mis-signs and 11 exact.
+  The prompt alone mis-signed 2 of them, both backward and left, and arm C's guard corrected both.
+  The held-out vocabulary lies entirely inside that guard's word lists, so its 0 of 12 follows from
+  its construction, as the sweep's 0 of 48 does; what the held-out set tests is the prompt (2 of 12
+  mis-signed). One held-out "right" is not a direction (H12, "right away"). The guard would have
+  given a non-zero lateral component a sign there, and H12 compiled exactly only because the model
+  returned a lateral 0 (§6). The shipped tree, without a guard, leaves the two mis-signs. One more
+  (H3) drops an axis: "head forward 2.25 m, then 0.35 m to the right" gives `[2.25, 0.0]`.
+- Every arm's two passes agree request by request, 52 of 52.
+
+**What follows.**
+- What ships is the prompt examples.
+  [`planner-translate-two-axis-sign`](../../tasks/completed/planner-translate-two-axis-sign.md)
+  expected the prompt change alone to fix the sign. Arm A measured that change at 24 of 48, and the
+  shipped tree reads the same live.
+- The fix moves to
+  [`planner-translate-direction-schema`](../../tasks/active/reliability/planner-translate-direction-schema.md).
+  The planner will report a translate as ordered direction words and distances, and the compiler
+  will map them to signs with one fixed table, so the model is never asked to apply the frame's
+  sign.
+- The compile-first dry-check for real-robot submissions stays. The shipped tree mis-signs 24 of
+  these 48 and 2 of the 12, and the dropped axis is unchanged in every arm (4 of 48, and 1 of 12
+  held out). Both are that brief's.
+
+## 1. Setup
+
+**The planner.**
+
+| | |
+|---|---|
+| model | `Qwen/Qwen3-4B` in HF transformers, in process: `device_map=auto, dtype=auto, 4bit=False` (the load line of each serve log) |
+| decoding | greedy: `do_sample=False`, thinking off. Transformers warns that `temperature`, `top_p` and `top_k` "are not valid and may be ignored" (`runs/pre_serve_planner.log`, line 16) |
+| service | `make serve-planner`, port 8200, `.venv_vlm`, one launch per arm |
+| logging | `UVICORN_LOG_CONFIG=planner_log_config.json`, which uvicorn reads as `--log-config`. It routes the `strafer_autonomy` logger to stderr at INFO, so each request's raw `LLM output` line reaches the service log. The Makefile and the tree are unchanged for it |
+| host | the DGX, one planner service at a time (`provenance.md`) |
+
+**Requests.** Each command is planned the way the executor plans it, in the shape the CLI set's
+`plan_check.py` reproduces (`translate_sign_sweep.py`):
+- `HttpPlannerClient` with its default config;
+- the command verbatim, `robot_state` None, the executor's fresh-mission summary and
+  `DEFAULT_AVAILABLE_SKILLS`.
+
+The tool rebuilds the model's messages locally and records their sha256. It also records the path
+and the `SYSTEM_PROMPT` sha256 of the `prompt_builder` it imported, under the service's
+`PYTHONPATH`. All 600 `/plan` requests across the eight service launches returned 200 (the serve
+logs): 436 across the five on 2026-10-11, 68 on the narrowed guard's (2026-10-12), and 96 on the
+shipped tree's two (2026-10-13).
+
+**Commands** (`sweep_commands.json`, 52).
+- 48 balanced commands in four classes: forward-right (FR), forward-left (FL), backward-right (BR)
+  and backward-left (BL). Each class has six wordings × two magnitude pairs.
+  - The classes share magnitudes and differ only in their direction words.
+  - Each wording has one 3-decimal pair and one short pair.
+- 4 anchors: the CLI set's four forward-left commands (FX, G1, L1, L2), which compiled exactly on
+  2026-10-03.
+- R1 is FR/W1's first command. "The five anchors" are R1 and those four.
+- None of the 52 magnitudes appears in the examples the change adds (1.5/0.5 and 0.8/0.3).
+
+| wording | forward form, X forward and Y to side S | pairs (X, Y) |
+|---|---|---|
+| W1 | "move X meters forward and Y meters S" (R1's template) | (1.712, 1.372), (2.0, 1.0) |
+| W2 | "go forward X m and Y m to the S" | (0.845, 2.316), (1.0, 2.0) |
+| W3 | "drive X meters ahead then Y meters S" | (3.107, 0.021), (1.2, 0.4) |
+| W4 | "strafe S Y meters while moving forward X meters" | (0.032, 3.533), (0.6, 0.9) |
+| W5 | "move Y meters to the S and X meters forward" | (2.468, 0.913), (3.0, 0.25) |
+| W6 | "translate X m forward, Y m S" | (1.354, 1.529), (0.7, 0.7) |
+
+The backward forms say "backward" in place of "forward", and W3 says "back" in place of "ahead".
+
+| anchor | command |
+|---|---|
+| R1 | "move 1.712 meters forward and 1.372 meters right" |
+| FX | "move 3.074 meters forward and 0.191 meters left" |
+| G1 | "move 3.107 meters forward and 0.021 meters left" |
+| L1 | "move 1.354 meters forward and 1.529 meters left" |
+| L2 | "move 0.032 meters forward and 3.533 meters left" |
+
+**Outcome per command.** The first that applies, at a tolerance of 0.001 m (`classify` in
+`translate_sign_sweep.py`):
+1. `error`: the call raised.
+2. `wrong_intent`: not exactly one step, or the mission or its step is not `translate`.
+3. `axis_swap`: |dx| and |dy| match |Y| and |X|, with |X| ≠ |Y|.
+4. `dropped_axis`: a component below 0.0005 m where a non-zero one was expected.
+5. `mis_sign`: a component of the wrong sign, as `dy_flip`, `dx_flip` or `both_flip`.
+6. `magnitude`: the signs are right, but a component is off by more than the tolerance.
+7. `exact`: both components within the tolerance.
+
+"Mis-sign of 48" counts the balanced commands scored `mis_sign`. A command scored `dropped_axis` or
+`wrong_intent` is not counted there, even when its other component also has the wrong sign.
+
+**What was written down first.**
+- The question, the commands, the scoring tool, the log config and the acceptance rule were committed
+  to the evidence repository at `d2fb7cc` (2026-10-11 18:03:55 CDT). The first scored pass started
+  at 18:05:13 CDT (23:05:13Z, `started_utc` in `runs/pre_pass1/summary.json`).
+- **The rule.** The change is accepted if, after it, there are 0 mis-signs of 48, the five anchors
+  are all exact, and no class's exact count is lower than before. If the prompt change was not
+  accepted, the translate rule was to gain one sentence and the sweep was to be repeated (arm B),
+  with both results reported.
+- Arms A and B both failed the rule. An addendum then registered arm C under the same rule, with a
+  consistency check and a held-out set. It was committed with the before, A and B runs at `c9745b4`
+  (18:28:26). Arm C's service started at 18:28:38 (`runs/postC_serve_planner.log`, line 4), and
+  its first pass at 18:29:36 CDT (23:29:36Z, `started_utc` in `runs/postC_pass1/summary.json`).
+
+## 2. The arms
+
+| arm | change against `9f7d207` | file | `SYSTEM_PROMPT` sha256 | served from |
+|---|---|---|---|---|
+| before | none | | `abef3f984f4a…` | the main checkout at `9f7d207` |
+| A | three two-axis examples: forward+right `[1.5, -0.5]`, forward+left `[1.5, 0.5]`, backward+right `[-0.8, -0.3]` | `armA_prompt.patch` | `5f8d805d3ad0…` | a worktree of `task/planner-translate-two-axis-sign` |
+| B | A, plus "Each axis keeps its own sign: a component to the right is negative even after a positive forward component." in the translate rule | `armB_prompt.diff`; the served file is `runs/postB_prompt_builder.py` | `f83cc796294a…` | the same worktree |
+| C | A's prompt, plus the guard in `plan_compiler._compile_translate` | `armC.patch` | `5f8d805d3ad0…` | the same worktree |
+
+- Before the change, `prompt_builder.py` is blob `ae5b1482`, the same blob as at `ed0d5af`, the
+  brief's baseline.
+- `armC.patch` applied to `9f7d207` gives the branch's `prompt_builder.py`, `plan_compiler.py` and
+  `test_plan_compiler.py` at `1031643` byte for byte. The branch's other changes are its other tests
+  and the `live_planner` marker.
+- The sha256 column is the `prompt_builder` that the sweep tool imported, from each run's
+  `summary.json`. Two things in the deposit bear on what the service itself served:
+  - The serve logs start `.venv_vlm/bin/uvicorn` by a relative path for the before arm, which only
+    the main checkout has. For A, B and C they start it by the main checkout's absolute path, as
+    `make` does in the worktree with `VENV_VLM` set.
+  - In arm C, the service's raw outputs and its compiled plans differ only in sign (§5).
+
+## 3. Results
+
+From `sweep_tables.txt`. Every arm's two passes are identical request by request, so pass 1 stands
+for both.
+
+| arm | mis-sign of 48 | exact of 48 | anchors exact of 5 | mis-sign sub-types | passes identical | R1 plan | R1 message sha256 |
+|---|---:|---:|---:|---|---|---|---|
+| before | 31 | 12 | 4 | {'dy_flip': 27, 'dx_flip': 2, 'both_flip': 2} | 52/52 | [1.712, 1.372] | f809e9804bbf… (the deposit's) |
+| A | 24 | 20 | 5 | {'dy_flip': 20, 'dx_flip': 1, 'both_flip': 3} | 52/52 | [1.712, -1.372] | 9c6cc2296821… |
+| B | 22 | 22 | 3 | {'dy_flip': 18, 'dx_flip': 1, 'both_flip': 3} | 52/52 | [1.712, -1.372] | e68f14de5385… |
+| C | 0 | 44 | 5 | {} | 52/52 | [1.712, -1.372] | 9c6cc2296821… |
+
+"The deposit's" is `llm_messages_sha256_local_prompt_builder` in
+`goal-a-cli-confirmation-2026-10-03`'s `logs/runs/R1.plancheck_failed`. Both values hash messages
+rebuilt locally from the `prompt_builder` each tool imported, not the service's own input. Under the
+before arm, FX, G1, L1 and L2 also hash to that deposit's values, in its
+`logs/runs/<anchor>.plancheck.out` (`runs/pre_pass1/results.jsonl`). Arms A and C share a message
+sha256 because they share a prompt.
+
+**Against the rule.**
+- **A: not accepted.** 24 mis-signs, and forward-left's exact count falls from 9 to 8.
+- **B: not accepted.** 22 mis-signs, two forward-left anchors flip (FX and G1), so 3 of 5, and
+  forward-left's exact count falls from 9 to 8.
+- **C: accepted.** 0 mis-signs, 5 of 5 anchors, and every class's exact count at or above before
+  (FR 12 against 2, FL 12 against 9, BR 10 against 1, BL 10 against 0).
+
+**Per class** (pass 1, tolerance 0.001 m):
+
+| arm | class | n | error | wrong_intent | axis_swap | dropped_axis | mis_sign | magnitude | exact |
+|---|---|---:|---:|---:|---:|---:|---:|---:|---:|
+| before | FR | 12 | 0 | 1 | 0 | 0 | 9 | 0 | 2 |
+| before | FL | 12 | 0 | 0 | 0 | 0 | 3 | 0 | 9 |
+| before | BR | 12 | 0 | 0 | 0 | 2 | 9 | 0 | 1 |
+| before | BL | 12 | 0 | 0 | 0 | 2 | 10 | 0 | 0 |
+| before | anchor_FL | 4 | 0 | 0 | 0 | 0 | 0 | 0 | 4 |
+| A | FR | 12 | 0 | 0 | 0 | 0 | 7 | 0 | 5 |
+| A | FL | 12 | 0 | 0 | 0 | 0 | 4 | 0 | 8 |
+| A | BR | 12 | 0 | 0 | 0 | 2 | 3 | 0 | 7 |
+| A | BL | 12 | 0 | 0 | 0 | 2 | 10 | 0 | 0 |
+| A | anchor_FL | 4 | 0 | 0 | 0 | 0 | 0 | 0 | 4 |
+| B | FR | 12 | 0 | 0 | 0 | 0 | 6 | 0 | 6 |
+| B | FL | 12 | 0 | 0 | 0 | 0 | 4 | 0 | 8 |
+| B | BR | 12 | 0 | 0 | 0 | 2 | 2 | 0 | 8 |
+| B | BL | 12 | 0 | 0 | 0 | 2 | 10 | 0 | 0 |
+| B | anchor_FL | 4 | 0 | 0 | 0 | 0 | 2 | 0 | 2 |
+| C | FR | 12 | 0 | 0 | 0 | 0 | 0 | 0 | 12 |
+| C | FL | 12 | 0 | 0 | 0 | 0 | 0 | 0 | 12 |
+| C | BR | 12 | 0 | 0 | 0 | 2 | 0 | 0 | 10 |
+| C | BL | 12 | 0 | 0 | 0 | 2 | 0 | 0 | 10 |
+| C | anchor_FL | 4 | 0 | 0 | 0 | 0 | 0 | 0 | 4 |
+
+- Backward-left stays at 10 of 12 mis-signed under both prompt arms. The three examples include no
+  backward-left case (an observation; a backward-left example was not tried).
+- The `dropped_axis` rows are the same four commands in every arm: W4's backward forms, BR and BL
+  (`runs/<arm>_pass1/results.jsonl`).
+- Under A and B, BL/W4's `dropped_axis` plans also carry a wrong lateral sign (A both, B one). So 26
+  (A) and 23 (B) of 48 have some wrong-signed component. Before and C have none hidden this way
+  (`runs/<arm>_pass1/results.jsonl`).
+
+## 4. Before the change, by wording
+
+The balanced 48, pass 1:
+
+| wording | error | wrong_intent | axis_swap | dropped_axis | mis_sign | magnitude | exact |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| W1 | 0 | 0 | 0 | 0 | 6 | 0 | 2 |
+| W2 | 0 | 0 | 0 | 0 | 6 | 0 | 2 |
+| W3 | 0 | 1 | 0 | 0 | 5 | 0 | 2 |
+| W4 | 0 | 0 | 0 | 4 | 2 | 0 | 2 |
+| W5 | 0 | 0 | 0 | 0 | 7 | 0 | 1 |
+| W6 | 0 | 0 | 0 | 0 | 5 | 0 | 3 |
+
+These rows are read from `runs/pre_pass1/results.jsonl`:
+- **Every wording mis-signs.** W1, R1's own template, gets 2 of 8 right: both forward-left ones.
+- **The lateral sign is most of it.** 29 of the 31 mis-signs flip the lateral component: 27 flip it
+  alone (`dy_flip`), and two flip both (`both_flip`, BL's W5 forms). The other two flip only the
+  backward component (`dx_flip`, BR's W5 forms). In all four W5 backward commands, "move Y meters to
+  the S and X meters backward", the backward component comes back positive.
+- **Forward-left is the least affected class**, 3 of 12. Its two W4 commands ("strafe left …") come
+  back with a negative lateral component, and so does W5's short pair.
+- **The `wrong_intent`** is FR/W3's "drive 1.2 meters ahead then 0.4 meters right". It came back as
+  `go_to_targets`. In arms A, B and C the same command is a `translate`.
+- **The four `dropped_axis`** are "strafe S Y meters while moving backward X meters", with the
+  backward component returned as 0.
+
+## 5. The guard as first written (arm C)
+
+**What it does** (`armC.patch`; `plan_compiler.py` at `1031643`).
+- It lower-cases the command and splits it into words.
+- For x it reads "forward", "forwards" and "ahead" (positive) against "backward", "backwards" and
+  "back" (negative). For y it reads "left" (positive) against "right" (negative).
+- When the words name exactly one of an axis's two directions, a non-zero component takes that
+  sign. Otherwise the LLM's value passes through, and a zero stays zero.
+- It changes signs only, never a magnitude or an axis, and only in `translate` intents.
+
+**Consistency.** Arm C's prompt is arm A's. The arm C service log holds 120 `LLM output` lines: the
+two passes of 52, the held-out 12 and the 4 live fixtures.
+- Arm C's raw output equals arm A's compiled plan on 52 of 52 commands, across two service launches.
+- Arm C's raw output is identical across its own two passes, 52 of 52.
+
+**Effect.**
+- The guard changed 26 of the 52 compiled values, every one by sign alone.
+- Scored without the guard, the raw outputs mis-sign 24 of 48, which is arm A's count. Compiled, they
+  mis-sign 0 of 48.
+- The 26 changes are the 24 mis-signs and the two BL/W4 commands. Those two are `dropped_axis` with
+  or without the guard. Their raw lateral component was also negative, for "left", and the guard
+  corrected it.
+- **The zero is by construction.** Every command in the sweep and the held-out set names each
+  non-zero axis with exactly one of the guard's words (`sweep_commands.json`,
+  `heldout_commands.json`). On these commands the guard rules out a compiled mis-sign: the 0 of 48
+  and 0 of 12 follow from the code, not the model. What arm C's runs measure is the rest: 44 of 48
+  exact, 5 of 5 anchors, the dropped axis, and the raw outputs (24 of 48 and 2 of 12 mis-signed).
+
+| class | wording | raw LLM | compiled | command |
+|---|---|---|---|---|
+| FR | W2 | [0.845, 2.316] | [0.845, -2.316] | go forward 0.845 m and 2.316 m to the right |
+| FR | W2 | [1.0, 2.0] | [1.0, -2.0] | go forward 1.0 m and 2.0 m to the right |
+| FR | W3 | [3.107, 0.021] | [3.107, -0.021] | drive 3.107 meters ahead then 0.021 meters right |
+| FR | W3 | [1.2, 0.4] | [1.2, -0.4] | drive 1.2 meters ahead then 0.4 meters right |
+| FR | W5 | [2.468, 0.913] | [2.468, -0.913] | move 0.913 meters to the right and 2.468 meters forward |
+| FR | W5 | [3.0, 0.25] | [3.0, -0.25] | move 0.25 meters to the right and 3.0 meters forward |
+| FR | W6 | [1.354, 1.529] | [1.354, -1.529] | translate 1.354 m forward, 1.529 m right |
+| FL | W3 | [3.107, -0.021] | [3.107, 0.021] | drive 3.107 meters ahead then 0.021 meters left |
+| FL | W4 | [0.032, -3.533] | [0.032, 3.533] | strafe left 3.533 meters while moving forward 0.032 meters |
+| FL | W4 | [0.6, -0.9] | [0.6, 0.9] | strafe left 0.9 meters while moving forward 0.6 meters |
+| FL | W6 | [0.7, -0.7] | [0.7, 0.7] | translate 0.7 m forward, 0.7 m left |
+| BR | W2 | [-1.0, 2.0] | [-1.0, -2.0] | go backward 1.0 m and 2.0 m to the right |
+| BR | W5 | [2.468, -0.913] | [-2.468, -0.913] | move 0.913 meters to the right and 2.468 meters backward |
+| BR | W5 | [3.0, 0.25] | [-3.0, -0.25] | move 0.25 meters to the right and 3.0 meters backward |
+| BL | W1 | [-1.712, -1.372] | [-1.712, 1.372] | move 1.712 meters backward and 1.372 meters left |
+| BL | W1 | [-2.0, -1.0] | [-2.0, 1.0] | move 2.0 meters backward and 1.0 meters left |
+| BL | W2 | [-0.845, -2.316] | [-0.845, 2.316] | go backward 0.845 m and 2.316 m to the left |
+| BL | W2 | [-1.0, -2.0] | [-1.0, 2.0] | go backward 1.0 m and 2.0 m to the left |
+| BL | W3 | [-3.107, -0.021] | [-3.107, 0.021] | drive 3.107 meters back then 0.021 meters left |
+| BL | W3 | [-1.2, -0.4] | [-1.2, 0.4] | drive 1.2 meters back then 0.4 meters left |
+| BL | W4 | [0.0, -3.533] | [0.0, 3.533] | strafe left 3.533 meters while moving backward 0.032 meters |
+| BL | W4 | [0.0, -0.9] | [0.0, 0.9] | strafe left 0.9 meters while moving backward 0.6 meters |
+| BL | W5 | [2.468, -0.913] | [-2.468, 0.913] | move 0.913 meters to the left and 2.468 meters backward |
+| BL | W5 | [3.0, -0.25] | [-3.0, 0.25] | move 0.25 meters to the left and 3.0 meters backward |
+| BL | W6 | [-1.354, -1.529] | [-1.354, 1.529] | translate 1.354 m backward, 1.529 m left |
+| BL | W6 | [-0.7, -0.7] | [-0.7, 0.7] | translate 0.7 m backward, 0.7 m left |
+
+## 5b. The guard narrowed to the two-axis template (withdrawn before merge, §5c)
+
+After review and before merge, the guard was narrowed (`14477af`). The narrowed guard applied only
+when the whole command was the two-axis translate template that CLI-built commands use:
+`move <x> meters forward|backward and <y> meters left|right`, in any number format (the CLI sets'
+observer builds it with three decimals). The template's words set each non-zero component's sign,
+and any other wording kept the model's signs.
+
+The reason is that a direction word in free text can name a landmark rather than the motion. Three
+such commands were checked against the first guard (`tests/mutation_runs_guard_narrowing.txt`):
+- it flips a correct sign on two of them, "move 1 m away from the wall on your left" and "back away
+  0.5 m from the wall on the right";
+- it leaves the third alone, "move 2 m forward toward the door on the right", because there the
+  side word agrees with the motion.
+
+Its tests pinned all three as unchanged (§7).
+
+**On these commands.** The narrowed compiler (`a80c30f`) was applied to arm C's logged raw answers:
+`narrowed_guard_eval.py` → `narrowed_guard_eval.txt`, computed after the sweeps. The compiler is
+deterministic, so this is what that code produces from those answers. No new request was sent.
+
+| class | n | dropped_axis | mis_sign | exact |
+|---|---:|---:|---:|---:|
+| FR | 12 | 0 | 7 | 5 |
+| FL | 12 | 0 | 4 | 8 |
+| BR | 12 | 2 | 3 | 7 |
+| BL | 12 | 2 | 8 | 2 |
+| anchor_FL | 4 | 0 | 0 | 4 |
+
+- **The template commands.** 12 of the 52 sweep commands are in the template: the 8 balanced W1
+  commands and the four forward-left anchors (R1 is a W1 command). All 12 are exact.
+- **The other wordings.** The 40 balanced commands in other wordings keep the prompt's answers:
+  22 mis-signed, 4 with a dropped axis, 14 exact. So the balanced 48 read 22 mis-signed and
+  22 exact, against arm A's 24 and 20.
+- **Held out.** None of the 12 is in the template. H2 and H8 stay mis-signed, H3 keeps its
+  dropped axis, and 9 are exact.
+- **Live, on 2026-10-12.** The same 52 and 12 commands were sent once through a service started
+  from the branch at `a80c30f` (`runs/narrowed_pass1`, `runs/narrowed_heldout`,
+  `runs/narrowed_serve_planner.log`). Every one of the 64 compiled to the same outcome and the same
+  (dx, dy) as the compile above (`narrowed_guard_eval.txt`).
+
+## 5c. Guard withdrawn before merge (2026-10-13)
+
+**Why.** On review the guard was judged brittle: a regex over the operator's phrasing. It is also
+opaque to an operator who does not know which phrasing it protects. None of the three prompts
+measured carries the sign either. With the convention stated and three two-axis examples, the model
+still mis-signs 24 of 48, and 22 with a rule sentence on top. None of the examples is backward-left,
+and that class stays at 10 of 12 mis-signed under both prompt arms; a backward-left example was not
+tried. What asks the model to apply the frame's sign is the schema, `translation_xy`, so the fix
+moves there:
+[`planner-translate-direction-schema`](../../tasks/active/reliability/planner-translate-direction-schema.md).
+
+**The measurements stand.** §5 and §5b record what the first guard and the narrowed guard did on
+these commands. Neither ships.
+
+**What ships.** Arm A's prompt, the three two-axis examples, with the compiler as on `main`, which
+passes the model's values through. The guard was removed in `d40cdca` and its tests in `b3be9b0`;
+`2841f74` makes the live module report an unreachable or unready planner as an error (§7).
+
+**The shipped tree, live** (2026-10-13). The 52 sweep commands and the 12 held-out commands were
+sent once through a service started from it (`runs/shipped_pass1`, `runs/shipped_heldout`,
+`runs/shipped_serve_planner.log`). Its `PYTHONPATH` was read from `/proc` and saved this time
+(`runs/shipped_serve_planner.environ.txt`). The source was `d40cdca`, whose package source equals
+the shipped tree's, `2841f74`. The later commits change no package source: `b3be9b0` and
+`2841f74` change tests, and `2841f74` also removes the dropped-axis brief, folded into the schema
+brief.
+- **The sweep.** Every one of the 52 plans equals arm A's, in both of arm A's passes: 24 of 48
+  mis-signed, 20 exact, all five anchors exact.
+- **Held out.** H2 and H8 are mis-signed, H3 drops an axis, and 9 are exact.
+- **The two "strafe left … while moving backward …" commands** come back as `[0.0, -3.533]` and
+  `[0.0, -0.9]`: the backward component dropped and the lateral sign wrong.
+- **Pass-through.** On all 64 requests the compiled plan equals the raw `translation_xy` in the
+  service log, as a compiler without a guard gives.
+
+**Tests on the shipped tree** (§7). The live module keeps its four cases. The backward-left case
+fails against the shipped planner and is a strict `xfail` naming
+`planner-translate-direction-schema`, so it turns red the day it passes. The other three pass. The
+marker expects only an `AssertionError`, so an unreachable or unready planner still errors.
+
+**The dry-check.** Every real-robot submission is still compiled through the planner first and
+dispatched only if the plan matches the intended motion. It stays until a record of the schema
+change reads 0 mis-signs and 0 dropped axes on the 48 and the 12.
+
+## 6. Held out
+
+`heldout_commands.json` holds 12 commands, written after arms A and B. They are not part of the rule.
+They ran once, on arm C:
+- 8 two-axis commands in wordings the sweep does not use;
+- 3 single-axis commands;
+- one command where "right" is not a direction ("move forward 1.3 meters right away").
+
+Raw LLM mis-signs: 2 of 12. Compiled mis-signs: 0 of 12. Compiled exact: 11 of 12.
+
+| wording | expected | raw LLM | compiled | outcome | command |
+|---|---|---|---|---|---|
+| H1 | [1.1, -0.6] | [1.1, -0.6] | [1.1, -0.6] | exact | slide 0.6 meters right and go 1.1 meters forward |
+| H2 | [-0.75, 0.4] | [-0.75, -0.4] | [-0.75, 0.4] | exact | back up 0.75 meters and shift 0.4 meters left |
+| H3 | [2.25, -0.35] | [2.25, 0.0] | [2.25, 0.0] | dropped_axis | head forward 2.25 m, then 0.35 m to the right |
+| H4 | [1.8, 0.65] | [1.8, 0.65] | [1.8, 0.65] | exact | go 1.8 meters ahead and 0.65 meters to your left |
+| H5 | [-0.9, -1.15] | [-0.9, -1.15] | [-0.9, -1.15] | exact | move backwards 0.9 m and 1.15 m right |
+| H6 | [-0.5, -0.5] | [-0.5, -0.5] | [-0.5, -0.5] | exact | step back 0.5 meters and 0.5 meters to the right |
+| H7 | [2.6, -0.3] | [2.6, -0.3] | [2.6, -0.3] | exact | move 2.6 meters forward while drifting 0.3 meters right |
+| H8 | [-1.25, 0.85] | [-1.25, -0.85] | [-1.25, 0.85] | exact | go 1.25 meters backward and 0.85 meters to the left |
+| H9 | [0.0, 1.4] | [0.0, 1.4] | [0.0, 1.4] | exact | move left 1.4 meters |
+| H10 | [-0.6, 0.0] | [-0.6, 0.0] | [-0.6, 0.0] | exact | go back 0.6 meters |
+| H11 | [0.0, -0.75] | [0.0, -0.75] | [0.0, -0.75] | exact | strafe right 0.75 meters |
+| H12 | [1.3, 0.0] | [1.3, 0.0] | [1.3, 0.0] | exact | move forward 1.3 meters right away |
+
+- **H2 and H8** are the raw mis-signs. Both are backward and left. Arm C's guard corrected both;
+  the narrowed guard did not (neither is in the template, §5b), and the shipped tree does not
+  (§5c).
+- **H3** is the residual. The model drops the 0.35 m to the right, and the guard cannot restore a
+  zero.
+- **H12** compiles exactly because the model returned a lateral 0, which arm C's guard leaves alone.
+
+## 7. Tests
+
+**The autonomy suite**, `-m "not requires_ros"`, with
+`source/strafer_autonomy/tests/test_sim_in_the_loop_runtime_env.py` left out:
+
+| tree | tests | passed | skipped | failures | errors | file |
+|---|---:|---:|---:|---:|---:|---|
+| `main` at `9f7d207` | 692 | 692 | 0 | 0 | 0 | `tests/autonomy_not_ros_main.xml` |
+| the branch, arm C's source | 705 | 701 | 4 | 0 | 0 | `tests/autonomy_not_ros_armC.xml` |
+| the branch, the narrowed guard (the tree committed as `a80c30f` 19 s later) | 711 | 707 | 4 | 0 | 0 | `tests/autonomy_not_ros_narrowed.xml` |
+| `b3be9b0` (guard withdrawn; the marker without `raises`) | 698 | 694 | 4 | 0 | 0 | `tests/autonomy_not_ros_shipped.xml` |
+| the shipped tree, `2841f74` | 698 | 694 | 4 | 0 | 0 | `tests/autonomy_not_ros_final.xml` |
+
+- **19 new tests at `a80c30f`** (13 with arm C's source).
+  - Two are in `test_prompt_builder.py` (`TestTranslateExamples`).
+  - Thirteen are in `test_plan_compiler.py`: four template commands whose signs the template sets,
+    and nine that keep the model's values. The nine are free text (the three landmark-side commands
+    and the two free-text wordings the first guard corrected), the first guard's three pass-through
+    cases, and a template command with a zero.
+  - Four are the live fixtures, which skip without `STRAFER_LIVE_PLANNER_URL`.
+- **6 new tests at `b3be9b0` and on the shipped tree**: the two prompt tests and the four live
+  fixtures.
+  The guard's thirteen went with it, and `test_plan_compiler.py` is `main`'s.
+- **Which tree each run saw.**
+  - The service, the live fixtures before the marker, and the sweep and held-out passes ran at
+    `d40cdca`, before `b3be9b0` existed.
+  - The marked fixtures, the suite and the marker's mutation ran on the clean tree at `b3be9b0`,
+    15–47 s after its commit (`tests/shipped_run_stamps.txt`; the mutation's time is in
+    `tests/mutation_runs_xfail.txt`).
+  - The shipped tree's runs were made in a clean worktree at `2841f74`, with a service started
+    from it (`tests/final_run_stamps.txt`).
+  - The narrowed guard's suite ran 19 s before `a80c30f` was committed, on the tree that commit
+    recorded (`provenance.md`).
+- **The 705 test ids** in the branch's file are the ones the branch collects at `1031643`
+  (`tests/branch_collection_ids.txt`).
+- **The module left out** fails to collect in `.venv_vlm`, on `main` and on the branch alike:
+  `ModuleNotFoundError: No module named 'isaaclab_tasks'`, reached through `strafer_lab`. It is
+  environmental, predates this change, and is not touched. Its collection output on both is
+  `tests/collection_error.txt`.
+
+**The live fixtures**, `source/strafer_autonomy/tests/test_planner_live_translate.py`, with
+`STRAFER_LIVE_PLANNER_URL=http://127.0.0.1:8200`. Each case is 1.712 m and 1.372 m, asserted to
+1e-3 per component:
+
+| planner served from | forward-right (R1) | forward-left | backward-right | backward-left | file |
+|---|---|---|---|---|---|
+| the branch (arm C's service) | pass | pass | pass | pass | `tests/live_translate_armC.xml` |
+| the branch with the narrowed guard (`a80c30f`) | pass | pass | pass | pass | `tests/live_translate_narrowed.xml` |
+| `main` at `9f7d207` | fail, (1.712, 1.372) | pass | fail, (-1.712, 1.372) | fail, (-1.712, -1.372) | `tests/live_translate_main.xml` |
+| the shipped tree (`d40cdca`), before the marker | pass | pass | pass | fail, (-1.712, -1.372) | `tests/live_translate_shipped_unmarked.xml` |
+| `b3be9b0`, backward-left a strict `xfail` | pass | pass | pass | xfail | `tests/live_translate_shipped.xml` |
+| the shipped tree (`2841f74`), the marker expecting an `AssertionError` | pass | pass | pass | xfail | `tests/live_translate_final.xml` |
+
+The `main` row ran the branch's test module against a service started from the main checkout
+(`runs/main_fixture_serve_planner.log`). All four fixture commands are in the template, so the
+narrowed guard read them. The `d40cdca` and `b3be9b0` rows ran against the service of §5c, and the
+shipped tree's against one started from a clean worktree at `2841f74`.
+
+**The prompt tests, mutated.** `test_prompt_builder.py` fails one test in each of two cases:
+- on the branch's prompt with the forward-right example's sign flipped, it fails
+  `test_signs_follow_each_example_command`;
+- on `main`'s prompt, which has no two-axis example, it fails
+  `test_two_axis_examples_cover_both_sides_and_backward`.
+
+Both runs are in `tests/mutation_runs.txt`, re-run on the branch's test module after the sweeps.
+
+**The guard tests, mutated.** `test_plan_compiler.py` at `a80c30f` fails four of its 17 translate
+tests against the first guard (`plan_compiler.py` at `1031643`): the two landmark-side commands it
+flips and the two free-text wordings it corrected. It passes all 17 against the narrowed guard
+(`tests/mutation_runs_guard_narrowing.txt`).
+
+**The strict marker, mutated** (`tests/mutation_runs_xfail_final.txt`, at `2841f74`).
+- With the backward-left case's expected value set to the planner's current answer, so that the
+  case passes, the strict `xfail` fails it: `[XPASS(strict)]`, 1 failed and 3 passed. The run at
+  `b3be9b0` read the same (`tests/mutation_runs_xfail.txt`).
+- Against a port with no service, all four cases error at setup rather than counting as the
+  expected failure.
+
+## What this record does not show
+
+- **Other models or settings.** It covers one model, greedy decoding, on one GPU. No other model,
+  decoding or quantization was run.
+- **A rate for commands in general.** The 52 and 12 commands come from hand-written templates. The
+  counts hold for these wordings only.
+- **Robot motion.** Nothing was dispatched. The record scores plans, and the executor is unchanged.
+- **That signs are now right.** The shipped tree mis-signs 24 of these 48 and 2 of the 12
+  (§5c).
+- **A fix for the dropped axis.** "strafe S Y meters while moving backward X meters" drops the
+  backward component in every arm, 4 of 48. H3 drops the lateral one. It is a section of
+  [`planner-translate-direction-schema`](../../tasks/active/reliability/planner-translate-direction-schema.md).
+- **Any other intent.** Rotation sign is
+  [`planner-rotate-direction-prompt`](../../tasks/active/reliability/planner-rotate-direction-prompt.md).
+  No other intent was sent.
+- **A case for retiring the dry-check.** The mis-signs and the dropped axis are what it still
+  catches.
+
+## Deviations from the protocol as first registered
+
+- **Arm C was added after arms A and B.** The first registration named the prompt change and one
+  fallback sentence, and both failed the rule. The addendum that registered arm C, its consistency
+  check and the held-out set was committed before arm C's service started. The rule did not change.
+- **The guard was written after arms A and B's results** on the same 48 commands. The held-out 12
+  are the commands it was not written against.
+- **The served code's check.** The pre-registration names two checks of the served code: a read of
+  the uvicorn process's environment, and the sweep tool's own record of its import. The import
+  records are deposited (`summary.json`). The environment was read from `/proc` before each
+  service's sweeps — `PYTHONPATH` set to the worktree's `source/strafer_autonomy` for arms A, B and
+  C, unset for the before arm and the `main` fixture run — but the reads were not saved, so no file
+  here carries them.
+- **By wording after the change.** The pre-registration lists every outcome by class and wording.
+  By-wording counts are tabled for the before arm only (§4). Arms A, B and C have them per command
+  in `runs/<arm>_pass1/results.jsonl`, and arm C's four non-exact commands are all W4 (§3).
+- **The dtype.** The pre-registration says bf16. The serve logs show only `dtype=auto`, and no
+  deposited file records the dtype it resolved to.
+- **No guard ships.** Arm C's guard was narrowed after review (`14477af`, §5b), and the narrowed
+  guard was withdrawn before merge (`d40cdca`, §5c). The narrowed guard's effect on the deposited
+  raw answers was computed after the sweeps. The sweep and held-out commands were then sent once
+  through a service started from it, and once through one started from the shipped tree. The live
+  fixtures were re-run against both (§5b, §5c, §7). Neither pass is under the registered rule.
+- **The served code's check, on the shipped tree.** Its services' environment reads are deposited
+  (`runs/shipped_serve_planner.environ.txt`, `runs/final_serve_planner.environ.txt`).
+
+## Evidence — deposit
+
+| | |
+|---|---|
+| repository | https://github.com/zachoines/Sim2RealLab-Artifacts |
+| deposit directory | `planner-translate-sign-2026-10-11/record-files/` |
+| deposit commit | `4721f5405e336bdfd3db167df94f5aadb30abe0a` |
+
+The deposit was built in seven commits:
+- **`d2fb7cc7ec090277d5ef22354d73e2c23469efcc`**, before the first request: the pre-registration,
+  the commands, the sweep tool and the log config.
+- **`c9745b49304356e975cfdd565a27835c3043fd7d`**, before arm C's service started: the addendum, the
+  arm patches, the held-out commands, and the before, A and B runs.
+- **`43d7178cca26bb92bac78c0a9e72225f9e3eec33`**, which adds the rest and replaces
+  `runs/postB_serve_planner.log` with its complete copy (four shutdown lines added, 18:28:37).
+- **`8f67633bd830691472eb26b164f509a658f365f6`** (2026-10-12), which adds the narrowed guard's
+  files: its compile of the logged raw answers, the live pass through the narrowed branch, and its
+  test runs.
+- **`a6e6f810ebc91ce0011c0801b4002b290ae6caeb`** (2026-10-13), which adds the shipped tree's files:
+  its live pass, its test runs, the marker's mutation run and its service's environment read.
+- **`094771dd7ba071afd8acc2647984d760c150a08c`** (2026-10-13), which adds the shipped tree's test
+  runs at `2841f74` and corrects `DEPOSIT.md`'s account of the shipped service's request order.
+- **The deposit commit above** (2026-10-13), which corrects `DEPOSIT.md` alone: what `2841f74`
+  changes, and the date range.
+
+The deposit holds:
+- the inputs:
+  - `PREREGISTRATION.md`, the registration (committed at `d2fb7cc`, before the first request) and
+    its addendum (committed at `c9745b4`, before arm C's service started);
+  - `sweep_commands.json` and `heldout_commands.json`;
+  - `translate_sign_sweep.py`, the request and scoring tool;
+  - `planner_log_config.json`, the service's log config;
+- the arms: `armA_prompt.patch`, `armB_prompt.diff` with `runs/postB_prompt_builder.py`, and
+  `armC.patch`;
+- the runs:
+  - `runs/<arm>_pass1/` and `runs/<arm>_pass2/` for `pre`, `postA`, `postB` and `postC`, each with
+    `results.jsonl` and `summary.json`, and its console in `runs/<arm>_pass<n>.stdout`;
+  - `runs/postC_heldout/`, with its console in `runs/postC_heldout.stdout`;
+  - `runs/narrowed_pass1/` and `runs/narrowed_heldout/`, the live pass through the narrowed branch,
+    with their consoles;
+  - `runs/shipped_pass1/` and `runs/shipped_heldout/`, the live pass through the shipped tree, with
+    their consoles and `runs/shipped_serve_planner.environ.txt`;
+  - each service's log, with every request's raw `LLM output`: `runs/<arm>_serve_planner.log`,
+    `runs/narrowed_serve_planner.log`, `runs/shipped_serve_planner.log`,
+    `runs/final_serve_planner.log` and `runs/main_fixture_serve_planner.log`;
+- the test runs, `tests/*.xml`, `tests/mutation_runs.txt`, `tests/mutation_runs_guard_narrowing.txt`,
+  `tests/mutation_runs_xfail.txt`, `tests/mutation_runs_xfail_final.txt`,
+  `tests/shipped_run_stamps.txt` and `tests/final_run_stamps.txt`;
+- `sweep_tables.py` with `sweep_tables.txt`, the tables in §3–§6;
+- `narrowed_guard_eval.py` with `narrowed_guard_eval.txt`, §5b's table.
+
+Each command block below runs from the Sim2RealLab root, with the evidence repository cloned there.
+
+Restore into this record's directory with:
+
+```
+git clone git@github.com:zachoines/Sim2RealLab-Artifacts.git
+cp -a Sim2RealLab-Artifacts/planner-translate-sign-2026-10-11/record-files/. \
+      docs/measurements/planner-translate-sign-2026-10-11/
+```
+
+Re-derive the tables with:
+
+```
+cd docs/measurements/planner-translate-sign-2026-10-11
+PYTHONDONTWRITEBYTECODE=1 ../../../.venv_vlm/bin/python sweep_tables.py | diff - sweep_tables.txt
+```
+
+Re-derive §5b's table with the branch's `plan_compiler.py` at `a80c30f` first on `PYTHONPATH`. The
+output's first line is the compiler's path, which the deposited file replaces with its header, so
+the comparison starts after it:
+
+```
+cd docs/measurements/planner-translate-sign-2026-10-11
+PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=<worktree at a80c30f>/source/strafer_autonomy \
+    ../../../.venv_vlm/bin/python narrowed_guard_eval.py | tail -n +2 \
+    | diff - <(tail -n +3 narrowed_guard_eval.txt)
+```
+
+Verify digests with:
+
+```
+cd Sim2RealLab-Artifacts/planner-translate-sign-2026-10-11/record-files
+grep -E '^[0-9a-f]{64}  ' DEPOSIT.md | sha256sum -c -
+```
+
+sha256 of every file in the deposit:
+
+```
+a13c65e395256f0ed5d4ef08b96aa61e6e93788502855cee8e2143fe5df5f550  PREREGISTRATION.md
+f4f4fcede13c4f36abf40574c90d151e09fd6f82435d7690f5a02925cc1bf740  armA_prompt.patch
+4c045987498a97327ba72a48ae3a4f27936151b2de75a28c214a3b7f9828b950  armB_prompt.diff
+3b377bd2c8fd9b4495065ae96c6306e3c6add2a6c15116868bf63c67818261b0  armC.patch
+7cc1b8fc517ec12078cf8a024327892f326e8a58bc5e0066b4f77bb0a90eb6cb  heldout_commands.json
+279427c01914302edbb330807e380175b24fdc5267cb815e7959a861931cbf0b  narrowed_guard_eval.py
+0689db7f4c890e2e326406dd87079a3c6d9907137a88a3c943a7871bfe2223af  narrowed_guard_eval.txt
+15db559cd09153a5aa9d61d64f18711e5721404a3728f5365c33700338dd8260  planner_log_config.json
+e602df813aeb5882b1d66378ef100cbc30a8c4afb8e6e7f011c2f481043a5706  runs/final_serve_planner.environ.txt
+7778137820144a747ab6b4f81bc0de21d4eac57fe23fdfec0f5bfb85a879d8ef  runs/final_serve_planner.log
+1fdfc04d959e026213dd009846a7c7a5d46691ba35f4ad1138d0f16d7759e516  runs/main_fixture_serve_planner.log
+52c7dc1274bd86ffdd75c69a6298e5a4a49d013a4d4fc78c3d2f6a9b48d1b94c  runs/narrowed_heldout.stdout
+1f3e7f53c9463c05ec8425babe555ed705e661ba25aab209b1761bbcb13d0495  runs/narrowed_heldout/results.jsonl
+3b9360ded7e6ad5cd9a883afb49f30491a8ac2357ffc9a2472c5ae9cf360ee8f  runs/narrowed_heldout/summary.json
+86a7ee7cea68f4a62f6b3b69c75abfe67df9ae412259f8ba789f40e3b0a18a6e  runs/narrowed_pass1.stdout
+46afc372adc9a528699449514b8f7766cfba50f38f4d0e7a8b66818bb04c8121  runs/narrowed_pass1/results.jsonl
+ebe861a19f9c9cb07be0744d7bc59fc7da5151a722200ad2c69fb3e388e3faff  runs/narrowed_pass1/summary.json
+cdfec2452e54c162036257d5c5111e2dc2590049b222d409663b12db821df59d  runs/narrowed_serve_planner.log
+b7534c2c456e0d2bfc054d76ca83c6f871ee8377a555f5525e09cf9bd9fe74e2  runs/postA_pass1.stdout
+9f81b69a53412b18a3f8d5a1fcdabc84526d265731632946f768fb7d0c9373ee  runs/postA_pass1/results.jsonl
+674b2ac3c368296cf14372190f287727b881fe5001eff147ba96b9b768352947  runs/postA_pass1/summary.json
+b7534c2c456e0d2bfc054d76ca83c6f871ee8377a555f5525e09cf9bd9fe74e2  runs/postA_pass2.stdout
+01f2c8947610f781d2d6a2aff868571fff3b37c5935c64f2eef5aa0769e71d13  runs/postA_pass2/results.jsonl
+6b859cca2b5d35142058fcdc23026ad4f6463ee5641f0b23fbf508732d1adf23  runs/postA_pass2/summary.json
+0915b9cabba82f609cfbca196078a475bdb9f415d50c790a165c1a6866d544d9  runs/postA_serve_planner.log
+0a25b44ff88f56be4534b42ab36a11938ad1d5fe6792b8e9b3d5b1e4693af6cf  runs/postB_pass1.stdout
+747e2bae113506bb25a2dbfaa8e6c65c395af2c292853b4c797606cd9a61159f  runs/postB_pass1/results.jsonl
+442bba55dc9f8cd1c5070ad4d79c023e0aeb2f7ea2ad95079dcab5d34948857d  runs/postB_pass1/summary.json
+0a25b44ff88f56be4534b42ab36a11938ad1d5fe6792b8e9b3d5b1e4693af6cf  runs/postB_pass2.stdout
+b6987776b64f4d46215f3f2237d7278cfec214c30ee5778873210fb56b4d9bb8  runs/postB_pass2/results.jsonl
+6492d6eebc7e8718e5568f0266a5d1a6b7236a02b0c12b100a37b57f861be18e  runs/postB_pass2/summary.json
+21e12f23ae333ec50e814770181f87c0788aa5b74fffe6936a653f08e45aada1  runs/postB_prompt_builder.py
+8a09947b4f1eadfb04816f5bc562c1125c35450483b0e9db56e25a8e6bc73049  runs/postB_serve_planner.log
+601bd45fa3f7537423d8dd09f5d34a576713a5522fa1f8dbaa0a1484558908ad  runs/postC_heldout.stdout
+87aecad60a3a300e85e86b5f45ebd0c3534c80867c9eadaf3fa79cfbfff7769b  runs/postC_heldout/results.jsonl
+18d68589fa70def380b5a6e461536106c23b0b83bbe8d00250d76aa80f9fa7a3  runs/postC_heldout/summary.json
+c4ccee6ae3a05f31aa0909b28606c38dcfcc5255a9c0cfc56b8e4430d261c4d3  runs/postC_pass1.stdout
+21871d797bfa356d551620e45440a4395e3f0331b9bc23972cbf0638414219a5  runs/postC_pass1/results.jsonl
+7045b8794f0a6eef907dbbb48f54d23c59387b2b74c72a5b12a3b07316f21999  runs/postC_pass1/summary.json
+c4ccee6ae3a05f31aa0909b28606c38dcfcc5255a9c0cfc56b8e4430d261c4d3  runs/postC_pass2.stdout
+396061d5c37bf58f20dc7ebc05f89a9653c87a0b82f5091f3955970cd13477ae  runs/postC_pass2/results.jsonl
+6cb0f5c1bd3cd6fb60e70d849b2f58706d361cc47397f779e53db3af33836310  runs/postC_pass2/summary.json
+9c4bce7ec40d3d34a37b8c6520dddb5346b67c0762f077b5c88cd342a74e6473  runs/postC_serve_planner.log
+5f0cc5626d958a8382e76e5f3b92d69a208c337cc10203c6b4069b2eb6165497  runs/pre_pass1.stdout
+bf0b9e33cf62283d9e7897c6f4c17b9ffb90ed5bf1680b299fc94f03e4cb6437  runs/pre_pass1/results.jsonl
+3560f2c64cdc93af311fb4ece86a55b7f9d056942a7904ff514740471f177e01  runs/pre_pass1/summary.json
+5f0cc5626d958a8382e76e5f3b92d69a208c337cc10203c6b4069b2eb6165497  runs/pre_pass2.stdout
+c3338dbcb90fdb3183c2bebbc53d7cc4133134df49bd4ae9b9fed041ba461cfb  runs/pre_pass2/results.jsonl
+6b4ddb5f9752ee00a604ea158fe3d8ffa87bd137e8a5302dae08380f04f68c68  runs/pre_pass2/summary.json
+1fc100f41b1f3d5228633a81d086ea90952a3c382b5520b7c8011dd79becd9c0  runs/pre_serve_planner.log
+52c7dc1274bd86ffdd75c69a6298e5a4a49d013a4d4fc78c3d2f6a9b48d1b94c  runs/shipped_heldout.stdout
+5a8f1bdc447238d275f2b76945948aec92d6d930c22235f6c657e8c13d2f258b  runs/shipped_heldout/results.jsonl
+3a7c2ffe4fa8b55c3689b1095388a28f43b406dda60c2347625e814b78265aed  runs/shipped_heldout/summary.json
+b7534c2c456e0d2bfc054d76ca83c6f871ee8377a555f5525e09cf9bd9fe74e2  runs/shipped_pass1.stdout
+49094fcbd6933e58d41ccf51c66fc47ae36b792d6b1a63f363c892002eb0da19  runs/shipped_pass1/results.jsonl
+86d7f4eb6f3f2b0bafd98c59df0eb8c81ce82d27c1738dccaff55a2fe38a5d09  runs/shipped_pass1/summary.json
+8f7050b0bfca858824b7b6b7ae899fd0556894a90d82163665883e45b2050eb4  runs/shipped_serve_planner.environ.txt
+d9b48ddd9c9771116b3a6535bfa8b4c762db0bdd047fcbfb1de2e76e49111c58  runs/shipped_serve_planner.log
+64a59789a83d279a0c69e8c3ec04c43b98f507814e4c347eb5c57224c88f64d6  sweep_commands.json
+18592d66705a4a744cac2d053911fecdcf9c08703da6e4a23cd6e53425595d79  sweep_tables.py
+5574e494cd0f5b04c852a27c921cc3988c35ad5b987e1dda559f7fc6e7429b45  sweep_tables.txt
+e5dbae221035d51187ba29f116b5d108c39620ac563fa5c1ff9e37350a067b5c  tests/autonomy_not_ros_armC.xml
+3287fbd094573bdd3486f3ebee8867cc5e33f686b489ee607bb71eeec456d6b0  tests/autonomy_not_ros_final.xml
+99c2da8f565ccd3130dbba5603c5d814fe0ef94c5808b326b77f3b156a6a992b  tests/autonomy_not_ros_main.xml
+91dd8b7f754898220f36d2ac1990861a8cbf25d72dbc98efdab6b583b4148946  tests/autonomy_not_ros_narrowed.xml
+ec6d8e2e773299ac5017fbcaa4e0c5ecf26de5082a0988562490af26f450e732  tests/autonomy_not_ros_shipped.xml
+3adfdeb7389061107ddf01e616dbbfe8fa7f4b5ec3ef4fd8cf0ca06c2fdf3533  tests/branch_collection_ids.txt
+ea27e7e6e50eed8bb97824daa20af726bcc8a9d461e51da430a683566374fd4a  tests/collection_error.txt
+83f0ae008d803c21bb5619a5f0cb8fcfca69d4684078cbd28c1304dbe8217264  tests/final_run_stamps.txt
+f24612520735ec2b87060ca6aba913c557042a48fb05c3a2b179cb2e9c7ba937  tests/live_translate_armC.xml
+67ab5656f99d3689a9dba1ed299856d71ec8bb9cf97df147b238e107c0e7514e  tests/live_translate_final.xml
+8574a3ec5a8b7b1c359cef8e85ee6bdcf6e69886da584c4be9b58ab5369bfb3d  tests/live_translate_main.xml
+d429da84a003234820ad763cd255a60e82271b4f996f5943bf2834babccbaf11  tests/live_translate_narrowed.xml
+d6e9cd0b3dc3f32b54bb733b523ee4bfa74a54d921987d3704f00eeb36c70d3b  tests/live_translate_shipped.xml
+8d7723f01a4c2bcf7b7a7b1ea64c5f93b89f20b617b120b52a2ceb150bbdc616  tests/live_translate_shipped_unmarked.xml
+d7a44097d6d301850ca7978024d954d066c195ccc638fc6b5898fc20b84fe8fb  tests/mutation_runs.txt
+3a01dfdb01b36ecc0732cb9909fb64e808a9dadd779ab14d43fab6f2a9bc4f48  tests/mutation_runs_guard_narrowing.txt
+c1e1b1d70f7b36de243bf07d83129c95821b22587342c07b88a3e809ad0fc56a  tests/mutation_runs_xfail.txt
+ab3eac64d1136f7324b6233b8d7e9734df4afb81763f2e55d2d993e75c510f1a  tests/mutation_runs_xfail_final.txt
+fb347eb6c9a9648ff36a9154f4a8666beb7aff046c2c9b0b0e09fd70ff8ba064  tests/shipped_run_stamps.txt
+c7ec1b20aa1f4230b5be6a05e560e440fcadaa7ba207c6ae85361d996050cff5  translate_sign_sweep.py
+```

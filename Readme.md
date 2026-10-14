@@ -32,7 +32,7 @@ Isaac Sim without changing any Jetson-side code.
 ## What ships today
 
 - **Autonomy pipeline operational end-to-end on real hardware** — natural-language missions run from the CLI through LLM planning, VLM grounding, goal projection, Nav2 navigation, and semantic-map arrival verification.
-- **Nine mission intent types** compiled into bounded plans: `go_to_target`, `wait_by_target`, `go_to_targets`, `patrol`, `rotate`, `describe`, `query`, `cancel`, `status`.
+- **Ten mission intent types** compiled into bounded plans: `go_to_target`, `wait_by_target`, `go_to_targets`, `patrol`, `rotate`, `translate`, `describe`, `query`, `cancel`, `status`.
 - **Fourteen executor skills** including the composite `scan_for_target` (rotate + ground loop), `explore_until_visible` (frontier-driven cross-room target discovery), `verify_arrival` (CLIP top-k ranking), `describe_scene`, and `query_environment`.
 - **Agentic `POST /plan_with_grounding`** endpoint — planner pre-grounds targets via a co-located VLM call, saving one LAN image round-trip per mission.
 - **Full Jetson ROS stack** — RoboClaw driver, RealSense D555 with relayed `*_sync` topics, RTAB-Map SLAM, Nav2 MPPI holonomic controller, goal projection service.

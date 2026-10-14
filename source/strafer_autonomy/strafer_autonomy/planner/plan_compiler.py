@@ -6,7 +6,6 @@ correct step ordering, timeouts, retry limits, and skill arguments.
 
 from __future__ import annotations
 
-import re
 import time
 import uuid
 from typing import Callable
@@ -29,14 +28,6 @@ _STEPS_PER_TARGET = 5
 # threshold where MPPI's critic landscape resolves into a strafe-
 # while-turn on a mecanum chassis. ~5° in radians.
 _ALIGN_TOLERANCE_RAD = 0.087
-
-# The two-axis translate template CLI-built commands use. The LLM can drop
-# the lateral sign there, so the template's words decide each sign (+x
-# forward, +y left).
-# Only this template is read; free text keeps the LLM's signs.
-_TRANSLATE_TEMPLATE = re.compile(
-    r"move \d+(?:\.\d+)? meters (forward|backward) and \d+(?:\.\d+)? meters (left|right)"
-)
 
 
 class CompilationError(Exception):
@@ -162,13 +153,6 @@ def _compile_status(intent: MissionIntent) -> list[SkillCall]:
     ]
 
 
-def _signed(value: float, positive: bool) -> float:
-    """``value`` with the given sign; zero stays zero."""
-    if value == 0.0:
-        return value
-    return abs(value) if positive else -abs(value)
-
-
 def _compile_translate(intent: MissionIntent) -> list[SkillCall]:
     """Compile a translate intent into a single relative-motion step.
 
@@ -181,10 +165,6 @@ def _compile_translate(intent: MissionIntent) -> list[SkillCall]:
     if intent.translation_xy is None:
         raise CompilationError("translate requires translation_xy.")
     dx, dy = intent.translation_xy
-    template = _TRANSLATE_TEMPLATE.fullmatch(intent.raw_command.strip())
-    if template is not None:
-        dx = _signed(dx, template.group(1) == "forward")
-        dy = _signed(dy, template.group(2) == "left")
     return [
         SkillCall(
             step_id="step_01",

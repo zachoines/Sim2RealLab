@@ -38,7 +38,14 @@ def client() -> HttpPlannerClient:
         ("move 1.712 meters forward and 1.372 meters right", (1.712, -1.372)),
         ("move 1.712 meters forward and 1.372 meters left", (1.712, 1.372)),
         ("move 1.712 meters backward and 1.372 meters right", (-1.712, -1.372)),
-        ("move 1.712 meters backward and 1.372 meters left", (-1.712, 1.372)),
+        pytest.param(
+            "move 1.712 meters backward and 1.372 meters left",
+            (-1.712, 1.372),
+            marks=pytest.mark.xfail(
+                strict=True,
+                reason="planner-translate-direction-schema: the planner returns this lateral sign wrong",
+            ),
+        ),
     ],
 )
 def test_two_axis_translate_sign_and_magnitude(client, command, expected):

@@ -28,7 +28,8 @@ pytestmark = [
 def client() -> HttpPlannerClient:
     client = HttpPlannerClient(HttpPlannerClientConfig(base_url=_URL, max_retries=0))
     health = client.health()
-    assert health.get("model_loaded") is True, health
+    if health.get("model_loaded") is not True:
+        pytest.fail(f"planner not ready: {health}")
     return client
 
 
@@ -43,6 +44,7 @@ def client() -> HttpPlannerClient:
             (-1.712, 1.372),
             marks=pytest.mark.xfail(
                 strict=True,
+                raises=AssertionError,
                 reason="planner-translate-direction-schema: the planner returns this lateral sign wrong",
             ),
         ),

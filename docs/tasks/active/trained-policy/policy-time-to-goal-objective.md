@@ -99,8 +99,8 @@ lists that regime as untested.
 - **v3's last 100 updates:** mean episode 163.9 steps (about 5.5 s), completion share 0.870,
   time-out share 0.0010.
 - **The speed caps differ.** Training scales the action to 1.568 m/s. The deployed node caps it
-  at `NAV_LINEAR_VEL`, 0.7841 m/s (`strafer_inference/inference_node.py`:149-153). A trained
-  speed above 0.7841 m/s cannot be reached on deploy.
+  at `NAV_LINEAR_VEL`, 0.7841 m/s (`strafer_inference/inference_node.py`:156-157, applied at
+  :1203-1208). A trained speed above 0.7841 m/s cannot be reached on deploy.
 
 **Not measured yet:** v3's time to goal in its training env, and whether the 0.30–0.42 m dither
 seen on the bridge lane happens there at all. Training already discounts a late arrival and
@@ -109,6 +109,10 @@ training env and the bridge lane rather than from a missing objective. The two s
 not that difference: deploy ends a goal on the first tick within 0.30 m and training only after
 the 10-step dwell, but the policy acts the same under both until that first tick, and every band
 dwell on the rig came before it. The baseline criterion shows which it is.
+
+*2026-10-11: measured in
+[`policy-time-to-goal-baseline-2026-10-11`](../../../measurements/policy-time-to-goal-baseline-2026-10-11/README.md);
+see the Baseline and Deploy-cap boxes.*
 
 **The scheme to evaluate.** Make time to goal an objective of its own, in addition to a target
 speed, and tune it together with the approach slowdown, so that travel time has an upper bound.
@@ -127,10 +131,15 @@ speed, and tune it together with the approach slowdown, so that travel time has 
      that the policy learns the bound directly.
 - **Variations on the scheme:** a time term alone, or a speed target alone, as ablations of the
   combined scheme.
+- **The speed envelope** (in scope since 2026-10-13): train under the deploy cap, or raise
+  `NAV_VEL_SCALE` with the chassis limits re-read. The node's cap roughly doubles the stop-short
+  rate in the training env, and training never sees the deployed envelope
+  ([`policy-time-to-goal-baseline-2026-10-11`](../../../measurements/policy-time-to-goal-baseline-2026-10-11/README.md)
+  §9).
 
 ## Acceptance criteria
 
-- [ ] **Baseline.** v3, evaluated in its training env with a fixed seed over at least 500
+- [x] **Baseline.** v3, evaluated in its training env with a fixed seed over at least 500
       episodes, has these recorded, each against path length:
   - time to completion;
   - time from 0.42 m to completion;
@@ -140,11 +149,63 @@ speed, and tune it together with the approach slowdown, so that travel time has 
   the 99th percentile, and the time-out share within 0.42 m, at or under which the rig's band
   dwell is attributed to a difference between the training env and the bridge lane rather than
   to the objective.
-- [ ] **Deploy-cap evaluation.** v3, and any adopted variant, is evaluated again with the same
+
+  *2026-10-11 ([`policy-time-to-goal-baseline-2026-10-11`](../../../measurements/policy-time-to-goal-baseline-2026-10-11/README.md)):*
+  - *Met. The rule was stated before the run in the record's pre-registration rather than in
+    this brief: `PREREGISTRATION.md` in the record's deposit, committed to the evidence
+    repository at `675c0c5` (19:13:20 CDT), 13 s before the first scored launch.*
+  - *The rule: the band dwell goes to a difference between the training env and the bridge lane
+    if the 99th percentile of the time from 0.42 m to completion is at most 7.0 s and the share
+    of episodes ending on time-out within 0.42 m is at most 1.0 %; otherwise to the objective.
+    7.0 s is the shortest of the rig's long band dwells.*
+  - *v3 in its training env, seed 42, 96 envs, 576 episodes, deterministic actions: the 99th
+    percentile is 6.505 s over the 524 completions that entered 0.42 m, and 2 of 576 (0.35 %) end
+    on time-out within 0.42 m. Verdict: **a training-env/bridge-lane difference**. The three
+    statistics per path-length bin are in the record's §2.*
+  - *The margin is one episode: computed after the runs, one more band time above 7.21 s would
+    have put the 99th percentile past 7.0 s (record §2). There is one launch per run.*
+  - *Under the node's speed cap and 60 s goal bound (the record's run 3) the same statistic reads
+    11.15 s, above 7.0 s. The record separates this neither from launch-to-launch spread nor the
+    speed cap from the 60 s cap (§2). Computed after the runs, 1.98 % of run 3's band times exceed
+    7.0 s (run 1: 0.95 %) and 3 of 506 exceed 13.9 s (§6).*
+  - *Two reads were added, each with its own rule stated before the run.*
+    - *Quiet-stop geometry, with the dwell's termination removed and without the node's caps: v3
+      goes quiet a median 0.174 m from the path end, at or under the rule's 0.25 m. Verdict: **a
+      bridge-lane difference**. That median is not like-for-like with the lane: 121 of its 146
+      stops come after the dwell, and the node ends a goal at the first 0.30 m crossing.*
+      - *The like-for-like statistic, computed after the runs, is the share of band entries that
+        go quiet before their first 0.30 m crossing: 3.18 %, 2.23 % and 7.21 % in runs 1–3,
+        against 7 of 10 rig band entries (record §3; 8 of 11 reaches went quiet somewhere in the
+        band).*
+    - *Post-arrival behaviour, in the same run: the rig-like limit cycle appears in 1 of 178
+      episodes (0.56 %), at or under the rule's 2 %. Verdict: **left with the lane's feedback
+      path**. Post-arrival vx is not quiet: its half-range at +2 s is 0.327 m/s at the 90th
+      percentile, and each condition of the cycle is common on its own (§4).*
+      - *The lane never enters that post-dwell regime. Computed after the runs, the same detector
+        before the first crossing fires on 0 of 25, 7 and 71 windows in runs 1–3, and on 5 of the
+        8 rig windows long enough to read (record §4).*
+  - *Read together, with the post-hoc reads (record §6): **the lane raises the rate of a terminal
+    behaviour the policy already has; the record does not identify which lane condition.** The
+    stop-short and its slow resolve occur in the training env at the rig's distances (run 1:
+    0.303–0.410 m, median 0.342 m), and run 1's time-outs within 0.42 m are R2-like holds, but in
+    3.18 % of band entries against the rig's 7 of 10.*
+- [x] **Deploy-cap evaluation.** v3, and any adopted variant, is evaluated again with the same
       seed and episode count, with its linear command capped at `NAV_LINEAR_VEL` as the node
       caps it, and with an episode cap long enough that arrivals past 20 s are seen. The bound
       is read from this evaluation.
-- [ ] **Decision.** Unless the baseline attributes the band dwell to the env difference, the
+
+  *Met for v3 2026-10-11 ([`policy-time-to-goal-baseline-2026-10-11`](../../../measurements/policy-time-to-goal-baseline-2026-10-11/README.md) §5);
+  an adopted variant's evaluation follows the Decision.*
+  - *Seed 42, 576 episodes, the node's linear and angular caps on the executed twist, episode cap
+    60 s. Completion 87.85 %, time-out 0.35 %. The linear cap binds on 64.57 % of steps.
+    Completions past 20 s are seen; the longest is 30.87 s.*
+  - *Bound read: T(L) = 11.87 + 1.53 L s for path length L in metres, covering 501 of 506
+    completions (99 %, in sample). In policy steps that is 356 + 46 L. It passes the 600-step
+    trained episode at L = 5.30 m. It covers completions only.*
+  - *Without the speed cap, on 20 s episodes (the baseline run), the same read is
+    8.45 + 1.03 L s, which passes 600 steps at L = 11.21 m (an extrapolation: run 1's longest
+    path is 7.24 m).*
+- [x] **Decision.** Unless the baseline attributes the band dwell to the env difference, the
       brief trains the combined scheme and at least one variation with a different time term.
       Before the first run it states the training budget that each run and its comparison
       share: either all warm-start from v3 for the same number of iterations, against a
@@ -156,6 +217,41 @@ speed, and tune it together with the approach slowdown, so that travel time has 
   - off-path share.
 
   It names the variant or combination adopted, or says why none is.
+
+  *Decided 2026-10-12 by the rule of the capped open-dwell read
+  ([`policy-time-to-goal-baseline-2026-10-11`](../../../measurements/policy-time-to-goal-baseline-2026-10-11/README.md) §9),
+  not by training runs:*
+  - *The baseline attributes the band dwell to a difference between the training env and the
+    bridge lane, as a rate the lane raises. So the brief trains no variant now, and none is
+    adopted.*
+  - *The capped open-dwell read asked whether the node's speed cap is that difference. In v3's
+    training env under the node's caps, with the dwell's termination off, 7 of 175 band entries
+    (4.00 %) go quiet before the first 0.30 m crossing, against 2.23 % without the caps. Its rule
+    needed twice that, 4.47 %, so the cap reads as **a minor term**, by one episode. Run 3, under
+    the same caps, read 7.21 %. On the capped open-dwell run and run 2 alone, the cap's effect is
+    not resolved (RR 1.79, 95 % CI 0.53–6.01).*
+  - *By that rule the next measurement controls the scene and depth content at the lane's goals.
+    The lane conditions no run has controlled are the body-velocity source (wheel kinematics in
+    training, the root velocity on the bridge), the actuation tier (`real` on the bridge, `robust`
+    in training) and the referent drift (off on the bridge).*
+  - *The time and speed variants above wait for that measurement and stay with the next training's
+    scoping.*
+
+  *2026-10-13, read after the rule (record §9, post hoc): by the registered rule the cap is a minor
+  term; by the pooled read it is a doubling.*
+  - *The rule could not tell the two apart. It had 52 % power against a true doubling, with run
+    2's rate taken as known.*
+  - *Pooled over the four launches, 44 of 688 band entries stop short under the caps against 21 of
+    714 without: RR 2.17 (95 % CI 1.31–3.62). The launches share their first-episode starts, and
+    without those the RR is 2.00 (1.11–3.61).*
+  - *"The node's speed cap roughly doubles the rate of the stop-short the policy already has; it
+    accounts for about a factor of two of the roughly 25-fold gap to the lane's 8 of 11; the main
+    lane term is still unidentified." Read per band entry, as in training, the lane's figure is 7
+    of 10.*
+  - *So v4 scoping carries the speed-envelope variant (The scheme to evaluate). It does so on that
+    ground and on exposure: training never sees the deployed envelope, and the uncapped policy
+    commands more than the cap on 60 % of its rows (the record's run 1).*
+  - *The objective's training variants, the time and speed terms, wait for the lane term.*
 - [ ] **The bound.** The brief gives the time-to-goal bound from the adopted objective, or from
       v3 if none is adopted, read from the deploy-cap evaluation:
   - as a function of path length;
@@ -165,6 +261,10 @@ speed, and tune it together with the approach slowdown, so that travel time has 
     episode, or an evaluation of the recurrent policy beyond 600 steps.
 
   It then states the per-goal bound the node and the executor should use.
+
+  *2026-10-11: v3's deploy-cap read is in
+  [`policy-time-to-goal-baseline-2026-10-11`](../../../measurements/policy-time-to-goal-baseline-2026-10-11/README.md)
+  §5; see the Deploy-cap box.*
 - [ ] A change to the trained contract updates the composition-contract golden in the same
       commit and is listed in the brief.
 - [ ] If your work invalidates a fact in any referenced context module, package README,
@@ -181,4 +281,7 @@ speed, and tune it together with the approach slowdown, so that travel time has 
   arrival radius itself. That is a terminal-approach parity question, separate from the
   objective.
 - The retrain that ships an adopted variant, and its gate.
-- The deploy speed cap.
+- Changing `NAV_VEL_SCALE` itself. The brief evaluates a raised envelope in training and on the sim
+  bridge, through the node's `vel_cap_linear_m_s` parameter, and states the value it supports. The
+  constant also sets the node's cap, Nav2's speed limits and the executor's nominal speed, so the
+  change is Jetson-lane work in `strafer_shared`.

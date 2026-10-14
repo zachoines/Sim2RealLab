@@ -131,6 +131,11 @@ speed, and tune it together with the approach slowdown, so that travel time has 
      that the policy learns the bound directly.
 - **Variations on the scheme:** a time term alone, or a speed target alone, as ablations of the
   combined scheme.
+- **The speed envelope** (in scope since 2026-10-13): train under the deploy cap, or raise
+  `NAV_VEL_SCALE` with the chassis limits re-read. The node's cap roughly doubles the stop-short
+  rate in the training env, and training never sees the deployed envelope
+  ([`policy-time-to-goal-baseline-2026-10-11`](../../../measurements/policy-time-to-goal-baseline-2026-10-11/README.md)
+  §9).
 
 ## Acceptance criteria
 
@@ -170,7 +175,8 @@ speed, and tune it together with the approach slowdown, so that travel time has 
       stops come after the dwell, and the node ends a goal at the first 0.30 m crossing.*
       - *The like-for-like statistic, computed after the runs, is the share of band entries that
         go quiet before their first 0.30 m crossing: 3.18 %, 2.23 % and 7.21 % in runs 1–3,
-        against 8 of 11 rig reaches (record §3).*
+        against 7 of 10 rig band entries (record §3; 8 of 11 reaches went quiet somewhere in the
+        band).*
     - *Post-arrival behaviour, in the same run: the rig-like limit cycle appears in 1 of 178
       episodes (0.56 %), at or under the rule's 2 %. Verdict: **left with the lane's feedback
       path**. Post-arrival vx is not quiet: its half-range at +2 s is 0.327 m/s at the 90th
@@ -182,7 +188,7 @@ speed, and tune it together with the approach slowdown, so that travel time has 
     behaviour the policy already has; the record does not identify which lane condition.** The
     stop-short and its slow resolve occur in the training env at the rig's distances (run 1:
     0.303–0.410 m, median 0.342 m), and run 1's time-outs within 0.42 m are R2-like holds, but in
-    3.18 % of band entries against the rig's 8 of 11.*
+    3.18 % of band entries against the rig's 7 of 10.*
 - [x] **Deploy-cap evaluation.** v3, and any adopted variant, is evaluated again with the same
       seed and episode count, with its linear command capped at `NAV_LINEAR_VEL` as the node
       caps it, and with an episode cap long enough that arrivals past 20 s are seen. The bound
@@ -222,13 +228,30 @@ speed, and tune it together with the approach slowdown, so that travel time has 
     training env under the node's caps, with the dwell's termination off, 7 of 175 band entries
     (4.00 %) go quiet before the first 0.30 m crossing, against 2.23 % without the caps. Its rule
     needed twice that, 4.47 %, so the cap reads as **a minor term**, by one episode. Run 3, under
-    the same caps, read 7.21 %; at these counts the cap's effect is not settled either way.*
+    the same caps, read 7.21 %. On the capped open-dwell run and run 2 alone, the cap's effect is
+    not resolved (RR 1.79, 95 % CI 0.53–6.01).*
   - *By that rule the next measurement controls the scene and depth content at the lane's goals.
     The lane conditions no run has controlled are the body-velocity source (wheel kinematics in
     training, the root velocity on the bridge), the actuation tier (`real` on the bridge, `robust`
     in training) and the referent drift (off on the bridge).*
   - *The time and speed variants above wait for that measurement and stay with the next training's
     scoping.*
+
+  *2026-10-13, read after the rule (record §9, post hoc): by the registered rule the cap is a minor
+  term; by the pooled read it is a doubling.*
+  - *The rule could not tell the two apart. It had 52 % power against a true doubling, with run
+    2's rate taken as known.*
+  - *Pooled over the four launches, 44 of 688 band entries stop short under the caps against 21 of
+    714 without: RR 2.17 (95 % CI 1.31–3.62). The launches share their first-episode starts, and
+    without those the RR is 2.00 (1.11–3.61).*
+  - *"The node's speed cap roughly doubles the rate of the stop-short the policy already has; it
+    accounts for about a factor of two of the roughly 25-fold gap to the lane's 8 of 11; the main
+    lane term is still unidentified." Read per band entry, as in training, the lane's figure is 7
+    of 10.*
+  - *So v4 scoping carries the speed-envelope variant (The scheme to evaluate). It does so on that
+    ground and on exposure: training never sees the deployed envelope, and the uncapped policy
+    commands more than the cap on 60 % of its rows (the record's run 1).*
+  - *The objective's training variants, the time and speed terms, wait for the lane term.*
 - [ ] **The bound.** The brief gives the time-to-goal bound from the adopted objective, or from
       v3 if none is adopted, read from the deploy-cap evaluation:
   - as a function of path length;
@@ -258,3 +281,7 @@ speed, and tune it together with the approach slowdown, so that travel time has 
   arrival radius itself. That is a terminal-approach parity question, separate from the
   objective.
 - The retrain that ships an adopted variant, and its gate.
+- Changing `NAV_VEL_SCALE` itself. The brief evaluates a raised envelope in training and on the sim
+  bridge, through the node's `vel_cap_linear_m_s` parameter, and states the value it supports. The
+  constant also sets the node's cap, Nav2's speed limits and the executor's nominal speed, so the
+  change is Jetson-lane work in `strafer_shared`.

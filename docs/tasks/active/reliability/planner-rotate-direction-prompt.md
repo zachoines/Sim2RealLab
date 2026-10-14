@@ -107,4 +107,7 @@ Strengthen the rotate section of the system prompt:
   - *[`planner-translate-two-axis-sign`](../../completed/planner-translate-two-axis-sign.md)
     addresses it with two-axis examples and a sign guard in `_compile_translate` (0 of the
     record's 48 mis-signed). The examples alone left 24 of 48 scored mis-sign.*
+  - *2026-10-13: the guard was withdrawn before merge and only the examples shipped. The fix
+    moved to [`planner-translate-direction-schema`](planner-translate-direction-schema.md), which
+    has the planner report direction words that the compiler maps to signs.*
   - *The translate sign stays out of this brief's scope.*

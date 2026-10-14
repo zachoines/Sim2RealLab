@@ -1,6 +1,6 @@
 # Planner drops the sign of "right" in a two-axis translate
 
-**Status:** Shipped 2026-10-12 in `14477af` (DGX).
+**Status:** Shipped 2026-10-13 in `38ce883` (DGX).
 **PR:** https://github.com/zachoines/Sim2RealLab/pull/240
 
 **Type:** bug (planner prompt)
@@ -12,6 +12,9 @@ language mission that mirrors a lateral command is a safety defect, and the
 product path (`make submit-deploy` → planner → executor) has no dry-check:
 the one that caught this is harness-only (`tools/plan_check.py` in the
 confirmation set's deposit).
+*(2026-10-13: the P1 for goal-b transfers to
+[`planner-translate-direction-schema`](../active/reliability/planner-translate-direction-schema.md).
+See Outcome.)*
 **Estimate:** S (prompt examples + planner fixtures)
 **Branch:** `task/planner-translate-two-axis-sign`
 
@@ -54,7 +57,9 @@ right, as the single-axis "strafe right" example already does.**
   (`plan_compiler._compile_translate`; `mission_runner._translate`), so the
   fix is in the prompt.
   *(Superseded 2026-10-11: the prompt change alone left 24 of 48 two-axis
-  commands scored mis-sign, and the compiler now sets the sign. See Outcome.)*
+  commands scored mis-sign. The compiler guard added for it was withdrawn
+  before merge (2026-10-13), and the fix moved to the planner's schema. See
+  Outcome.)*
 - The finding is one observation; how often the prompt mis-signs is not
   measured.
   *(Measured 2026-10-11: 31 of 48 before the change. See Outcome.)*
@@ -92,8 +97,9 @@ right, as the single-axis "strafe right" example already does.**
         words, and that the two-axis examples cover both sides and a backward component. It fails
         on `main`'s prompt and on a copy with one example's sign flipped (the deposit's
         `tests/mutation_runs.txt`; the record's §7).*
-      - *On their own the examples leave 24 of 48 scored mis-sign, so the shipped fix adds a sign
-        guard in the plan compiler (Outcome).*
+      - *On their own the examples leave 24 of 48 scored mis-sign. A sign guard in the plan
+        compiler was added for it, then withdrawn before merge; the fix moved to the planner's
+        schema (Outcome).*
 - [x] Planner fixtures, run against the live Qwen3-4B
       (`make serve-planner`), pin the sign and the 3-decimal magnitudes for at
       least: forward+right, forward+left, backward+right, and the exact
@@ -106,10 +112,15 @@ right, as the single-axis "strafe right" example already does.**
         command above), forward+left, backward+right and backward+left.*
       - *Against the branch's planner all four pass. Against `main`'s, forward+right,
         backward+right and backward+left fail, and forward+left passes.*
+      - *2026-10-13: with the guard withdrawn, backward-left fails against the shipped planner,
+        `(-1.712, -1.372)`, and is a strict `xfail` naming the schema brief; the other three
+        pass (the record's §7).*
 - [x] Existing planner tests still pass.
       *Met 2026-10-11:*
       - *`-m "not requires_ros"`: 692 tests on `main` and 705 on the branch (701 passed, the 4
         live fixtures skipped), with 0 failures and 0 errors.*
+      - *2026-10-13, at `b3be9b0` and again on the shipped tree, `2841f74`: 698 tests, 694 passed
+        and the 4 live fixtures skipped, 0 failures and 0 errors.*
       - *Both runs leave out `source/strafer_autonomy/tests/test_sim_in_the_loop_runtime_env.py`.
         It fails to collect in `.venv_vlm` on `main` as on the branch, with
         `ModuleNotFoundError: No module named 'isaaclab_tasks'` through `strafer_lab`. This work
@@ -120,9 +131,11 @@ right, as the single-axis "strafe right" example already does.**
       [`conventions.md`'s user-facing documentation maintenance section](../context/conventions.md#user-facing-documentation-maintenance)
       for the surface list and trigger heuristics.
       *Met 2026-10-11:*
-      - *`source/strafer_autonomy/README.md` gains the compiler's translate sign rule under
-        "Deterministic plan compilation" and the `live_planner` opt-in under Testing. Its intent
-        list gains `translate`, which it had left out, and so does the top-level `Readme.md`'s.*
+      - *`source/strafer_autonomy/README.md` gains a sentence on the translate sign under
+        "Deterministic plan compilation" (the compiler passes the model's values through; the
+        guard's rule was removed with the guard, 2026-10-13) and the `live_planner` opt-in under
+        Testing. Its intent list gains `translate`, which it had left out, and so does the
+        top-level `Readme.md`'s.*
       - *[`planner-rotate-direction-prompt`](../active/reliability/planner-rotate-direction-prompt.md)'s
         out-of-scope note on the translate sign carries a dated correction.*
       - *The two links into this brief from the confirmation record and from
@@ -130,26 +143,36 @@ right, as the single-axis "strafe right" example already does.**
 
 ## Outcome
 
-**What shipped.**
+**What shipped.** The prompt examples, their tests, the live fixtures and the record. The fix itself
+moved to [`planner-translate-direction-schema`](../active/reliability/planner-translate-direction-schema.md),
+which takes this brief's P1 for goal-b.
 - `38ce883`: three two-axis translate examples in the system prompt.
-- `e568e4a`: the first sign guard in `plan_compiler._compile_translate`. It read the command's
-  own direction words anywhere in the text, and when they named exactly one direction on an axis a
-  non-zero component took that sign.
-- `1031643`: the prompt-example tests, the guard's unit tests, and the live fixtures with their
-  `live_planner` marker. The fixtures opt in through a variable of their own, not the executor's
-  `PLANNER_URL`, so a host that sets the executor's does not run them.
-- `14477af`: the guard as it ships, narrowed after review. It applies only when the whole command
-  is the two-axis template CLI-built commands use, "move X meters forward|backward and Y meters
-  left|right"; the template's words then set each non-zero component's sign. Any other wording keeps
-  the LLM's signs, and a zero stays zero. It changes signs only, never a magnitude or an axis, and
-  only in `translate` intents.
-- `a80c30f`: its tests, including three commands whose direction words name a landmark's side,
-  which must keep the LLM's signs.
+- `1031643`: the prompt-example tests, and the live fixtures with their `live_planner` marker. The
+  fixtures opt in through a variable of their own, not the executor's `PLANNER_URL`, so a host that
+  sets the executor's does not run them.
+- `b3be9b0`: the backward-left fixture becomes a strict `xfail` naming the schema brief. It fails
+  against the shipped planner today, and turns red the day it passes, so the marker must come off
+  with the fix.
+- `2841f74`: the marker expects only an `AssertionError`, and the fixture fails rather than
+  asserts on an unready planner, so an unreachable or unready planner errors instead of counting as
+  the expected failure.
 
-**Deviation: the fix is not in the prompt alone.**
+**Not shipped: the compiler guard.** It was written, narrowed, and withdrawn before merge.
+- `e568e4a` added a sign guard to `plan_compiler._compile_translate` that read the command's
+  direction words. `14477af` narrowed it to the two-axis template CLI-built commands use, after it
+  was shown to flip a correct sign where a direction word names a landmark's side.
+- `d40cdca` withdrew it on review: a regex over the operator's phrasing is brittle, and opaque to
+  an operator who does not know the protected phrasing. `b3be9b0` dropped its tests. The compiler
+  passes the model's values through, as on `main`.
+- The measurements stand as measurements (the record's §5, §5b and §5c). With the examples and the
+  first guard the sweep read 0 of 48 mis-signed, 44 exact and all five anchors exact. That zero was
+  by construction, since each command names each non-zero axis with exactly one of the guard's
+  words. The narrowed guard read 22 of 48 on the logged answers.
+
+**Deviation: the fix is in neither the prompt nor the compiler.**
 - **Superseded in Context:** "The plan compiler and the executor pass the sign through unchanged
-  (…), so the fix is in the prompt." The compiler now sets a translate component's sign when the
-  command is the two-axis template. The executor still passes the sign through.
+  (…), so the fix is in the prompt." Both still pass the sign through. The fix is not in the
+  prompt either: it is in the schema the planner answers in.
 - **Why.** Measured on the live planner in
   [`planner-translate-sign-2026-10-11`](../../measurements/planner-translate-sign-2026-10-11/README.md),
   against a rule registered before the runs:
@@ -157,42 +180,28 @@ right, as the single-axis "strafe right" example already does.**
     forward-left's exact count fell from 9 to 8;
   - the examples plus the fallback rule sentence left 22, with two of the five anchors flipped and
     forward-left's exact count at 8;
-  - neither met the rule.
-- **The examples with the first guard** met it: 0 of 48 mis-signed, 44 exact, all five anchors
-  exact, and every class's exact count at or above before. This combination was registered, under
-  the same rule, before its first request, and after the first two combinations' results.
-  - The zero is by construction. Each of these commands names each non-zero axis with exactly one
-    of the guard's words, so the guard rules out a compiled mis-sign there. The runs measure the
-    exact counts, the anchors and the dropped axis.
-  - The guard changed 26 of the 52 compiled values, every one by sign alone.
-  - On 12 held-out commands it compiled 0 mis-signs and 11 exact. The prompt alone mis-signed 2 of
-    them. The held-out vocabulary lies entirely inside the first guard's word lists, so its 0 there
-    also follows from its construction, and the held-out set is evidence about the prompt. Its one
-    "right" that is not a direction ("right away") compiled exactly only because the model returned
-    a lateral 0.
+  - neither met the rule. The prompt states the convention in every arm, and the model did not
+    apply it reliably in any of the three prompts measured (a backward-left example was not
+    tried). `translation_xy` asks it to.
+- **The shipped tree, live** (served from `d40cdca`, whose package source the shipped tree,
+  `2841f74`, keeps; the record's §5c): the 52 sweep plans equal the examples-only arm's, request
+  by request; 24 of 48 mis-signed, 20 exact, all five anchors exact. Held out: 2 of 12 mis-signed
+  (H2 and H8, both backward and left), H3's dropped axis, 9 exact.
+  The held-out vocabulary lies entirely inside the first guard's word lists, so that set is evidence
+  about the prompt, not about the guard.
 
-**Narrowed before merge.** A direction word in free text can name a landmark's side ("move 1 m away
-from the wall on your left"), and there the first guard flips a correct sign. The shipped guard reads
-only the template. On the record's deposited answers it leaves 22 of 48 two-axis commands mis-signed:
-the 8 in the template are exact and the other wordings keep the prompt's answers. The five anchors,
-all in the template, are exact. None of the 12 held-out commands is in the template, so their 2
-mis-signs stand (the record's §5b).
-
-**Residual.**
-- **A dropped axis.** It is not a sign error, and the guard cannot restore a zero.
-  - "strafe S Y meters while moving backward X meters" comes back with the backward component at 0
-    under every prompt measured, 4 of 48.
-  - One held-out command, "head forward 2.25 m, then 0.35 m to the right", comes back as
-    `[2.25, 0.0]`.
-- **Free text.** Any wording other than the template keeps the model's signs, 22 of the 48
-  measured two-axis commands under the shipped code.
+**Residual, now owned by the schema brief.**
+- **The mis-signs:** 24 of 48 and 2 of 12 on the record's commands, mostly the lateral component.
+- **A dropped axis.** "strafe S Y meters while moving backward X meters" comes back with the
+  backward component at 0 under every prompt measured (4 of 48), and "head forward 2.25 m, then
+  0.35 m to the right" with the lateral one at 0. `planner-translate-dropped-axis`, filed for it on
+  2026-10-12, is folded into the schema brief as a section.
 - **Coverage.** One model, greedy decoding, and the record's 64 commands. Other wordings are not
   measured.
 
-**The operating rule** in Context stays. The compile-first dry-check for real-robot submissions
-catches the free-text mis-signs and the dropped axis. The dropped axis is filed as
-[`planner-translate-dropped-axis`](../active/reliability/planner-translate-dropped-axis.md), and the
-dry-check stays until that class is measured or fixed.
+**The operating rule** in Context stays. Every real-robot submission is compiled through the
+planner first and dispatched only if the plan matches the intended motion. It stays until a record
+of the schema change reads 0 mis-signs and 0 dropped axes on the 48 and the 12.
 
 ## Out of scope
 

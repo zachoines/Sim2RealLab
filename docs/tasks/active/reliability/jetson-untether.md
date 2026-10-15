@@ -199,7 +199,10 @@ supply.**
 
 ### Camera, RoboClaw and boot hazards
 
-- **Without RoboClaws, `base` writes to the camera.** `99-strafer.rules` is not installed:
+- **Without RoboClaws, `base` writes to the camera.** *2026-10-14: no longer so from
+  [`chassis-driver-port-fence`](../../completed/chassis-driver-port-fence.md). The driver probes only
+  `/dev/roboclaw*`, and with either controller missing it exits 1 having sent only the address
+  probe. The account below is the driver and compose file at `6cd6fd7`.* `99-strafer.rules` is not installed:
   `/etc/udev/rules.d` holds only NVIDIA rules. The sysctl and `modules-load.d` drop-ins from the
   same installer are present (`deploy/host-setup/install-host-prereqs.sh`:17, :22-25, :44). The
   rules would not protect the camera on their own anyway, because the driver never uses them when
@@ -425,6 +428,12 @@ one it replaces comes out.
       `source/strafer_ros/README.md` states the rule. What remains for this box is the boot-side
       or driver-side fence. The udev install is the box above, and it does not fence the camera on
       its own.*
+      *2026-10-14: the driver-side fence is
+      [`chassis-driver-port-fence`](../../completed/chassis-driver-port-fence.md): no
+      `/dev/ttyACM*` probe and no fallback port, an exit when a controller is missing with only
+      the address probe sent, PID constants only after an answered probe, and a reconnect that
+      counts only when the port answers. Unit tests with a fake serial layer show it. What remains for this box is the camera-attached check on an image built
+      with the fence: `fuser /dev/ttyACM0` and the node's log.*
 
 **Cutover and cold boot**
 
@@ -461,10 +470,10 @@ one it replaces comes out.
         L4T R36.4.3;
       - `WIRING_GUIDE.md`: power (:233-239), USB and udev (:243-259), and the wire count
         (:307-316). Its serial-keyed `roboclaw_front`/`roboclaw_rear` snippet contradicts
-        `99-strafer.rules`:20, and the D555's CDC takes `/dev/ttyACM0`;
+        `99-strafer.rules`:21, and the D555's CDC takes `/dev/ttyACM0`;
       - the cheatsheet's SSH target (:105) and wired pre-flight (:116-128);
       - the link brief's transport table (:52-58);
-      - `source/strafer_ros/README.md`:3, :124 and :182;
+      - `source/strafer_ros/README.md`:3, :124 and :180;
       - the `jetson-desktop` SSH target at `Readme.md`:349 and
         `docs/example_commands_cheatsheet.md`:383;
       - "Orin Nano" at `WIRING_GUIDE.md`:3 and :26;
@@ -518,9 +527,9 @@ one it replaces comes out.
   `~/.config/cyclonedds/direct-link.xml` (host-local); `deploy/tests/check_env_sync.py`; the
   `Makefile`'s `FULL_COMPOSE` (:156) and `udev` (:238-242).
 - **Driver.** `strafer_driver/strafer_driver/roboclaw_interface.py` (`probe_address`,
-  `detect_roboclaws`), `roboclaw_node.py`:106-165, `strafer_driver/launch/driver.launch.py`, and
-  `source/strafer_ros/99-strafer.rules` (the RoboClaw rule at :20; the D555 IIO and hidraw rules at
-  :26 and :29).
+  `detect_roboclaws`), `roboclaw_node.py`:121-200 (the port fence), `strafer_driver/launch/driver.launch.py`,
+  and `source/strafer_ros/99-strafer.rules` (the RoboClaw rule at :21; the D555 IIO and hidraw rules
+  at :27 and :30).
 - **The link brief's §"Wired path — measured 2026-08-17"** (:87-99) gives the pin's shape on both
   hosts and the wired figures the re-dock has to reproduce.
 - **The hardware lanes `nx-docker-bringup` left unticked** (:97-101): RoboClaw passthrough, D555

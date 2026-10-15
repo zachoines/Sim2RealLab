@@ -233,8 +233,8 @@ POLICY_PERIOD_S = POLICY_SIM_DT * POLICY_DECIMATION  # 1/30 s = 30 Hz
 ROBOCLAW_FRONT_ADDRESS = 0x80  # 128 decimal (factory default)
 ROBOCLAW_REAR_ADDRESS = 0x81  # 129 decimal (DIP switch 1)
 ROBOCLAW_BAUD_RATE = 115200
-ROBOCLAW_FRONT_PORT = "/dev/roboclaw0"  # fallback; auto-detect overrides at runtime
-ROBOCLAW_REAR_PORT = "/dev/roboclaw1"  # fallback; auto-detect overrides at runtime
+ROBOCLAW_FRONT_PORT = "/dev/roboclaw0"  # used only with auto_detect false
+ROBOCLAW_REAR_PORT = "/dev/roboclaw1"  # used only with auto_detect false
 
 # Velocity PID gains (written to RAM on every startup by driver and test scripts).
 ROBOCLAW_PID_P = 15000

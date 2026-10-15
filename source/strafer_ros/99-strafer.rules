@@ -6,7 +6,8 @@
 #
 # This rule creates generic symlinks /dev/roboclaw0, /dev/roboclaw1 for any
 # Basicmicro RoboClaw regardless of which USB port it's plugged into.
-# The driver's auto-detect scans /dev/roboclaw* to find candidates.
+# The driver's auto-detect scans /dev/roboclaw* and nothing else: without this
+# rule it finds no controller and exits without opening a port.
 #
 # Install:  make udev   (or manually):
 #   sudo cp 99-strafer.rules /etc/udev/rules.d/

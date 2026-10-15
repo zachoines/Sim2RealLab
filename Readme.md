@@ -256,7 +256,7 @@ pip install --no-build-isolation \
             -e ~/workspaces/Sim2RealLab/source/strafer_shared \
             -e ~/workspaces/Sim2RealLab/source/strafer_autonomy
 
-# udev rules for stable RoboClaw paths + D555 IMU permissions
+# udev rules: the RoboClaw names the driver requires + D555 IMU permissions
 sudo cp ~/workspaces/Sim2RealLab/source/strafer_ros/99-strafer.rules /etc/udev/rules.d/
 sudo udevadm control --reload-rules && sudo udevadm trigger
 ```

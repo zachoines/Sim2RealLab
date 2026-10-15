@@ -177,7 +177,10 @@ def main():
                 f"Auto-detected: {', '.join(f'0x{a:02X}->{p}' for a, p in detected.items())}"
             )
         else:
-            print("Auto-detect: no RoboClaws found on any port.")
+            print(
+                "Auto-detect: no RoboClaws found on /dev/roboclaw* (the only names "
+                "scanned; `make udev`, or pass --front/--rear)."
+            )
 
     if not args.rear_only:
         if args.front:

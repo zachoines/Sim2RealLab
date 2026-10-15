@@ -141,6 +141,38 @@ class TestArguments:
         assert "front_port" in args
         assert "rear_port" in args
 
+    @pytest.mark.parametrize(
+        "filename",
+        [
+            "base.launch.py",
+            "perception.launch.py",
+            "slam.launch.py",
+            "navigation.launch.py",
+            "autonomy.launch.py",
+        ],
+    )
+    def test_port_defaults_are_udev_names(self, pkg_dir, filename):
+        """These defaults reach the driver ahead of its params file; a
+        /dev/ttyACM* default names the D555's serial port on the robot."""
+        import importlib.util
+        from launch.actions import DeclareLaunchArgument
+
+        path = os.path.join(pkg_dir, "launch", filename)
+        spec = importlib.util.spec_from_file_location(filename, path)
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        defaults = {
+            entity.name: "".join(s.text for s in entity.default_value)
+            for entity in mod.generate_launch_description().entities
+            if isinstance(entity, DeclareLaunchArgument)
+            and entity.name in ("front_port", "rear_port")
+        }
+
+        assert defaults == {
+            "front_port": "/dev/roboclaw0",
+            "rear_port": "/dev/roboclaw1",
+        }
+
     def test_slam_has_localization_arg(self, pkg_dir):
         args = self._get_arg_names(pkg_dir, "slam.launch.py")
         assert "localization" in args

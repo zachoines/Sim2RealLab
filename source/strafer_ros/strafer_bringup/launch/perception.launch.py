@@ -33,12 +33,12 @@ def generate_launch_description():
 
     return LaunchDescription([
         DeclareLaunchArgument(
-            "front_port", default_value="/dev/ttyACM0",
-            description="Serial port for front RoboClaw (0x80).",
+            "front_port", default_value="/dev/roboclaw0",
+            description="Front RoboClaw (0x80) port; unused when auto_detect is true.",
         ),
         DeclareLaunchArgument(
-            "rear_port", default_value="/dev/ttyACM1",
-            description="Serial port for rear RoboClaw (0x81).",
+            "rear_port", default_value="/dev/roboclaw1",
+            description="Rear RoboClaw (0x81) port; unused when auto_detect is true.",
         ),
 
         # ── Base (driver + description) ─────────────────────────────────

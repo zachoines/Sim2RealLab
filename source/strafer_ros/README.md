@@ -121,22 +121,20 @@ map ← odom ← base_link ← {chassis, wheel_*, d555_link}
 
 ### Hardware / addressing
 
-- Dual RoboClaw ST 2x45A over USB serial (`/dev/ttyACM*` or `/dev/roboclaw0` / `/dev/roboclaw1` via udev). Addresses `0x80` (front) + `0x81` (rear). Baud 115200, Packet Serial mode.
+- Dual RoboClaw ST 2x45A over USB serial, at `/dev/roboclaw<N>` via udev (the kernel names them `/dev/ttyACM<N>`). Addresses `0x80` (front) + `0x81` (rear). Baud 115200, Packet Serial mode.
 - 4× GoBilda 5203 motors at 19.2:1. Encoder resolution 537.7 PPR at output shaft.
 - `wheel_axis_signs = [-1, 1, -1, 1]` for `[FL, FR, RL, RR]` is applied inside `strafer_shared.mecanum_kinematics`. **Do not** re-apply sign inversion inside this package.
 - RoboClaw PID values (`P=15000`, `I=750`, `D=0`, `QPPS=2796`) live in `strafer_shared.constants` and are auto-written to RAM on every `roboclaw_node` startup.
-- udev rules in [`99-strafer.rules`](99-strafer.rules) create the stable `/dev/roboclaw0` + `/dev/roboclaw1` symlinks and grant IIO permissions for the D555 IMU stack.
+- udev rules in [`99-strafer.rules`](99-strafer.rules) create a `/dev/roboclaw<N>` symlink for each RoboClaw (`<N>` is its ttyACM number, so with the camera at `ttyACM0` the pair may be 1 and 2) and grant IIO permissions for the D555 IMU stack.
 - **Before powering the robot** (evidence: [`jetson-untether`](../../docs/tasks/active/reliability/jetson-untether.md)):
   - **Plug the D555 in after the Jetson has booted.** Attached at power-on, it enumerates without a
     driver (no `/dev/video*`) until it is unplugged and plugged back in.
-  - **Do not start `base` with the camera attached unless both RoboClaws are connected.** With no
-    `/dev/roboclaw*`, the driver's port detection probes every `/dev/ttyACM*`. A missing controller
-    falls back to its default port (`/dev/ttyACM0` front, `/dev/ttyACM1` rear). With the camera
-    attached, one of those ports is its serial interface. The node writes PID packets to that port,
-    then drive commands on its 50 Hz timer. Ten failures put it in an error state, and every 2 s it reopens both
-    ports. A bare open counts as success, so the writes resume in bursts about 2 s apart unless a
-    reopen fails. With no RoboClaw at all the rear port is absent, and the node stays in the error
-    state.
+  - **The driver needs both RoboClaws at `/dev/roboclaw*` (`make udev`).** Detection probes only
+    those names, so by default nothing reaches the D555's serial interface, a `/dev/ttyACM*` port.
+    With either controller missing it logs the count and the missing addresses and exits 1, having
+    sent only the address probe. `robot_state_publisher` keeps `base` up, so read the log, not
+    `docker ps`, and restart `base` once both are connected. A fenced driver logs
+    `Auto-detecting RoboClaw ports on /dev/roboclaw*...`; an image built before the fence still falls back.
   - **The Jetson's RTC does not hold time across power-off.** After a cold boot, check that the clock
     has synced (`timedatectl`) before recording anything.
 

@@ -3,8 +3,9 @@
 **Type:** bug (`/cmd_vel` ordering between overlapping trained-policy goals)
 **Owner:** Jetson (`strafer_inference`)
 **Priority:** P2 — the same defect class as the post-goal stop race, a policy command left as the
-last `/cmd_vel` after a goal has ended. But the ordering it needs does not appear to arise in the
-deployed flow (see Context).
+last `/cmd_vel` after a goal has ended. The ordering is reachable in the deployed flow only under
+a condition (the reachability box): two replacement submissions racing, or the executor restarted
+mid-goal, and a newer goal that ends at once.
 **Estimate:** S
 **Branch:** `task/inference-finished-successor-stop`
 
@@ -46,12 +47,12 @@ still leaving its loop**, so that **a stop is the last command.**
   `MissionRunner.start_mission` (`executor/mission_runner.py`, 262–307 at `f4d9cb2`) refuses a
   second mission unless `replace_active_mission` is set. On a replacement it:
   - cancels the active navigation, waiting for the cancel response;
-  - publishes a zero `/cmd_vel` (`_cancel_robot_actions`, 2329–2341);
+  - publishes a zero `/cmd_vel` (`_cancel_robot_actions`, 2329–2343 at `6cd6fd7`);
   - joins the old mission's thread, for up to `replace_join_timeout_s` (5 s);
   - only then starts the new mission.
-- **What has not been read.** Whether that join always outlasts the node's own execute loop for
-  the cancelled goal. If the mission thread waits for the navigate result, it does, and B can never
-  meet a draining A.
+- **The join outlasts the cancelled goal's loop** (read 2026-10-14; the reachability box). A single
+  replacement cannot meet a draining A. Two paths that are not a single replacement can, and both
+  need an operator action as well as a newer goal that ends at once.
 
 **Candidate fixes**, both small:
 1. **A flag for the newest goal's end.** It is set with the mission-end stop and cleared at the next
@@ -79,17 +80,68 @@ still leaving its loop**, so that **a stop is the last command.**
 
 ## Acceptance criteria
 
-- [ ] **Reachability, stated.** The brief records whether the executor's replacement path can
+- [x] **Reachability, stated.** The brief records whether the executor's replacement path can
       produce this ordering. That means reading whether the old mission's thread returns only
       after the node's result for the cancelled goal, and whether any other client sends
       overlapping goals.
-- [ ] **The ordering, as a test** in `strafer_inference/test/test_inference_runtime.py`:
+      *2026-10-14, read at `6cd6fd7`: reachable under a condition, though not through a single
+      replacement.*
+  - **One replacement: no.**
+    - The old mission thread runs the blocking navigate itself. `background_mapper` is never
+      passed (`executor/main.py`:284-289), so there is no transit monitor
+      (`mission_runner.py`:1292-1294).
+    - The thread waits on goal A's result future (`clients/ros_client.py`:1025-1031; hybrid
+      1171-1177), and only the result, the deadline or a `/clock` stall ends that wait
+      (1811-1827).
+    - rclpy Humble's action server sets the result after the execute callback returns
+      (`rclpy/action/server.py`:337, 357, 422-423 in `strafer-gpu:humble`), so after A's
+      `finally` (`inference_node.py`:1033-1044).
+    - `start_mission` joins the old thread (`mission_runner.py`:298), or refuses with
+      `mission_replace_timeout` (299-307). The new mission plans (371-381) before its first goal.
+  - **Two submissions racing `start_mission`: yes.**
+    - The active check (274-292) and the install (323-325) are separate lock sections, and only
+      `_finish_runtime` clears the active mission (2260-2266).
+    - The ExecuteMission server runs a reentrant group on four threads (`command_server.py`:54,
+      166-188, 204-209). Two goals with `replace_active_mission` set that arrive during one
+      join both join the same mission (`mission_runner.py`:298), and both start a mission.
+    - `_nav_lock` guards only the handle slot (`ros_client.py`:331, 1025-1026), so the two
+      missions' goals overlap on the node.
+  - **The executor restarted mid-goal: yes.**
+    - The executor cancels nothing when its process ends (`executor/main.py`:292-298).
+    - The node's loop has no client-liveness check, so A runs on for up to its 60 s bound
+      (`inference_node.py`:983-1029), and the new executor's first policy goal supersedes it.
+    - A crash alone does not restart the executor. The launch keeps `goal_projection` and runs
+      the executor as a plain process with no respawn (`autonomy_nodes.launch.py`:44-63), so
+      the trigger is an operator restart or recreate of `autonomy`.
+  - **On either path,** B must end inside A's drain. It may be within 0.30 m on its first poll
+    (`inference_node.py`:998-1004), as a cardinal translate of 0.30 m or less can be. Or it may
+    be cancelled as it starts (984-989). Both paths also need a policy backend in the
+    executor's env (`executor/main.py`:269-274); committed canon is `nav2`
+    (`deploy/compose/autonomy.env`:7).
+  - **Not a source:**
+    - Within one mission, navigate and translate compile with `retry_limit=0`
+      (`planner/plan_compiler.py`:103, 173), and a non-success ends the mission.
+    - The subgoal generator sends only ComputePathToPose (`subgoal_generator_node.py`:339-341).
+    - The sim harness submits with `replace_active_mission` false (`runtime_mission.py`:143).
+    - A manual `ros2 action send_goal` can overlap, as an operator path.
+  - **Read on the way, not fixed here:**
+    - The executor leaves its goal driving under the policy when its process ends.
+    - The staging loop never checks the mission's cancel event.
+    - `cancel_active_navigation` misses a goal whose handle is not yet stored
+      (`ros_client.py`:1025-1026, 1287-1291).
+- [x] **The ordering, as a test** in `strafer_inference/test/test_inference_runtime.py`:
   - A runs on its own thread, its distance stub blocked so it cannot see its supersession.
   - B is accepted and ends on its first poll, on the test thread.
   - A tick runs, then A is released.
   - The test asserts that, in publish order, the last `/cmd_vel` is a stop and no policy action
     follows the final stop.
   - It fails on `main`.
+  - *2026-10-14:* written as
+    `TestMissionEndStopIsLast::test_goal_ending_before_its_preempted_predecessor_leaves`, marked
+    strict xfail; the fix removes the marker. With the marker ignored (`--runxfail`) on `main`'s
+    node it fails ten runs in ten: the publishes are B's stop, then A's policy action
+    (`x=0.392, y=0.392, z=2.093`). With the marker, the ROS suite passes: 840 JUnit cases, 828
+    passed, 11 skipped, this one xfailed.
 - [ ] **One fix chosen** from the candidates above, or another, with the reason. The test above
       passes, and the preemption test of `inference-post-goal-stop-race` (a tick in flight across
       a preemption publishes its action) still passes.

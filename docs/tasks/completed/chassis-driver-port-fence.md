@@ -6,7 +6,8 @@
 **Type:** bug (the RoboClaw driver writes motor packets to the D555's serial interface)
 **Owner:** Jetson (`strafer_driver`, `strafer_bringup`, `deploy/`)
 **Priority:** P1 for goal-b. A chassis bringup with the camera attached is the real lane's first
-step, and with either RoboClaw missing the driver writes PID and drive packets to the camera.
+step. With a RoboClaw missing, the driver writes PID and drive packets to that controller's
+configured port, and the front's is the camera's whenever the camera enumerates first.
 **Estimate:** S
 **Branch:** `task/chassis-driver-port-fence`
 
@@ -38,7 +39,7 @@ sending motor packets to the camera's serial interface.**
   velocity PID to it (:150-165, :225-238) with no probe, then a drive command on every 50 Hz tick
   (:210-211, :309-317). After ten failures it enters an error state and reopens both ports every
   2 s, and a bare open counts as success (:251-265; `roboclaw_interface.py`:143-150).
-- **The configured defaults are the camera's port.** `driver.launch.py`:22-31 defaults to
+- **A configured default can be the camera's port.** `driver.launch.py`:22-31 defaults to
   `/dev/ttyACM0` and `/dev/ttyACM1`, and so does every bringup launch file that includes the
   driver (`base`, `perception`, `slam`, `navigation`, `autonomy`). They are passed after the
   params file, so they override `driver_params.yaml`'s `/dev/roboclaw0` and `/dev/roboclaw1`.
@@ -95,11 +96,16 @@ own refusal has to be the fence.
 
   *2026-10-14: 16 tests in `test_port_fence.py`, among them a mixed udev-and-tty pair and a
   reconnect whose path no longer answers. With them on `main`, 11 of 76 driver tests and the 5
-  bringup default tests fail. Mutation runs: each of eight mutations fails at least one test.
-  Record and deposit below.*
+  bringup default tests fail. Mutation runs: seven of eight mutations fail at least one test, and
+  the eighth is equivalent (the refusal returns first). Record and deposit below.*
+
+  *2026-10-14: two criteria were reworded while the work ran. The `auto_detect` one says "before
+  opening any port to drive it", since detection's probe opens `/dev/roboclaw*`. The reconnect
+  one was added when review found a reconnect counted a bare reopen. The out-of-scope items for
+  the reconnect and the shared constants' comments went, because the work did both.*
 - [x] A record states the code reads, the test runs, and how `base` maps serial devices, with no
       hardware claims. It gives the maintainer's on-site check as commands.
-      *2026-10-14: [`chassis-driver-port-fence-2026-10-14`](../../measurements/chassis-driver-port-fence-2026-10-14/README.md), deposit Sim2RealLab-Artifacts `e4a45b71`.*
+      *2026-10-14: [`chassis-driver-port-fence-2026-10-14`](../../measurements/chassis-driver-port-fence-2026-10-14/README.md), deposit Sim2RealLab-Artifacts `ac50a32f`.*
 - [x] If your work invalidates a fact in any referenced context module, package README,
       top-level `Readme.md`, or guide under `docs/`, update those in the same commit. See
       [`conventions.md`'s user-facing documentation maintenance section](../context/conventions.md#user-facing-documentation-maintenance)

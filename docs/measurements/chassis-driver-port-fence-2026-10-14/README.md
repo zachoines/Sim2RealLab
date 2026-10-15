@@ -1,7 +1,10 @@
 # The chassis driver's port fence, 2026-10-14
 
-With either RoboClaw missing, the driver at `6cd6fd7` writes velocity-PID and drive packets to
-`/dev/ttyACM0`. On the robot that is the D555's CDC serial interface. This record reads the
+With a RoboClaw missing, the driver at `6cd6fd7` falls back to that controller's configured port:
+`/dev/ttyACM0` for the front, `/dev/ttyACM1` for the rear. It writes velocity-PID and drive packets
+there. When that port is the D555's CDC serial interface, as `/dev/ttyACM0` is whenever the camera
+enumerates first, the packets go to the camera. Detection's probe reaches every `/dev/ttyACM*`
+either way. This record reads the
 driver before and after the fence in
 [`chassis-driver-port-fence`](../../tasks/completed/chassis-driver-port-fence.md), runs its tests
 on both trees, and states how the `base` service maps serial devices. It makes **no hardware
@@ -19,10 +22,10 @@ claim**: no RoboClaw was connected, `base` was not started, and no run had the h
   `/dev/roboclaw*`.
 - **Tests.** The work commit's test modules, run on `main`, fail 11 of 76 driver tests and all 5
   new bringup tests. On `62bb9ee` the whole ROS suite passes: 849 passed and 11 skipped of 860.
-- **Mutations.** Eight mutations each put back one piece of the defect, and each fails at least
-  one test. A ninth is equivalent and fails none, as expected.
+- **Mutations.** Seven mutations each put back one piece of the defect, and each fails at least
+  one test. An eighth is equivalent and fails none, as expected.
 - **The real entry point.** `ros2 run strafer_driver roboclaw_node` from `62bb9ee`, in a container
-  with no `/dev` and no network, logs the refusal and exits 1 (§6).
+  with no host `/dev` bind and no network, logs the refusal and exits 1 (§6).
 - **Compose.** `base` binds `/dev` wholesale and allows every ttyACM device, so the container sees
   the camera's port, and a missing `/dev/roboclaw*` symlink does not stop it starting. The node's
   refusal is the fence (§3).
@@ -94,6 +97,9 @@ refusal shows. Once both controllers are connected, `base` needs a restart.
 The deployed images on this host carry `main`'s driver. Both are labelled `9f7d20758d5b`, and
 `git diff 9f7d207 6cd6fd7` is empty for `strafer_driver/`, `strafer_bringup/launch/` and
 `strafer_shared/`. The fence reaches `base` only after `make images` at a commit that contains it.
+The dev overlay's source mount does not carry it either. The image installs `strafer_driver` as
+plain files under `/ws/install`, not as links into `/ws/src`, though the overlay's header says
+otherwise.
 
 ## 4. Tests
 
@@ -129,8 +135,9 @@ defaults its ports to the udev names.
 | `test_driver_launch_defaults_are_udev_names` | fails: `/dev/ttyACM0`, `/dev/ttyACM1` | pass |
 | `test_bringup.py::TestArguments::test_port_defaults_are_udev_names` (×5) | 5 fail | 5 pass |
 
-The passes on `main` are the controls: two controllers, the override with answering ports, and
-udev ports under `auto_detect` false. `main` starts in each of those cases too.
+The passes on `main` are the controls: detection with udev names present, two controllers, the
+override with answering ports, udev ports under `auto_detect` false, and a reconnect on a path
+that still answers.
 
 | run | tree | result |
 |---|---|---|
@@ -204,7 +211,15 @@ numbers, so `$CAM` finds it by vendor.
   - The two names resolve to ttyACM devices with vendor `03eb`.
   - `fuser` lists no driver process on the camera's port.
 - **The negative half.** This is [`jetson-untether`](../../tasks/active/reliability/jetson-untether.md)'s
-  fence box. Repeat the last three commands with one RoboClaw unplugged and the camera attached.
+  fence box. A running node does not re-detect: unplug one RoboClaw, then recreate `base` and
+  read only the new container's log.
+
+```bash
+docker compose up -d --force-recreate base       # from source/strafer_ros/deploy, camera attached
+docker logs strafer_base 2>&1 | grep -E 'revision=|Auto-detect|Refusing'
+sudo fuser -v "$CAM"
+```
+
   Expect the `Refusing to start` line and nothing on the camera's port.
 
 ## Evidence
@@ -213,7 +228,10 @@ numbers, so `$CAM` finds it by vendor.
 |---|---|
 | repository | https://github.com/zachoines/Sim2RealLab-Artifacts |
 | deposit directory | `chassis-driver-port-fence-2026-10-14/record-files/` |
-| deposit commit | `e4a45b71c40dd1c2061908b461afa99232d57e04` |
+| deposit commit | `ac50a32f1aee34ea462d83f6999d6a47d23996f3` |
+
+The deposit was made in two commits. `e4a45b71c40dd1c2061908b461afa99232d57e04` holds every file.
+`ac50a32f` corrects three statements in `DEPOSIT.md` and changes no other file.
 
 The deposit holds:
 - `run_evidence.sh`, the script behind every run but the mutation re-run, and `run_stamps.txt`;

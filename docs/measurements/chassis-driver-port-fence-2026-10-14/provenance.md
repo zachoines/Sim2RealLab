@@ -40,7 +40,7 @@ All JUnit files carry `hostname="strafer-nx"`.
 | whole ROS suite at `62bb9ee` | 00:44:26–00:45:05 |
 | sealed entry-point run | 00:45:05–00:45:09 |
 | mutation runs (the deposited set) | 00:47:20–00:48:51 (JUnit timestamps) |
-| deposit commit `e4a45b71` | after the runs |
+| deposit commits `e4a45b71`, then `ac50a32f` (`DEPOSIT.md` corrections only) | after the runs |
 
 Earlier passes ran the same way on the uncommitted working tree: at 00:21–00:25, before review,
 and the driver suite at 00:42, after review's changes but before the work commit. Review added the

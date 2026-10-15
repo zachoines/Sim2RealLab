@@ -1,5 +1,8 @@
 # Fence the chassis driver to ports that answer as a RoboClaw
 
+**Status:** Shipped 2026-10-14 in `62bb9ee` (Jetson).
+**PR:** https://github.com/zachoines/Sim2RealLab/pull/243
+
 **Type:** bug (the RoboClaw driver writes motor packets to the D555's serial interface)
 **Owner:** Jetson (`strafer_driver`, `strafer_bringup`, `deploy/`)
 **Priority:** P1 for goal-b. A chassis bringup with the camera attached is the real lane's first
@@ -15,11 +18,11 @@ sending motor packets to the camera's serial interface.**
 
 ## Context bundle
 
-- [context/repo-topology.md](../../context/repo-topology.md)
-- [context/ownership-boundaries.md](../../context/ownership-boundaries.md)
-- [context/conventions.md](../../context/conventions.md)
-- [context/branching-and-prs.md](../../context/branching-and-prs.md)
-- [`jetson-untether`](jetson-untether.md), "Camera, RoboClaw and boot hazards" and the fence box:
+- [context/repo-topology.md](../context/repo-topology.md)
+- [context/ownership-boundaries.md](../context/ownership-boundaries.md)
+- [context/conventions.md](../context/conventions.md)
+- [context/branching-and-prs.md](../context/branching-and-prs.md)
+- [`jetson-untether`](../active/reliability/jetson-untether.md), "Camera, RoboClaw and boot hazards" and the fence box:
   the hazard as first read, and the half of the fence that needs the robot.
 
 ## Context
@@ -40,7 +43,7 @@ sending motor packets to the camera's serial interface.**
   driver (`base`, `perception`, `slam`, `navigation`, `autonomy`). They are passed after the
   params file, so they override `driver_params.yaml`'s `/dev/roboclaw0` and `/dev/roboclaw1`.
 - **On the robot the D555 enumerates a CDC serial interface at `/dev/ttyACM0`**
-  ([`real-d555-hardware-readback-2026-09-25`](../../../measurements/real-d555-hardware-readback-2026-09-25/README.md):57).
+  ([`real-d555-hardware-readback-2026-09-25`](../../measurements/real-d555-hardware-readback-2026-09-25/README.md):57).
 
 `99-strafer.rules`:20 already names every Basicmicro RoboClaw (`03eb:2404`) `/dev/roboclaw<N>`, so
 the fence is to trust only those names, and to write nothing to a port before it answers the
@@ -54,18 +57,34 @@ own refusal has to be the fence.
 
 ## Acceptance criteria
 
-- [ ] `detect_roboclaws` scans `/dev/roboclaw*` only. The `/dev/ttyACM*` fallback is gone.
-- [ ] With `auto_detect` true, fewer than two controllers found: the node logs the count and the
-      missing addresses and exits non-zero before opening any port. Nothing falls back to a
+- [x] `detect_roboclaws` scans `/dev/roboclaw*` only. The `/dev/ttyACM*` fallback is gone.
+      *2026-10-14: `roboclaw_interface.py`:378, :436 at `62bb9ee`.*
+- [x] With `auto_detect` true, fewer than two controllers found: the node logs the count and the
+      missing addresses and exits non-zero before opening any port to drive it. Detection's
+      address probe of `/dev/roboclaw*` is the only traffic, and nothing falls back to a
       configured default.
-- [ ] With `auto_detect` false, a configured port that is not a `/dev/roboclaw*` name is refused
+      *2026-10-14: `roboclaw_node.py`:125-142 and `_refuse` (:260-266) raise `PortFenceError`;
+      `main()` returns 1 (:554-561), and the console script exits with it. On `main` the node
+      started and wrote to the camera's port.*
+- [x] With `auto_detect` false, a configured port that is not a `/dev/roboclaw*` name is refused
       the same way, unless a new parameter `allow_unverified_ports` (default false, documented as a
       bench-only override) is set.
-- [ ] PID constants are written only to a port that answered the address probe; the startup
+      *2026-10-14: :155-160; documented in `driver_params.yaml`. The override relaxes only the
+      name check, never the probe.*
+- [x] PID constants are written only to a port that answered the address probe; the startup
       order (open, then set PID) cannot reach a port that was never probed.
-- [ ] The launch defaults are `/dev/roboclaw0` and `/dev/roboclaw1`, in `driver.launch.py` and in
+      *2026-10-14: under `auto_detect` false each configured port is probed first (:166-174); the
+      opens and PID writes (:185-200) follow the refusals.*
+- [x] A reconnect from the error state counts only when the reopened port answers the probe, so
+      a path that now leads to another device is not driven.
+      *2026-10-14: added during review. `reconnect()` re-probes and closes the port again on no
+      answer (`roboclaw_interface.py`:145-159); `probe_address` also treats a `termios` error as
+      no answer.*
+- [x] The launch defaults are `/dev/roboclaw0` and `/dev/roboclaw1`, in `driver.launch.py` and in
       every bringup launch file that passes them on.
-- [ ] Tests in `strafer_driver/test/` with a fake serial layer:
+      *2026-10-14: `driver.launch.py` and `base`, `perception`, `slam`, `navigation`, `autonomy`;
+      pinned by `test_bringup.py`'s `test_port_defaults_are_udev_names`.*
+- [x] Tests in `strafer_driver/test/` with a fake serial layer:
   - (a) no controllers: the node refuses and opens nothing;
   - (b) one controller: it refuses;
   - (c) two: it starts on the detected ports;
@@ -73,13 +92,23 @@ own refusal has to be the fence.
   - (e) no PID write without an answered probe.
 
   (a), (b), (d)'s refusal and (e) fail on `main`, and that output is deposited.
-- [ ] A record states the code reads, the test runs, and how `base` maps serial devices, with no
+
+  *2026-10-14: 16 tests in `test_port_fence.py`, among them a mixed udev-and-tty pair and a
+  reconnect whose path no longer answers. With them on `main`, 11 of 76 driver tests and the 5
+  bringup default tests fail. Mutation runs: each of eight mutations fails at least one test.
+  Record and deposit below.*
+- [x] A record states the code reads, the test runs, and how `base` maps serial devices, with no
       hardware claims. It gives the maintainer's on-site check as commands.
-- [ ] If your work invalidates a fact in any referenced context module, package README,
+      *2026-10-14: [`chassis-driver-port-fence-2026-10-14`](../../measurements/chassis-driver-port-fence-2026-10-14/README.md), deposit Sim2RealLab-Artifacts `e4a45b71`.*
+- [x] If your work invalidates a fact in any referenced context module, package README,
       top-level `Readme.md`, or guide under `docs/`, update those in the same commit. See
-      [`conventions.md`'s user-facing documentation maintenance section](../../context/conventions.md#user-facing-documentation-maintenance)
+      [`conventions.md`'s user-facing documentation maintenance section](../context/conventions.md#user-facing-documentation-maintenance)
       for the surface list and trigger heuristics.
-- [ ] No regression: `make test-ros` passes.
+      *2026-10-14: the compose header and cgroup comment, the udev rule's comment, both READMEs,
+      `driver_params.yaml`, the shared port constants' comments, the bench tools' messages,
+      `jetson-untether` and the parked low-battery brief's line citations.*
+- [x] No regression: `make test-ros` passes.
+      *2026-10-14: 849 passed, 11 skipped at `62bb9ee`.*
 
 ## Investigation pointers
 
@@ -92,9 +121,6 @@ own refusal has to be the fence.
 ## Out of scope
 
 - Installing `99-strafer.rules` on the robot, and the camera-attached check with `fuser` and the
-  node's log: [`jetson-untether`](jetson-untether.md)'s fence box.
-- `reconnect()` counting a bare open as success. With the fence the reopened path is one that
-  answered the probe at startup.
+  node's log: [`jetson-untether`](../active/reliability/jetson-untether.md)'s fence box.
 - Re-writing the PID after a reconnect.
 - Shutting `base`'s launch down when the driver exits.
-- `strafer_shared.constants`' port comments, which the shared boundary makes append-only.

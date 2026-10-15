@@ -353,6 +353,7 @@ and update any that your change invalidates — in the same PR.**
 | [`source/strafer_autonomy/README.md`](../../../source/strafer_autonomy/README.md) | Skill table, planner endpoints, executor commands. |
 | [`source/strafer_vlm/README.md`](../../../source/strafer_vlm/README.md) | Endpoint table, env-var / config surface. |
 | [`docs/example_commands_cheatsheet.md`](../../example_commands_cheatsheet.md) | Operator one-liners — copy-paste fidelity matters. |
+| [`docs/sim_bridge_autonomy_cheatsheet.md`](../../sim_bridge_autonomy_cheatsheet.md) | Sim-bridge lane runbook: commands paste as they are; every other item is a gotcha of at most three lines that links its long form once. |
 | [`docs/tasks/DEFERRED_WORK.md`](../DEFERRED_WORK.md) | Items you just shipped must be **deleted from this file** in the same commit, per its own maintenance contract at the bottom of the file. |
 
 **Interim docs are exempt from this sweep.** A top-level `docs/*.md` whose

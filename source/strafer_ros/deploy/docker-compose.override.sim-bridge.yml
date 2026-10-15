@@ -20,8 +20,8 @@ services:
   inference:
     env_file: [ compose/sim_bridge.env ]
     environment:
-      # Per-run artifact swap. Empty is the fail-closed default: the inference
-      # node refuses to advertise rather than silently running the wrong policy.
+      # Per-run artifact swap. Unset, this lane loads /models/policy.onnx
+      # rather than the base file's empty, fail-closed default.
       STRAFER_INFERENCE_MODEL_PATH: ${STRAFER_INFERENCE_MODEL_PATH:-/models/policy.onnx}
       # Arms the inference node's obs dump for the parity harness. The node
       # reads the path once at init, so setting it needs

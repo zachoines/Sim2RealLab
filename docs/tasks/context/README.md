@@ -64,9 +64,10 @@ names, and which host is on WiFi this month are not.
 readers.** An active brief holds live state that work is being
 planned against; a completed brief holds the dated record of what was
 measured and when; the
-[cheatsheet](../../sim_bridge_autonomy_cheatsheet.md) holds the
-operational facts someone needs at the keyboard. A module is the most
-durable level and therefore the wrong one by default.
+[sim-bridge cheatsheet](../../sim_bridge_autonomy_cheatsheet.md) holds
+the operational facts someone needs at the keyboard, as commands and
+gotchas of at most three lines that link their long form. A module is
+the most durable level and therefore the wrong one by default.
 
 ---
 

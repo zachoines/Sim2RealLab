@@ -120,10 +120,10 @@ supply.**
 - **Most entry points never load the override.** `Makefile`:156 is
   `FULL_COMPOSE := docker compose -f $(DEPLOY_DIR)/docker-compose.yml`. The explicit `-f` means
   `make up` (:193), `make launch-autonomy` (:199), `make viewer` (:190) and `make submit-deploy`
-  (:207) never load it. Neither does the cheatsheet's sim-bridge chain
-  ([`sim_bridge_autonomy_cheatsheet.md`](../../../sim_bridge_autonomy_cheatsheet.md):56-61,
-  :74-79). Making a robot-local profile "the auto-loaded override" therefore does not make it the
-  default.
+  (:207) never load it. Neither does the cheatsheet's sim-bridge chain: the "On the NX" block's
+  step 1 teardown (`docker compose ... down`) and step 2 spin-up (`docker compose ... up`) in
+  [`sim_bridge_autonomy_cheatsheet.md`](../../../sim_bridge_autonomy_cheatsheet.md). Making a
+  robot-local profile "the auto-loaded override" therefore does not make it the default.
 - **What the env check enforces.** `deploy/tests/check_env_sync.py` checks only the
   `CYCLONEDDS_URI` literal (:59) and the bind-mount *target* (:142-150), and only in
   `docker-compose.yml` and `docker-compose.sim.yml` (:81). It never reads the mount source, and it
@@ -462,7 +462,7 @@ one it replaces comes out.
       - `WIRING_GUIDE.md`: power (:233-239), USB and udev (:243-259), and the wire count
         (:307-316). Its serial-keyed `roboclaw_front`/`roboclaw_rear` snippet contradicts
         `99-strafer.rules`:20, and the D555's CDC takes `/dev/ttyACM0`;
-      - the cheatsheet's SSH target (:105) and wired pre-flight (:116-128);
+      - the cheatsheet's Foxglove `ssh -L` tunnel target and its wired pre-flight;
       - the link brief's transport table (:52-58);
       - `source/strafer_ros/README.md`:3, :124 and :182;
       - the `jetson-desktop` SSH target at `Readme.md`:349 and

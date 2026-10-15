@@ -40,8 +40,11 @@ One canon file per lane; [`gen_env.py`](../../../source/strafer_ros/deploy/tests
 
 A lane file **layers over** a base one rather than replacing it: an overlay's
 `env_file` appends to the base list, and the last file wins for a duplicate key.
-The sim-bridge lane therefore loads `[autonomy.env, sim_bridge.env]` and takes
-the sim-rate values on top of the canonical ones. The same key may appear in
+The sim-bridge lane's `inference` service therefore loads
+`[autonomy.env, sim_bridge.env]` and takes the sim-rate values on top of the
+canonical ones. It is the only service that loads `sim_bridge.env`: the executor
+(`autonomy`) loads `autonomy.env` alone, so on this lane its hybrid backend and
+sim time come from an untracked host-local overlay. The same key may appear in
 several mirrors — that is the layering mechanism, not a partition violation.
 
 The mirrors are **generated**; hand-editing one fails `make env-check`, which

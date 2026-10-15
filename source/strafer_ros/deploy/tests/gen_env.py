@@ -18,8 +18,9 @@ one place per lane -- the compose anchor. Deploy-only keys with no canonical hom
 
 A lane file layers over a base one rather than replacing it: an overlay's
 `env_file` APPENDS to the base list and the last file wins for a duplicate key,
-so the sim-bridge lane loads [autonomy.env, sim_bridge.env] and gets the
-sim-rate values on top of the canonical ones.
+so on the sim-bridge lane the inference service loads [autonomy.env,
+sim_bridge.env] and gets the sim-rate values on top of the canonical ones. No
+other service loads sim_bridge.env.
 
   python3 gen_env.py            # print every mirror to stdout (dry run)
   python3 gen_env.py --write    # write deploy/compose/{sim,autonomy,sim_bridge}.env

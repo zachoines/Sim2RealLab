@@ -57,9 +57,10 @@ docker compose <same flags> config | sed -n '/inference:/,/^  [a-z]/p'   # rende
 docker exec strafer_inference printenv STRAFER_INFERENCE_MODEL_PATH      # what it really has
 ```
 
-`restart` is still the right tool for one thing: reloading **bind-mounted source**
-under `docker-compose.dev.yml`, where the container env is unchanged and only the
-files behind it moved.
+`restart` is still the right tool where the container env is unchanged: crash
+recovery (e.g. `docker restart strafer_slam` after an rtabmap crash), and reloading
+**bind-mounted source** under `docker-compose.dev.yml`, where only the files behind
+it moved.
 
 ### One key, one home
 
@@ -90,6 +91,10 @@ swap), `STRAFER_SLAM_TASK_ID` / `STRAFER_SLAM_SCENE_TOKEN` (per-sim-run keying),
 and `STRAFER_OBS_DUMP_PATH` (diagnostic, normally empty). Set them in your shell
 or `deploy/.env` — **not** by editing a tracked compose file. Everything else is
 node config: edit canon under `strafer_bringup/config/` and `make env-sync`.
+
+`make env-check` cannot see an untracked `docker-compose.override.*.yml`: one
+applied later in the `-f` chain can hard-pin a lever and shadow the host value,
+so confirm a swap with `docker exec <container> printenv <KEY>`.
 
 The DDS keys (`RMW_IMPLEMENTATION` / `CYCLONEDDS_URI` / `ROS_DOMAIN_ID`) are
 deliberately NOT indirected: they come from the `x-dds-env` anchor by design and
@@ -140,9 +145,10 @@ Node config for every lane lives in the canonical `strafer_bringup/config/env_*.
 under `compose/` are **generated** from them by `tests/gen_env.py` — edit canon,
 then `make env-sync`. There is one canon file per lane, and a lane file layers
 over a base one rather than replacing it: the sim-bridge overlay loads
-`[autonomy.env, sim_bridge.env]` and gets the sim-rate values on top of the
-canonical ones. DDS vars (RMW / CYCLONEDDS_URI / ROS_DOMAIN_ID) come from the
-compose `x-dds-env` anchor, not the mirror, so the self-locating `$(...)` URI never
+`[autonomy.env, sim_bridge.env]` into `inference` only, which gets the sim-rate
+values on top of the canonical ones; the executor keeps `autonomy.env` alone.
+DDS vars (RMW / CYCLONEDDS_URI / ROS_DOMAIN_ID) come from the compose
+`x-dds-env` anchor, not the mirror, so the self-locating `$(...)` URI never
 enters a container. Deploy-only keys with no canonical home (VLM_URL / PLANNER_URL)
 are a declared overlay in the generator. `make env-check` (run inside `make test`)
 regenerates + byte-diffs and fails on any drift, and additionally enforces the

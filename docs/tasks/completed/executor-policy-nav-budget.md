@@ -4,7 +4,7 @@
 **PR:** https://github.com/zachoines/Sim2RealLab/pull/235
 **Follow-ups:** [`planner-translate-two-axis-sign`](planner-translate-two-axis-sign.md) — the planner's two-axis "right" sign;
 [`policy-time-to-goal-objective`](../active/trained-policy/policy-time-to-goal-objective.md) — a per-goal bound derived from training;
-[`sim-bridge-cheatsheet-trim`](../active/tooling/sim-bridge-cheatsheet-trim.md) — the cheatsheet cut to commands and gotchas
+[`sim-bridge-cheatsheet-trim`](sim-bridge-cheatsheet-trim.md) — the cheatsheet cut to commands and gotchas
 
 **Type:** bug (mission outcome, trained-policy backends)
 **Owner:** Jetson (`strafer_autonomy` executor lane)

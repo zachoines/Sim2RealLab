@@ -4,6 +4,8 @@
 from __future__ import annotations
 
 import struct
+import sys
+import termios
 import time
 
 from strafer_shared.constants import (
@@ -16,6 +18,7 @@ from strafer_driver.roboclaw_interface import (
     RoboClawError,
     _crc16,
     detect_roboclaws,
+    is_udev_roboclaw_port,
 )
 
 # Additional command IDs for PID reads
@@ -111,12 +114,14 @@ def diagnose_roboclaw(port: str, address: int, label: str):
         print(f"  FATAL: Cannot open port: {e}")
         return
 
-    # Battery voltage
+    # Battery voltage: the address probe. Nothing else is written without an answer.
     try:
         v = claw.read_main_battery()
         print(f"  Battery voltage: {v:.1f}V")
-    except RoboClawError as e:
-        print(f"  Battery read failed: {e}")
+    except (RoboClawError, OSError, termios.error) as e:
+        print(f"  Battery read failed: {e}. No RoboClaw answered; stopping here.")
+        claw.close()
+        return
 
     # Temperature
     try:
@@ -153,7 +158,7 @@ def diagnose_roboclaw(port: str, address: int, label: str):
     claw.close()
 
 
-def main():
+def main(argv: list[str] | None = None) -> int | None:
     import argparse
 
     parser = argparse.ArgumentParser(description="RoboClaw diagnostic tool")
@@ -161,7 +166,20 @@ def main():
     parser.add_argument("--rear", default=None)
     parser.add_argument("--front-only", action="store_true", help="Only test front")
     parser.add_argument("--rear-only", action="store_true", help="Only test rear")
-    args = parser.parse_args()
+    parser.add_argument(
+        "--allow-unverified-ports",
+        action="store_true",
+        help="Bench only: accept --front/--rear paths that are not /dev/roboclaw* names",
+    )
+    args = parser.parse_args(argv)
+
+    unverified = [p for p in (args.front, args.rear) if p and not is_udev_roboclaw_port(p)]
+    if unverified and not args.allow_unverified_ports:
+        print(
+            f"Refusing {', '.join(unverified)}: not /dev/roboclaw* names (`make udev`). "
+            "On a bench, pass --allow-unverified-ports."
+        )
+        return 2
 
     # Auto-detect ports if not explicitly given
     if args.front is None or args.rear is None:
@@ -195,4 +213,4 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

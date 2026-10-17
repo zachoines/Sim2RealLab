@@ -147,16 +147,21 @@ class RoboClawInterface:
 
         Returns True only if the controller answers.  A bare open is not
         enough: the path may now lead to another device.  On failure the
-        port is left closed.
+        port is left closed, also when the probe is interrupted (Ctrl-C),
+        so the node's teardown writes nothing to it.
         """
         self.close()
+        answered = False
         try:
             self.open()
             self.read_main_battery()
-            return True
+            answered = True
         except (RoboClawError, serial.SerialException, OSError, termios.error):
-            self.close()
-            return False
+            pass
+        finally:
+            if not answered:
+                self.close()
+        return answered
 
     # ------------------------------------------------------------------
     # Low-level protocol
@@ -383,6 +388,11 @@ def is_udev_roboclaw_port(port: str) -> bool:
     return os.path.dirname(port) == "/dev" and os.path.basename(port).startswith(
         "roboclaw"
     )
+
+
+def same_device(port_a: str, port_b: str) -> bool:
+    """True if two port paths name one device, following symlinks such as udev's."""
+    return os.path.realpath(port_a) == os.path.realpath(port_b)
 
 
 def probe_address(port: str, address: int, baud_rate: int = 115200) -> bool:

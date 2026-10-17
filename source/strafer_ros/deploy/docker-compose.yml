@@ -33,7 +33,8 @@
 # `perception` needs the RealSense D555; the rest need no hardware. With either
 # RoboClaw missing, the driver exits non-zero having sent only its address probe
 # to /dev/roboclaw*; it never falls back to /dev/ttyACM*, where the D555
-# enumerates its serial interface.
+# enumerates its serial interface. Its exit ends `base`'s launch non-zero, and
+# `restart: unless-stopped` re-runs detection until both are connected.
 #
 # NOTE: Zenoh is a REMOTE-WORKSTATION CONVENIENCE, not a sanctioned transport for
 # the sim lane -- those runs use wired-LAN CycloneDDS; nobody bridges 921 KB depth
@@ -75,7 +76,7 @@ services:
     container_name: strafer_base
     group_add: [ dialout ]
     # 166 = ttyACM: the RoboClaws, and the D555's serial interface too. The driver
-    # opens only /dev/roboclaw* ports that answer its address probe.
+    # drives only /dev/roboclaw* ports that answer its address probe.
     device_cgroup_rules: [ "c 166:* rmw" ]
     volumes:
       - ../strafer_bringup/config/cyclonedds.xml:/opt/strafer/config/cyclonedds.xml:ro

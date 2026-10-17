@@ -14,8 +14,9 @@ Twist -- no serial I/O in the callback.
 
 Port fence: the node drives only ports that answered a RoboClaw address probe,
 at startup and on every reconnect, and detects controllers on
-``/dev/roboclaw*`` only.  If either controller is not found, it logs why and
-exits non-zero; the address probe is all it has sent.
+``/dev/roboclaw*`` only.  If either controller is not found, or both resolve
+to one device, it logs why and exits non-zero; the address probe is all it has
+sent.  ``driver.launch.py`` shuts its launch down when the node exits.
 
 ALL constants from ``strafer_shared.constants``.
 ALL kinematics from ``strafer_shared.mecanum_kinematics``.
@@ -67,6 +68,7 @@ from strafer_driver.roboclaw_interface import (
     detect_roboclaws,
     is_udev_roboclaw_port,
     probe_address,
+    same_device,
 )
 
 # Watchdog timeout: stop motors if no cmd_vel received within this period.
@@ -143,6 +145,12 @@ class RoboClawNode(Node):
                 )
             front_port = detected[ROBOCLAW_FRONT_ADDRESS]
             rear_port = detected[ROBOCLAW_REAR_ADDRESS]
+            if same_device(front_port, rear_port):
+                self._refuse(
+                    f"Auto-detect: both addresses answered on one device "
+                    f"({_describe(detected.items())}); each controller needs its own "
+                    "port. Refusing to start; only the address probe was sent."
+                )
             self.get_logger().info(
                 f"Auto-detect: front (0x{ROBOCLAW_FRONT_ADDRESS:02X}) -> {front_port}, "
                 f"rear (0x{ROBOCLAW_REAR_ADDRESS:02X}) -> {rear_port}"
@@ -152,6 +160,12 @@ class RoboClawNode(Node):
                 (ROBOCLAW_FRONT_ADDRESS, front_port),
                 (ROBOCLAW_REAR_ADDRESS, rear_port),
             ]
+            if same_device(front_port, rear_port):
+                self._refuse(
+                    f"front_port and rear_port name one device ({front_port}, "
+                    f"{rear_port}); each controller needs its own port. Refusing to "
+                    "start; no port was opened."
+                )
             unverified = [p for _, p in configured if not is_udev_roboclaw_port(p)]
             if unverified and not allow_unverified:
                 self._refuse(

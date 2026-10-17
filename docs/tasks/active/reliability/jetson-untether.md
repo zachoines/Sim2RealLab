@@ -142,7 +142,7 @@ supply.**
   cable therefore stays, as a re-dock for sim-bridge sessions. That is a requirement of this brief,
   not an option.
 - **Zenoh is untested against the new profile.** `zenoh-bridge` deliberately gets no
-  `CYCLONEDDS_URI` (`docker-compose.yml`:186-187). Whether it discovers loopback-pinned nodes is
+  `CYCLONEDDS_URI` (`docker-compose.yml`:195-196). Whether it discovers loopback-pinned nodes is
   untested.
 
 ### The executor's services over Wi-Fi
@@ -164,7 +164,7 @@ supply.**
 - Neither service was running on 2026-09-27: health GETs were refused on both paths. The DGX
   answers ping over the LAN at 6–64 ms and over the cable at 1.0–1.8 ms (`ping -c3`).
 - A bare `docker compose up` does not start `inference`, which is under `profiles: [ policy ]`
-  (`docker-compose.yml`:155). A policy backend in canon therefore needs `--profile policy` on
+  (`docker-compose.yml`:164). A policy backend in canon therefore needs `--profile policy` on
   whatever boot path is chosen.
 
 ### Power
@@ -256,7 +256,7 @@ supply.**
   before Wi-Fi is up would stamp logs and bags with the stale time.
 - **`deploy/.env` still carries sim-lane values.** This gitignored file sets
   `STRAFER_SLAM_TASK_ID=enrich` (:107), `STRAFER_SLAM_SCENE_TOKEN=rigv3gate1` (:117) and the v3
-  artifact path (:42). The SLAM keys are passed through at `docker-compose.yml`:105-106, so a
+  artifact path (:42). The SLAM keys are passed through at `docker-compose.yml`:114-115, so a
   real-robot bring-up with them would key RTAB-Map to a sim scene's database.
 - **2026-10-04: the host changed for the camera (record
   [`d555-stream-integrity-2026-10-04`](../../../measurements/d555-stream-integrity-2026-10-04/README.md)).**
@@ -436,6 +436,9 @@ one it replaces comes out.
       counts only when the port answers. Unit tests with a fake serial layer show it. What
       remains for this box is the camera-attached check on an image built with the fence:
       `fuser` on the camera's port and the node's log.*
+      *2026-10-16: a refusal now ends `base`'s launch with exit 1, so compose restarts `base` and
+      detection runs again; `docker ps` shows it restarting, not up. The check's expectations are
+      in the record's §7.*
 
 **Cutover and cold boot**
 
@@ -524,8 +527,8 @@ one it replaces comes out.
     device tree (`/proc/device-tree/bus@0/padctl@3520000/ports/*/status`).
   - The device-mode pad `usb2-0` is the camera port's USB 2.0 companion.
   - `connect_type` reads `unknown` on every port, so the physical layout cannot be read from sysfs.
-- **Compose and DDS.** `source/strafer_ros/deploy/docker-compose.yml` (header :1-38, `base`
-  :62-79, `zenoh-bridge` :171-190); `deploy/docker-compose.override.yml` and
+- **Compose and DDS.** `source/strafer_ros/deploy/docker-compose.yml` (header :1-41, `base`
+  :65-84, `zenoh-bridge` :184-199); `deploy/docker-compose.override.yml` and
   `~/.config/cyclonedds/direct-link.xml` (host-local); `deploy/tests/check_env_sync.py`; the
   `Makefile`'s `FULL_COMPOSE` (:156) and `udev` (:238-242).
 - **Driver.** `strafer_driver/strafer_driver/roboclaw_interface.py` (`probe_address`,

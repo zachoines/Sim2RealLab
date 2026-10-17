@@ -7,7 +7,9 @@ Launches:
 
 Usage:
   ros2 launch strafer_bringup base.launch.py
-  ros2 launch strafer_bringup base.launch.py front_port:=/dev/roboclaw_front
+  ros2 launch strafer_bringup base.launch.py front_port:=/dev/roboclaw2
+    (front_port and rear_port are read only when driver_params.yaml sets
+    auto_detect false; the names are 99-strafer.rules' /dev/roboclaw<N>)
 """
 
 from launch import LaunchDescription

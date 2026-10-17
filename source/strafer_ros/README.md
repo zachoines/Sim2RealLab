@@ -132,8 +132,9 @@ map ← odom ← base_link ← {chassis, wheel_*, d555_link}
   - **The driver needs both RoboClaws at `/dev/roboclaw*` (`make udev`).** Detection probes only
     those names, so by default nothing reaches the D555's serial interface, a `/dev/ttyACM*` port.
     With either controller missing it logs the count and the missing addresses and exits 1, having
-    sent only the address probe. `robot_state_publisher` keeps `base` up, so read the log, not
-    `docker ps`, and restart `base` once both are connected. A fenced driver logs
+    sent only the address probe. That ends `base`'s launch with exit 1, and compose's restart runs
+    detection again, so `docker ps` shows `base` restarting until both are connected and its log
+    carries the refusal. A fenced driver logs
     `Auto-detecting RoboClaw ports on /dev/roboclaw*...`; an image built before the fence still falls back.
   - **The Jetson's RTC does not hold time across power-off.** After a cold boot, check that the clock
     has synced (`timedatectl`) before recording anything.
@@ -238,7 +239,9 @@ These live at the top of `source/strafer_ros/` and are direct-hardware tools. Ru
 python3 source/strafer_ros/tune_pid.py --read         # current PID
 python3 source/strafer_ros/tune_pid.py --tune         # set + measure
 
-# RoboClaw direct duty-cycle diagnostics (skip PID)
+# RoboClaw direct duty-cycle diagnostics (skip PID). --front/--rear take /dev/roboclaw*
+# names; any other path needs --allow-unverified-ports (bench only). A port that does not
+# answer the battery read gets nothing more.
 python3 source/strafer_ros/diagnose_roboclaw.py
 
 # D555 camera + IMU standalone check

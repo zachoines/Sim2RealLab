@@ -58,10 +58,10 @@ docker exec strafer_inference printenv STRAFER_INFERENCE_MODEL_PATH      # what 
 ```
 
 `restart` is still the right tool where the container env is unchanged: crash
-recovery (e.g. `docker restart strafer_slam` after a `/clock` hitch; an rtabmap
-`addLink()` load abort needs a fresh scene token instead), and reloading
-**bind-mounted source** under `docker-compose.dev.yml`, where only the files
-behind it moved.
+recovery (e.g. `docker restart strafer_slam` after a `/clock` hitch, or once after
+an rtabmap `addLink()` load abort; a fresh scene token only if it aborts again
+within ~1 s of subscribing), and reloading **bind-mounted source** under
+`docker-compose.dev.yml`, where only the files behind it moved.
 
 ### One key, one home
 

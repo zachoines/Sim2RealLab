@@ -170,7 +170,7 @@ neighbour to propagate into: measured planning from ~0.20 m off lethal (the rig
 run above planned from 0.222 m) and refusing from ~0.15 m. Pre-existing
 behaviour, shared with the hybrid lane's escape hatch, unchanged by this work —
 recorded in the sim-bridge cheatsheet so an operator reading either lane's WARN
-knows the limit.
+knows the limit. *2026-10-16: the cheatsheet now links here for the limit (PR #244).*
 
 The inscribed band is narrow — roughly 0.21 m to 0.15 m off lethal — so a rig
 reproduction has to park inside it deliberately. Driving at the nearest

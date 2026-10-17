@@ -67,7 +67,7 @@ docker compose \
 # 3) Wait ~60-90s: donut_warmup spins the robot to seed rtabmap's map. Sanity-check:
 docker ps --format '{{.Names}}\t{{.Status}}' | grep strafer_
 docker logs strafer_slam 2>&1 | grep -iE 'FATAL|rtabmap \(' | tail -3   # want "rtabmap (N): ..." iterating, no FATAL
-docker logs strafer_slam 2>&1 | grep 'loadDataFromDb().*repair'   # want none: a hit = truncated db
+docker logs strafer_slam 2>&1 | grep -A1 'loadDataFromDb()' | grep -c repair   # want 0: >0 = truncated db
 #    On FATAL Memory.cpp:3852::addLink() (a db-load abort, not a /clock hitch), restart once:
 #      docker restart strafer_slam        # wait ~30s for map->odom to re-establish
 #    If it aborts again within ~1 s of "rtabmap subscribed to", the db is unloadable: bump the

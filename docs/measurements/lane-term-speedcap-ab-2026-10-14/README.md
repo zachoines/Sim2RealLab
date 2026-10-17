@@ -10,8 +10,12 @@ ran the video set's two goals, alternating the deployed cap (**C**, 0.7841 m/s a
 training's envelope (**U**, 1.5683 m/s and 4.1866 rad/s), through the full lane. The reads and the
 decision rule were committed before the first reach.
 
-**By the pre-registered rule, the cap stays "a doubling, not the main term".** The verdict comes from
-the second session, twelve reaches, six per arm, all `SUCCEEDED`, none void:
+**By the pre-registered rule the cap is not the lane's main term. At six reaches per arm the lane
+measures no cap effect** (stop-short U 4 of 6 against C 5 of 6: Fisher p 1.0, rate ratio 1.25, 95 %
+0.64–2.44; band medians Mann–Whitney p 0.82; computed after the run, §5). The training-env doubling is
+that record's figure. The interval includes the training env's rate ratio, 2.17, so six reaches per arm
+cannot exclude a doubling. The verdict comes from the second session, twelve reaches, six per arm, all
+`SUCCEEDED`, none void:
 - **Band time.** From the first pose sample within 0.42 m of the goal to the node's result, the median
   is 2.65 s on U against 1.93 s on C. The rule needed U at half of C or less.
 - **Stop-short.** 4 of the 6 U reaches went quiet before the first 0.30 m crossing, against 5 of 6 on
@@ -22,12 +26,25 @@ the second session, twelve reaches, six per arm, all `SUCCEEDED`, none void:
 **Lifting the cap does not remove the lane's stop-short.** 9 of the 12 reaches went quiet 0.304–0.395 m
 from the goal before crossing 0.30 m, uncapped and capped alike (§5). The lane's like-for-like rate
 on earlier records is 7 of 10; the referent-offset A/B's was 11 of 12. In the training env the rate is
-2.94 % uncapped and 6.40 % capped (pooled). By the rule the cap is not the lane's main term. Six
-reaches per arm cannot exclude a contribution of the size seen in training.
+2.94 % uncapped and 6.40 % capped (pooled).
+
+**Computed after the run: with SLAM's frame held at goal-sent the terminal reads change** (§5).
+- **The held read.** The goal is mapped into odom once and the robot read from the odom series.
+- **Five reaches never came within 0.30 m.** Of the twelve `SUCCEEDED` reaches, five never did:
+  B01 0.337, B02 0.305, B03 0.349, B04 0.457 and B07 0.338 m.
+- **The stop-shorts.** The pre-crossing stop-shorts read U 2 of 6 against C 2 of 6.
+- **The consequence.** The lane's terminal reads move with the frame at the scale of the effect, so
+  this record's headline stop-short figures are live-frame reads, with in-reach goal excursions of
+  0.076–0.327 m.
+- **The rule's verdict is unchanged under the held frame.** The stop-short clause would pass (U 2 of
+  6), but the band clause fails: U 2.70 s against C 4.47 s.
 
 **The first session did not run the lane the pre-registration specifies, and its reading is void.**
 - At 75 s sim, after its first reach, SLAM's `map→odom` stepped 1.25 m and 88°, and it never returned
   for more than a few seconds (§3). On the sim bridge odom is ground truth, so the step is SLAM error.
+  From 01:04:20 UTC rtabmap logged 68 "wrong loop closure … after graph optimization" warnings. That
+  cascade is the mechanism lead for why the frame never returned. The frame was away before it and
+  stayed away after it (§3).
 - Six of the seven goals submitted after the step went to a different physical point, 0.89–5.23 m
   from where the referent-offset A/B sent them. S05's went 0.050 m off, during the frame's brief
   return (§3).
@@ -104,7 +121,9 @@ reaches per arm cannot exclude a contribution of the size seen in training.
 **Where the goals went** (computed after the run; `session1/frames_posthoc_session1.txt`). Each
 submitted reach's map-frame goal, mapped to odom through `map→odom` at acceptance, against where the
 referent-offset A/B sent the same goal (the means of its six acceptances per goal, which stayed within
-0.05 m for G1 and 0.10 m for L2; that session's `map→odom` stayed within 0.22 m and 7°):
+0.05 m for G1 and 0.10 m for L2). That session's ride-along stayed within 0.219 m and 6.5° of its
+first sample, and its twelve observer records' `map_odom` within 0.287 m and 4.93° of their first
+sample (`posthoc_frame_excursion.txt`, computed after the run):
 
 | reach | goal | `map→odom` at acceptance | from the referent A/B's goal |
 |---|---|---|---:|
@@ -139,7 +158,19 @@ caps bound as designed (U 1.568 on every reach, C 0.7841).
   So none was running at 00:41:14, when the 88° step came. Its deposit
   (`chassis-driver-port-fence-2026-10-14` in the evidence repository) stamps its runs
   00:44:03–00:48:51 UTC, ending 12 s before the 0.81 m step.
-- The rtabmap log carries no warning at either step.
+- **The SLAM log** (`session1/logs/nx/strafer_slam.log`):
+  - No warning falls at the 88° step or the 0.81 m step.
+  - From 01:04:20 UTC (line 640) to 01:29:41 UTC (line 1190) rtabmap logged 68 warnings that a
+    "wrong loop closure has been detected after graph optimization". Each one rejected that
+    iteration's added loop closures, and each came with a companion "Loop closure … rejected!" line
+    (lines 641–1191).
+  - Separately, 18 loop closures were rejected for too few inliers (lines 410–1147). That makes 154
+    lines naming a rejection.
+  - This wrong-loop-closure cascade is the mechanism lead for the frame never returning. It began 23
+    minutes after the 88° step, and it is not shown to have caused that step. It covers 01:04–01:29
+    UTC, after the frame's one brief return (00:59:09–01:00:41). The frame was away before the
+    cascade, and it stayed away after it to the ride-along's end at 02:24:42, with no further warning.
+  - The counts and line numbers are in `posthoc_round_reads.txt` (computed after the run).
 
 ## 4. The second session's frame checks
 
@@ -159,8 +190,10 @@ positions, not the session's.
   session's.
 - That gate would have refused every reach on a frame that had not moved.
 - `8d7c5fe` changed the reference to the session's own settled frame (`session2/frame_ref*.json`).
-  Replayed on the first session, the amended check passes S01 (0.162 m) and S05 (0.100 m) and fails
-  S04 (3.361 m) and S10 (1.329 m).
+  Replayed on the first session's eight submitted reaches, the amended check passes 2 (S01 0.162 m,
+  S05 0.100 m) and fails 6 (S03 5.076, S04 3.361, S06 2.080, S07 1.874, S08 0.840, S10 1.329 m).
+  The addendum listed S01, S04, S05 and S10. The other four were computed after the run
+  (`posthoc_round_reads.txt`).
 
 **What the frame did.**
 
@@ -174,13 +207,20 @@ Leg 1's drift came as a slope and three steps.
 - The steps were 0.15 m (77.3 s), 0.12 m (80.2 s), and 0.29 m and −4.3° (137.3 s, 02:48:27 UTC,
   during B02's reach).
 - It reached 0.52 m and 5° by 148 s.
-- rtabmap logged four rejected loop closures at 02:46:12–02:46:53 UTC and no warning at the steps.
+- rtabmap logged four rejected loop closures at 02:46:12–02:46:53 UTC
+  (`session2/logs/nx_leg1/strafer_slam.log`, lines 345–360), none at the steps, and no wrong-loop-closure
+  warning.
+
+Leg 2's rtabmap log has 89 rejected loop closures (`session2/logs/nx_leg2/strafer_slam.log`, lines
+247–1503) and no wrong-loop-closure warning. The scene-axis boot's has 31
+(`lane-term-scene-axis-2026-10-14`).
 
 **Where the goals sat** (computed after the run; `session2/frames_posthoc_session2.txt`).
 - B04–B12 sat 0.053–0.211 m from the referent A/B's goals.
 - B01–B03 sat 0.369–0.573 m off, with leg 1's start-up frame and leg 2's early drift.
-- Read on B04–B12 alone, the rule's terms read U band median 4.20 s against C 1.79 s, and stop-shorts
-  U 3 of 4 against C 4 of 5. The verdict is the same.
+- Read on B04–B12 alone, the subset is void-sized: four U reaches, below the series minimum of five.
+  As a descriptive read, the band median is U 4.20 s against C 1.79 s and the stop-shorts U 3 of 4
+  against C 4 of 5.
 - One goal moved more than 0.30 m during its reach: B04, by 0.327 m. The addendum reads the frame at
   acceptance only, so B04 stands.
 
@@ -195,6 +235,44 @@ Leg 1's drift came as a slope and three steps.
 - **The two goals differ.** On L2 the capped band was longer (median 5.54 s against U's 2.29 s); on G1
   the uncapped one was (3.01 s against 1.54 s). With three reaches per cell, these per-goal medians
   are descriptive.
+- **The verdict's statistics** (computed after the run; `posthoc_round_reads.txt`):
+  - Fisher's exact test, two-sided, on the stop-short counts.
+  - The rate ratio is capped over uncapped, with a Katz log interval.
+  - The Mann–Whitney test is exact and two-sided, on the twelve band times.
+
+**Computed after the run: the frame held at goal-sent** (`posthoc_frame_held.py` →
+`posthoc_frame_held.txt`). The node scores each reach on the live map frame, so a `map→odom` change
+during the reach moves the goal under the robot. This read holds the frame instead:
+- the map-frame goal is mapped into odom once, through the `map→odom` sample nearest goal-sent;
+- the robot is read from the record's odom series (on the bridge, ground truth);
+- `lane_summary.py`'s band, crossing and stop-short definitions are then repeated, over goal-sent to
+  the result.
+
+| reach | arm | live-frame distance at the result (m) | held-frame distance at the result (m) | held-frame band time (s) | held-frame crossing | held-frame pre-crossing stop-short | in-reach goal excursion (m) |
+|---|---|---:|---:|---:|---|---|---:|
+| B01 | U | 0.300 | 0.337 | 0.93 | no | no | 0.216 |
+| B02 | C | 0.298 | 0.305 | 8.38 | no | yes | 0.076 |
+| B03 | U | 0.300 | 0.349 | 1.83 | no | yes | 0.116 |
+| B04 | C | 0.300 | 0.457 | never entered 0.42 m | no | no | 0.327 |
+| B05 | U | 0.299 | 0.222 | 6.25 | yes | no | 0.162 |
+| B06 | C | 0.300 | 0.173 | 6.37 | yes | no | 0.164 |
+| B07 | U | 0.275 | 0.338 | 2.29 | no | no | 0.173 |
+| B08 | C | 0.300 | 0.213 | 2.00 | yes | no | 0.162 |
+| B09 | U | 0.300 | 0.241 | 3.11 | yes | no | 0.166 |
+| B10 | C | 0.278 | 0.286 | 2.58 | yes | yes | 0.245 |
+| B11 | U | 0.300 | 0.265 | 7.12 | yes | yes | 0.135 |
+| B12 | C | 0.300 | 0.261 | 1.54 | yes | no | 0.118 |
+
+- **The crossings.** Five of the twelve never came within 0.30 m under the held frame, and each
+  one's closest approach was its distance at the result.
+- **The stop-shorts.** They read U 2 of 6 (B03, B11) against C 2 of 6 (B02, B10), against the live
+  frame's 4 of 6 and 5 of 6.
+- **The rule under the held frame.** The band medians are U 2.70 s against C 4.47 s, with B04, which
+  never entered, ranked last. The stop-short clause would pass, but the band clause fails, so the
+  verdict is the same.
+- **The consequence.** The lane's terminal reads move with the frame at the scale of the effect, so
+  the headline stop-short figures above are live-frame reads, with in-reach goal excursions of
+  0.076–0.327 m.
 
 ## 6. The planner refusals
 
@@ -231,6 +309,22 @@ two-axis translate. The compile-first dry-check caught each, and nothing was sub
   groups (`stop-bridge`).
 - **The second session's chain logs "chain done" after a frame STOP.** The `exit` inside the
   manifest's pipeline leaves only its subshell. It did stop: no reach ran after the STOP line.
+- **Every reach recreated the `inference` container.** The node reads its caps once at start, so each
+  slot recreated the container with its arm's file. The referent-offset A/B switched its arm with
+  `ros2 param set`, without a recreate. As the deposits show, the recreate is not a candidate cause of
+  the frame failures:
+  - it happened before every reach in all four of the evening's boots, including the one whose frame
+    held;
+  - no step coincides with one (computed after the run, `posthoc_round_reads.txt`). Of the 51
+    `map→odom` steps of 0.1 m or more between consecutive ride-along samples, none came within 42 s
+    after a recreate's start; the nearest came 18.0 s before one, and the median distance to the
+    nearest recreate start is 81 s;
+  - rtabmap consumes nothing the `inference` container publishes. rtabmap's inputs are the synced
+    colour and depth relays, the scan, the bridge's odom and the IMU; the container publishes
+    `/cmd_vel`, the active goal and the subgoal.
+
+  One path the deposits do not test: both containers run on the robot host, so they share its
+  compute.
 
 ## 8. What is not claimed
 
@@ -242,7 +336,8 @@ two-axis translate. The compile-first dry-check caught each, and nothing was sub
 - **Not why the lane stops short.** By the pre-registered rule the cap is not the main term on this
   lane. The rule's power against a major term is not stated (the pre-registration). The scene-axis
   session (`lane-term-scene-axis-2026-10-14`) was to read the next candidate; it is void.
-- **Not the cause of the first session's SLAM failure.**
+- **Not the cause of the first session's SLAM failure.** The wrong-loop-closure cascade (§3) is a
+  lead, not a shown cause.
 
 ## Evidence — deposit
 
@@ -250,10 +345,12 @@ two-axis translate. The compile-first dry-check caught each, and nothing was sub
 |---|---|
 | repository | https://github.com/zachoines/Sim2RealLab-Artifacts |
 | deposit directory | `lane-term-speedcap-ab-2026-10-14/record-files/` |
-| deposit commit | `76a489bc33ed19e40b825790b6686373cf3b88f0` |
+| deposit commit | `38e3bf9b62a91c9154ec7189efcb62538f1ec3e4` |
 
 The pre-registration, scorer, cap files and session scripts are in `74127b0`, before the first reach.
 The second session's addendum, frame check and manifest are in `b9a6683`, before its boot. The
 amendment and stage-0 checks are in `8d7c5fe`, before its first reach. The first relaunch's reference
-frames and stage-0 checks are in `e2575cd`, before its next reach. `DEPOSIT.md` lists every file, how
-each number above is re-derived, and the redactions.
+frames and stage-0 checks are in `e2575cd`, before its next reach. The runs are in `76a489b`. The
+post-hoc reads were added at `3f1debf` (frame held, frame excursion) and `38e3bf9` (the round reads, and
+the held-frame band times). `DEPOSIT.md` lists every file, how each number above is re-derived, and the
+redactions.

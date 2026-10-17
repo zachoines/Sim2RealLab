@@ -49,9 +49,16 @@ and every difference between them is one this brief lists.**
 
 **v4 starts from v3's distribution.** v3 trained at `615fc14` on
 `Isaac-Strafer-Nav-RLDepth-Subgoal-Enriched-Robust-v0`, composition contract `faf86756…`. From
-`615fc14` to `6cd6fd7` the training sources changed only in the command terms' debug markers
-(`debug-markers-out-of-cameras`), and the contract moved by exactly
-`commands.goal_command.debug_vis` to `c98d18ba…`. v3's markers never left the world origin, so its
+`615fc14` to `6cd6fd7` the training-side sources changed in four places:
+- the command terms' debug markers (`debug-markers-out-of-cameras`);
+- a constant, `POLICY_MISSION_TIMEOUT_S` in `strafer_shared/constants.py`, which only the inference
+  node, the executor and their tests read;
+- in `train_strafer_navigation.py`, the `--video` block, which no longer registers a Kit visualizer;
+- the `RecordVideo` wrap, which now records through `CommandOverlay`, drawing the command onto the
+  saved frames.
+
+Only the first moved the composition contract, by exactly `commands.goal_command.debug_vis`, to
+`c98d18ba…`. v3's markers never left the world origin, so its
 observations did not change. A from-scratch run on `main` with none of the changes below therefore
 trains on v3's distribution, and every difference between v4 and v3 is a row of the table below.
 
@@ -59,15 +66,18 @@ trains on v3's distribution, and every difference between v4 and v3 is a row of 
 
 | # | Change | Source | Status | In v4 |
 |---|---|---|---|---|
-| 1 | Policy camera at fx = fy = 321.522 px (VFOV 58.48°), from 335.652 px (56.41°) | [`vfov-gap-v3-2026-10-03`](../../../measurements/vfov-gap-v3-2026-10-03/README.md); plan decision 30; `depth-noise-real-structure` item 7 | decided | **enters**, on v4's IDs only; the bridge's camera is decided at the go (§1) |
+| 1 | Policy camera at fx = fy = 321.522 px (VFOV 58.48°), from 335.652 px (56.41°) | [`vfov-gap-v3-2026-10-03`](../../../measurements/vfov-gap-v3-2026-10-03/README.md), its verdict as registered; `depth-noise-real-structure` item 7 | decided | **enters**, on v4's IDs only; the bridge's camera is decided at the go (§1) |
 | 2 | `num_rerenders_on_reset` (each environment's first episode starts on a pre-reset frame) | [`episode-start-stale-depth`](episode-start-stale-depth.md), its Price and Decision boxes | open: the boxes have not run | **what that brief's Decision box decides**, run before the launch |
-| 3 | Speed envelope: per-episode randomisation of the command envelope, unobserved | [`policy-time-to-goal-baseline-2026-10-11`](../../../measurements/policy-time-to-goal-baseline-2026-10-11/README.md) §9; rulings 55 and 57; A3 and A4 | carried on ruling 55's ground; A3 reads the cap as not the lane's main term (§3); the pilot picks the form | **enters**, in the form the pilot picks |
+| 3 | Speed envelope: per-episode randomisation of the command envelope, unobserved | [`policy-time-to-goal-baseline-2026-10-11`](../../../measurements/policy-time-to-goal-baseline-2026-10-11/README.md) §9; [`lane-term-speedcap-ab-2026-10-14`](../../../measurements/lane-term-speedcap-ab-2026-10-14/README.md) | carried on the training-env doubling (§9 of the time-to-goal record, computed after its rule); the speed-cap A/B on the lane (2026-10-14) reads the cap as not the lane's main term (§3); the pilot picks the form | **enters**, in the form the pilot picks |
 | 4 | Noise structure, `depth-noise-real-structure` items 1–6 and 8 | [`real-d555-depth-texture-2026-09-26`](../../../measurements/real-d555-depth-texture-2026-09-26/README.md) | item 1 decided (no change); items 2–6 and 8 open, gated on a capture not yet taken | **no change**, unless that brief decides before the go (§4) |
-| 5 | The objective's time and speed terms | [`policy-time-to-goal-objective`](policy-time-to-goal-objective.md) | a variant gated on the lane term; A4 is void, so the term is still unidentified | **not a v4 default** (§5) |
+| 5 | The objective's time and speed terms | [`policy-time-to-goal-objective`](policy-time-to-goal-objective.md) | a variant gated on the lane term; the scene-axis measurement on the lane (2026-10-14) is void, so the term is still unidentified | **not a v4 default** (§5) |
 
-**Not in v4.** The referent snap (`subgoal-generator-goal-as-final-waypoint`, ruling 53) and the
-planner's direction schema ([`planner-translate-direction-schema`](../reliability/planner-translate-direction-schema.md),
-ruling 56). Both are deploy-side and ship in paired sessions. Neither touches the training env.
+**Not in v4.** Moving the anchored plan's end onto the goal (arm T of
+[`subgoal-referent-offset-ab-2026-10-11`](../../../measurements/subgoal-referent-offset-ab-2026-10-11/README.md),
+a deploy-side change not filed as a brief), and the planner's direction schema
+([`planner-translate-direction-schema`](../reliability/planner-translate-direction-schema.md), following
+[`planner-translate-sign-2026-10-11`](../../../measurements/planner-translate-sign-2026-10-11/README.md),
+a paired session). Both are deploy-side. Neither touches the training env.
 
 **v3's IDs keep v3's contract.** v4 registers its own ID pair (Run), and each v4 change is set in
 v4's composition only. Two of the changes would otherwise reach v3's IDs silently:
@@ -87,7 +97,8 @@ v4's composition only. Two of the changes would otherwise reach v3's IDs silentl
     reset.
   - Over the first second the difference stays inside the registered yardstick. Of the outcome
     metrics, only off-path divergence moves past its standard error (1.1 / 1.2).
-  - By its registered rule the gap matters, and it is small (plan decision 30). v3 is not changed.
+  - By its registered rule the gap matters, and it is small (`vfov-gap-v3-2026-10-03`). v3 is not
+    changed.
 - **The change.** v4's composition sets the policy camera's focal length to 321.522 × 3.68 / 640 =
   1.8487515 mm, as the VFOV record's arm B did through `scene.d555_camera.spawn.focal_length`.
   - The constant itself does not change. Both camera factories in `d555_cfg.py` read it, and every
@@ -95,7 +106,7 @@ v4's composition only. Two of the changes would otherwise reach v3's IDs silentl
   - The composition contract takes only `num_envs` and `env_spacing` off the scene, so no golden
     would notice.
   - The change therefore carries two assertions on composed variants: v4's at 1.8487515 mm, and v3's
-    at 1.93 mm. #222's pin on the camera factory's resolution (`tests/contracts/test_depth_deploy_reduction.py`)
+    at 1.93 mm. #222's pin on the camera factory's resolution (`source/strafer_lab/tests/contracts/test_depth_deploy_reduction.py`)
     is the precedent for a field the golden misses.
 - **Isaac Lab forces the principal point to the image centre.** `camera.py` sets `c_x = width/2` and
   `c_y = height/2`, and the spawner ignores aperture offsets. The real (318.44, 180.32) stays
@@ -106,20 +117,24 @@ v4's composition only. Two of the changes would otherwise reach v3's IDs silentl
     bridge's composition): the lane renders what the real camera delivers and what v4 trained on.
     The same-session v3 arm (Acceptance) then runs at the real intrinsics, as the VFOV record's arm
     B did in training. **Recommended.**
-  - **Bridge unchanged:** v4 runs the G-sim gate 4.4 % off its training focal length (3.7 % in VFOV;
-    arithmetic), and v3's 4 of 6 stays like-for-like on the bridge.
-- **What reads the constant and goes stale with a change.** Tests: `test_d555_perception_cfg.py`
-  (:124), `test_depth_subgoal_rewards.py` (:52-65), `test_depth_noise_resolution_sensitivity.py`
-  (:80). Docstrings: `d555_cfg.py`:41-43 ("differ ONLY in resolution and prim path") and :128-131
-  ("56.4 deg … matching the real D555"); `test_depth_subgoal_rewards.py`:47-49.
+  - **Bridge unchanged:** v4 runs the G-sim gate on a focal length 4.39 % longer than its training
+    one (335.652 against 321.522 px), and a VFOV 3.55 % narrower than its training VFOV (56.41°
+    against 58.48°; 3.68 % relative to the bridge's), all from the focal lengths. v3's 4 of 6 stays
+    like-for-like on the bridge.
+- **What reads the constant and goes stale with a change.** Tests:
+  `source/strafer_lab/tests/navigation/test_d555_perception_cfg.py` (:124),
+  `source/strafer_lab/tests/navigation/test_depth_subgoal_rewards.py` (:52-65),
+  `source/strafer_lab/tests/navigation/test_depth_noise_resolution_sensitivity.py` (:80). Docstrings:
+  `d555_cfg.py`:41-43 ("differ ONLY in resolution and prim path") and :128-131 ("56.4 deg … matching
+  the real D555"); `source/strafer_lab/tests/navigation/test_depth_subgoal_rewards.py`:48-51 (a comment).
 
 ### 2. The stale first frame
 
 - **Exposure.** In a headless launch with no Kit visualizer and no camera-reading reward or
   termination, only each environment's first episode starts on a pre-reset frame: 96 of about 20 200
   episodes in v3's run (0.47 %). With a Kit visualizer or a camera-reading term, every episode does
-  ([`episode-start-stale-depth`](episode-start-stale-depth.md); plan decision 31 as corrected on
-  2026-10-12).
+  ([`episode-start-stale-depth`](episode-start-stale-depth.md), as corrected on 2026-10-12, and the
+  2026-10-11 correction to [`vfov-gap-v3-2026-10-03`](../../../measurements/vfov-gap-v3-2026-10-03/README.md)).
 - **This brief's choice: v4 enables no camera-reading term.** `depth_obstacle_proximity` stays at
   weight 0, and the run is headless. So v4's exposure is v3's.
 - **The decision comes from that brief's Price box and Decision box.** Neither has run. They run
@@ -138,26 +153,28 @@ v4's composition only. Two of the changes would otherwise reach v3's IDs silentl
     0.30 m crossing; the rule needed 4.47 %.
   - **Computed after the rule (2026-10-13, labelled post hoc in the record):** pooled over four
     launches, 44 of 688 band entries capped against 21 of 714 uncapped, RR 2.17 (1.31–3.62). "The
-    node's speed cap roughly doubles the rate of the stop-short the policy already has" (ruling 55).
-  - Read per band entry, the lane's rate is 7 of 10, 23.8-fold the pooled uncapped rate (record §9;
-    ruling 57). A doubling is a factor of about two of that gap.
-- **A3's verdict: on the lane the cap is not the main term**
+    node's speed cap roughly doubles the rate of the stop-short the policy already has" (record §9).
+  - Read per band entry, the lane's rate is 7 of 10, 23.8-fold the pooled uncapped rate (record §9).
+    A doubling is a factor of about two of that gap.
+- **The speed-cap A/B on the lane (2026-10-14)**
   ([`lane-term-speedcap-ab-2026-10-14`](../../../measurements/lane-term-speedcap-ab-2026-10-14/README.md)).
   - The video set's goals were run alternating the deployed cap with training's envelope, six reaches
     each.
-  - By its pre-registered rule the cap stays "a doubling, not the main term". 4 of 6 uncapped reaches
-    went quiet before the 0.30 m crossing, against 5 of 6 capped. The uncapped band was not shorter:
-    median 2.65 s against 1.93 s.
-  - So the envelope enters v4 on the training-env ground, ruling 55's doubling and the exposure. It is
-    not expected to move the lane's stop-short rate, and v4's lane read (Acceptance) is not a test of
-    it.
-- **A4 is void** (§5) and changes nothing in this section.
-- **The form, in order of preference** (plan §6, item 6):
+  - By the pre-registered rule the cap is not the lane's main term. At six reaches per arm the lane
+    measures no cap effect (stop-short U 4 of 6 against C 5 of 6: Fisher p 1.0, rate ratio 1.25,
+    95 % 0.64–2.44; band medians Mann–Whitney p 0.82). The training-env doubling is
+    `policy-time-to-goal-baseline-2026-10-11` §9's figure, and the interval includes it.
+  - So the envelope enters v4 on the training-env ground: the doubling measured there and the
+    exposure. It is not expected to move the lane's stop-short rate, and v4's lane read (Acceptance)
+    is not a test of it.
+- **The scene-axis measurement on the lane (2026-10-14) is void** (§5) and changes nothing in this
+  section.
+- **The form, in order of preference:**
   - **(b) Per-episode randomisation of the envelope, unobserved.**
     - *This brief's design, for the pilot to test:* at each reset each environment draws one scale s
       from U[0.255, 1.0] and applies it to both caps, |vx| + |vy| ≤ s × 1.5683 m/s (about 0.40 to
       1.57 m/s) and |ω| ≤ s × 4.1866 rad/s. The deploy cap is s = 0.5. No observation changes.
-    - *The plan's rationale, untested:* the recurrent policy reads the regime from its last action
+    - *The rationale, untested:* the recurrent policy reads the regime from its last action
       against its body velocity, as it would read a weak motor. This would also cover chassis
       variability. The pilot's (c) clause tests it.
   - **(a) A fixed clamp at the deploy cap.** The minimal change. It removes the envelope difference
@@ -199,7 +216,7 @@ v4's composition only. Two of the changes would otherwise reach v3's IDs silentl
   deploy-cap bound T(L) over L in [2, 6] m. **The rule, stated before the pilot:**
   - If E's capped share is at least twice E's uncapped share, the cap still doubles the stop-short
     after training under the envelope, and the pilot goes to the maintainer with (c) proposed. No
-    form is adopted without that ruling.
+    form is adopted without the maintainer's decision.
   - Otherwise (b) is adopted if E's capped share is at most K's capped share and E's capped T(L) is
     at most K's at every L in [2, 6] m.
   - Otherwise (a).
@@ -220,18 +237,18 @@ v4's composition only. Two of the changes would otherwise reach v3's IDs silentl
 
 | Item | Finding | Record | In v4 |
 |---|---|---|---|
-| 1 | Amplitude passes gate (B) at σ_d 0.08 in every band; the sensor is 1.11–1.88× noisier | [`real-d555-depth-texture-2026-09-26`](../../../measurements/real-d555-depth-texture-2026-09-26/README.md) §5; plan decision 21 | no change, by decision |
-| 2 | The robust band [0.002, 0.16] is log-uniform; the all-band passing window [0.075, 0.178] is about 17 % of its draws | real-D555 §5; plan decision 22 | measured-only. The band is never resized alone; it and the structure are one decision |
+| 1 | Amplitude passes gate (B) at σ_d 0.08 in every band; the sensor is 1.11–1.88× noisier | [`real-d555-depth-texture-2026-09-26`](../../../measurements/real-d555-depth-texture-2026-09-26/README.md) §5 | no change: gate (B) passes (the record's §5) |
+| 2 | The robust band [0.002, 0.16] is log-uniform; the all-band passing window [0.075, 0.178] is about 17 % of its draws | real-D555 §5 | measured-only. The band is left as it is; it is decided with the structure, under `depth-noise-real-structure` |
 | 3 | The floor is 1.5–2.2× other surfaces, depth-normalised | real-D555 §6 | measured-only |
 | 4 | Specular phantoms on 2–2.5 % of cells | real-D555 §6 | measured-only |
 | 5 | Adjacent cells correlate, anisotropically: 0.37–0.69 horizontally, 0.33–0.40 vertically | real-D555 §2 | measured-only |
 | 6 | Real depth sits on a disparity lattice; some Z16 codes never occur | real-D555 | measured-only |
 | 7 | The intrinsics | [`vfov-gap-v3-2026-10-03`](../../../measurements/vfov-gap-v3-2026-10-03/README.md) | **enters** (§1) |
-| 8 | The noise term's stereo constant is 673 px at 1280 wide. The sim prim gives 671.30 px; the real unit 643.044 px (2 × 321.522, derived from its 640-wide intrinsics). At a given σ_d training's σ_z is about 4.5 % low | [`noise-texture-parity-2026-09-17`](../../../measurements/noise-texture-parity-2026-09-17/README.md) (671.30 px, 673 shipped); real-D555 (321.522 px); plan decision 33 | measured-only. The band decision is made on the 643 px basis |
+| 8 | The noise term's stereo constant is 673 px at 1280 wide. The sim prim gives 671.30 px; the real unit 643.044 px (2 × 321.522, derived from its 640-wide intrinsics). At a given σ_d training's σ_z is about 4.5 % low | [`noise-texture-parity-2026-09-17`](../../../measurements/noise-texture-parity-2026-09-17/README.md) (671.30 px, 673 shipped); real-D555 (321.522 px); `depth-noise-real-structure` item 8 | measured-only. The band decision is made on the 643 px basis |
 
 - **Why items 2–6 and 8 do not enter as written.** Any change to a noise field is gated by
   `noise-texture-parity-2026-09-17` §8. Gate (C) needs §8's Gate 0, a matched sim capture through the
-  640×360 perception camera, and that capture has not been taken (plan decision 29).
+  640×360 perception camera, and that capture has not been taken (`depth-noise-real-structure`).
 - **If `depth-noise-real-structure` decides before the go**, its per-item decisions enter here, with
   the gate readings that accept them. Otherwise v4 trains v3's noise, and v4's record lists items
   2–6 and 8 as known differences from the sensor.
@@ -243,7 +260,7 @@ v4's composition only. Two of the changes would otherwise reach v3's IDs silentl
   on the cap's doubling; whether it moves that base rate is not known.
 - **`policy-time-to-goal-objective`'s scheme is a variant gated on the lane term, not a v4 default.**
   Its time and speed terms wait until the lane term is identified.
-- **A4's verdict: void**
+- **The scene-axis measurement on the lane (2026-10-14): void**
   ([`lane-term-scene-axis-2026-10-14`](../../../measurements/lane-term-scene-axis-2026-10-14/README.md)).
   - One boot produced four scored reaches of the twelve its rule needs. SLAM's `map→odom` drifted
     1.35 m during the fourth slot's transit, the next transit stalled on both attempts, and the series
@@ -314,12 +331,18 @@ produced it. Every evaluation of v4 pins the envelope as §3 says.
     40 s, rows 0–599).
 
   Power: if v4's true rates equal v3's observed ones, the clauses pass about 56 % and 60 % of the
-  time. These are direction reads (ruling 55's lesson), and the record says so beside the outcome.
+  time. A threshold set at the comparator's own observed rate passes about half the time when the
+  true rates are equal, so these are direction reads, and the record says so beside the outcome.
   The like-for-like capped run with the dwell on is run 3, at 7.21 % (37 of 513); it is reported
   beside them.
 - [ ] **The lane's like-for-like stop-short rate is measured and reported** for v4 and the
       same-session v3 arm: per band entry, quiet before the first 0.30 m crossing, on the G-sim
       reaches. v3's lane figure is 7 of 10 (`policy-time-to-goal-baseline-2026-10-11` §9).
+  - It is read on the live map frame, as the node scores.
+  - Beside it, the same read is reported with the frame held at goal-sent
+    (`posthoc_frame_held.py`'s construction in the `lane-term-speedcap-ab-2026-10-14` deposit),
+    together with each reach's in-reach goal excursion. On the speed-cap A/B the two frames read
+    4 and 5 of 6 against 2 and 2 of 6.
 - [ ] **v3's depth-content behaviour is re-read for v4 on the records that established it:**
   - the same-pose tables (a1)–(a3) of `depth-subgoal-v3-retrain-2026-09-21` §4, with the deposited
     `table_a_samepose.py` and `table_a_node_base.py` and `--model v3=… --model v4=…`. v3 gives no
@@ -362,9 +385,9 @@ produced it. Every evaluation of v4 pins the envelope as §3 says.
 ## Out of scope
 
 - Starting the retrain. It starts on the maintainer's go.
-- The referent snap and the planner's direction schema (deploy-side, paired sessions).
+- Moving the anchored plan's end onto the goal, and the planner's direction schema (both deploy-side).
 - Changing `NAV_VEL_SCALE`, the node's caps or the executor's policy budget. Those are Jetson-lane
   decisions in `strafer_shared`, `strafer_inference` and the executor.
 - A noise-field change that has not passed `noise-texture-parity-2026-09-17` §8.
 - The objective's time and speed terms, unless the lane term gates them in.
-- G-real.
+- The gate on the real robot, with the D555 in the loop.

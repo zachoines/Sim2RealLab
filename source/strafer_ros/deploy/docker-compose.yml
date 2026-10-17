@@ -53,6 +53,10 @@ x-cpu-svc: &cpu-svc
   image: strafer-cpu:humble
   network_mode: host
   restart: unless-stopped
+  # `ros2 launch` is PID 1 and catches no SIGTERM, so a `docker stop` reaches no
+  # node and SIGKILL follows at the grace period; on SIGINT it signals each node.
+  # Launch passes SIGINT on only when stdin is not a tty; no service sets `tty` or `stdin_open`.
+  stop_signal: SIGINT
   environment:
     <<: *dds-env
   volumes:
@@ -101,8 +105,9 @@ services:
   slam:
     <<: *cpu-svc
     container_name: strafer_slam
-    # rtabmap flushes its visual-word dictionary only at close, and a write
-    # truncated by the 10 s default leaves a database that aborts on load.
+    # rtabmap saves its dictionary and working memory only at close. Launch sends a
+    # node SIGTERM 5 s and SIGKILL 10 s after the stop's SIGINT (its sigterm_timeout
+    # and sigkill_timeout), so this bound alone does not cover a longer save.
     stop_grace_period: 180s
     environment:
       # Re-stated, not inherited: a service-level `environment:` REPLACES the
@@ -161,6 +166,7 @@ services:
     network_mode: host
     restart: unless-stopped
     runtime: nvidia
+    stop_signal: SIGINT                             # as the CPU anchor: launch is PID 1 here too
     profiles: [ policy ]                            # docker compose --profile policy up
     env_file: [ compose/autonomy.env ]
     environment:

@@ -484,3 +484,72 @@ class TestSimBringupBackendGating:
         assert any(
             "STRAFER_INFERENCE_MODEL_PATH" in r.getMessage() for r in records
         ), "expected a launch-time ERROR when a policy backend has no model_path"
+
+
+# =============================================================================
+# Container stop: launch is PID 1, so the compose stop signal is SIGINT
+# =============================================================================
+
+DEPLOY_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "deploy")
+BASE_COMPOSE_FILES = ["docker-compose.yml", "docker-compose.sim.yml"]
+# docker-compose.override.yml is the host-local file compose loads unasked; it is not tracked.
+COMPOSE_FILES = sorted(
+    f for f in os.listdir(DEPLOY_DIR)
+    if f.startswith("docker-compose") and f.endswith(".yml") and f != "docker-compose.override.yml"
+)
+
+
+def _compose_services(filename):
+    import yaml
+
+    with open(os.path.join(DEPLOY_DIR, filename)) as f:
+        return (yaml.safe_load(f) or {}).get("services", {}) or {}
+
+
+def _runs_launch(svc):
+    import shlex
+
+    command = svc.get("command") or []
+    argv = shlex.split(command) if isinstance(command, str) else [str(a) for a in command]
+    image = str(svc.get("image", ""))
+    return "ros2 launch" in " ".join(argv) or image.startswith(("strafer-cpu", "strafer-gpu"))
+
+
+class TestComposeStopSignal:
+    """`ros2 launch` is PID 1 and catches no SIGTERM, so compose's default stop
+    reaches no node; on SIGINT it signals each node, unless its stdin is a tty."""
+
+    def test_compose_files_found(self):
+        assert set(BASE_COMPOSE_FILES) <= set(COMPOSE_FILES)
+
+    @pytest.mark.parametrize("filename", BASE_COMPOSE_FILES)
+    def test_launch_services_stop_with_sigint(self, filename):
+        launch = {name: svc for name, svc in _compose_services(filename).items()
+                  if svc and _runs_launch(svc)}
+        assert launch, f"{filename}: no launch-based service found"
+        wrong = {name: svc.get("stop_signal") for name, svc in launch.items()
+                 if svc.get("stop_signal") != "SIGINT"}
+        assert not wrong, f"{filename}: launch services without stop_signal SIGINT: {wrong}"
+
+    @pytest.mark.parametrize(
+        "filename", [f for f in COMPOSE_FILES if f not in BASE_COMPOSE_FILES])
+    def test_overlay_launch_services_stop_with_sigint(self, filename):
+        known = set(_compose_services("docker-compose.yml"))
+        wrong = {name: svc.get("stop_signal") for name, svc in _compose_services(filename).items()
+                 if svc and name not in known and _runs_launch(svc)
+                 and svc.get("stop_signal") != "SIGINT"}
+        assert not wrong, f"{filename}: new launch services without stop_signal SIGINT: {wrong}"
+
+    @pytest.mark.parametrize("filename", COMPOSE_FILES)
+    def test_no_service_is_interactive(self, filename):
+        interactive = sorted(
+            name for name, svc in _compose_services(filename).items()
+            if svc and (svc.get("tty") or svc.get("stdin_open"))
+        )
+        assert not interactive, f"{filename}: tty/stdin_open set on {interactive}"
+
+    @pytest.mark.parametrize("filename", COMPOSE_FILES)
+    def test_no_other_stop_signal(self, filename):
+        other = {name: svc["stop_signal"] for name, svc in _compose_services(filename).items()
+                 if svc and "stop_signal" in svc and svc["stop_signal"] != "SIGINT"}
+        assert not other, f"{filename}: stop_signal other than SIGINT: {other}"

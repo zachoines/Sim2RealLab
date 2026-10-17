@@ -37,6 +37,11 @@
 # The verification at the end is the point: it exits non-zero when the container
 # is not demonstrably running what was asked for, rather than falling through on
 # a timeout.
+#
+# The checks, all made against the recreated container: the model path, the
+# installed config's subgoal_anchoring key, the subgoal generator's `anchoring=`
+# log line (hybrid_nav2_strafer only), and `policy_loaded=True`. It also prints
+# the image revision and warns on a `-dirty` or `unknown` one.
 set -euo pipefail
 
 CTR=strafer_inference

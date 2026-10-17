@@ -1,9 +1,12 @@
 # Sim-bridge autonomy stack — spin-up + natural-language testing (strafer-nx)
 
+This file holds commands that paste as they are, and descriptions or gotchas of at most three
+lines, each linking its long form once. Mechanism, history and measurements live in those docs.
+
 ## Prereqs — on the DGX (`dgx-spark`, 192.168.50.196), 3 terminals
 
-1. `serve-vlm`    — VLM on `:8100`
-2. `serve-planner` — planner on `:8200`
+1. `cd ~/Workspace/Sim2RealLab && source env_setup.sh && make serve-vlm` — VLM on `:8100`
+2. `cd ~/Workspace/Sim2RealLab && source env_setup.sh && make serve-planner` — planner on `:8200`
 3. the **raw** sim-bridge (ProcRoom), at the script's default cadence flags:
    ```bash
    cd ~/Workspace/Sim2RealLab
@@ -14,34 +17,18 @@
        --mode bridge --headless --enable_cameras \
        --task Isaac-Strafer-Nav-Capture-Bridge-ProcRoom-Enriched-v0
    ```
-   The watchdog relaunches a Kit boot that stops early and stays stopped,
-   which Isaac Sim 6.0.1 does intermittently, and prints one
-   accounting line per attempt so a relaunch is visible rather than silent. It
-   stops watching once the boot is under way, so a bridge that runs for hours is
-   never touched. The `make sim-bridge*` / `make sim-harness` /
-   `make harness-smoke` targets already wrap themselves; this line is the raw
-   form.
-   Confirm the cadence print: `frame_skip=3 (derived, derived 3)` /
-   `publish 30.00 Hz sim`. **`PYTHONUNBUFFERED=1` is load-bearing when the
-   launch is redirected to a file** — without it that print sits in a block
-   buffer, and the log appears to go silent right where a stall would show.
+   [`kit_boot_watchdog.sh`](../tools/kit_boot_watchdog.sh) relaunches a Kit boot that stops early
+   and stays stopped (Isaac Sim 6.0.1), printing one accounting line per attempt, and never touches
+   a bridge once its boot is under way. `make sim-bridge` is wrapped too but passes no `--task`.
 
-   > **Do not add `--decimation 4 --render-interval 4`.** That combination
-   > starves the async camera publisher: depth arrives at **0.300 Hz sim** in
-   > correctly-cadenced bursts separated by long stalls, with every render-side
-   > thread parked (see
-   > [`enriched-lane-rig-stability`](tasks/active/reliability/enriched-lane-rig-stability.md)
-   > mode 4). The defaults deliver **29.949 Hz sim** on the same task. **The
-   > policy-facing contract is 30.00 Hz sim either way** — `frame_skip` is only
-   > how the script reaches it, and skip 3 at a 120 Hz bridge tick is the same
-   > publish rate as skip 0 at 30 Hz. The script's own help agrees: decimation 1
-   > reaches "~29 steps/s vs ~8 at the training default", and "per-render wall
-   > time grows with render_interval, so fewer-but-slower renders is a net loss".
+   Confirm the cadence print: `frame_skip=3 (derived, derived 3)` / `publish 30.00 Hz sim`.
 
-   **Match the task to the policy's training scene.** The depth-subgoal work was
-   validated on `ProcRoom-Enriched-v0` (enclosed rooms, tall furniture, mid-room
-   columns); plain `ProcRoom-v0` is a different distribution and its map is not
-   interchangeable.
+   **Do not add `--decimation 4 --render-interval 4`:** depth starves to ~0.3 Hz sim; see
+   [`enriched-lane-rig-stability`](tasks/active/reliability/enriched-lane-rig-stability.md) mode 4.
+
+   **Match the task to the policy's training scene.** The depth-subgoal work was validated on
+   `ProcRoom-Enriched-v0` (enclosed rooms, tall furniture, mid-room columns); plain `ProcRoom-v0`
+   is a different distribution and its map is not interchangeable.
 
 ## On the NX (`strafer-nx`)
 
@@ -49,24 +36,23 @@
 cd ~/Sim2RealLab/source/strafer_ros/deploy
 export STRAFER_MODELS_DIR=/home/zachoines/strafer_models       # policy.onnx + .json live here
 
-# 1) Tear down. IMPORTANT: `docker compose down` IGNORES profiled services
-#    unless their profile is active -- so mirror the up's -f + --profile flags,
-#    or inference/sim-perception/viewer keep running (and donut_warmup, which is
-#    one-shot at sim-perception startup, never re-runs):
+# 1) Tear down. `docker compose down` IGNORES profiled services unless their profile is active,
+#    so mirror the up's -f + --profile flags, or inference/sim-perception/viewer keep running
+#    (and donut_warmup, one-shot at sim-perception startup, never re-runs):
 docker compose \
   -f docker-compose.yml \
   -f docker-compose.override.sim-bridge.yml \
   -f docker-compose.override.autonomy-local.yml \
   --profile policy --profile sim-bridge --profile viewer \
   down --remove-orphans
-#    ...or nuke the whole 'strafer' project regardless of profiles (bulletproof):
+#    ...or remove every container in the 'strafer' project, whatever its profiles:
 #    docker rm -f $(docker ps -aq --filter label=com.docker.compose.project=strafer)
 
-# 1b) FRESH MAP. rtabmap persists its db in a named volume and RELOADS it, so a
-#     recreate alone comes back on the old map (WM=NNN). Prefer bumping the
-#     scene token -- non-destructive, keeps every previous run's map:
-#       export STRAFER_SLAM_SCENE_TOKEN=run5     # -> ~/.ros/rtabmap_run5.db
-#     The destructive option still works if you want the volume empty:
+# 1b) FRESH MAP on every sim restart. ProcRoom regenerates its layout, but rtabmap reloads its db
+#     from the named volume, so a recreate alone comes back on the old map (WM=NNN), which
+#     silently corrupts /plan. Bump the scene token (non-destructive; every earlier map is kept):
+#       export STRAFER_SLAM_SCENE_TOKEN=sim$(date +%Y%m%d-%H%M)   # -> ~/.ros/rtabmap_[<task id>_]<token>.db
+#     The destructive alternative empties the volume:
 #       docker volume rm strafer_strafer_ros_home
 
 # 2) Spin up the full sim-bridge autonomy stack
@@ -81,160 +67,127 @@ docker compose \
 # 3) Wait ~60-90s: donut_warmup spins the robot to seed rtabmap's map. Sanity-check:
 docker ps --format '{{.Names}}\t{{.Status}}' | grep strafer_
 docker logs strafer_slam 2>&1 | grep -iE 'FATAL|rtabmap \(' | tail -3   # want "rtabmap (N): ..." iterating, no FATAL
-#    If rtabmap died on FATAL Memory.cpp:3852::addLink(), a restart may NOT save you:
+docker logs strafer_slam 2>&1 | grep -A1 'loadDataFromDb()' | grep -c repair   # want 0: >0 = truncated db
+#    On FATAL Memory.cpp:3852::addLink() (a db-load abort, not a /clock hitch), restart once:
 #      docker restart strafer_slam        # wait ~30s for map->odom to re-establish
-#    That FATAL is NOT a /clock hitch -- it is a database-LOAD assertion on a db whose
-#    dictionary flush was truncated by a SIGKILL at container stop. A restart re-enters
-#    the same load path, so if it aborts again within ~1 s of "rtabmap subscribed to",
-#    the db is unloadable: bump STRAFER_SLAM_SCENE_TOKEN (keeps the old db for forensics)
-#    and re-seed. `stop_grace_period: 180s` on the slam service is the fix for the
-#    truncation itself -- confirm the next launch does NOT print
-#    "loadDataFromDb() ... we will try to repair it". See
-#    docs/tasks/active/reliability/enriched-lane-rig-stability.md mode 1.
+#    If it aborts again within ~1 s of "rtabmap subscribed to", the db is unloadable: bump the
+#    token (1b; the old db is kept for forensics) and re-seed by re-running steps 1-3.
 ```
+
+Details: [`enriched-lane-rig-stability`](tasks/active/reliability/enriched-lane-rig-stability.md)
+mode 1 (the `addLink()` abort, the slam `stop_grace_period`); scene keying in the deploy
+[README](../source/strafer_ros/deploy/README.md#slam-the-map-is-keyed-to-the-scene).
 
 ## Send a natural-language command
 
-Object must be **visible in the current camera view** (the VLM grounds against `/d555/color`):
+The object must be **visible from where the robot stands** (the VLM grounds against `/d555/color`;
+see the VLM gotcha below):
 ```bash
 cd ~/Sim2RealLab
 make submit-deploy CMD="go to the chair"
 ```
-- **Watch it:** `docker logs -f strafer_autonomy` (VLM grounding, goal projection, dispatch)
+- **Watch it:** `docker logs -f strafer_autonomy` (VLM grounding, goal projection, navigation)
 - **View it:** Foxglove Studio → `ws://localhost:8765`
-  (tunnel from your Mac: `ssh -L 8765:localhost:8765 zachoines@192.168.50.161`)
+  (tunnel from a workstation: `ssh -L 8765:localhost:8765 zachoines@192.168.50.161`;
+  [viewer](../source/strafer_ros/deploy/README.md#viewer-foxglove))
 
 ## Good to know
 
-- **Applying ANY config change: never `docker compose restart`.** It reuses the
-  old container environment and applies nothing — a policy rollback to v1 will
-  silently keep running v2 while the config on disk says v1. Use
-  `up -d --force-recreate <service>` with the same `-f`/`--profile` flags, then
-  verify: `docker exec strafer_inference printenv STRAFER_INFERENCE_MODEL_PATH`
-  and `md5sum` the artifact. (`docker restart strafer_slam` below is fine —
-  that's crash recovery, not a config change.)
-- **Pre-flight: confirm BOTH hosts are wired before spending rig time.** The
-  depth publisher is the sim host, so its uplink is the constraint, and a wired
-  robot host does not help on its own. On WiFi the deployed subscriber census
-  does not fit the link and the policy never receives usable depth. The measured
-  budget for both transports is in
-  [`sim-bridge-link-transport-capacity`](tasks/active/reliability/sim-bridge-link-transport-capacity.md).
+- **Applying any config change: never `docker compose restart`.** It reuses the old container
+  env and applies nothing. Recreate with `up -d --force-recreate <service>` and the stack's
+  `-f`/`--profile` flags, then verify ([deploy README](../source/strafer_ros/deploy/README.md)):
   ```bash
-  ssh <sim-host> 'ip -brief addr | grep -v "^lo "'   # a wired NIC must be UP, not just present
+  docker exec strafer_inference printenv STRAFER_INFERENCE_MODEL_PATH
+  docker exec strafer_inference sh -c 'md5sum "$STRAFER_INFERENCE_MODEL_PATH"'
+  ```
+- **Pre-flight: confirm BOTH hosts are wired before spending rig time.** On WiFi the sim
+  host's uplink cannot carry the camera streams and the policy gets no usable depth
+  ([link budget](tasks/active/reliability/sim-bridge-link-transport-capacity.md)).
+  ```bash
+  ssh zachoines@192.168.50.196 'ip -brief addr | grep -v "^lo "'   # the sim host: a wired NIC must be UP
   # then, once the stack is up, the number that actually matters:
   docker logs strafer_inference 2>&1 | grep 'cadence:' | tail -1
-  # `depth rx` must climb ~1 per `ticks timer`; inferences=0 with
-  # skips watchdog≈ticks means depth is not arriving, whatever the topic list says.
+  # `depth rx` must climb ~1 per `ticks timer`; if it stays flat, depth is not arriving,
+  # whatever the topic list says. Until a goal is active, inferences=0 and
+  # skips watchdog≈ticks are normal: the watchdog counts the idle `goal` source.
   ```
 - **Swapping the policy or the anchoring — use the tool:**
   ```bash
-  source/strafer_ros/deploy/tools/configure_inference.sh <model> <mission|rolling>
-  # model: a filename under /models, or an absolute container path.
-  # Run with no arguments to list what is mounted.
+  ~/Sim2RealLab/source/strafer_ros/deploy/tools/configure_inference.sh                       # lists what is mounted
+  ~/Sim2RealLab/source/strafer_ros/deploy/tools/configure_inference.sh policy.onnx mission
+  # usage: <model> <mission|rolling>; model is a filename under /models or an absolute container path.
   ```
-  It force-recreates `inference` (never `restart`), **mirrors the compose chain
-  the running stack was created with** (read off the container's
-  `com.docker.compose.project.config_files` label, so the chain cannot drift by
-  hand), generates the anchoring config **from the image's own installed
-  `subgoal_generator.yaml`** and refuses to mount it if more than the anchoring
-  line changed, and then **verifies from inside the container** — model path,
-  the installed config's anchoring key, the node's `anchoring=` log line, and
-  `policy_loaded=True`. It **exits non-zero** if any check fails rather than
-  falling through on a timeout, which is how a wrong configuration reaches a
-  measurement.
-  It also prints the image revision and warns on `-dirty`/`unknown`.
-
-  **Once the tool has run, a hand `up -d --force-recreate inference` with the
-  documented `-f` chain silently reverts the anchoring.** The tool appends
-  `docker-compose.override.anchor.yml`; the documented chain does not carry it,
-  so recreating by hand drops the bind mount and the container falls back to the
-  image's baked config. The model path is loud about this (it comes from
-  `.env`/your shell either way); the anchoring is not. Re-run the tool rather
-  than recreating `inference` by hand.
-
-  Doing it by hand instead: set `STRAFER_INFERENCE_MODEL_PATH` in your shell or
-  `deploy/.env`, then force-recreate `inference`. The overlay's value is
-  `${STRAFER_INFERENCE_MODEL_PATH:-/models/policy.onnx}`, so the host wins and
-  the v1 artifact stays the default. Do **not** edit a tracked compose file for
-  this, and note a local `docker-compose.override.*.yml` applied later in the
-  `-f` chain hard-pins the value and will shadow the env again.
-- **Bump the SLAM scene token on every sim restart:** `STRAFER_SLAM_SCENE_TOKEN=run4`
-  → `~/.ros/rtabmap_run4.db`. ProcRoom is procedurally regenerated, so a
-  restarted sim is a new layout; reloading the old map silently corrupts `/plan`.
-  A db recorded under a different token is now refused at launch rather than
-  loaded.
-- **Check what you're actually running:** `docker logs strafer_inference 2>&1 | head -1`
-  prints `[strafer] image=strafer-gpu revision=<commit>`. `revision=unknown`
-  means the image carries no build stamp; a *failed* `docker compose build`
-  leaves the old tag resolvable, so a stack can silently run stale code.
-- **Where the policy config comes from:** this lane's node config is canon —
-  `strafer_bringup/config/env_sim_bridge.env` (`STRAFER_NAV_BACKEND=hybrid_nav2_strafer`,
-  `STRAFER_POLICY_VARIANT=DEPTH_SUBGOAL`, `STRAFER_USE_SIM_TIME=true`, and the two
-  sim-rate timeout widenings) — generated into `deploy/compose/sim_bridge.env`, which
-  `docker-compose.override.sim-bridge.yml` loads into `inference` as a second `env_file` on top
-  of `autonomy.env`; the executor does not get it (next bullet). Edit canon, `make env-sync`,
-  force-recreate. **Do not** look for these in `deploy/compose/sim.env` — that file (nav2 /
-  `DEPTH`) belongs to the *standalone* `docker-compose.sim.yml` lane, which this stack does not
-  use. The overlay's `environment:` carries only the host levers (`STRAFER_INFERENCE_MODEL_PATH`,
-  `STRAFER_OBS_DUMP_PATH`). Every key has exactly one home and `make env-check` fails
-  on a key in both, so nothing in the tracked overlay shadows the canon path — see
-  [`context/deploy-env-config.md`](tasks/context/deploy-env-config.md).
-- The executor is set to the **hybrid (policy) backend** via `docker-compose.override.autonomy-local.yml`, so semantic goals drive the DEPTH_SUBGOAL policy (not plain nav2). That override is **untracked** (host-specific URLs) — it lives in the deploy dir.
-  It must also set `STRAFER_USE_SIM_TIME: "true"`, which no tracked file gives the executor;
-  without it the executor's 65 s goal budget runs on wall time. Check (expect
-  `hybrid_nav2_strafer`, `true`):
+  It force-recreates `inference` on the stack's own `-f` chain, then exits non-zero unless the
+  container shows the requested model and anchoring and a loaded policy. Its
+  [header](../source/strafer_ros/deploy/tools/configure_inference.sh) lists the checks.
+- **Model swap by hand:** set `STRAFER_INFERENCE_MODEL_PATH` (unset: `/models/policy.onnx`) in the
+  shell or `deploy/.env`, not a tracked compose file, then recreate `inference`. A later untracked
+  overlay can shadow it ([README](../source/strafer_ros/deploy/README.md#one-key-one-home)).
+- **Once the tool has run, recreating `inference` by hand silently reverts the anchoring.** The
+  documented `-f` chain lacks the tool's `docker-compose.override.anchor.yml`, so the image's
+  baked config returns, and the model comes from the shell or `deploy/.env` again. Re-run the tool.
+- **Check what is running:** `docker logs strafer_inference 2>&1 | head -1` prints the image's
+  `revision=<commit>`. `revision=unknown` means no build stamp, and a failed build silently keeps
+  the old code under the tag ([deploy README](../source/strafer_ros/deploy/README.md)).
+- **Where the policy config comes from:** canon `strafer_bringup/config/env_sim_bridge.env`, which
+  reaches `inference` only; edit it, `make env-sync`, force-recreate. Not `compose/sim.env`: that is
+  the standalone sim lane's. See [`deploy-env-config`](tasks/context/deploy-env-config.md#lanes).
+- The executor's hybrid backend, sim time and DGX URLs come only from the **untracked**
+  `docker-compose.override.autonomy-local.yml` in the deploy dir; without sim time its
+  [goal budget][budget] runs on wall time. Expect `hybrid_nav2_strafer`, `true`:
   ```bash
   docker exec strafer_autonomy printenv STRAFER_NAV_BACKEND STRAFER_USE_SIM_TIME
   ```
-- If the VLM can't find the named object, the mission fails at grounding ("target not found"). Pick something clearly in frame.
-- **How a policy goal ends** (`error_code` in `make submit-deploy`'s result). Success within
-  0.30 m; `navigation_failed`: the node aborted, at 60 s sim (~8 min wall) if line 1 matches;
-  `navigation_timeout`: the executor gave up first, on wall time (check above) or, if line 2
-  matches, on a frozen `/clock`. Budgets: [`bridge-runtime-invariants`](tasks/context/bridge-runtime-invariants.md#sim-time-aware-navigation-timeout-jetson-side).
+- **If the VLM cannot find the named object**, the go-to plan's
+  [`scan_for_target`](../source/strafer_autonomy/README.md) checks six headings 60° apart, then
+  fails with `target_not_found_after_scan`. Pick something clearly visible.
+- **How a policy goal ends** (`error_code` from `make submit-deploy`): success within 0.30 m;
+  `navigation_failed`, the node aborted at its [60 s sim bound][budget], ~8 min wall (first grep);
+  `navigation_timeout`, the executor quit first, on wall time or a frozen `/clock` (second grep).
   ```bash
   docker logs strafer_inference 2>&1 | grep 'mission timed out'
   docker logs strafer_autonomy 2>&1 | grep 'Nav2 wait: /clock stalled'
   ```
-- **If the robot parks within ~0.4 m of an obstacle** it lands in the costmap
-  inflation halo, where `GridBased` refuses its own pose as a planning start.
-  On the **hybrid** lane the subgoal generator escapes that itself — it retries
-  on `GridBasedRelaxed` and, failing that, republishes the last subgoal for a
-  bounded window — but both are DEGRADED modes and log at WARN/ERROR. In
-  `docker logs strafer_inference` the usual sequence is just the first two:
+- **If the robot parks within ~0.2 m of an obstacle** (its own costmap cell inscribed, ≥ 253),
+  `GridBased` refuses its own pose as a planning start. Each lane then retries on
+  `GridBasedRelaxed`, a degraded mode that logs.
+- **Hybrid lane** ([guards](../source/strafer_ros/strafer_inference/config/subgoal_generator.yaml)):
+  the subgoal generator switches planner itself. In `docker logs strafer_inference` the usual
+  sequence is just these two:
   ```
   GridBased refused 2 consecutive replans (status 6); ... Switching to 'GridBasedRelaxed' ...
   Robot moved 0.25 m since the planner started refusing; returning to planner 'GridBased'.
   ```
-  `Planner starvation:` only appears if the fallback planner ALSO fails, and
-  `Starvation hold exhausted` means it stayed wedged through the whole hold —
-  that one needs manual intervention. Probe plannability before trusting a
-  measurement run:
-  ```bash
-  docker compose -f docker-compose.yml exec navigation bash -lc \
-    'source /opt/ros/humble/setup.bash && source /ws/install/setup.bash; \
-     ros2 action send_goal /compute_path_to_pose nav2_msgs/action/ComputePathToPose \
-     "{goal: {header: {frame_id: map}, pose: {position: {x: 0.1, y: 0.1}, orientation: {w: 1.0}}}, planner_id: GridBased}"'
-  ```
-  On the **nav2** lane the escape is in the navigate-to-pose BT instead: the
-  `start_cell_planner_selector` node reads the robot's own global-costmap cell
-  and only then does the BT's plan step retry on `GridBasedRelaxed`. It is a
-  degraded mode too, and `docker logs strafer_navigation` names it both ways:
+- `Planner starvation:` appears only if `GridBasedRelaxed` fails too. It starts the hold, which
+  republishes the last valid subgoal for `starvation_hold_s` of policy time so the policy can
+  drive clear. `Starvation hold exhausted` means it stayed wedged: strafe it free (below).
+- **Nav2 lane** ([design](tasks/completed/nav2-lane-inflated-start-recovery.md)):
+  `start_cell_planner_selector` lets the BT's plan step retry on `GridBasedRelaxed` only while
+  the robot's own cell is inscribed. `docker logs strafer_navigation` shows both:
   ```
   Robot's own global-costmap cell is 253 (>= inscribed 253); 'GridBased' cannot plan from it. Admitting 'GridBasedRelaxed' ...
   'GridBasedRelaxed' produced this goal's path: the nav2 lane is planning from a start the primary planner refuses.
   ```
-  Neither lane's escape helps from *deep* inside the halo: `GridBasedRelaxed`
-  clears only the robot's own cell, so it needs a free neighbour to propagate
-  into. Measured: it plans from ~0.20 m off lethal and refuses from ~0.15 m.
-
-  `SUCCEEDED` = fine. `ABORTED` / *"Starting point in lethal space"* = still
-  wedged; free it with a manual holonomic strafe on `/cmd_vel` (Nav2's `/backup`
-  refuses for the same reason).
-- Direct (no-VLM) goal for quick policy checks:
+- **Neither escape plans from deep in the halo:** `GridBasedRelaxed` clears only the robot's own
+  cell and needs a free neighbour
+  ([measured limit](tasks/completed/nav2-lane-inflated-start-recovery.md#found-while-verifying)).
+- **Probe plannability** before trusting a measurement run. `SUCCEEDED` is fine; `ABORTED` /
+  *"Starting point in lethal space"* is still wedged: free it with a manual holonomic strafe on
+  `/cmd_vel` (Nav2's `/backup` refuses for the same reason).
   ```bash
-  docker compose -f docker-compose.yml exec navigation bash -lc \
+  docker exec strafer_navigation bash -lc \
+    'source /opt/ros/humble/setup.bash && source /ws/install/setup.bash; \
+     ros2 action send_goal /compute_path_to_pose nav2_msgs/action/ComputePathToPose \
+     "{goal: {header: {frame_id: map}, pose: {position: {x: 0.1, y: 0.1}, orientation: {w: 1.0}}}, planner_id: GridBased}"'
+  ```
+- **Direct (no-VLM) goal** for quick policy checks. Pick a **reachable** goal: run the
+  plannability probe at its x/y first, since goals behind the robot or outside the seeded map
+  return "no valid path".
+  ```bash
+  docker exec strafer_navigation bash -lc \
     'source /opt/ros/humble/setup.bash && source /ws/install/setup.bash; \
      ros2 action send_goal /strafer_inference/navigate_to_pose nav2_msgs/action/NavigateToPose \
      "{pose: {header: {frame_id: map}, pose: {position: {x: -1.0, y: 0.3}, orientation: {w: 1.0}}}}"'
   ```
-  (pick a **reachable** goal — probe first with nav2 `ComputePathToPose`; goals behind the robot / outside the seeded map return "no valid path".)
+
+[budget]: tasks/context/bridge-runtime-invariants.md#sim-time-aware-navigation-timeout-jetson-side

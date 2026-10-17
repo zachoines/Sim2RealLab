@@ -1,6 +1,6 @@
 # Fence the chassis driver to ports that answer as a RoboClaw
 
-**Status:** Shipped 2026-10-14 in `62bb9ee` (Jetson).
+**Status:** Shipped 2026-10-14 in `62bb9ee` and 2026-10-16 in `aa1a1c7` (Jetson).
 **PR:** https://github.com/zachoines/Sim2RealLab/pull/243
 
 **Type:** bug (the RoboClaw driver writes motor packets to the D555's serial interface)
@@ -64,23 +64,25 @@ own refusal has to be the fence.
       missing addresses and exits non-zero before opening any port to drive it. Detection's
       address probe of `/dev/roboclaw*` is the only traffic, and nothing falls back to a
       configured default.
-      *2026-10-14: `roboclaw_node.py`:125-142 and `_refuse` (:260-266) raise `PortFenceError`;
-      `main()` returns 1 (:554-561), and the console script exits with it. On `main` the node
-      started and wrote to the camera's port.*
+      *2026-10-14, at `62bb9ee`: `roboclaw_node.py`:125-143 and `_refuse` (:260-266) raise
+      `PortFenceError`; `main()` returns 1 (:554-561), and the console script exits with it. On
+      `main`, in the fake serial layer, the node started and wrote to the camera's port.*
 - [x] With `auto_detect` false, a configured port that is not a `/dev/roboclaw*` name is refused
       the same way, unless a new parameter `allow_unverified_ports` (default false, documented as a
       bench-only override) is set.
-      *2026-10-14: :155-160; documented in `driver_params.yaml`. The override relaxes only the
-      name check, never the probe.*
+      *2026-10-14, at `62bb9ee`: :155-160; documented in `driver_params.yaml`. The override
+      relaxes only the name check, never the probe.*
 - [x] PID constants are written only to a port that answered the address probe; the startup
       order (open, then set PID) cannot reach a port that was never probed.
-      *2026-10-14: under `auto_detect` false each configured port is probed first (:166-174); the
-      opens and PID writes (:185-200) follow the refusals.*
+      *2026-10-14, at `62bb9ee`: under `auto_detect` false each configured port is probed first
+      (:166-175); the opens and PID writes (:185-200) follow the refusals.*
 - [x] A reconnect from the error state counts only when the reopened port answers the probe, so
       a path that now leads to another device is not driven.
-      *2026-10-14: added during review. `reconnect()` re-probes and closes the port again on no
-      answer (`roboclaw_interface.py`:145-159); `probe_address` also treats a `termios` error as
-      no answer.*
+      *2026-10-14: added before the work commit. `reconnect()` re-probes and closes the port
+      again on no answer (`roboclaw_interface.py`:145-159 at `62bb9ee`); `probe_address` also
+      treats a `termios` error as no answer.*
+      *2026-10-16: an interrupted probe (Ctrl-C) now closes the port too, so the node's teardown
+      writes nothing to it (`roboclaw_interface.py`:145-164 at `aa1a1c7`).*
 - [x] The launch defaults are `/dev/roboclaw0` and `/dev/roboclaw1`, in `driver.launch.py` and in
       every bringup launch file that passes them on.
       *2026-10-14: `driver.launch.py` and `base`, `perception`, `slam`, `navigation`, `autonomy`;
@@ -101,11 +103,35 @@ own refusal has to be the fence.
 
   *2026-10-14: two criteria were reworded while the work ran. The `auto_detect` one says "before
   opening any port to drive it", since detection's probe opens `/dev/roboclaw*`. The reconnect
-  one was added when review found a reconnect counted a bare reopen. The out-of-scope items for
-  the reconnect and the shared constants' comments went, because the work did both.*
+  one was added when a reading of the error state found that a reconnect counted a bare reopen.
+  The out-of-scope items for the reconnect and the shared constants' comments went, because the
+  work did both.*
+
+  *2026-10-16: 27 tests in `test_port_fence.py` at `aa1a1c7`. With them on `main`, 20 of 87
+  driver tests fail, and the 5 bringup default tests fail. Mutation runs: sixteen of seventeen
+  mutations fail at least one test; the seventeenth is the equivalent one.*
+- [x] **One device is never both controllers** *(added 2026-10-16)*. The node refuses when
+      auto-detect finds both addresses on one device, or when `front_port` and `rear_port`
+      resolve to one device, with fake-serial tests.
+      *2026-10-16, at `aa1a1c7`: `roboclaw_node.py`:146-153 and :163-168, `same_device`
+      (`roboclaw_interface.py`:393-395); `TestDistinctPorts`, three tests.*
+- [x] **A refusal ends `base`** *(added 2026-10-16)*. The driver's launch ends when the node exits,
+      non-zero after a refusal, so compose's `restart: unless-stopped` re-runs detection.
+      *2026-10-16: `driver.launch.py`:11-20, :60-61. Humble's launch returns non-zero only for an
+      exception, so `on_exit` is a callable that raises after a non-zero exit outside the
+      launch's own shutdown. Sealed, `base`'s compose command exits 1 after the refusal, and the
+      bare-`Shutdown` control exits 0; `test_launch_exit_code` pins both under the image's
+      launch.*
+- [x] **`diagnose_roboclaw.py` is fenced too** *(added 2026-10-16)*. Its `--front`/`--rear` paths
+      must be `/dev/roboclaw*` names unless `--allow-unverified-ports` is given, and it stops
+      after a failed battery read instead of going on to the PID read and the duty-cycle drive.
+      *2026-10-16: `diagnose_roboclaw.py`:169-182, :117-124; `TestDiagnoseTool`, three tests.*
 - [x] A record states the code reads, the test runs, and how `base` maps serial devices, with no
       hardware claims. It gives the maintainer's on-site check as commands.
       *2026-10-14: [`chassis-driver-port-fence-2026-10-14`](../../measurements/chassis-driver-port-fence-2026-10-14/README.md), deposit Sim2RealLab-Artifacts `ac50a32f`.*
+      *2026-10-16: the record's second pass, deposit `c12d4f30`. The on-site check now
+      gates its negative half on the positive half's log, and reads a refusal as a climbing
+      restart count.*
 - [x] If your work invalidates a fact in any referenced context module, package README,
       top-level `Readme.md`, or guide under `docs/`, update those in the same commit. See
       [`conventions.md`'s user-facing documentation maintenance section](../context/conventions.md#user-facing-documentation-maintenance)
@@ -113,8 +139,12 @@ own refusal has to be the fence.
       *2026-10-14: the compose header and cgroup comment, the udev rule's comment, both READMEs,
       `driver_params.yaml`, the shared port constants' comments, the bench tools' messages,
       `jetson-untether` and the parked low-battery brief's line citations.*
+      *2026-10-16: the compose header and cgroup comment again, the README's hazard and
+      diagnose lines, the `base` and `perception` launch docstrings, `jetson-untether`'s compose
+      citations, fence range and fence note, and the parked low-battery brief's line citations.*
 - [x] No regression: `make test-ros` passes.
-      *2026-10-14: 849 passed, 11 skipped at `62bb9ee`.*
+      *2026-10-14: 849 passed, 11 skipped at `62bb9ee`. 2026-10-16: 860 passed, 11 skipped at
+      `aa1a1c7`.*
 
 ## Investigation pointers
 
@@ -129,4 +159,5 @@ own refusal has to be the fence.
 - Installing `99-strafer.rules` on the robot, and the camera-attached check with `fuser` and the
   node's log: [`jetson-untether`](../active/reliability/jetson-untether.md)'s fence box.
 - Re-writing the PID after a reconnect.
-- Shutting `base`'s launch down when the driver exits.
+- `base`'s stop path. `docker compose stop` sends SIGTERM, which Humble's launch does not pass on
+  to its children, so the driver is killed after 10 s without its teardown (record §3).

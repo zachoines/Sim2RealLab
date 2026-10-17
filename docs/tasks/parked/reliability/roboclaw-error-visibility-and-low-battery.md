@@ -31,12 +31,12 @@ Read these before starting:
 
 `roboclaw_interface.py` and `roboclaw_node.py` today:
 
-- **`max_retries = 1` default** ([`roboclaw_interface.py:217-228`](../../../../source/strafer_ros/strafer_driver/strafer_driver/roboclaw_interface.py)
+- **`max_retries = 1` default** ([`roboclaw_interface.py:222-233`](../../../../source/strafer_ros/strafer_driver/strafer_driver/roboclaw_interface.py)
   `_retry`), with a 5 ms inter-retry pause. The peer reference driver
   [wimblerobotics/ros2_roboclaw_driver](https://github.com/wimblerobotics/ros2_roboclaw_driver)
   defaults to `max_retries=3` and recommends close-and-reopen on
   repeated I/O failure.
-- **`_consecutive_failures` counter** ([`roboclaw_node.py:467-489`](../../../../source/strafer_ros/strafer_driver/strafer_driver/roboclaw_node.py)
+- **`_consecutive_failures` counter** ([`roboclaw_node.py:481-503`](../../../../source/strafer_ros/strafer_driver/strafer_driver/roboclaw_node.py)
   `_handle_serial_failure`). Threshold 10 → error state; reconnect
   every 2 s. Not published in diagnostics.
 - **CRC errors counted nowhere.** `RoboClawChecksumError` exceptions
@@ -44,9 +44,9 @@ Read these before starting:
   cable, motor noise on the line) is invisible until it crosses the
   consecutive-failure threshold.
 - **Battery voltage readable but never read.** `read_main_battery()`
-  exists at [`roboclaw_interface.py:358-362`](../../../../source/strafer_ros/strafer_driver/strafer_driver/roboclaw_interface.py)
+  exists at [`roboclaw_interface.py:363-367`](../../../../source/strafer_ros/strafer_driver/strafer_driver/roboclaw_interface.py)
   (uint16 / 10.0 = volts). The node never calls it. Diagnostics
-  publish ([`roboclaw_node.py:491-521`](../../../../source/strafer_ros/strafer_driver/strafer_driver/roboclaw_node.py))
+  publish ([`roboclaw_node.py:505-535`](../../../../source/strafer_ros/strafer_driver/strafer_driver/roboclaw_node.py))
   do not include battery voltage.
 - **No low-battery degraded mode.** The chassis will execute commands
   at full speed until the LiPo's BMS cuts out or the RoboClaw browns
@@ -82,7 +82,7 @@ Peer references on production RoboClaw integration:
 - Add `self._read_call_count`, `self._write_call_count` for rate
   computation.
 - `roboclaw_node._publish_diagnostics`
-  ([`roboclaw_node.py:491-521`](../../../../source/strafer_ros/strafer_driver/strafer_driver/roboclaw_node.py))
+  ([`roboclaw_node.py:505-535`](../../../../source/strafer_ros/strafer_driver/strafer_driver/roboclaw_node.py))
   reads these from each interface (front + rear) and publishes
   `crc_error_rate_per_s_p60`, `consecutive_failure_count`, and
   `reconnects_since_boot` in the diagnostic_msgs/DiagnosticArray.
@@ -104,7 +104,7 @@ Peer references on production RoboClaw integration:
 
 - When battery dips into `WARN`: clamp `vx_max` / `vy_max` / `wz_max`
   by an envelope factor (default 0.6) applied in the velocity
-  watchdog ([`roboclaw_node.py:327-336`](../../../../source/strafer_ros/strafer_driver/strafer_driver/roboclaw_node.py)).
+  watchdog ([`roboclaw_node.py:341-350`](../../../../source/strafer_ros/strafer_driver/strafer_driver/roboclaw_node.py)).
   Log the clamp once per transition.
 - When battery dips into `ERROR`: publish a `/strafer/halt` signal
   (custom or `std_msgs/Bool`) that `MissionRunner` watches; new
@@ -153,17 +153,17 @@ Peer references on production RoboClaw integration:
 
 ## Investigation pointers
 
-- [`source/strafer_ros/strafer_driver/strafer_driver/roboclaw_interface.py:217-228`](../../../../source/strafer_ros/strafer_driver/strafer_driver/roboclaw_interface.py) —
+- [`source/strafer_ros/strafer_driver/strafer_driver/roboclaw_interface.py:222-233`](../../../../source/strafer_ros/strafer_driver/strafer_driver/roboclaw_interface.py) —
   `_retry`. Add `_crc_error_count` increment in the
   `RoboClawChecksumError` branch.
-- [`source/strafer_ros/strafer_driver/strafer_driver/roboclaw_interface.py:358-362`](../../../../source/strafer_ros/strafer_driver/strafer_driver/roboclaw_interface.py) —
+- [`source/strafer_ros/strafer_driver/strafer_driver/roboclaw_interface.py:363-367`](../../../../source/strafer_ros/strafer_driver/strafer_driver/roboclaw_interface.py) —
   `read_main_battery`. Already exists; call it from
   `_timer_callback`.
-- [`source/strafer_ros/strafer_driver/strafer_driver/roboclaw_node.py:294-308`](../../../../source/strafer_ros/strafer_driver/strafer_driver/roboclaw_node.py) —
+- [`source/strafer_ros/strafer_driver/strafer_driver/roboclaw_node.py:308-322`](../../../../source/strafer_ros/strafer_driver/strafer_driver/roboclaw_node.py) —
   `_timer_callback`. Add battery read + diagnostics publish.
-- [`source/strafer_ros/strafer_driver/strafer_driver/roboclaw_node.py:327-336`](../../../../source/strafer_ros/strafer_driver/strafer_driver/roboclaw_node.py) —
+- [`source/strafer_ros/strafer_driver/strafer_driver/roboclaw_node.py:341-350`](../../../../source/strafer_ros/strafer_driver/strafer_driver/roboclaw_node.py) —
   `VELOCITY_WATCHDOG_MULTIPLIER`. Add the battery-WARN envelope factor.
-- [`source/strafer_ros/strafer_driver/strafer_driver/roboclaw_node.py:467-489`](../../../../source/strafer_ros/strafer_driver/strafer_driver/roboclaw_node.py) —
+- [`source/strafer_ros/strafer_driver/strafer_driver/roboclaw_node.py:481-503`](../../../../source/strafer_ros/strafer_driver/strafer_driver/roboclaw_node.py) —
   `_handle_serial_failure`. Existing reconnect logic; bump max_retries
   default at the constructor.
 - Peer driver reference: [wimblerobotics/ros2_roboclaw_driver](https://github.com/wimblerobotics/ros2_roboclaw_driver)

@@ -133,7 +133,7 @@ map ← odom ← base_link ← {chassis, wheel_*, d555_link}
     those names, so by default nothing reaches the D555's serial interface, a `/dev/ttyACM*` port.
     With either controller missing it logs the count and the missing addresses and exits 1, having
     sent only the address probe. That ends `base`'s launch with exit 1, and compose's restart runs
-    detection again, so `docker ps` shows `base` restarting until both are connected and its log
+    detection again, so `base`'s restart count climbs until both are connected and its log
     carries the refusal. A fenced driver logs
     `Auto-detecting RoboClaw ports on /dev/roboclaw*...`; an image built before the fence still falls back.
   - **The Jetson's RTC does not hold time across power-off.** After a cold boot, check that the clock

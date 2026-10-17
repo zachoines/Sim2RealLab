@@ -437,8 +437,8 @@ one it replaces comes out.
       remains for this box is the camera-attached check on an image built with the fence:
       `fuser` on the camera's port and the node's log.*
       *2026-10-16: a refusal now ends `base`'s launch with exit 1, so compose restarts `base` and
-      detection runs again; `docker ps` shows it restarting, not up. The check's expectations are
-      in the record's §7.*
+      detection runs again; its restart count climbs. The check's expectations are in the
+      record's §7.*
 
 **Cutover and cold boot**
 
@@ -483,7 +483,8 @@ one it replaces comes out.
         `docs/example_commands_cheatsheet.md`:383;
       - "Orin Nano" at `WIRING_GUIDE.md`:3 and :26;
       - the `/dev/roboclaw_front` examples at `strafer_bringup/launch/base.launch.py`:10 and
-        `strafer_bringup/launch/perception.launch.py`:15, a name no rule creates.
+        `strafer_bringup/launch/perception.launch.py`:15, a name no rule creates. *2026-10-16
+        (#243): both now read `/dev/roboclaw2`.*
 
       `docs/INTEGRATION_SIM_IN_THE_LOOP.md` is exempt: see its INTERIM banner. Its successor is the
       cheatsheet. The docs, `.env.example` and `Makefile` items are DGX-lane files.
@@ -532,7 +533,7 @@ one it replaces comes out.
   `~/.config/cyclonedds/direct-link.xml` (host-local); `deploy/tests/check_env_sync.py`; the
   `Makefile`'s `FULL_COMPOSE` (:156) and `udev` (:238-242).
 - **Driver.** `strafer_driver/strafer_driver/roboclaw_interface.py` (`probe_address`,
-  `detect_roboclaws`), `roboclaw_node.py`:121-200 (the port fence),
+  `detect_roboclaws`), `roboclaw_node.py`:124-214 (the port fence),
   `strafer_driver/launch/driver.launch.py`, and `source/strafer_ros/99-strafer.rules` (the RoboClaw
   rule at :20; the D555 IIO and hidraw rules at :26 and :29).
 - **The link brief's §"Wired path — measured 2026-08-17"** (:87-99) gives the pin's shape on both

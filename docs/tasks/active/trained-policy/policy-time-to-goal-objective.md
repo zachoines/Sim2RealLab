@@ -282,6 +282,23 @@ speed, and tune it together with the approach slowdown, so that travel time has 
     ground and on exposure: training never sees the deployed envelope, and the uncapped policy
     commands more than the cap on 60 % of its rows (the record's run 1).*
   - *The objective's training variants, the time and speed terms, wait for the lane term.*
+
+  *2026-10-14, the two lane-term measurements on the bridge lane:*
+  - *By the pre-registered rule the cap is not the lane's main term
+    ([`lane-term-speedcap-ab-2026-10-14`](../../../measurements/lane-term-speedcap-ab-2026-10-14/README.md)).
+    At six reaches per arm the lane measures no cap effect (stop-short U 4 of 6 against C 5 of 6: Fisher
+    p 1.0, rate ratio 1.25, 95 % 0.64–2.44; band medians Mann–Whitney p 0.82). The training-env doubling
+    is `policy-time-to-goal-baseline-2026-10-11` §9's figure, and the interval includes it. Computed
+    after the run, with SLAM's frame held at goal-sent, the stop-shorts read 2 of 6 in each arm: the
+    lane's terminal reads move with the frame at the scale of the effect.*
+  - *The scene axis is void
+    ([`lane-term-scene-axis-2026-10-14`](../../../measurements/lane-term-scene-axis-2026-10-14/README.md)).
+    One boot gave four scored reaches with training-style goals inside the room. SLAM's `map→odom`
+    drifted 1.35 m during the fourth slot's transit, the fifth slot's transit stalled, and the series
+    was stopped. Descriptively, 2 of the 4 stopped short.*
+  - *The lane term is still unidentified, and the time and speed variants stay with the next training's
+    scoping. In three of that evening's four boots the lane's `map→odom` moved more than 0.4 m from its
+    first sample; whether that raises the stop-short is not measured.*
 - [ ] **The bound.** The brief gives the time-to-goal bound from the adopted objective, or from
       v3 if none is adopted, read from the deploy-cap evaluation:
   - as a function of path length;

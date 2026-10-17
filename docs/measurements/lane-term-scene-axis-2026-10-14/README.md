@@ -20,8 +20,7 @@ twelve the rule needs.
   transits looked set to pin as S05's did, and a nudge (which the amendment allows) would not repair
   Nav2's map. Neither was tested.
 - Stopping before the re-runs left fewer than 12 scored reaches. That voids the series by its clause:
-  "fewer than 12 scored reaches or fewer than 3 goals among them, after the re-runs". The dispatch's
-  own void ("cannot produce 12 scored reaches in one boot") reads the same way. What ran is
+  "fewer than 12 scored reaches or fewer than 3 goals among them, after the re-runs". What ran is
   deposited.
 
 **No verdict on the scene axis follows.** Beside the void, descriptively:
@@ -39,12 +38,17 @@ characteristics need twelve.
   boot's training grid (`posthoc_video_goals_on_grid.py`): at the physical points the referent-offset
   A/B sent them to, the video set's G1 and L2 lie outside the room's free space, 1.682 m and 2.372 m from
   the nearest free cell centre. At their nominal map coordinates the distances are 1.718 m and
-  2.475 m.
+  2.475 m. L2 lies outside the training grid's 8 m extent altogether (room x −4.29 m against the
+  grid's −4.0 m edge), so its "in free space: no" is an array-bounds decision, not a grid cell.
   Training never puts a goal there.
 - **Training-style goals go through the executor's CLI path.**
   - Six goals were drawn inside the room by training's own rule (§2).
-  - Starting each reach 45° to the right of its goal kept all four submitted commands in the
-    forward-left template. All four compiled exactly, and none was refused.
+  - Every reach was drawn to start at the fixed spawn with its goal 45° to the left of the heading.
+    S01–S03 began 0.07–0.21 m from it. S04 began 1.35 m from it, with the goal 49.7° to the left,
+    because the frame moved (§4).
+  - That is not training's start: training draws the robot's start cell and yaw at random.
+  - It kept all four submitted commands in the forward-left template. All four compiled exactly, and
+    none was refused.
 - **Anchoring each goal in odom, mapped to the map frame at the reach, kept the goals physical through
   the frame's drift.** S04's goal was mapped under a frame 1.35 m and 18° off and moved at most 0.119 m
   during its reach. The starts were not kept physical (§4): S04 began 1.35 m from the spawn.
@@ -55,7 +59,7 @@ characteristics need twelve.
 |---|---|
 | question and rule | `PREREGISTRATION.md`, committed at `e6e0b61` (19:43:05 CDT) before the boot, with a time correction at `7317155`; `PREREGISTRATION_AMENDMENT.md` at `5100a79` (23:26:17) before the boot; the drawn goals at `cb480a5` (23:33:40) before the first reach |
 | scene | `Isaac-Strafer-Nav-Capture-Bridge-ProcRoom-Enriched-v0`, seed 42, headless, one boot through `tools/kit_boot_watchdog.sh` and the deposit-only wrapper `dgx/bridge_grid_dump.py`. It booted on its first attempt; `publish 30.00 Hz sim`, `frame_skip=3` |
-| departure from the dispatch | the dispatch names `Isaac-Strafer-Nav-Capture-Bridge-ProcRoom-v0`, the vanilla generator (1.0 m walls, no ceiling, difficulty 7 only), whose top-11-row depth sits at the 6 m clamp 58.9 % of the time against 7.3 % on the enriched one. The dispatch asks for a training-distribution scene, and v3 trained on the enriched one, so the session ran the lane's own enriched variant and moved the goals instead |
+| departure from the measurement as specified | the scene-axis measurement was specified on `Isaac-Strafer-Nav-Capture-Bridge-ProcRoom-v0`, the vanilla generator (1.0 m walls, no ceiling, difficulty 7 only), whose top-11-row depth sits at the 6 m clamp 58.9 % of the time against 7.3 % on the enriched one. It asks for a training-distribution scene, and v3 trained on the enriched one, so the session ran the lane's own enriched variant and moved the goals instead |
 | node | v3 (`strafer_depth_subgoal_v3_999.onnx`, `c866bfd5…`); the deployed caps, 0.7841 m/s and 2.0933 rad/s, through the speed-cap A/B's mounted cap file; the subgoal generator as on `main` |
 | robot stack | the five bridge-lane services, images `9f7d20758d5b`; SLAM key `lanetermA4`, fresh |
 | planner / VLM | the speed-cap A/B's two service processes, from the main checkout at `6cd6fd7` (that record's `session1/logs/dgx/`) |
@@ -144,14 +148,24 @@ moving.
 
 **Across the evening's four boots of the lane** (this record and
 [`lane-term-speedcap-ab-2026-10-14`](../lane-term-speedcap-ab-2026-10-14/README.md)):
-- three saw `map→odom` move more than 0.4 m from its first sample (1.50, 0.53 and 1.36 m);
-- the fourth stayed within 0.31 m of it, though between that record's frame reads its goal drift
+- three saw `map→odom` move more than 0.4 m from its ride-along's first sample (1.495, 0.530 and
+  1.362 m);
+- the fourth stayed within 0.311 m of it, though between that record's frame reads its goal drift
   reached 0.45 m;
-- the referent-offset A/B's boot, on 2026-10-11, stayed within 0.22 m and 7° for twelve reaches.
+- the referent-offset A/B's boot, on 2026-10-11, stayed within 0.219 m and 6.5° of its ride-along's
+  first sample over twelve reaches. Over its twelve observer records' `map_odom` it stayed within
+  0.287 m and 4.93°.
 
-One difference between them is untested. Every reach this evening recreated the `inference` container
-before it started, to set the node's caps. The referent A/B changed its arm with `ros2 param set` and
-did not.
+These figures are computed after the run, in the speed-cap record's `posthoc_frame_excursion.txt`,
+deposited at `3f1debf`.
+
+This boot's rtabmap log has 31 rejected loop closures (`logs/nx/strafer_slam.log`, lines 250–630) and no
+wrong-loop-closure warning.
+
+Every reach this evening recreated the `inference` container before it started, to set the node's caps;
+the referent A/B changed its arm with `ros2 param set` and did not. As the deposits show, the recreate
+is not a candidate cause of the drift, except through the robot host's shared compute, which they do not
+test. The speed-cap record (§7) gives the timing and the topics.
 
 ## 5. Deviations
 
@@ -180,9 +194,9 @@ did not.
 |---|---|
 | repository | https://github.com/zachoines/Sim2RealLab-Artifacts |
 | deposit directory | `lane-term-scene-axis-2026-10-14/record-files/` |
-| deposit commit | `76a489bc33ed19e40b825790b6686373cf3b88f0` |
+| deposit commit | `30e034a70b9f1857c510a1a6e8432d3025e08842` |
 
 The pre-registration and its tools are in `e6e0b61`, before the boot; the amendment in `5100a79`, before
 the boot; the room's grid, the drawn goals and the stage-0 checks in `cb480a5`, before the first reach.
-`DEPOSIT.md` lists every file, how each number above is re-derived, and the redactions. The post-hoc
-grid read of the video set's goals (the summary) was added at `30e034a`.
+`DEPOSIT.md` lists every file, how each number above is re-derived, and the redactions. The runs are in
+`76a489b`, and the post-hoc grid read of the video set's goals (the summary) was added at `30e034a`.

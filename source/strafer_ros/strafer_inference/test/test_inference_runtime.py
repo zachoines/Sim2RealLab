@@ -1532,6 +1532,60 @@ class TestMissionEndStopIsLast(unittest.TestCase):
                     thread.join(timeout=2.0)
             node.destroy_node()
 
+    @pytest.mark.xfail(
+        strict=True,
+        reason="inference-finished-successor-stop: the fix removes this marker",
+    )
+    def test_goal_ending_before_its_preempted_predecessor_leaves(self) -> None:
+        """A goal can end while the goal it preempted is still in its execute
+        loop. The predecessor leaves without a stop, so the newest goal's stop
+        must still be the last command: no policy action may follow it."""
+        node = self._node()
+        pose_a, pose_b = _make_pose(2.0, 0.0), _make_pose(-1.0, 0.0)
+        a_polling, release_a = threading.Event(), threading.Event()
+
+        def _distance(goal_pose):
+            if goal_pose is pose_b:
+                return 0.0  # B starts inside its arrival radius
+            a_polling.set()
+            release_a.wait()  # A cannot see its supersession while held here
+            return 1.0
+
+        node._current_goal_distance = _distance  # type: ignore
+        handle_a = thread_a = None
+        try:
+            handle_a, thread_a = self._start_goal(node, pose_a)
+            self.assertTrue(a_polling.wait(timeout=2.0))
+            handle_b = MagicMock()
+            handle_b.request.pose = pose_b
+            handle_b.is_cancel_requested = False
+            node._handle_accepted(handle_b)
+            node._execute_callback(handle_b)  # succeeds on its first poll
+            handle_b.succeed.assert_called_once()
+
+            _restamp(node)
+            node._on_tick()  # A is still counted
+
+            release_a.set()
+            thread_a.join(timeout=2.0)
+            self.assertFalse(thread_a.is_alive())
+            handle_a.abort.assert_called_once()
+            published = self._published(node)
+            self.assertTrue(any(_is_stop(t) for t in published))
+            self.assertTrue(
+                _is_stop(published[-1]),
+                f"a policy action follows the final stop: {published}",
+            )
+        finally:
+            if handle_a is not None:
+                # Had the test failed before B was accepted, A would see no
+                # supersession and loop to its 60 s bound; a client cancel ends it.
+                handle_a.is_cancel_requested = True
+            release_a.set()
+            if thread_a is not None:
+                thread_a.join(timeout=2.0)
+            node.destroy_node()
+
 
 # =============================================================================
 # Mission deadline clock domain

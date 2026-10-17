@@ -56,6 +56,16 @@ sign it does not apply reliably.**
 - **The acceptance set.** The record's 48-command sweep (`sweep_commands.json`) and 12 held-out
   commands (`heldout_commands.json`), with its harness (`translate_sign_sweep.py`,
   `planner_log_config.json`), all in the record's deposit.
+  - *2026-10-14, a mis-signed command outside the sweep.* In the speed-cap A/B on the sim-bridge lane
+    ([`lane-term-speedcap-ab-2026-10-14`](../../../measurements/lane-term-speedcap-ab-2026-10-14/README.md)
+    §6), the shipped planner compiled `move 3.077 meters forward and 0.035 meters left` to
+    dy −0.035, and the compile-first dry-check refused it.
+    - The sweep measured this class, a two-axis command with a tiny lateral component, at 0.021 m.
+      On the shipped tree the anchor in this same wording (`move 3.107 meters forward and 0.021
+      meters left`) compiled exactly, and `drive 3.107 meters ahead then 0.021 meters left` was
+      mis-signed (`runs/shipped_pass1.stdout` in the record's deposit).
+    - It did not measure 0.035 m. An exact compile at one pair of numbers does not cover the template
+      at another, so this command joins the acceptance set.
 - **Today's state.** The tree carries the prompt examples, and the compiler passes the model's
   values through. On the record's commands that is 24 of 48 and 2 of 12 mis-signed, measured live
   on the shipped tree. The live fixture for backward-left is a strict `xfail` naming this brief
@@ -90,8 +100,9 @@ correctness.
 - [ ] **The change.** The schema, the parser, the compiler and the prompt change together.
       `translation_xy` leaves the model's output, kept at most as a compiler-internal value. The
       tests are mutation-proven: they fail on `main`.
-- [ ] **The sweep.** The 48 and the 12 run again on the live planner with the record's harness:
-      0 mis-signs on both sets, and the dropped-axis count reported on both.
+- [ ] **The sweep.** The 48, the 12 and the 2026-10-14 tiny-lateral command run again on the live
+      planner with the record's harness: 0 mis-signs on all three, and the dropped-axis count
+      reported on the 48 and the 12.
 - [ ] **The record.** `planner-translate-direction-schema-<date>` under `docs/measurements/`,
       deposited per [`docs/measurements/README.md`](../../../measurements/README.md), with two arms:
       `main` (the examples only) and the schema.

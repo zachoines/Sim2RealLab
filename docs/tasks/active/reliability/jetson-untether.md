@@ -142,7 +142,7 @@ supply.**
   cable therefore stays, as a re-dock for sim-bridge sessions. That is a requirement of this brief,
   not an option.
 - **Zenoh is untested against the new profile.** `zenoh-bridge` deliberately gets no
-  `CYCLONEDDS_URI` (`docker-compose.yml`:186-187). Whether it discovers loopback-pinned nodes is
+  `CYCLONEDDS_URI` (`docker-compose.yml`:195-196). Whether it discovers loopback-pinned nodes is
   untested.
 
 ### The executor's services over Wi-Fi
@@ -164,7 +164,7 @@ supply.**
 - Neither service was running on 2026-09-27: health GETs were refused on both paths. The DGX
   answers ping over the LAN at 6–64 ms and over the cable at 1.0–1.8 ms (`ping -c3`).
 - A bare `docker compose up` does not start `inference`, which is under `profiles: [ policy ]`
-  (`docker-compose.yml`:155). A policy backend in canon therefore needs `--profile policy` on
+  (`docker-compose.yml`:164). A policy backend in canon therefore needs `--profile policy` on
   whatever boot path is chosen.
 
 ### Power
@@ -199,7 +199,11 @@ supply.**
 
 ### Camera, RoboClaw and boot hazards
 
-- **Without RoboClaws, `base` writes to the camera.** `99-strafer.rules` is not installed:
+- **Without RoboClaws, `base` writes to the camera.** *2026-10-14: no longer so from
+  [`chassis-driver-port-fence`](../../completed/chassis-driver-port-fence.md). The driver probes only
+  `/dev/roboclaw*`, and with either controller missing it exits 1 having sent only the address
+  probe. The account below is the driver and compose file at `6cd6fd7`.*
+  `99-strafer.rules` is not installed:
   `/etc/udev/rules.d` holds only NVIDIA rules. The sysctl and `modules-load.d` drop-ins from the
   same installer are present (`deploy/host-setup/install-host-prereqs.sh`:17, :22-25, :44). The
   rules would not protect the camera on their own anyway, because the driver never uses them when
@@ -252,7 +256,7 @@ supply.**
   before Wi-Fi is up would stamp logs and bags with the stale time.
 - **`deploy/.env` still carries sim-lane values.** This gitignored file sets
   `STRAFER_SLAM_TASK_ID=enrich` (:107), `STRAFER_SLAM_SCENE_TOKEN=rigv3gate1` (:117) and the v3
-  artifact path (:42). The SLAM keys are passed through at `docker-compose.yml`:105-106, so a
+  artifact path (:42). The SLAM keys are passed through at `docker-compose.yml`:114-115, so a
   real-robot bring-up with them would key RTAB-Map to a sim scene's database.
 - **2026-10-04: the host changed for the camera (record
   [`d555-stream-integrity-2026-10-04`](../../../measurements/d555-stream-integrity-2026-10-04/README.md)).**
@@ -425,6 +429,16 @@ one it replaces comes out.
       `source/strafer_ros/README.md` states the rule. What remains for this box is the boot-side
       or driver-side fence. The udev install is the box above, and it does not fence the camera on
       its own.*
+      *2026-10-14: the driver-side fence is
+      [`chassis-driver-port-fence`](../../completed/chassis-driver-port-fence.md): no
+      `/dev/ttyACM*` probe and no fallback port, an exit when a controller is missing with only
+      the address probe sent, PID constants only after an answered probe, and a reconnect that
+      counts only when the port answers. Unit tests with a fake serial layer show it. What
+      remains for this box is the camera-attached check on an image built with the fence:
+      `fuser` on the camera's port and the node's log.*
+      *2026-10-16: a refusal now ends `base`'s launch with exit 1, so compose restarts `base` and
+      detection runs again; its restart count climbs. The check's expectations are in the
+      record's §7.*
 
 **Cutover and cold boot**
 
@@ -464,12 +478,13 @@ one it replaces comes out.
         `99-strafer.rules`:20, and the D555's CDC takes `/dev/ttyACM0`;
       - the cheatsheet's SSH target (:105) and wired pre-flight (:116-128);
       - the link brief's transport table (:52-58);
-      - `source/strafer_ros/README.md`:3, :124 and :182;
+      - `source/strafer_ros/README.md`:3, :124 and :180;
       - the `jetson-desktop` SSH target at `Readme.md`:349 and
         `docs/example_commands_cheatsheet.md`:383;
       - "Orin Nano" at `WIRING_GUIDE.md`:3 and :26;
       - the `/dev/roboclaw_front` examples at `strafer_bringup/launch/base.launch.py`:10 and
-        `strafer_bringup/launch/perception.launch.py`:15, a name no rule creates.
+        `strafer_bringup/launch/perception.launch.py`:15, a name no rule creates. *2026-10-16
+        (#243): both now read `/dev/roboclaw2`.*
 
       `docs/INTEGRATION_SIM_IN_THE_LOOP.md` is exempt: see its INTERIM banner. Its successor is the
       cheatsheet. The docs, `.env.example` and `Makefile` items are DGX-lane files.
@@ -513,14 +528,14 @@ one it replaces comes out.
     device tree (`/proc/device-tree/bus@0/padctl@3520000/ports/*/status`).
   - The device-mode pad `usb2-0` is the camera port's USB 2.0 companion.
   - `connect_type` reads `unknown` on every port, so the physical layout cannot be read from sysfs.
-- **Compose and DDS.** `source/strafer_ros/deploy/docker-compose.yml` (header :1-38, `base`
-  :62-79, `zenoh-bridge` :171-190); `deploy/docker-compose.override.yml` and
+- **Compose and DDS.** `source/strafer_ros/deploy/docker-compose.yml` (header :1-41, `base`
+  :65-84, `zenoh-bridge` :184-199); `deploy/docker-compose.override.yml` and
   `~/.config/cyclonedds/direct-link.xml` (host-local); `deploy/tests/check_env_sync.py`; the
   `Makefile`'s `FULL_COMPOSE` (:156) and `udev` (:238-242).
 - **Driver.** `strafer_driver/strafer_driver/roboclaw_interface.py` (`probe_address`,
-  `detect_roboclaws`), `roboclaw_node.py`:106-165, `strafer_driver/launch/driver.launch.py`, and
-  `source/strafer_ros/99-strafer.rules` (the RoboClaw rule at :20; the D555 IIO and hidraw rules at
-  :26 and :29).
+  `detect_roboclaws`), `roboclaw_node.py`:124-214 (the port fence),
+  `strafer_driver/launch/driver.launch.py`, and `source/strafer_ros/99-strafer.rules` (the RoboClaw
+  rule at :20; the D555 IIO and hidraw rules at :26 and :29).
 - **The link brief's §"Wired path — measured 2026-08-17"** (:87-99) gives the pin's shape on both
   hosts and the wired figures the re-dock has to reproduce.
 - **The hardware lanes `nx-docker-bringup` left unticked** (:97-101): RoboClaw passthrough, D555

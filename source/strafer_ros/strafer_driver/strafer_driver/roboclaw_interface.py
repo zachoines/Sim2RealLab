@@ -13,7 +13,9 @@ Packet format (recv):  [...data, crc16_hi, crc16_lo]  (no address/command echo)
 from __future__ import annotations
 
 import glob
+import os
 import struct
+import termios
 import threading
 import time
 from typing import Optional
@@ -89,7 +91,7 @@ class RoboClawInterface:
     sequentially.
 
     Args:
-        port: Serial port path (e.g. ``/dev/ttyACM0``).
+        port: Serial port path (e.g. ``/dev/roboclaw0``).
         address: RoboClaw packet serial address (0x80 or 0x81).
         baud_rate: Serial baud rate.
         read_timeout: Per-command read timeout in seconds.
@@ -141,13 +143,25 @@ class RoboClawInterface:
             return self._serial is not None and self._serial.is_open
 
     def reconnect(self) -> bool:
-        """Close and reopen the serial port. Returns True on success."""
+        """Close and reopen the serial port, then probe it at this address.
+
+        Returns True only if the controller answers.  A bare open is not
+        enough: the path may now lead to another device.  On failure the
+        port is left closed, also when the probe is interrupted (Ctrl-C),
+        so the node's teardown writes nothing to it.
+        """
         self.close()
+        answered = False
         try:
             self.open()
-            return True
-        except serial.SerialException:
-            return False
+            self.read_main_battery()
+            answered = True
+        except (RoboClawError, serial.SerialException, OSError, termios.error):
+            pass
+        finally:
+            if not answered:
+                self.close()
+        return answered
 
     # ------------------------------------------------------------------
     # Low-level protocol
@@ -363,6 +377,23 @@ class RoboClawInterface:
 # Auto-detection
 # ---------------------------------------------------------------------------
 
+# 99-strafer.rules names every Basicmicro RoboClaw (03eb:2404) /dev/roboclaw<N>.
+# Only these names are trusted: on the robot the D555 enumerates a CDC serial
+# interface at /dev/ttyACM0, so a bare /dev/ttyACM* port may be the camera.
+ROBOCLAW_UDEV_GLOB = "/dev/roboclaw*"
+
+
+def is_udev_roboclaw_port(port: str) -> bool:
+    """True if *port* is a ``/dev/roboclaw*`` name from ``99-strafer.rules``."""
+    return os.path.dirname(port) == "/dev" and os.path.basename(port).startswith(
+        "roboclaw"
+    )
+
+
+def same_device(port_a: str, port_b: str) -> bool:
+    """True if two port paths name one device, following symlinks such as udev's."""
+    return os.path.realpath(port_a) == os.path.realpath(port_b)
+
 
 def probe_address(port: str, address: int, baud_rate: int = 115200) -> bool:
     """Try to communicate with a RoboClaw at *address* on *port*.
@@ -383,7 +414,7 @@ def probe_address(port: str, address: int, baud_rate: int = 115200) -> bool:
             return False
         finally:
             rc.close()
-    except (serial.SerialException, OSError):
+    except (serial.SerialException, OSError, termios.error):
         return False
 
 
@@ -404,17 +435,15 @@ def detect_roboclaws(
         rear_address: Packet serial address of the rear controller.
         baud_rate: Serial baud rate.
         candidate_ports: Explicit list of ports to scan.  If ``None``,
-            auto-discovers by looking for ``/dev/roboclaw_*`` first, then
-            ``/dev/ttyACM*``.
+            scans ``/dev/roboclaw*`` only; there is no ``/dev/ttyACM*``
+            fallback.
 
     Returns:
         ``{address: port}`` for each controller found.  May be empty, or
         contain only one entry if only one controller is reachable.
     """
     if candidate_ports is None:
-        candidate_ports = sorted(glob.glob("/dev/roboclaw*"))
-        if not candidate_ports:
-            candidate_ports = sorted(glob.glob("/dev/ttyACM*"))
+        candidate_ports = sorted(glob.glob(ROBOCLAW_UDEV_GLOB))
 
     addresses = [front_address, rear_address]
     result: dict[int, str] = {}

@@ -12,6 +12,12 @@ Threading model: single-threaded executor.  The 50 Hz timer callback handles
 ALL serial I/O.  The ``cmd_vel`` subscription callback only stores the latest
 Twist -- no serial I/O in the callback.
 
+Port fence: the node drives only ports that answered a RoboClaw address probe,
+at startup and on every reconnect, and detects controllers on
+``/dev/roboclaw*`` only.  If either controller is not found, or both resolve
+to one device, it logs why and exits non-zero; the address probe is all it has
+sent.  ``driver.launch.py`` shuts its launch down when the node exits.
+
 ALL constants from ``strafer_shared.constants``.
 ALL kinematics from ``strafer_shared.mecanum_kinematics``.
 Do NOT apply ``WHEEL_AXIS_SIGNS`` in this node -- the kinematics functions
@@ -21,6 +27,7 @@ handle sign correction internally.
 from __future__ import annotations
 
 import math
+import sys
 import time
 
 import numpy as np
@@ -59,6 +66,9 @@ from strafer_driver.roboclaw_interface import (
     RoboClawInterface,
     RoboClawError,
     detect_roboclaws,
+    is_udev_roboclaw_port,
+    probe_address,
+    same_device,
 )
 
 # Watchdog timeout: stop motors if no cmd_vel received within this period.
@@ -77,6 +87,10 @@ MAX_CONSECUTIVE_FAILURES = 10
 RECONNECT_INTERVAL_SEC = 2.0
 
 
+class PortFenceError(RuntimeError):
+    """The node refused to start: a port it would write to is not a verified RoboClaw."""
+
+
 class RoboClawNode(Node):
     """ROS2 driver node for two RoboClaw motor controllers."""
 
@@ -91,6 +105,10 @@ class RoboClawNode(Node):
         self.declare_parameter("baud_rate", ROBOCLAW_BAUD_RATE)
         self.declare_parameter("publish_rate", 50.0)
         self.declare_parameter("auto_detect", True)
+        # Bench-only: admit configured ports that are not /dev/roboclaw* names.
+        # A port must still answer the address probe before anything else is
+        # written to it.
+        self.declare_parameter("allow_unverified_ports", False)
 
         front_port = self.get_parameter("front_port").get_parameter_value().string_value
         rear_port = self.get_parameter("rear_port").get_parameter_value().string_value
@@ -99,44 +117,75 @@ class RoboClawNode(Node):
             self.get_parameter("publish_rate").get_parameter_value().double_value
         )
         auto_detect = self.get_parameter("auto_detect").get_parameter_value().bool_value
+        allow_unverified = (
+            self.get_parameter("allow_unverified_ports").get_parameter_value().bool_value
+        )
 
         # ------------------------------------------------------------------
-        # Auto-detect: probe ports to find which RoboClaw is where
+        # Port fence: every port opened below has answered an address probe
         # ------------------------------------------------------------------
         if auto_detect:
-            self.get_logger().info("Auto-detecting RoboClaw ports...")
+            self.get_logger().info("Auto-detecting RoboClaw ports on /dev/roboclaw*...")
             detected = detect_roboclaws(
                 ROBOCLAW_FRONT_ADDRESS,
                 ROBOCLAW_REAR_ADDRESS,
                 baud_rate=baud_rate,
             )
-            if ROBOCLAW_FRONT_ADDRESS in detected and ROBOCLAW_REAR_ADDRESS in detected:
-                front_port = detected[ROBOCLAW_FRONT_ADDRESS]
-                rear_port = detected[ROBOCLAW_REAR_ADDRESS]
-                self.get_logger().info(
-                    f"Auto-detect: front (0x{ROBOCLAW_FRONT_ADDRESS:02X}) -> {front_port}, "
-                    f"rear (0x{ROBOCLAW_REAR_ADDRESS:02X}) -> {rear_port}"
+            missing = [
+                addr
+                for addr in (ROBOCLAW_FRONT_ADDRESS, ROBOCLAW_REAR_ADDRESS)
+                if addr not in detected
+            ]
+            if missing:
+                self._refuse(
+                    f"Auto-detect: found {len(detected)}/2 controllers on "
+                    f"/dev/roboclaw* ({_describe(detected.items())}). Missing "
+                    f"addresses: {', '.join(f'0x{a:02X}' for a in missing)}. "
+                    "Refusing to start; only the address probe was sent."
                 )
-            elif detected:
-                # Partial detection — use what we found, keep defaults for the rest
-                for addr, port in detected.items():
-                    if addr == ROBOCLAW_FRONT_ADDRESS:
-                        front_port = port
-                    elif addr == ROBOCLAW_REAR_ADDRESS:
-                        rear_port = port
-                missing = {
-                    ROBOCLAW_FRONT_ADDRESS,
-                    ROBOCLAW_REAR_ADDRESS,
-                } - detected.keys()
-                self.get_logger().warn(
-                    f"Auto-detect: only found {len(detected)}/2 controllers. "
-                    f"Missing addresses: {[f'0x{a:02X}' for a in missing]}. "
-                    f"Using configured defaults for missing controllers."
+            front_port = detected[ROBOCLAW_FRONT_ADDRESS]
+            rear_port = detected[ROBOCLAW_REAR_ADDRESS]
+            if same_device(front_port, rear_port):
+                self._refuse(
+                    f"Auto-detect: both addresses answered on one device "
+                    f"({_describe(detected.items())}); each controller needs its own "
+                    "port. Refusing to start; only the address probe was sent."
                 )
-            else:
+            self.get_logger().info(
+                f"Auto-detect: front (0x{ROBOCLAW_FRONT_ADDRESS:02X}) -> {front_port}, "
+                f"rear (0x{ROBOCLAW_REAR_ADDRESS:02X}) -> {rear_port}"
+            )
+        else:
+            configured = [
+                (ROBOCLAW_FRONT_ADDRESS, front_port),
+                (ROBOCLAW_REAR_ADDRESS, rear_port),
+            ]
+            if same_device(front_port, rear_port):
+                self._refuse(
+                    f"front_port and rear_port name one device ({front_port}, "
+                    f"{rear_port}); each controller needs its own port. Refusing to "
+                    "start; no port was opened."
+                )
+            unverified = [p for _, p in configured if not is_udev_roboclaw_port(p)]
+            if unverified and not allow_unverified:
+                self._refuse(
+                    f"Not /dev/roboclaw* names (99-strafer.rules): {', '.join(unverified)}; "
+                    "allow_unverified_ports is false. Refusing to start; no port was opened."
+                )
+            if unverified:
                 self.get_logger().warn(
-                    "Auto-detect: no RoboClaws found. "
-                    "Falling back to configured ports."
+                    f"allow_unverified_ports: probing {', '.join(unverified)}, "
+                    "which are not /dev/roboclaw* names."
+                )
+            silent = [
+                (addr, port)
+                for addr, port in configured
+                if not probe_address(port, addr, baud_rate)
+            ]
+            if silent:
+                self._refuse(
+                    f"No RoboClaw answered the address probe at {_describe(silent)}. "
+                    "Refusing to start; nothing beyond the probe was written."
                 )
 
         self.get_logger().info(
@@ -221,6 +270,14 @@ class RoboClawNode(Node):
         self._latest_twist = msg
         self._last_cmd_vel_time = self.get_clock().now()
         self._watchdog_active = False
+
+    def _refuse(self, reason: str) -> None:
+        """Log *reason* and raise PortFenceError, before any port is opened to drive."""
+        self.get_logger().error(reason)
+        # Node's own teardown: this class's destroy_node stops motors on
+        # interfaces that do not exist yet.
+        super().destroy_node()
+        raise PortFenceError(reason)
 
     def _configure_pid(self, rc: RoboClawInterface, label: str) -> None:
         """Set velocity PID on both motors of a controller.
@@ -493,6 +550,11 @@ class RoboClawNode(Node):
         super().destroy_node()
 
 
+def _describe(addr_ports) -> str:
+    """``0x80 on /dev/roboclaw0, ...`` for (address, port) pairs, or ``none``."""
+    return ", ".join(f"0x{a:02X} on {p}" for a, p in addr_ports) or "none"
+
+
 def _yaw_to_quaternion(yaw: float) -> Quaternion:
     """Convert a yaw angle (radians) to a Quaternion message."""
     q = Quaternion()
@@ -505,7 +567,12 @@ def _yaw_to_quaternion(yaw: float) -> Quaternion:
 
 def main(args=None):
     rclpy.init(args=args)
-    node = RoboClawNode()
+    try:
+        node = RoboClawNode()
+    except PortFenceError:
+        # Already logged by the node. The console script exits with this code.
+        rclpy.try_shutdown()
+        return 1
     try:
         rclpy.spin(node)
     except KeyboardInterrupt:
@@ -516,4 +583,4 @@ def main(args=None):
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

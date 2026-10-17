@@ -197,7 +197,10 @@ def _get_detected_ports() -> dict[int, str]:
                 f"Auto-detected: {', '.join(f'0x{a:02X}->{p}' for a, p in _detected_ports.items())}"
             )
         else:
-            print("WARNING: No RoboClaws auto-detected on any port.")
+            print(
+                "WARNING: No RoboClaws found on /dev/roboclaw* (the only names scanned; "
+                "`make udev` installs 99-strafer.rules)."
+            )
     return _detected_ports
 
 

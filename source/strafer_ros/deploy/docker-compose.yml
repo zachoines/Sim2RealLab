@@ -29,9 +29,12 @@
 # environment and applies nothing. Always `up -d --force-recreate <service>`,
 # then verify with `docker compose config` + `docker exec <c> printenv`.
 #
-# HARDWARE: `base` needs both RoboClaws; `perception` needs the RealSense D555;
-# the rest need no hardware. A missing RoboClaw makes `base` write motor packets to
-# its default /dev/ttyACM* port, the D555's serial port when the camera is attached.
+# HARDWARE: `base` needs both RoboClaws at their /dev/roboclaw* names (`make udev`);
+# `perception` needs the RealSense D555; the rest need no hardware. With either
+# RoboClaw missing, the driver exits non-zero having sent only its address probe
+# to /dev/roboclaw*; it never falls back to /dev/ttyACM*, where the D555
+# enumerates its serial interface. Its exit ends `base`'s launch non-zero, and
+# `restart: unless-stopped` re-runs detection until both are connected.
 #
 # NOTE: Zenoh is a REMOTE-WORKSTATION CONVENIENCE, not a sanctioned transport for
 # the sim lane -- those runs use wired-LAN CycloneDDS; nobody bridges 921 KB depth
@@ -72,7 +75,9 @@ services:
         STRAFER_GIT_REVISION: ${STRAFER_GIT_REVISION:-unknown}
     container_name: strafer_base
     group_add: [ dialout ]
-    device_cgroup_rules: [ "c 166:* rmw" ]          # 166 = ttyACM (RoboClaw)
+    # 166 = ttyACM: the RoboClaws, and the D555's serial interface too. The driver
+    # drives only /dev/roboclaw* ports that answer its address probe.
+    device_cgroup_rules: [ "c 166:* rmw" ]
     volumes:
       - ../strafer_bringup/config/cyclonedds.xml:/opt/strafer/config/cyclonedds.xml:ro
       - /dev:/dev                                   # RoboClaw serial; needs controllers connected

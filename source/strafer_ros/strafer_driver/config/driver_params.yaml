@@ -7,4 +7,7 @@ roboclaw_node:
     rear_port: "/dev/roboclaw1"
     baud_rate: 115200
     publish_rate: 50.0
-    auto_detect: true  # Probe ports to find front/rear by address
+    auto_detect: true  # Probe /dev/roboclaw* to find front/rear by address
+    # Bench only: with auto_detect false, admit ports that are not /dev/roboclaw*
+    # names. Each must still answer the address probe before it is driven.
+    allow_unverified_ports: false

@@ -3,9 +3,11 @@
 **Type:** bug (`/cmd_vel` ordering between overlapping trained-policy goals)
 **Owner:** Jetson (`strafer_inference`)
 **Priority:** P2 — the same defect class as the post-goal stop race, a policy command left as the
-last `/cmd_vel` after a goal has ended. The ordering is reachable in the deployed flow only under
-a condition (the reachability box): two replacement submissions racing, or the executor restarted
-mid-goal, and a newer goal that ends at once.
+last `/cmd_vel` after a goal has ended. The ordering is reachable in the deployed flow under a
+condition (the reachability box): two replacement submissions racing, or the executor restarted
+mid-goal, and a newer goal that ends at once. A single replacement cannot reach it while the
+executor's 65 s policy budget outlasts the node's 60 s bound in wall time and `/clock` does not
+stall.
 **Estimate:** S
 **Branch:** `task/inference-finished-successor-stop`
 
@@ -44,15 +46,16 @@ still leaving its loop**, so that **a stop is the last command.**
 
 **Why it is P2, not P1.**
 - **What the executor does on a replacement.** It does not overlap missions this way.
-  `MissionRunner.start_mission` (`executor/mission_runner.py`, 262–307 at `f4d9cb2`) refuses a
+  `MissionRunner.start_mission` (`executor/mission_runner.py`, 262–331 at `6cd6fd7`) refuses a
   second mission unless `replace_active_mission` is set. On a replacement it:
   - cancels the active navigation, waiting for the cancel response;
   - publishes a zero `/cmd_vel` (`_cancel_robot_actions`, 2329–2343 at `6cd6fd7`);
   - joins the old mission's thread, for up to `replace_join_timeout_s` (5 s);
   - only then starts the new mission.
-- **The join outlasts the cancelled goal's loop** (read 2026-10-14; the reachability box). A single
-  replacement cannot meet a draining A. Two paths that are not a single replacement can, and both
-  need an operator action as well as a newer goal that ends at once.
+- **The join outlasts the cancelled goal's loop** while the executor's 65 s policy budget outlasts
+  the node's 60 s bound in wall time and `/clock` does not stall (read 2026-10-14 and 2026-10-16;
+  the reachability box). A single replacement then cannot meet a draining A. Two paths that are not a single replacement can, and
+  both need an operator action as well as a newer goal that ends at once.
 
 **Candidate fixes**, both small:
 1. **A flag for the newest goal's end.** It is set with the mission-end stop and cleared at the next
@@ -92,21 +95,37 @@ still leaving its loop**, so that **a stop is the last command.**
       (`mission_runner.py`:1292-1294).
     - The thread waits on goal A's result future (`clients/ros_client.py`:1025-1031; hybrid
       1171-1177), and only the result, the deadline or a `/clock` stall ends that wait
-      (1811-1827).
-    - rclpy Humble's action server sets the result after the execute callback returns
-      (`rclpy/action/server.py`:337, 357, 422-423 in `strafer-gpu:humble`), so after A's
-      `finally` (`inference_node.py`:1033-1044).
+      (1811-1828: the deadline at 1813-1814, the stall at 1817-1823).
+    - rclpy Humble's action server sets the result after the execute callback returns, so after
+      A's `finally` (`inference_node.py`:1033-1044). The lines in `rclpy/action/server.py` depend
+      on the version: 337, 357 and 422-423 in stock Humble (3.3.22 in `strafer-gpu:humble`), and
+      336, 356 and 419-420 in 3.3.17, packman's version (read from the upstream 3.3.17 tag).
+    - The deadline does not come first. The policy budget is min(`default_navigation_timeout_s`
+      90, `POLICY_MISSION_TIMEOUT_S` 60 + `policy_budget_margin_s` 5) = 65 s
+      (`mission_runner.py`:1194-1212). That is above the node's 60 s bound
+      (`inference_node.py`:1018-1027). No navigate or translate step sets `timeout_s`, which
+      would replace the budget (`mission_runner.py`:1204-1205); those are the two steps that take
+      it (1287, 1999), and `planner/plan_compiler.py` sets none on them (99-104, 169-174).
+    - *2026-10-16:* the single replacement holds only so. When `_wait_for_nav_result` returns on
+      its deadline or a stall, the thread returns before A's loop has exited: it fires
+      `cancel_goal_async` without awaiting it (`ros_client.py`:1036-1037; hybrid 1182-1183), and
+      a replacement's join then returns at once. That needs a deadline shorter than A's bound in
+      wall time (`STRAFER_NAVIGATION_TIMEOUT_S` below 60 s, or the executor on wall time while
+      the node runs on sim time below RTF 0.92), or a `/clock` stall of 15 s with the executor on
+      sim time.
     - `start_mission` joins the old thread (`mission_runner.py`:298), or refuses with
       `mission_replace_timeout` (299-307). The new mission plans (371-381) before its first goal.
-  - **Two submissions racing `start_mission`: yes.**
+  - **Two submissions racing `start_mission`: yes.** Filed as
+    [`executor-start-mission-atomic`](executor-start-mission-atomic.md) (2026-10-16).
     - The active check (274-292) and the install (323-325) are separate lock sections, and only
-      `_finish_runtime` clears the active mission (2260-2266).
+      `_finish_runtime` clears the active mission (2260-2267).
     - The ExecuteMission server runs a reentrant group on four threads (`command_server.py`:54,
-      166-188, 204-209). Two goals with `replace_active_mission` set that arrive during one
+      164-188, 204-209). Two goals with `replace_active_mission` set that arrive during one
       join both join the same mission (`mission_runner.py`:298), and both start a mission.
     - `_nav_lock` guards only the handle slot (`ros_client.py`:331, 1025-1026), so the two
       missions' goals overlap on the node.
-  - **The executor restarted mid-goal: yes.**
+  - **The executor restarted mid-goal: yes.** Filed as
+    [`executor-exit-cancels-active-goal`](executor-exit-cancels-active-goal.md) (2026-10-16).
     - The executor cancels nothing when its process ends (`executor/main.py`:292-298).
     - The node's loop has no client-liveness check, so A runs on for up to its 60 s bound
       (`inference_node.py`:983-1029), and the new executor's first policy goal supersedes it.
@@ -125,7 +144,8 @@ still leaving its loop**, so that **a stop is the last command.**
     - The sim harness submits with `replace_active_mission` false (`runtime_mission.py`:143).
     - A manual `ros2 action send_goal` can overlap, as an operator path.
   - **Read on the way, not fixed here:**
-    - The executor leaves its goal driving under the policy when its process ends.
+    - The executor leaves its goal driving under the policy when its process ends (now
+      `executor-exit-cancels-active-goal`).
     - The staging loop never checks the mission's cancel event.
     - `cancel_active_navigation` misses a goal whose handle is not yet stored
       (`ros_client.py`:1025-1026, 1287-1291).
@@ -142,6 +162,9 @@ still leaving its loop**, so that **a stop is the last command.**
     node it fails ten runs in ten: the publishes are B's stop, then A's policy action
     (`x=0.392, y=0.392, z=2.093`). With the marker, the ROS suite passes: 840 JUnit cases, 828
     passed, 11 skipped, this one xfailed.
+  - *2026-10-16:* the test's `finally` now cancels A. Otherwise a failure before B is accepted
+    left A looping to its 60 s bound after the test. Re-run: ten failures in ten with the marker
+    ignored, and the same suite counts with it.
 - [ ] **One fix chosen** from the candidates above, or another, with the reason. The test above
       passes, and the preemption test of `inference-post-goal-stop-race` (a tick in flight across
       a preemption publishes its action) still passes.
@@ -154,6 +177,8 @@ still leaving its loop**, so that **a stop is the last command.**
 ## Out of scope
 
 - The post-goal stop race itself, shipped in `inference-post-goal-stop-race`.
-- The executor's replacement path, unless the reachability box finds it can overlap goals.
+- The executor paths that overlap goals, found by the reachability box:
+  [`executor-start-mission-atomic`](executor-start-mission-atomic.md) and
+  [`executor-exit-cancels-active-goal`](executor-exit-cancels-active-goal.md).
 - `_last_action` at a mission boundary
   ([`inference-last-action-mission-reset`](../trained-policy/inference-last-action-mission-reset.md)).

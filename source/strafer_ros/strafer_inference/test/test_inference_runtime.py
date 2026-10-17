@@ -1552,7 +1552,7 @@ class TestMissionEndStopIsLast(unittest.TestCase):
             return 1.0
 
         node._current_goal_distance = _distance  # type: ignore
-        thread_a = None
+        handle_a = thread_a = None
         try:
             handle_a, thread_a = self._start_goal(node, pose_a)
             self.assertTrue(a_polling.wait(timeout=2.0))
@@ -1577,6 +1577,10 @@ class TestMissionEndStopIsLast(unittest.TestCase):
                 f"a policy action follows the final stop: {published}",
             )
         finally:
+            if handle_a is not None:
+                # Had the test failed before B was accepted, A would see no
+                # supersession and loop to its 60 s bound; a client cancel ends it.
+                handle_a.is_cancel_requested = True
             release_a.set()
             if thread_a is not None:
                 thread_a.join(timeout=2.0)

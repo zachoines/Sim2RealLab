@@ -1,5 +1,8 @@
 # Stop the compose services with SIGINT so a container stop reaches their nodes
 
+**Status:** Shipped 2026-10-17 in `e7e6e2b` (Jetson).
+**PR:** https://github.com/zachoines/Sim2RealLab/pull/248
+
 **Type:** bug (a container stop or restart reaches no ROS node; every node dies by SIGKILL)
 **Owner:** Jetson (`deploy/`)
 **Priority:** P1 for goal-b. On the robot, `docker compose stop base` or `restart base`
@@ -16,24 +19,24 @@ executor's exit path.**
 
 ## Context bundle
 
-- [context/repo-topology.md](../../context/repo-topology.md)
-- [context/ownership-boundaries.md](../../context/ownership-boundaries.md)
-- [context/conventions.md](../../context/conventions.md)
-- [context/branching-and-prs.md](../../context/branching-and-prs.md)
-- [context/deploy-env-config.md](../../context/deploy-env-config.md)
-- [`executor-exit-cancels-active-goal`](executor-exit-cancels-active-goal.md), "A container stop
+- [context/repo-topology.md](../context/repo-topology.md)
+- [context/ownership-boundaries.md](../context/ownership-boundaries.md)
+- [context/conventions.md](../context/conventions.md)
+- [context/branching-and-prs.md](../context/branching-and-prs.md)
+- [context/deploy-env-config.md](../context/deploy-env-config.md)
+- [`executor-exit-cancels-active-goal`](../active/reliability/executor-exit-cancels-active-goal.md), "A container stop
   never reaches the executor's `finally`": the first probe of this path, which left why launch's
   `_on_sigterm` never ran unexplained.
-- [`chassis-driver-port-fence-2026-10-14`](../../../measurements/chassis-driver-port-fence-2026-10-14/README.md)
+- [`chassis-driver-port-fence-2026-10-14`](../../measurements/chassis-driver-port-fence-2026-10-14/README.md)
   §3 and §6: the launch probes under `docker stop` and under SIGINT.
-- [`enriched-lane-rig-stability`](enriched-lane-rig-stability.md), mode 1: rtabmap's save at close,
+- [`enriched-lane-rig-stability`](../active/reliability/enriched-lane-rig-stability.md), mode 1: rtabmap's save at close,
   and slam's 180 s grace period.
 
 ## Context
 
 Compose files read at `0a975ef`. Image facts read on 2026-10-17 in `strafer-cpu:humble` (revision
 label `9f7d20758d5b`): launch 1.0.14, ros2launch 0.19.13, Python 3.10.12. The record is
-[`compose-stop-signal-2026-10-17`](../../../measurements/compose-stop-signal-2026-10-17/README.md).
+[`compose-stop-signal-2026-10-17`](../../measurements/compose-stop-signal-2026-10-17/README.md).
 
 - **`ros2 launch` is PID 1 in every service that runs nodes.**
   - The entrypoint `exec`s the command (`deploy/docker/Dockerfile.cpu`:86-95,
@@ -128,12 +131,12 @@ label `9f7d20758d5b`): launch 1.0.14, ros2launch 0.19.13, Python 3.10.12. The re
       *2026-10-17:*
       - *slam's grace-period comment states launch's 10 s escalation;*
       - *a stop-semantics line in `deploy/README.md`'s Notes;*
-      - *dated notes on [`executor-exit-cancels-active-goal`](executor-exit-cancels-active-goal.md),
-        [`enriched-lane-rig-stability`](enriched-lane-rig-stability.md) and the port-fence
+      - *dated notes on [`executor-exit-cancels-active-goal`](../active/reliability/executor-exit-cancels-active-goal.md),
+        [`enriched-lane-rig-stability`](../active/reliability/enriched-lane-rig-stability.md) and the port-fence
         record's §3.*
 - [x] If your work invalidates a fact in any referenced context module, package README,
       top-level `Readme.md`, or guide under `docs/`, update those in the same commit. See
-      [`conventions.md`'s user-facing documentation maintenance section](../../context/conventions.md#user-facing-documentation-maintenance).
+      [`conventions.md`'s user-facing documentation maintenance section](../context/conventions.md#user-facing-documentation-maintenance).
       *2026-10-17: swept. Only `deploy/README.md`'s Notes changed; the env-recreate advice in the
       cheatsheet and `deploy-env-config.md` is untouched by a stop signal.*
 - [x] No regression: the whole ROS suite and `make env-check` pass.
@@ -150,12 +153,12 @@ label `9f7d20758d5b`): launch 1.0.14, ros2launch 0.19.13, Python 3.10.12. The re
 ## Out of scope
 
 - **The executor's cancel on exit.** A stop now reaches the executor, but its exit path still
-  cancels nothing: [`executor-exit-cancels-active-goal`](executor-exit-cancels-active-goal.md).
+  cancels nothing: [`executor-exit-cancels-active-goal`](../active/reliability/executor-exit-cancels-active-goal.md).
 - **rtabmap's save inside launch's escalation.** Launch sends rtabmap SIGTERM 5 s and SIGKILL
   10 s after the SIGINT, so slam's 180 s grace does not bound its save:
-  [`slam-stop-save-window`](slam-stop-save-window.md).
+  [`slam-stop-save-window`](../active/reliability/slam-stop-save-window.md).
 - **`base` on the robot.** The motor stop seen on the controllers after `docker compose stop
   base` needs both RoboClaws. Record §4 is the driver's teardown against fake controllers.
 - **A daemon stop or a reboot**, measured. Docker's source says it sends the stop signal too
   (Context). `init: true` stays deferred in
-  [`enriched-lane-rig-stability`](enriched-lane-rig-stability.md).
+  [`enriched-lane-rig-stability`](../active/reliability/enriched-lane-rig-stability.md).

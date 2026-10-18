@@ -184,6 +184,7 @@ The learned components here share one frozen text-capable backbone — see [`con
 | [`executor-replan-on-deviation`](parked/reliability/executor-replan-on-deviation.md) | P2 | parked | Either |
 | [`executor-slam-tracking-precheck-mid-mission`](active/reliability/executor-slam-tracking-precheck-mid-mission.md) | P2 | active | Jetson |
 | [`executor-exit-cancels-active-goal`](active/reliability/executor-exit-cancels-active-goal.md) | P1 | active | Jetson |
+| [`compose-stop-signal-sigint`](completed/compose-stop-signal-sigint.md) | P1 | **shipped 2026-10-17** ([#248](https://github.com/zachoines/Sim2RealLab/pull/248), `e7e6e2b`). Every launch-based compose service stops with SIGINT. `ros2 launch` is PID 1 and catches no SIGTERM, so a `docker compose stop` or `restart` had reached no node and every node died by SIGKILL at the grace period (slam: 180.4 s, exit 137, no save; with SIGINT 0.7 s, exit 0, rtabmap's save logged). Against two answering fake RoboClaws the driver's teardown now sends its zero drive. Launch still sends a node SIGTERM 5 s and SIGKILL 10 s after the SIGINT, filed as `slam-stop-save-window`; record [`compose-stop-signal-2026-10-17`](../measurements/compose-stop-signal-2026-10-17/README.md) | Jetson |
 | [`executor-start-mission-atomic`](active/reliability/executor-start-mission-atomic.md) | P2 | active | Jetson |
 | [`slam-stop-save-window`](active/reliability/slam-stop-save-window.md) | P2 | active | Jetson |
 | [`verify-arrival-occlusion-robustness`](active/reliability/verify-arrival-occlusion-robustness.md) | P2 | active | Jetson |

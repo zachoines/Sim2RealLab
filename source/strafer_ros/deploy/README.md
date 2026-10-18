@@ -274,6 +274,10 @@ budget); the DGX↔robot A/B sessions don't need it.
   runtime isn't already nvidia, and only then restarts docker).
 - `restart: unless-stopped` on the robot stack auto-resurrects crashed nodes on
   reboot — the node watchdogs mitigate, but be aware of the semantics.
+- A stop or restart (`docker compose stop|restart`, `docker stop|restart`) sends
+  SIGINT, the services' `stop_signal`: `ros2 launch` is PID 1 and catches no
+  SIGTERM. Launch passes SIGINT to each node, then sends any node still running
+  SIGTERM at 5 s and SIGKILL at 10 s, whatever `stop_grace_period` says.
 - **New-Jetson provisioning:** flash JP6.2 → `sudo apt install docker.io` →
   `sudo bash host-setup/install-host-prereqs.sh` → `docker compose build` → mount
   the model. Everything except the host kernel/udev/sysctl and the per-device

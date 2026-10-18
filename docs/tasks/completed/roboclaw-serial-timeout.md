@@ -1,5 +1,8 @@
 # Read and set the RoboClaws' serial timeout, so the controllers stop the motors when the link goes quiet
 
+**Status:** Shipped 2026-10-17 in `cb2ea64` (Jetson).
+**PR:** https://github.com/zachoines/Sim2RealLab/pull/249
+
 **Type:** task (a controller safety setting the tree never sets, reads or documents)
 **Owner:** Jetson (`diagnose_roboclaw.py`, `strafer_driver`, `strafer_shared`)
 **Priority:** P1 for the chassis bring-up. The driver's 0.5 s `cmd_vel` watchdog is software, so it
@@ -17,13 +20,13 @@ traffic stops, whatever happened to the program driving them.**
 
 ## Context bundle
 
-- [context/repo-topology.md](../../context/repo-topology.md)
-- [context/ownership-boundaries.md](../../context/ownership-boundaries.md)
-- [context/conventions.md](../../context/conventions.md)
-- [context/branching-and-prs.md](../../context/branching-and-prs.md)
-- [`chassis-driver-port-fence-2026-10-14`](../../../measurements/chassis-driver-port-fence-2026-10-14/README.md)
+- [context/repo-topology.md](../context/repo-topology.md)
+- [context/ownership-boundaries.md](../context/ownership-boundaries.md)
+- [context/conventions.md](../context/conventions.md)
+- [context/branching-and-prs.md](../context/branching-and-prs.md)
+- [`chassis-driver-port-fence-2026-10-14`](../../measurements/chassis-driver-port-fence-2026-10-14/README.md)
   §7: the on-site check this step now joins.
-- [`jetson-untether`](jetson-untether.md), "Camera, RoboClaw and boot hazards" and its boxes on the
+- [`jetson-untether`](../active/reliability/jetson-untether.md), "Camera, RoboClaw and boot hazards" and its boxes on the
   camera's serial interface.
 
 ## Context
@@ -126,11 +129,11 @@ Code read at `0a975ef`. The protocol is from the RoboClaw user manual, Revision 
         `jetson-untether`.
 
       The commands are in the port-fence record's
-      [§7, step 0](../../../measurements/chassis-driver-port-fence-2026-10-14/README.md#7-the-on-site-check).
+      [§7, step 0](../../measurements/chassis-driver-port-fence-2026-10-14/README.md#7-the-on-site-check).
       Until the values are read, the chassis bring-up carries this step first.
 - [x] If your work invalidates a fact in any referenced context module, package README,
       top-level `Readme.md`, or guide under `docs/`, update those in the same commit. See
-      [`conventions.md`'s user-facing documentation maintenance section](../../context/conventions.md#user-facing-documentation-maintenance).
+      [`conventions.md`'s user-facing documentation maintenance section](../context/conventions.md#user-facing-documentation-maintenance).
       *2026-10-17:*
       - *the dated step 0 in the port-fence record's §7;*
       - *a box in `jetson-untether`'s camera-fence group, after the udev box;*
@@ -158,4 +161,4 @@ Code read at `0a975ef`. The protocol is from the RoboClaw user manual, Revision 
   startup by driver and test scripts". The node writes them; `tune_pid.py` writes its own
   defaults, and only on `--tune` or `--set`. This is a follow-up.
 - **Error and battery visibility:**
-  [`roboclaw-error-visibility-and-low-battery`](../../parked/reliability/roboclaw-error-visibility-and-low-battery.md).
+  [`roboclaw-error-visibility-and-low-battery`](../parked/reliability/roboclaw-error-visibility-and-low-battery.md).

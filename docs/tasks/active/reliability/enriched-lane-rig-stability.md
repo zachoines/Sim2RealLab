@@ -477,9 +477,11 @@ instance**. On an idle GPU expect 10–20 min to first frames; poll
       `daemon/daemon.go`'s `shutdownTimeout` waits for the longest StopTimeout plus
       5 s when that exceeds `shutdown-timeout`, and `shutdownContainer` stops each
       container with its own stop signal and timeout. So a daemon stop gives
-      `slam` its 180 s and, since
+      `slam` its 180 s, up to systemd's stop timeout for `docker.service`, unread
+      on the robot, and, since
       [`compose-stop-signal-sigint`](../../completed/compose-stop-signal-sigint.md),
-      its SIGINT. Not measured on the robot.*
+      its SIGINT. Not measured on the robot, so this residual and its lever stay
+      open.*
 - [ ] Poisoned-database detection at launch, as a backstop.
 - [ ] Nav2 lifecycle non-recovery root-caused; `lifecycle_manager` behaviour on
       bond loss understood.

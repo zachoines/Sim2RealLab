@@ -28,7 +28,7 @@ warning and no `addLink()` abort.**
 
 ## Context
 
-Read and probed on 2026-10-17 in `strafer-cpu:humble` (launch 1.0.14), compose at `8230e29`.
+Read and probed on 2026-10-17 in `strafer-cpu:humble` (launch 1.0.14), compose at `e7e6e2b`.
 
 - **The stop now reaches rtabmap.** `stop_signal: SIGINT` makes launch take its Ctrl-C path, and
   rtabmap logs "Saving database/long-term memory..." on a stop. Before, no save line ever appeared:

@@ -35,6 +35,20 @@ CAMERA_PORT = "/dev/ttyACM0"
 FRONT = 0x80
 REAR = 0x81
 PID_COMMANDS = (CMD_SET_M1_VEL_PID, CMD_SET_M2_VEL_PID)
+# The manual's numbers, written out rather than imported, so the fake checks the code's.
+CMD_SET_SERIAL_TIMEOUT = 14
+CMD_READ_SERIAL_TIMEOUT = 15
+# 94 and 95 are diagnose_roboclaw.py's alone; the interface never touches flash.
+CMD_WRITE_SETTINGS_NVM = 94
+CMD_READ_SETTINGS_NVM = 95
+NVM_WRITE_KEY = bytes.fromhex("e22eab7a")
+# Whole packets, address and CRC included; the fake answers nothing at any other length.
+PACKET_LENGTHS = {
+    CMD_SET_SERIAL_TIMEOUT: 5,
+    CMD_READ_SERIAL_TIMEOUT: 4,
+    CMD_WRITE_SETTINGS_NVM: 8,
+    CMD_READ_SETTINGS_NVM: 4,
+}
 
 
 # ---------------------------------------------------------------------------
@@ -43,10 +57,20 @@ PID_COMMANDS = (CMD_SET_M1_VEL_PID, CMD_SET_M2_VEL_PID)
 
 
 class FakeRoboClaw:
-    """Answers packet-serial commands sent to its own address (or addresses)."""
+    """Answers packet-serial commands sent to its own address (or addresses).
 
-    def __init__(self, address, *more):
+    It keeps a serial-timeout register (commands 14 and 15, raw 100 ms units)
+    and a saved copy of it. A flash write (command 94, acknowledged only with
+    the key) copies the register into the saved copy; a reload (command 95)
+    copies it back. Both are counted.
+    """
+
+    def __init__(self, address, *more, serial_timeout=0):
         self.addresses = {address, *more}
+        self.serial_timeout = serial_timeout
+        self.saved_serial_timeout = serial_timeout
+        self.nvm_writes = 0
+        self.reloads = 0
 
     def respond(self, packet):
         if len(packet) < 4 or packet[0] not in self.addresses:
@@ -54,10 +78,27 @@ class FakeRoboClaw:
         if _crc16(packet[:-2]) != struct.unpack(">H", packet[-2:])[0]:
             return b""
         command = packet[1]
+        if len(packet) != PACKET_LENGTHS.get(command, len(packet)):
+            return b""
         if command == CMD_READ_MAIN_BATTERY:
             payload = struct.pack(">H", 120)
         elif command in (16, 17, 18, 19):  # encoder counts and speeds
             payload = struct.pack(">i", 0) + b"\x00"
+        elif command == CMD_READ_SERIAL_TIMEOUT:
+            payload = bytes([self.serial_timeout])
+        elif command == CMD_SET_SERIAL_TIMEOUT:
+            self.serial_timeout = packet[2]
+            return b"\xff"
+        elif command == CMD_WRITE_SETTINGS_NVM:
+            if packet[2:6] != NVM_WRITE_KEY:
+                return b""
+            self.saved_serial_timeout = self.serial_timeout
+            self.nvm_writes += 1
+            return b"\xff"
+        elif command == CMD_READ_SETTINGS_NVM:
+            self.serial_timeout = self.saved_serial_timeout
+            self.reloads += 1
+            return b"\xff"
         else:
             return b"\xff"  # write commands are acknowledged
         return payload + struct.pack(">H", _crc16(packet[:2] + payload))
@@ -545,13 +586,16 @@ DIAGNOSE = os.path.join(os.path.dirname(__file__), "..", "..", "diagnose_robocla
 DUTY_COMMANDS = (CMD_M1_FORWARD, CMD_M2_FORWARD)
 
 
-def run_diagnose(*argv):
-    """Run the tool's main() with *argv*, its sleeps skipped; return its result."""
+def run_diagnose(*argv, sleep=None):
+    """Run the tool's main() with *argv*; return its result.
+
+    Its sleeps are skipped, or each one calls *sleep* with its seconds.
+    """
     spec = importlib.util.spec_from_file_location("diagnose_roboclaw", DIAGNOSE)
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     with patch.object(sys, "argv", ["diagnose_roboclaw.py", *argv]), patch.object(
-        module.time, "sleep"
+        module.time, "sleep", side_effect=sleep
     ):
         return module.main()
 

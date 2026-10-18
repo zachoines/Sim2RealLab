@@ -50,6 +50,9 @@ CMD_M1_BACKWARD = 1
 CMD_M2_FORWARD = 4
 CMD_M2_BACKWARD = 5
 
+CMD_SET_SERIAL_TIMEOUT = 14
+CMD_READ_SERIAL_TIMEOUT = 15
+
 CMD_READ_ENC_M1 = 16
 CMD_READ_ENC_M2 = 17
 CMD_READ_SPEED_M1 = 18
@@ -355,6 +358,30 @@ class RoboClawInterface:
     def reset_encoders(self) -> bool:
         """Reset both encoder counters to zero."""
         return self._retry(self._send_with_ack, CMD_RESET_ENCODERS)
+
+    # ------------------------------------------------------------------
+    # Serial timeout
+    # ------------------------------------------------------------------
+
+    def read_serial_timeout(self) -> float:
+        """Read the active packet-serial timeout in seconds (command 15; 0 = disabled)."""
+        payload = self._retry(self._send_and_recv, CMD_READ_SERIAL_TIMEOUT, b"", 1)
+        return payload[0] / 10.0
+
+    def set_serial_timeout(self, seconds: float) -> bool:
+        """Set the packet-serial timeout (command 14), in 100 ms units; 0 disables it.
+
+        With no serial data received for that long, the controller stops
+        both motors.  This sets the active value only: power-up loads the
+        saved one, and only command 94 saves.
+        """
+        tenths = seconds * 10
+        if not -1e-9 <= tenths <= 255 + 1e-9 or abs(tenths - round(tenths)) > 1e-9:
+            raise ValueError(
+                f"Serial timeout {seconds} s is not a whole number of 0.1 s steps "
+                "from 0 to 25.5 s"
+            )
+        return self._retry(self._send_with_ack, CMD_SET_SERIAL_TIMEOUT, bytes([round(tenths)]))
 
     # ------------------------------------------------------------------
     # Diagnostics

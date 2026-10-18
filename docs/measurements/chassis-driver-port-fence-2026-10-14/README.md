@@ -296,6 +296,77 @@ ls -la /dev/roboclaw* /dev/ttyACM*
 for d in /dev/ttyACM*; do echo "$d $(udevadm info -q property -n $d | grep -E '^ID_(VENDOR|MODEL)_ID=' | tr '\n' ' ')"; done
 CAM=$(for d in /dev/ttyACM*; do udevadm info -q property -n $d | grep -q '^ID_VENDOR_ID=8086' && echo $d; done)
 sudo udevadm test "$(udevadm info -q path -n "$(ls /dev/roboclaw* | head -1)")" 2>&1 | grep -i roboclaw
+```
+
+**Step 0, the controllers' serial timeout** *(added 2026-10-17, from
+[`roboclaw-serial-timeout`](../../tasks/completed/roboclaw-serial-timeout.md))*. This is the
+chassis bring-up's first RoboClaw step: after `make images`, `make udev` and plugging both RoboClaws
+in, and before `base` starts below.
+
+- **What it checks.** Each RoboClaw stops both motors on its own when no serial data arrives within
+  its packet-serial timeout (manual: commands 14 and 15, in 100 ms units; its Timeout setting, 0
+  disables it). The node's 0.5 s watchdog stops with the node.
+- **What is unknown.** Each controller's value is held in its flash, and neither has been read.
+- **Saving.** Command 14 changes only the active value. Command 94 saves every active setting to
+  flash and resets the controller. With `--write-nvm`, the tool first reloads the saved settings
+  (command 95), so the save carries only those and the new timeout.
+
+Before step 0:
+- The controllers' main power must have gone on before their USB, as the manual asks. If the USB
+  went in first, unplug it, power the controllers, and plug it back in.
+- Leave `base` stopped; the tool needs the ports to itself.
+- The image must carry `--read-only` and `--set-serial-timeout`. The `--help` line below checks
+  that without opening a port, and every run prints the image's `revision=`.
+
+Read both controllers. This drives nothing:
+
+```bash
+cd ~/Sim2RealLab/source/strafer_ros/deploy && docker compose stop base
+D="docker compose run --rm --no-deps -e PYTHONUNBUFFERED=1 base python3 /ws/src/strafer_ros/diagnose_roboclaw.py"
+$D --help 2>&1 | grep -q -- --set-serial-timeout && echo "image ok" || echo "STOP: this image lacks the flags"
+$D --read-only 2>&1 | tee step0.txt        # "Serial timeout (cmd 15): …" for 0x80 and for 0x81
+```
+
+Go on only if the `--help` line printed `image ok`.
+- **A controller that read 0:** set and save it. Use `--front-only` for 0x80, `--rear-only` for
+  0x81, and neither only if both read 0. The tool first reloads the saved settings (command 95);
+  if that or the set fails, it saves nothing and says so.
+- **A value other than 0 and 0.5 s** is someone's choice. Record it, and decide before changing it.
+
+```bash
+$D --front-only --set-serial-timeout 0.5 --write-nvm 2>&1 | tee -a step0.txt   # or --rear-only
+```
+
+Read again once the controller is back. Its name may change; the tool finds it by address. On "not
+detected", wait and run it again.
+
+```bash
+sleep 10; ls -la /dev/roboclaw*
+$D --read-only 2>&1 | tee -a step0.txt     # the saved value, loaded at the reset
+```
+
+The hardware check:
+- **Go on only if both now read 0.5 s.**
+- **Lift the wheels first:** this run drives each motor at duty 32/127 for 1 s.
+- **What to expect.** The speed read at 1 s comes out near zero, because the controller stopped the
+  motor at 0.5 s. The encoder count printed after each hold shows whether the motor moved, but it
+  counts from the controller's last reset. On a controller the save just reset, a count well away
+  from zero is this hold's motion. On the other, run this line twice and compare the counts.
+- **A speed well above zero** means the timeout did not act over this link. Record that and stop.
+
+```bash
+$D 2>&1 | tee -a step0.txt
+cd ~/Sim2RealLab
+```
+
+- **If a motor keeps running**, stop it with
+  `docker compose run --rm --no-deps base python3 /ws/src/strafer_ros/tune_pid.py --stop`, or cut
+  main power.
+- **What to record**, per controller (0x80, 0x81), in a dated note on `jetson-untether`'s
+  serial-timeout box: the first reading, the reading after the save, and the hardware check's
+  speeds and encoder counts. `step0.txt` holds the output.
+
+```bash
 cd source/strafer_ros/deploy && docker compose up -d base     # camera attached
 docker logs strafer_base 2>&1 | grep -E 'revision=|Auto-detect|RoboClawNode starting'
 sudo fuser -v "$CAM"                 # the camera's CDC (vendor 8086): no strafer process holds it

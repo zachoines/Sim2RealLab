@@ -241,7 +241,10 @@ python3 source/strafer_ros/tune_pid.py --tune         # set + measure
 
 # RoboClaw direct duty-cycle diagnostics (skip PID). --front/--rear take /dev/roboclaw*
 # names; any other path needs --allow-unverified-ports (bench only). A port that does not
-# answer the battery read gets nothing more.
+# answer the battery read gets nothing more. It also prints each controller's packet-serial
+# timeout (command 15); --read-only skips the duty test. --set-serial-timeout 0.5 sets it, reads it
+# back and runs the duty test; with --write-nvm it instead reloads the saved settings (command 95),
+# sets, and saves them all to flash (command 94), which resets the controller.
 python3 source/strafer_ros/diagnose_roboclaw.py
 
 # D555 camera + IMU standalone check

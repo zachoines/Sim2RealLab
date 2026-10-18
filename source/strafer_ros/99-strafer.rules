@@ -15,9 +15,10 @@
 #
 # Verify:
 #   ls -la /dev/roboclaw*
+#   udevadm info -q property -n "$(ls /dev/roboclaw* | head -1)" | grep ID_MM_DEVICE_IGNORE
 
-# Any Basicmicro RoboClaw -> /dev/roboclaw<N>
-SUBSYSTEM=="tty", ATTRS{idVendor}=="03eb", ATTRS{idProduct}=="2404", SYMLINK+="roboclaw%n", MODE="0666"
+# Any Basicmicro RoboClaw -> /dev/roboclaw<N>; ModemManager is told to leave the port alone.
+SUBSYSTEM=="tty", ATTRS{idVendor}=="03eb", ATTRS{idProduct}=="2404", SYMLINK+="roboclaw%n", MODE="0666", ENV{ID_MM_DEVICE_IGNORE}="1"
 
 # Intel RealSense D555 HID interface (IMU: BMI055 accel + gyro)
 # Custom-built hid-sensor-hub + IIO modules expose the IMU as IIO devices.

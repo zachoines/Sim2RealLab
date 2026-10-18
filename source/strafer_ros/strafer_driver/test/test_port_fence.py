@@ -13,6 +13,7 @@ device.
 import fnmatch
 import importlib.util
 import os
+import re
 import struct
 import sys
 from unittest.mock import patch
@@ -621,14 +622,36 @@ class TestDiagnoseTool:
         assert all(data[1] == CMD_READ_MAIN_BATTERY for _, data in sent), sent
 
     def test_answering_port_is_driven(self, patched):
-        """Control: a RoboClaw that answers gets the PID reads and the duty-cycle drive."""
+        """Control: under --drive, a RoboClaw that answers gets the PID reads and the duty test."""
         bus = patched(robot(front_tty="/dev/ttyACM2"))
 
-        run_diagnose("--front", "/dev/roboclaw2", "--front-only")
+        run_diagnose("--front", "/dev/roboclaw2", "--front-only", "--drive")
 
         commands = {data[1] for _, data in bus.packets("/dev/roboclaw2")}
         assert set(DUTY_COMMANDS) <= commands
         assert not bus.touched(CAMERA_PORT)
+
+
+# ---------------------------------------------------------------------------
+# 99-strafer.rules
+# ---------------------------------------------------------------------------
+
+RULES = os.path.join(os.path.dirname(__file__), "..", "..", "99-strafer.rules")
+UDEV_PAIR = re.compile(r'([A-Za-z_]+(?:\{[^}]*\})?)\s*(==|!=|\+=|-=|:=|=)\s*"([^"]*)"')
+
+
+def test_udev_rule_names_roboclaws_and_keeps_modemmanager_off():
+    """The one RoboClaw rule (03eb:2404) gives the fence's name and sets ID_MM_DEVICE_IGNORE."""
+    with open(RULES) as f:
+        rules = [UDEV_PAIR.findall(line) for line in f if not line.lstrip().startswith("#")]
+    (rule,) = [
+        r
+        for r in rules
+        if ("ATTRS{idVendor}", "==", "03eb") in r and ("ATTRS{idProduct}", "==", "2404") in r
+    ]
+
+    assert ("SYMLINK", "+=", "roboclaw%n") in rule
+    assert ("ENV{ID_MM_DEVICE_IGNORE}", "=", "1") in rule
 
 
 # ---------------------------------------------------------------------------

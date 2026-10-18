@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-"""Quick diagnostic for RoboClaw -- tries duty-cycle commands instead of PID velocity.
+"""Quick diagnostic for RoboClaw -- reads each controller, and with --drive tries duty-cycle
+commands instead of PID velocity.
 
 Also reads each controller's packet-serial timeout, and sets it on request.
 """
@@ -37,7 +38,10 @@ CMD_WRITE_SETTINGS_NVM = 94
 CMD_READ_SETTINGS_NVM = 95
 NVM_WRITE_KEY = 0xE22EAB7A
 
+DUTY = 32
 DUTY_HOLD_S = 1.0
+# M1 and M2 of each controller, as the node maps them.
+WHEELS = {ROBOCLAW_FRONT_ADDRESS: ("FL", "FR"), ROBOCLAW_REAR_ADDRESS: ("RL", "RR")}
 SERIAL_ERRORS = (RoboClawError, OSError, termios.error)
 # Inexact is trapped so a rounded product cannot pass for a whole number of tenths.
 EXACT = decimal.Context(traps=[decimal.Inexact, decimal.InvalidOperation])
@@ -133,15 +137,13 @@ def diagnose_roboclaw(
     label: str,
     set_timeout_s: float | None = None,
     write_nvm: bool = False,
-    read_only: bool = False,
+    drive: bool = False,
 ) -> int:
-    """Run diagnostics on a single RoboClaw; return 1 if a requested write failed, else 0."""
+    """Run diagnostics on a single RoboClaw; return 1 if it was not reached or a write failed."""
     print(f"\n{'='*60}")
     print(f"Diagnosing RoboClaw '{label}' at {port} (address 0x{address:02x})")
     print(f"{'='*60}")
 
-    # A requested set that never ran has failed.
-    unreached = 0 if set_timeout_s is None else 1
     claw = RoboClawInterface(port, address, ROBOCLAW_BAUD_RATE)
 
     try:
@@ -149,7 +151,7 @@ def diagnose_roboclaw(
         print(f"  Serial port opened.")
     except Exception as e:
         print(f"  FATAL: Cannot open port: {e}")
-        return unreached
+        return 1
 
     # Battery voltage: the address probe. Nothing else is written without an answer.
     try:
@@ -158,7 +160,7 @@ def diagnose_roboclaw(
     except SERIAL_ERRORS as e:
         print(f"  Battery read failed: {e}. No RoboClaw answered; stopping here.")
         claw.close()
-        return unreached
+        return 1
 
     # Temperature
     try:
@@ -226,14 +228,14 @@ def diagnose_roboclaw(
             if saved:
                 print(
                     "  Saved. The controller is resetting, and its USB port may re-enumerate; "
-                    "once /dev/roboclaw* is back, run this tool again with --read-only to read "
-                    "the saved value."
+                    "once /dev/roboclaw* is back, the same command run again reloads the saved "
+                    "settings (cmd 95) and reads them."
                 )
             else:
                 print(
                     "  No ack for command 94, so whether anything was saved is unknown; "
-                    "once /dev/roboclaw* is back, run this tool again with --read-only to read "
-                    "the timeout."
+                    "once /dev/roboclaw* is back, run the same command again, not --read-only: "
+                    "it reloads the saved settings (cmd 95) first, so it reads what was saved."
                 )
             claw.close()
             return 0 if saved else 1
@@ -256,8 +258,8 @@ def diagnose_roboclaw(
                     f"    *** Use Motion Studio to auto-tune PID, or set QPPS manually ***"
                 )
 
-    if read_only:
-        print("\n  Read-only: the duty-cycle drive is skipped.")
+    if not drive:
+        print("\n  No motor command: the duty-cycle drive runs only with --drive.")
         claw.close()
         return 0
 
@@ -271,7 +273,7 @@ def diagnose_roboclaw(
             "zero; that is the timeout working."
         )
     for m in (1, 2):
-        test_duty_drive(claw, m, duty=32, duration=DUTY_HOLD_S)
+        test_duty_drive(claw, m, duty=DUTY, duration=DUTY_HOLD_S)
         time.sleep(0.5)
 
     for forward in (claw.forward_m1, claw.forward_m2):
@@ -298,7 +300,10 @@ def serial_timeout_seconds(text: str) -> float:
 
 
 def main(argv: list[str] | None = None) -> int | None:
-    parser = argparse.ArgumentParser(description="RoboClaw diagnostic tool")
+    parser = argparse.ArgumentParser(
+        description="RoboClaw diagnostic tool. It only reads, unless --drive or "
+        "--set-serial-timeout is given."
+    )
     parser.add_argument("--front", default=None)
     parser.add_argument("--rear", default=None)
     only = parser.add_mutually_exclusive_group()
@@ -313,16 +318,23 @@ def main(argv: list[str] | None = None) -> int | None:
     mode.add_argument(
         "--read-only",
         action="store_true",
-        help="Read battery, temperature, serial timeout and velocity PID only; skip the "
-        "duty-cycle drive, so no motor command is sent",
+        help="Read battery, temperature, serial timeout and velocity PID only, as a run "
+        "without --drive or --set-serial-timeout does; no motor command is sent",
+    )
+    mode.add_argument(
+        "--drive",
+        action="store_true",
+        help=f"After the reads, run the duty-cycle test: each motor of each controller "
+        f"tested (FL, FR on 0x80; RL, RR on 0x81) at duty {DUTY}/127 for {DUTY_HOLD_S:g} s. "
+        "The wheels must be lifted. Without it no motor command is sent",
     )
     mode.add_argument(
         "--set-serial-timeout",
         type=serial_timeout_seconds,
         metavar="SECONDS",
         help="Set each controller's packet-serial timeout (command 14; 0 to 25.5 s in "
-        "0.1 s steps, 0 disables it) and read it back, then run the duty test as a bare "
-        "run does. Sets the active value only: a power-up loads the saved one",
+        "0.1 s steps, 0 disables it) and read it back; no motor command is sent. Sets "
+        "the active value only: a power-up loads the saved one",
     )
     parser.add_argument(
         "--write-nvm",
@@ -373,21 +385,26 @@ def main(argv: list[str] | None = None) -> int | None:
     flags = dict(
         set_timeout_s=args.set_serial_timeout,
         write_nvm=args.write_nvm,
-        read_only=args.read_only,
+        drive=args.drive,
     )
     set_requested = args.set_serial_timeout is not None
-    failed = False
+    plan = []
     if not args.rear_only:
-        if args.front:
-            failed |= diagnose_roboclaw(args.front, ROBOCLAW_FRONT_ADDRESS, "Front", **flags) != 0
-        else:
-            print("\nFront RoboClaw (0x80): not detected")
-            failed |= set_requested
+        plan.append((args.front, ROBOCLAW_FRONT_ADDRESS, "Front"))
     if not args.front_only:
-        if args.rear:
-            failed |= diagnose_roboclaw(args.rear, ROBOCLAW_REAR_ADDRESS, "Rear", **flags) != 0
+        plan.append((args.rear, ROBOCLAW_REAR_ADDRESS, "Rear"))
+    wheels = [w for port, address, _ in plan if port for w in WHEELS[address]]
+    if args.drive and wheels:
+        print(
+            f"\nDriving {', '.join(wheels)} at duty {DUTY}/127 for {DUTY_HOLD_S:g} s each: "
+            "the wheels must be lifted."
+        )
+    failed = False
+    for port, address, label in plan:
+        if port:
+            failed |= diagnose_roboclaw(port, address, label, **flags) != 0
         else:
-            print("\nRear RoboClaw (0x81): not detected")
+            print(f"\n{label} RoboClaw (0x{address:02X}): not detected")
             failed |= set_requested
     if failed:
         return 1

@@ -2,7 +2,8 @@
 
 ``diagnose_roboclaw.py`` reads each controller's timeout and sets it only behind
 ``--set-serial-timeout``; ``--write-nvm`` reloads the saved settings (95) before
-the set and saves them after it (94). The node never sends any of the four.
+the set and saves them after it (94). It sends a motor command only behind
+``--drive``. The node never sends any of the four.
 The serial layer is test_port_fence's fake.
 """
 
@@ -44,6 +45,7 @@ READ_SPEED_M1 = 18
 DRIVE_M1M2_SPEED = 37
 READ_COMMANDS = {CMD_READ_MAIN_BATTERY, 82, CMD_READ_SERIAL_TIMEOUT, 55, 56}
 DUTY_HOLD_S = 1.0
+NOTICE = "at duty 32/127 for 1 s each: the wheels must be lifted."
 
 BOTH = ("--front", "/dev/roboclaw2", "--rear", "/dev/roboclaw1")
 FRONT_ONLY = ("--front", "/dev/roboclaw2", "--front-only")
@@ -89,6 +91,19 @@ class Unanswered(FakeRoboClaw):
         return b"" if packet[1] in self.silent else reply
 
 
+class Transcript(list):
+    """A bus's write log that also keeps what the tool printed before each packet."""
+
+    def __init__(self, capsys):
+        super().__init__()
+        self.capsys = capsys
+        self.printed = []
+
+    def append(self, item):
+        self.printed.append(self.capsys.readouterr().out)
+        super().append(item)
+
+
 class Raises(FakeRoboClaw):
     """Raises SerialException on *command*: *times* times, or every time."""
 
@@ -127,27 +142,119 @@ class TestDiagnoseRead:
         """The duty test notes the timeout for 0 < timeout <= its 1.0 s hold, 1.0 s included."""
         patched(front_controller(FakeRoboClaw(FRONT, serial_timeout=raw)))
 
-        run_diagnose(*FRONT_ONLY)
+        run_diagnose(*FRONT_ONLY, "--drive")
 
         assert ("that is the timeout working" in capsys.readouterr().out) is noted
 
-    def test_read_only_sends_no_motor_command(self, patched, capsys):
-        """--read-only: battery, temperature, timeout and PID reads on each port; nothing else."""
+    @pytest.mark.parametrize("flags", [(), ("--read-only",)], ids=["default", "read-only"])
+    def test_reads_only_without_drive(self, patched, capsys, flags):
+        """No --drive: battery, temperature, timeout and PID reads on each port; nothing else."""
         bus = patched(two_controllers())
 
-        rc = run_diagnose(*BOTH, "--read-only")
+        rc = run_diagnose(*BOTH, *flags)
 
         out = capsys.readouterr().out
         assert rc in (None, 0)
         for port in ("/dev/roboclaw2", "/dev/roboclaw1"):
             assert set(commands(bus, port)) == READ_COMMANDS
         assert out.count("Serial timeout (cmd 15): 0.0 s (0 = disabled") == 2
-        assert out.count("the duty-cycle drive is skipped") == 2
+        assert out.count("the duty-cycle drive runs only with --drive") == 2
+        assert NOTICE not in out
+
+
+class TestDiagnoseDrive:
+    def test_drive_runs_the_duty_test_after_one_notice(self, patched, capsys):
+        """--drive: one line naming the four wheels, printed before the first motor packet."""
+        bus = patched(two_controllers())
+        bus.writes = Transcript(capsys)
+
+        rc = run_diagnose(*BOTH, "--drive")
+
+        first = min(i for i, (_, data) in enumerate(bus.writes) if data[1] in DUTY_COMMANDS)
+        before = "".join(bus.writes.printed[: first + 1])
+        out = "".join(bus.writes.printed) + capsys.readouterr().out
+        assert rc in (None, 0)
+        assert f"Driving FL, FR, RL, RR {NOTICE}" in before
+        assert out.count(NOTICE) == 1
+        for port in ("/dev/roboclaw2", "/dev/roboclaw1"):
+            sent = [data[1:3] for _, data in bus.packets(port)]
+            assert bytes([M1_FORWARD, 32]) in sent and bytes([M2_FORWARD, 32]) in sent
+
+    @pytest.mark.parametrize(
+        "only, wheels", [("--front-only", "FL, FR"), ("--rear-only", "RL, RR")]
+    )
+    def test_notice_names_the_tested_wheels(self, patched, capsys, only, wheels):
+        patched(two_controllers())
+
+        run_diagnose(*BOTH, only, "--drive")
+
+        assert f"Driving {wheels} {NOTICE}" in capsys.readouterr().out
+
+    def test_notice_names_only_the_detected_controller(self, patched, capsys):
+        """Auto-detect finds the rear alone: the notice names RL and RR, the wheels it drives."""
+        patched(robot(rear_tty="/dev/ttyACM1"))
+
+        run_diagnose("--drive")
+
+        assert f"Driving RL, RR {NOTICE}" in capsys.readouterr().out
+
+    def test_no_notice_when_nothing_is_detected(self, patched, capsys):
+        patched(robot())
+
+        run_diagnose("--drive")
+
+        assert NOTICE not in capsys.readouterr().out
+
+    def test_help_names_the_drive(self, patched, capsys):
+        """--drive's own help names the wheels, the duty and the hold, and the lifted wheels."""
+        bus = patched(two_controllers())
+
+        with pytest.raises(SystemExit) as exit_info:
+            run_diagnose("--help")
+
+        out = " ".join(capsys.readouterr().out.split())
+        start = out.index("--drive After the reads")
+        drive_help = out[start : out.index("--set-serial-timeout SECONDS", start)]
+        assert exit_info.value.code == 0
+        assert (
+            "(FL, FR on 0x80; RL, RR on 0x81) at duty 32/127 for 1 s. The wheels must be lifted."
+            in drive_help
+        )
+        assert bus.opens == []
+
+
+class TestDiagnoseUnreached:
+    @pytest.mark.parametrize(
+        "flags", [(), ("--read-only",), ("--drive",)], ids=["default", "read-only", "drive"]
+    )
+    def test_silent_port_exits_non_zero(self, patched, flags):
+        """An explicit port that opens but never answers: battery reads only, and exit 1."""
+        bus = patched(robot())
+
+        rc = run_diagnose(
+            "--front", CAMERA_PORT, "--front-only", "--allow-unverified-ports", *flags
+        )
+
+        sent = bus.packets(CAMERA_PORT)
+        assert rc == 1
+        assert sent and all(data[1] == CMD_READ_MAIN_BATTERY for _, data in sent), sent
+
+    def test_port_that_does_not_open_exits_non_zero(self, patched, capsys):
+        """Both ports named, so nothing is detected: the front's open fails, and exit 1."""
+        bus = patched(two_controllers())
+
+        rc = run_diagnose(
+            "--front", "/dev/roboclaw9", "--rear", "/dev/roboclaw1", "--front-only", "--read-only"
+        )
+
+        assert rc == 1
+        assert "FATAL: Cannot open port" in capsys.readouterr().out
+        assert bus.writes == []
 
 
 class TestDiagnoseSet:
     def test_flagged_set_writes_and_reads_back(self, patched, capsys):
-        """--set-serial-timeout 0.5: 14 with 5 on each port, a 15 read, then the duty test."""
+        """--set-serial-timeout 0.5: 14 with 5 on each port and a 15 read; no motor command."""
         bus = patched(two_controllers())
 
         rc = run_diagnose(*BOTH, "--set-serial-timeout", "0.5")
@@ -158,12 +265,11 @@ class TestDiagnoseSet:
             sent = [data for _, data in bus.packets(port)]
             (i,) = [n for n, data in enumerate(sent) if data[1] == CMD_SET_SERIAL_TIMEOUT]
             assert sent[i][2] == 5
-            after = [data[1:3] for data in sent[i + 1 :]]
-            assert CMD_READ_SERIAL_TIMEOUT in [data[0] for data in after]
-            assert bytes([M1_FORWARD, 32]) in after and bytes([M2_FORWARD, 32]) in after
+            assert CMD_READ_SERIAL_TIMEOUT in [data[1] for data in sent[i + 1 :]]
+            assert set(commands(bus, port)) == READ_COMMANDS | {CMD_SET_SERIAL_TIMEOUT}
             assert bus.devices[port].serial_timeout == 5
         assert out.count("Serial timeout set to 0.5 s (cmd 14); read back 0.5 s (cmd 15)") == 2
-        assert "that is the timeout working" in out
+        assert out.count("the duty-cycle drive runs only with --drive") == 2
         assert CMD_WRITE_SETTINGS_NVM not in {data[1] for _, data in bus.writes}
 
     def test_set_writes_whole_tenths(self, patched):
@@ -291,7 +397,9 @@ class TestDiagnoseWriteNvm:
         assert sent[-1][2:6] == NVM_WRITE_KEY == bytes([0xE2, 0x2E, 0xAB, 0x7A])
         assert (claw.reloads, claw.nvm_writes, claw.saved_serial_timeout) == (1, 1, 5)
         assert bus.writes[-1] == ("/dev/roboclaw2", sent[-1])
-        assert "run this tool again with --read-only" in capsys.readouterr().out
+        out = capsys.readouterr().out
+        assert "the same command run again reloads the saved settings (cmd 95)" in out
+        assert "with --read-only" not in out
 
     @pytest.mark.parametrize(
         "make_claw",
@@ -347,8 +455,10 @@ class TestDiagnoseWriteNvm:
 
         rc = run_diagnose(*FRONT_ONLY, *SET_AND_SAVE)
 
+        out = capsys.readouterr().out
         assert rc not in (None, 0)
-        assert "No ack for command 94" in capsys.readouterr().out
+        assert "No ack for command 94" in out
+        assert "run the same command again, not --read-only" in out
         assert commands(bus, "/dev/roboclaw2").count(CMD_WRITE_SETTINGS_NVM) == 1
 
     def test_flash_write_error_is_not_retried(self, patched, capsys):
@@ -369,7 +479,7 @@ class TestDiagnoseDutyStops:
         """SerialException on M1's speed read in the hold: duty 0 to M1 before M2 is driven."""
         bus = patched(front_controller(Raises(FRONT, READ_SPEED_M1)))
 
-        run_diagnose(*FRONT_ONLY)
+        run_diagnose(*FRONT_ONLY, "--drive")
 
         sent = [data for _, data in bus.packets("/dev/roboclaw2")]
         failed = max(i for i, data in enumerate(sent) if data[1] == READ_SPEED_M1)
@@ -388,7 +498,7 @@ class TestDiagnoseDutyStops:
                 raise KeyboardInterrupt
 
         with pytest.raises(KeyboardInterrupt):
-            run_diagnose(*FRONT_ONLY, sleep=sleep)
+            run_diagnose(*FRONT_ONLY, "--drive", sleep=sleep)
 
         sent = [data[:3] for _, data in bus.packets("/dev/roboclaw2")]
         assert sent[-2:] == [bytes([FRONT, M1_FORWARD, 32]), bytes([FRONT, M1_FORWARD, 0])]
@@ -397,7 +507,7 @@ class TestDiagnoseDutyStops:
         """Every duty packet to M1 fails: M2 is still driven, and both final stops still go out."""
         bus = patched(front_controller(Raises(FRONT, M1_FORWARD)))
 
-        rc = run_diagnose(*FRONT_ONLY)
+        rc = run_diagnose(*FRONT_ONLY, "--drive")
 
         sent = [data for _, data in bus.packets("/dev/roboclaw2")]
         assert rc in (None, 0)
@@ -412,7 +522,7 @@ class TestDiagnoseDutyStops:
         """After both holds: duty 0 to M1 and M2, then the velocity stop."""
         bus = patched(front_controller())
 
-        run_diagnose(*FRONT_ONLY)
+        run_diagnose(*FRONT_ONLY, "--drive")
 
         sent = [data for _, data in bus.packets("/dev/roboclaw2")]
         assert [data[:3] for data in sent[-3:-1]] == [
@@ -456,7 +566,7 @@ class TestDiagnoseOneDevice:
         """--front-only on that device: its single pass runs."""
         bus = patched(one_device_for_both(robot(), "/dev/ttyACM1", "/dev/roboclaw1"))
 
-        rc = run_diagnose("--front-only")
+        rc = run_diagnose("--front-only", "--drive")
 
         assert rc in (None, 0)
         assert set(DUTY_COMMANDS) <= set(commands(bus, "/dev/roboclaw1"))
@@ -496,9 +606,19 @@ class TestDiagnoseUsage:
                 ("--read-only", "--set-serial-timeout", "0.5"),
                 "not allowed with argument --read-only",
             ),
+            (("--read-only", "--drive"), "not allowed with argument --read-only"),
+            (
+                ("--drive", "--set-serial-timeout", "0.5"),
+                "not allowed with argument --drive",
+            ),
             (("--front-only", "--rear-only"), "not allowed with argument --front-only"),
         ],
-        ids=["read-only-and-set", "front-only-and-rear-only"],
+        ids=[
+            "read-only-and-set",
+            "read-only-and-drive",
+            "drive-and-set",
+            "front-only-and-rear-only",
+        ],
     )
     def test_exclusive_flags_refused(self, patched, capsys, argv, refusal):
         bus = patched(two_controllers())

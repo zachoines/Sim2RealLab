@@ -34,6 +34,8 @@ services:
     image: strafer-cpu:humble
     container_name: strafer_sim
     network_mode: host
+    # ros2 launch is PID 1 and catches no SIGTERM; on SIGINT it signals its nodes.
+    stop_signal: SIGINT
     environment:
       <<: *dds-env
       # Read inside the container by slam.launch.py (this lane's bringup

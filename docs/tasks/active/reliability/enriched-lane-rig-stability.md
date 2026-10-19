@@ -129,6 +129,17 @@ with zero iterations. It also explains why `docker restart strafer_slam` — the
 cheatsheet's documented recovery — stopped working: it re-enters the same load
 path.
 
+*2026-10-17: the stop never reached rtabmap at all
+([`compose-stop-signal-2026-10-17`](../../../measurements/compose-stop-signal-2026-10-17/README.md)).
+`ros2 launch` is PID 1 and catches no SIGTERM, and the kernel drops a signal with no handler that is
+sent to a PID namespace's init. So rtabmap never started its save. The SIGKILL, at 10 s then and
+at 180 s after the fix below, found it still running, and the log above has zero save messages.
+So "on a map this size it does not complete in 10 s" was never measured either.
+[`compose-stop-signal-sigint`](../../completed/compose-stop-signal-sigint.md) sets
+`stop_signal: SIGINT`, and rtabmap now logs its save on a stop. Launch itself sends it SIGTERM 5 s
+and SIGKILL 10 s after the SIGINT, whatever the grace period, so the 180 s does not bound the save
+until launch's timeouts are raised: [`slam-stop-save-window`](slam-stop-save-window.md).*
+
 **Fix.**
 
 1. **`stop_grace_period: 180s` on the `slam` service** — the root-cause fix, one
@@ -441,18 +452,36 @@ instance**. On an idle GPU expect 10–20 min to first frames; poll
 - [ ] **Runtime verification** of that fix: a stop/start cycle on a large
       database showing **no** `loadDataFromDb()` repair warning. Rides the next
       rig session.
+      *2026-10-17: the grace period alone never reached rtabmap (see mode 1's
+      dated note). The verification now rides
+      [`slam-stop-save-window`](slam-stop-save-window.md), after the stop
+      signal and launch's own timeouts.*
 - [ ] **`init: true` — deliberately deferred, not dropped.** It is correct for
       signal delivery and zombie reaping, but it is a behaviour change to every
       service and is not on the path to this failure: the flush is truncated by
       the grace period, not by PID 1 mishandling SIGTERM (rtabmap does receive
       it — it simply cannot finish in time). Landing it here would mix an
       untested global change into a targeted fix. File it separately.
+      *2026-10-17: the parenthesis is wrong. PID 1 does mishandle SIGTERM: it
+      catches none, so rtabmap never received it. An init as PID 1 does not fix
+      that either: with `--init`, a SIGTERM ended launch at once and no node's
+      teardown ran. The stop signal is the fix
+      ([`compose-stop-signal-sigint`](../../completed/compose-stop-signal-sigint.md)).*
 - [ ] **Residual, out of this fix's reach:** dockerd's own `shutdown-timeout`
       (default 15 s) SIGKILLs containers on daemon shutdown and host reboot
       regardless of StopTimeout. A database truncated by a host reboot is
       therefore expected, not a regression of the grace-period fix. Raising
       `shutdown-timeout` in `daemon.json` is the lever if reboot-time corruption
       proves to matter.
+      *2026-10-17: Docker 29.1.3's source (the robot's version) says otherwise.
+      `daemon/daemon.go`'s `shutdownTimeout` waits for the longest StopTimeout plus
+      5 s when that exceeds `shutdown-timeout`, and `shutdownContainer` stops each
+      container with its own stop signal and timeout. So a daemon stop gives
+      `slam` its 180 s, up to systemd's stop timeout for `docker.service`, unread
+      on the robot, and, since
+      [`compose-stop-signal-sigint`](../../completed/compose-stop-signal-sigint.md),
+      its SIGINT. Not measured on the robot, so this residual and its lever stay
+      open.*
 - [ ] Poisoned-database detection at launch, as a backstop.
 - [ ] Nav2 lifecycle non-recovery root-caused; `lifecycle_manager` behaviour on
       bond loss understood.

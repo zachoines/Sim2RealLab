@@ -68,6 +68,15 @@ and `strafer-gpu:humble` (revision label `9f7d20758d5b`).
     container exited 0 in 0.4 s.
   - `autonomy` sets no `stop_signal`. The same holds for every service on the shared CPU anchor,
     `base` included.
+  - *2026-10-17: the stop signal is now in place.
+    [`compose-stop-signal-sigint`](../../completed/compose-stop-signal-sigint.md) sets
+    `stop_signal: SIGINT` on every launch-based service, `autonomy` included, so a
+    `docker compose stop` or `restart` reaches the executor as a SIGINT.*
+    - *Why `_on_sigterm` never ran: launch catches no SIGTERM at the OS level, and the kernel
+      drops a signal with no handler that is sent to a PID namespace's init
+      ([record](../../../measurements/compose-stop-signal-2026-10-17/README.md) §1).*
+    - *The cancel remains this brief's own fix. The executor's exit path still cancels nothing,
+      and rclpy has shut its context down before `finally` runs, so the boxes below stand.*
 - **A cancel sent from `finally` would not go out either.** A SIGINT shuts rclpy's context down
   before `finally` runs, and `rclpy.ok()` is false there, in both images. In `strafer-gpu:humble`
   (rclpy 3.3.22), with the signal raised in-process, `spin` raised `ExternalShutdownException`.

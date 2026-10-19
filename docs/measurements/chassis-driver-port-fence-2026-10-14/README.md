@@ -132,6 +132,12 @@ ran, and the container ended only at Docker's SIGKILL 10 s later (exit 137). Lau
 established. The driver's teardown, which stops the motors, does not run on that path. This
 was so on `main` too, and the fence does not change it.
 
+*2026-10-17: why, and the fix, are in
+[`compose-stop-signal-2026-10-17`](../compose-stop-signal-2026-10-17/README.md). Launch catches no
+SIGTERM at the OS level, so the kernel drops it at PID 1. With `stop_signal: SIGINT`, `base`'s
+launch passes the stop on, and against answering fake controllers the driver's teardown sends its
+zero drive to both.*
+
 **The deployed images on this host carry `main`'s driver.**
 - Both images are labelled `9f7d20758d5b`, and `git diff 9f7d207 6cd6fd7` is empty for
   `strafer_driver/`, `strafer_bringup/launch/` and `strafer_shared/`. So the fence reaches `base`

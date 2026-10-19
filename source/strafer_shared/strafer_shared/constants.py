@@ -242,6 +242,9 @@ ROBOCLAW_PID_I = 750
 ROBOCLAW_PID_D = 0
 ROBOCLAW_QPPS = 2796  # max ticks/sec at 312 RPM (537.7 PPR)
 
+# Packet-serial timeout the bring-up sets on each controller (command 14; 0 disables it).
+ROBOCLAW_SERIAL_TIMEOUT_S = 0.5
+
 # =============================================================================
 # ROS2 Topic + Frame ID Conventions
 # =============================================================================

@@ -239,9 +239,13 @@ These live at the top of `source/strafer_ros/` and are direct-hardware tools. Ru
 python3 source/strafer_ros/tune_pid.py --read         # current PID
 python3 source/strafer_ros/tune_pid.py --tune         # set + measure
 
-# RoboClaw direct duty-cycle diagnostics (skip PID). --front/--rear take /dev/roboclaw*
-# names; any other path needs --allow-unverified-ports (bench only). A port that does not
-# answer the battery read gets nothing more.
+# RoboClaw diagnostics. --front/--rear take /dev/roboclaw* names; any other path needs
+# --allow-unverified-ports (bench only). A port that does not answer the battery read gets
+# nothing more, and the run exits 1. By default it only reads: battery, temperature, velocity
+# PID and the packet-serial timeout (command 15, the active value). --drive adds the direct
+# duty-cycle test (skips PID; wheels lifted). --set-serial-timeout 0.5 sets the timeout and
+# reads it back; with --write-nvm it first reloads the saved settings (command 95), then sets
+# and saves them all to flash (command 94), which resets the controller.
 python3 source/strafer_ros/diagnose_roboclaw.py
 
 # D555 camera + IMU standalone check

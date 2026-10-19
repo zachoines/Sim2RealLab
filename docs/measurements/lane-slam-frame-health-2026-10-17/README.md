@@ -13,13 +13,18 @@ itself.
   node, unchanged. Goals and starts anchored in odom.
 - **Terminal reads scored in odom,** beside the node's own map-frame result.
 
-The reads, the decision rule and its operating characteristics were committed before the first boot.
+The reads, the decision rule and its operating characteristics were committed (`ea69464`) before the robot stack came up
+(00:04:26 Z) and before the first reach (00:08:26 Z); F1's Kit log, which would date the bridge's launch, was lost with
+the sim host's scratch (§7).
 
-**By the pre-registered rule, with one relaunch admitted by amendment (§5), the frame holds in neither arm, so the
-rule names the bridge's odom and scan publication as the next axis. But in arm B, with no loop closure accepted, all
-of the frame's motion came in rtabmap iterations whose only accepted change was a neighbour-link refinement.**
-Refinement is a SLAM configuration path that this design did not switch, and the rule's next axis would not switch
-it either (§5).
+**The frame holds in neither arm. Arm A's failures are closure-driven: one accepted wrong closure, 142→16, rotated
+F1's frame 86.84°. Arm B's 0.40–0.90 m drifts are the accumulated error of visual neighbour-link refinement
+(`RGBD/NeighborLinkRefining` true, `Reg/Strategy` 0, `Vis/MinInliers` 15) replacing the bridge's ground-truth odometry
+links. B does not isolate the bridge's publication, so the pre-registered both-fail branch does not follow** (§5).
+
+B's "100 % of the motion in refinement-only iterations" is what rtabmap 0.23.7 produces by construction once closures
+are off: the refinement branch is then the only remaining writer of the map correction. It is a manipulation check,
+not a finding.
 
 - **Arm A failed in all three boots** (F1, F3, F5): largest drift 5.140, 0.734 and 0.502 m, and nine steps of 0.5 m or
   more, seven of them in F1.
@@ -31,9 +36,12 @@ it either (§5).
 - **Arm B failed too,** although no B segment accepted a global loop closure or a proximity detection.
   - **Drift.** Its largest drift was 0.404–0.898 m in the four segments with reaches, with two steps of 0.5 m or
     more.
-  - **All of it in refinement iterations.** Both steps, every excursion above 0.30 m, and 100 % of the frame's
-    motion fell in iterations whose only accepted change was a neighbour-link refinement. Its 875 iterations that
-    accepted nothing moved the frame 0.0002 m in all.
+  - **All of it in refinement iterations, by construction.** Both steps, every excursion above 0.30 m, and 100 % of
+    the frame's motion fell in iterations whose only accepted change was a neighbour-link refinement. With closures
+    off, that is what rtabmap 0.23.7 produces: a manipulation check. Its 875 iterations that accepted nothing moved
+    the frame 0.0002 m in all.
+  - **Per link (read after the runs),** the refined links' error was isotropic, a median 11.4 mm and 0.220°, and
+    barely tied to the inlier count (§5).
   - **Without F1 the arms overlap.** F3 and F5 drifted 0.734 and 0.502 m against B's 0.404–0.898 m, and B spent more
     of its samples above 0.30 m (91.2 % and 86.6 % in F4 and F6, against 31.0 % and 15.5 % in F3 and F5). The
     comparison is descriptive; three boots per arm support no test.
@@ -278,30 +286,52 @@ more, over at least 12 scored reaches in the arm.
   - **The relaunch.** F2r2 is a second relaunch of F2, beyond the pre-registered one relaunch per boot. Under the
     void condition (fewer than 12 scored reaches after one relaunch per boot), B would have 10 and its outcome would be
     void, so no branch would apply. `AMENDMENT_CRASH.md`, committed at `4e7e324` before F2r2's first reach, admits
-    the second relaunch because both interruptions were the sim host's power losses. The both-fail branch rests on
-    that amendment.
+    the second relaunch because both interruptions were the sim host's power losses. B's twelve scored reaches rest
+    on that amendment.
   - **B's failure does not rest on it.** F4 (0.898 m, one step) and F6 (0.663 m) each fail on their own, and F2
     fails through its F2 (0.404 m) and F2r2 (0.652 m, one step) segments. F2r's "yes" is a 14.5 s segment whose only
     reach was cut before its goal was sent.
 
-**By the rule, the next axis is the bridge's odom and scan publication** (rate, stamps, the `/clock` discipline).
+**The conclusion.** The frame holds in neither arm.
+- **Arm A's failures are closure-driven.** One accepted wrong closure, 142→16, rotated F1's frame 86.84°.
+- **Arm B's 0.40–0.90 m drifts are the accumulated error of visual neighbour-link refinement**
+  (`RGBD/NeighborLinkRefining` true, `Reg/Strategy` 0, `Vis/MinInliers` 15) replacing the bridge's ground-truth
+  odometry links.
+- **The both-fail branch does not follow.** Its premise was that an arm without loop closure isolates the bridge's
+  publication. B does not: refinement still writes the map correction.
+- **B's 100 % is a manipulation check.** That 100 % of its motion falls in refinement-only iterations is what
+  rtabmap 0.23.7 produces by construction once closures are off, because the refinement branch is the only remaining
+  writer of the map correction.
 
-**Beside it, as the pre-registration provides:** in arm B every metre of the frame's motion came in iterations whose
-only accepted change was a neighbour-link refinement, over the window and inside each of its five excursions.
-- **Refinement is a SLAM configuration path the design did not switch.** With `Reg/Strategy` 0, rtabmap
-  re-registers each new node against the previous one visually and recomputes the map correction from the refined
-  link.
-- **Odom is ground truth here.** An accepted refinement that changes a neighbour link therefore replaces a true link
-  with an estimate. Its effect on the frame can go either way: F4's 0.666 m refinement-only step at 143.8 s moved the
-  frame back toward its reference. The link error can come from visual registration, or from the images and the
-  odometry disagreeing in time. This design does not separate the two.
-- **The rule's next axis does not switch this path.** A stamp audit of the bridge's publication can show whether the
-  images and the odometry disagree in time; only `RGBD/NeighborLinkRefining` turns refinement off. Two measurements
-  follow:
-  - an arm with `RGBD/NeighborLinkRefining` false, which tests whether the drift needs refinement at all. It needs no
-    new tool; only the mounted file changes.
-  - a stamp audit of the bridge's camera, odometry and `/clock`, which tests the timing explanation. It extends the
-    rule's axis to the camera stream that visual refinement reads.
+**The per-link error (read after the runs, not pre-registered; `posthoc_link_error.py`,
+`analysis/posthoc_link_error.txt`).**
+- **The method.** For each refinement-only link between consecutive nodes, over each segment's whole boot, the link
+  error in the new node's body frame is E = odom_new⁻¹ · (T[j−1]⁻¹ · T[j]) · odom_new. Here T is the frame after each
+  iteration, and odom_new = T[j]⁻¹ · `Loop/MapToBase`.
+- **Validation.** odom_new matches the observer records' `pose_odom` to a median 0.2 mm (95th percentile 1.9 mm,
+  max 5.8 mm) and 0.023° over 647 iterations.
+- **Per-link error.** Arm B, 545 links: median 11.4 mm and 0.220° (95th percentile 48.4 mm and 1.232°). Arm A, 417
+  links: 13.3 mm and 0.230°.
+- **Isotropic.** In B the body-frame spreads are 16.3 mm along x and 16.8 mm along y, with means near −1 mm.
+- **Barely tied to inliers in B.** The Spearman correlation with `NeighborLinkRefining/Inliers` (median 32, range
+  15–75) is −0.03 for translation and −0.15 for rotation; in A it is −0.18 and −0.34.
+- **Mildly tied to the link's own motion:** +0.25 for translation and +0.24 for rotation, in B.
+- **A stamp-lag signature, if images lagged odometry by τ,** would make E ≈ −τ · Δv, with Δv the change of
+  body-frame velocity across the link. The fitted slope gives τ = 38 ms in B (95 % 21–55 ms; R² 0.018). The lag term
+  carries 8.1 % of B's summed error. In A, τ = 7 ms (−16 to +31 ms) and the share is 1.4 %.
+- **What that bounds.** It puts a stamp lag's share of B's error at under 13 %. It does not show the lag to be under
+  one 33 ms camera frame: B's estimate lies between about two thirds of a frame and five thirds.
+
+**The next measurements (a proposal).**
+- **Not B with refinement off.** With closures already off there is then no refinement and no optimisation
+  trigger, so `_mapCorrection` never changes. The frame would be constant by construction, which is not a measurement.
+- **The candidate arms build on the deployed configuration:**
+  - **A′:** `RGBD/NeighborLinkRefining` false, with closures on. This is the deploy candidate.
+  - **A″:** refinement on, with `Vis/MinInliers` raised (for example to 40).
+
+  Both need no new tool; only the mounted file changes.
+- **The bridge stamp check** of its camera, odometry and `/clock` is a static, lower-priority item. The read above
+  already bounds a lag's share of B's error at under 13 %, at a lag estimated at 21–55 ms.
 
 **The arm-A spin pattern is descriptive, and not one of the rule's branches.**
 - **The large rotations.** F1's two large rotations (+86.84° at 75.2 s, −71.57° at 163.3 s) came in iterations that
@@ -319,13 +349,16 @@ only accepted change was a neighbour-link refinement, over the window and inside
 On the robot there is no ground-truth odom: the frame is the robot's only estimate of where it is, so the frame
 question becomes the localisation question. G-real's pre-registration should therefore carry SLAM health as a scored
 void, not an unscored cause:
-- **The read.** Drift of `map→odom` against the session's settled reference, by this record's definition, read
-  continuously by a ride-along.
+- **The read.** `map→odom` against the session's settled reference, by this record's definition, read continuously by
+  a ride-along.
 - **The events.** The steps, with their times, and the loop-closure log, aligned to them through `/rtabmap/info`.
 - **The void,** stated before the first reach.
 
-On wheel odometry part of that drift is a legitimate correction, so the void's drift threshold needs a real-robot
-scale. The steps and each reach's in-reach goal excursion carry it most directly, and drift stays read and scored.
+G-real's scored void is two counts:
+- the count of `map→odom` steps of 0.5 m or more;
+- the loop-closure log: accepted closures, rejections and wrong-closure warnings.
+
+Each reach's goal excursion is reported beside them. A drift threshold on wheel odometry is not set from this record.
 The terminal band is scored descriptively against the live frame, with each reach's frame excursion beside it.
 
 ## 7. Deviations, interruptions and defects
@@ -380,8 +413,9 @@ The terminal band is scored descriptively against the live frame, with each reac
 ## 8. What is not claimed
 
 - **No test between the arms.** Three boots per arm cannot support one; the comparisons above are descriptive.
-- **No cause for refinement's link errors.** The record does not say whether they come from registration or from
-  timing.
+- **No full cause for refinement's link errors.** The post-hoc per-link read finds them isotropic, of about 1 cm and
+  0.2°, and barely tied to the inlier count. A stamp lag carries at most a small share of them. What produces the
+  rest of the visual registration error is not shown.
 - **The spin is not shown to cause anything.** It is not established that the spin, rather than the start point,
   explains arm A's closures to spin nodes, or that either causes F1's wrong closure.
 - **The two power losses are unexplained.**
@@ -390,9 +424,13 @@ The terminal band is scored descriptively against the live frame, with each reac
 ## Evidence — deposit
 
 `Sim2RealLab-Artifacts/lane-slam-frame-health-2026-10-17/record-files/`.
-- **Commits.** The pre-registration at `ea69464`, before the first boot. The goals at `514bdb8`, before the first
-  reach. The amendments at `849595a`, `01dd2a5` and `4e7e324`. The runs at `f689d6d`. The deposit's corrections
-  for this record at `c854a8f`.
+- **Commits.**
+  - The pre-registration at `ea69464`, before the robot stack came up and before the first reach.
+  - The goals at `514bdb8`, before the first reach.
+  - The amendments at `849595a`, `01dd2a5` and `4e7e324`.
+  - The runs at `f689d6d`.
+  - The deposit's dated corrections at `c854a8f` (2026-10-18) and `715c61e` (2026-10-19), each described in
+    `DEPOSIT.md`.
 - **Changes after the pre-registration.** `frame_health.py` is unchanged from `ea69464`. `odom_terminal.py` differs by
   one not-scored row label, with no read changed (`DEPOSIT.md`). `arm_summary.py` and `reproduce.sh` were written
   after the runs.
@@ -401,4 +439,5 @@ The terminal band is scored descriptively against the live frame, with each reac
 
       bash reproduce.sh        # analysis/frame_health_<RUN>.{txt,json}, analysis/odom_terminal.{txt,json}, analysis/arm_summary.txt
 
-  It regenerates all 21 analysis files byte for byte from a clean copy.
+  It regenerates all 22 analysis files byte for byte from a clean copy; `posthoc_link_error.txt` is the post-hoc
+  per-link read.

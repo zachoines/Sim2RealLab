@@ -49,5 +49,11 @@ session files'. The deposited reach wrapper `tools/run_cli_one_start.sh` is byte
 ## Interruptions
 
 - **Power.** The sim host lost power at about 00:54:55Z and 01:51:19Z on 2026-10-18 (`AMENDMENT_CRASH.md`).
+- **The rtabmap databases** stay on the robot host (`~/rig_slam_frame/<RUN>/logs/`). Copies were made on the sim host
+  on 2026-10-19 (`~/Workspace/rig_slam_frame_dgx/databases/`); their digests, equal to the originals', are in
+  `DEPOSIT.md`.
+- **A commit trailer left in place.** Evidence-repository commit `01dd2a5` (`AMENDMENT_F2.md`) carries a
+  `Co-Authored-By` trailer, against the repository's no-trailer convention. It is pushed and left in place, since
+  removing it would need a force-push.
 - **Lost logs.** F1's and F2's sim-host logs were in `/tmp`, which the first loss cleared (`host/journal_tail_boot-2.txt`, `host/last_x.txt`). F1's chain log is a
   transcription; F2's sim-host logs are lost. The robot host's files for every boot are complete.

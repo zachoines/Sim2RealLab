@@ -420,10 +420,11 @@ one it replaces comes out.
 **The camera's serial interface, fenced before any RoboClaw is plugged in**
 
 - [ ] `99-strafer.rules` is installed and survives a reboot.
-- [ ] **Each RoboClaw's packet-serial timeout is read, and set to 0.5 s and saved where it reads 0,
-      before `base` first drives the chassis** *(added 2026-10-17)*. Record both readings per
-      controller. This is the first RoboClaw step once both are plugged in, ahead of the box below.
-      The commands are in the port-fence record's §7, step 0; the reason is in
+- [ ] **Each RoboClaw's packet-serial timeout is read, set to 0.5 s and saved on each controller
+      whatever it read, and read again after a main-power cycle, before `base` first drives the
+      chassis** *(added 2026-10-17)*. Record the readings per controller. This is the first RoboClaw
+      step once both are plugged in, main power before USB, ahead of the box below. The commands
+      are in the port-fence record's §7, step 0; the reason is in
       [`roboclaw-serial-timeout`](../../completed/roboclaw-serial-timeout.md).
 - [ ] With the D555 attached and either RoboClaw missing, nothing opens or writes to the camera's
       serial port. Either `base` is left out of every boot and `up` path until both controllers are

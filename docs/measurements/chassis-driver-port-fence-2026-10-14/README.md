@@ -10,7 +10,9 @@ This record reads the driver before and after the fence in
 [`chassis-driver-port-fence`](../../tasks/completed/chassis-driver-port-fence.md), runs its tests
 on both trees, and states how the `base` service maps serial devices. It makes **no hardware
 claim**: no RoboClaw was connected, `base` was not started, and no run had the host's
-`/dev/ttyACM0` in its container. §7 gives the on-site check as commands.
+`/dev/ttyACM0` in its container. §7 gives the on-site check as commands. *(2026-10-18: the
+deposit's third pass, the serial timeout's tests for §7's step 0, ran with both RoboClaws
+connected over USB. It opened no serial port and started no `base`.)*
 
 The fence shipped in two work commits. The first pass, on 2026-10-14, ran at `62bb9ee`. The second
 pass, on 2026-10-16, ran at `aa1a1c7`. That commit added:
@@ -291,83 +293,119 @@ the fence.
 ```bash
 cd ~/Sim2RealLab && git rev-parse --short=12 HEAD && git status --short --untracked-files=no
 make images                            # stamps that hash (+ -dirty if tracked files changed); the entrypoint prints it
-make udev                              # 99-strafer.rules, then plug both RoboClaws in
+make udev                              # 99-strafer.rules; then main power on, then both RoboClaws' USB
 ls -la /dev/roboclaw* /dev/ttyACM*
+udevadm info -q property -n "$(ls /dev/roboclaw* | head -1)" | grep ID_MM_DEVICE_IGNORE   # =1
 for d in /dev/ttyACM*; do echo "$d $(udevadm info -q property -n $d | grep -E '^ID_(VENDOR|MODEL)_ID=' | tr '\n' ' ')"; done
 CAM=$(for d in /dev/ttyACM*; do udevadm info -q property -n $d | grep -q '^ID_VENDOR_ID=8086' && echo $d; done)
 sudo udevadm test "$(udevadm info -q path -n "$(ls /dev/roboclaw* | head -1)")" 2>&1 | grep -i roboclaw
 ```
 
 **Step 0, the controllers' serial timeout** *(added 2026-10-17, from
-[`roboclaw-serial-timeout`](../../tasks/completed/roboclaw-serial-timeout.md))*. This is the
-chassis bring-up's first RoboClaw step: after `make images`, `make udev` and plugging both RoboClaws
-in, and before `base` starts below.
+[`roboclaw-serial-timeout`](../../tasks/completed/roboclaw-serial-timeout.md); rewritten
+2026-10-18)*. This is the chassis bring-up's first RoboClaw step: after `make images`, `make udev`
+and plugging both RoboClaws in, and before `base` starts below.
 
-- **What it checks.** Each RoboClaw stops both motors on its own when no serial data arrives within
+- **What it sets.** Each RoboClaw stops both motors on its own when no serial data arrives within
   its packet-serial timeout (manual: commands 14 and 15, in 100 ms units; its Timeout setting, 0
   disables it). The node's 0.5 s watchdog stops with the node.
-- **What is unknown.** Each controller's value is held in its flash, and neither has been read.
-- **Saving.** Command 14 changes only the active value. Command 94 saves every active setting to
-  flash and resets the controller. With `--write-nvm`, the tool first reloads the saved settings
-  (command 95), so the save carries only those and the new timeout.
+- **What a read shows.** Command 15 reads the active value only. A power-up loads the saved value
+  into it, and command 14 changes it until the next power-up, so a read alone cannot show what is
+  saved.
+- **Saving.** Command 94 saves every active setting to flash and resets the controller. With
+  `--write-nvm` the tool first reloads the saved settings (command 95) and reads the timeout. If
+  that reads 0.5 s it sets and saves nothing, so on a controller with 0.5 s saved the line is a
+  no-op. Otherwise it sets 0.5 s, reads it back, and saves, so the save carries only the saved
+  settings and the new timeout.
 
 Before step 0:
-- The controllers' main power must have gone on before their USB, as the manual asks. If the USB
-  went in first, unplug it, power the controllers, and plug it back in.
+- **Main power before USB.** The manual (USB Power) says a RoboClaw with no external power "may
+  unintentionally draw power from the USB port, which can cause unstable or erratic behavior", and
+  to "always connect the main power source before connecting via USB". If the USB went in first,
+  power the controller up again in that order: unplug its USB, cut main power, wait 10 s, restore
+  main power, then plug the USB back in.
 - Leave `base` stopped; the tool needs the ports to itself.
-- The image must carry `--read-only` and `--set-serial-timeout`. The `--help` line below checks
-  that without opening a port, and every run prints the image's `revision=`.
+- The image's tool must only read unless given `--drive`. The `--help` line below checks that
+  without opening a port, and every run prints the image's `revision=`.
+- `$OUT` is outside the tree. Deposit it with the record of the bring-up that runs this step,
+  and cite that deposit from the dated note on `jetson-untether`'s box.
+- **Emergency stop.**
+  - A running `base`: `docker compose stop base`. Its teardown stops the motors only if the
+    service stops with SIGINT. Otherwise (§3) the node drives on until Docker's SIGKILL 10 s
+    later, and then only the controllers' timeout stops the motors.
+  - A stopped `base`: `docker compose run --rm --no-deps base python3
+    /ws/src/strafer_ros/tune_pid.py --stop`. While `base` runs, the node's next drive packet
+    overrides it.
+  - **Cut main power** for an immediate stop: the battery's positive lead to both RoboClaws' `+`
+    terminals, the rail that feeds the motors. The manual asks for a switch on this main power
+    input, and says to disconnect only the positive lead while USB is attached.
 
 Read both controllers. This drives nothing:
 
 ```bash
 cd ~/Sim2RealLab/source/strafer_ros/deploy && docker compose stop base
+mkdir -p ~/chassis-bringup && OUT=~/chassis-bringup/step0.txt
 D="docker compose run --rm --no-deps -e PYTHONUNBUFFERED=1 base python3 /ws/src/strafer_ros/diagnose_roboclaw.py"
-$D --help 2>&1 | grep -q -- --set-serial-timeout && echo "image ok" || echo "STOP: this image lacks the flags"
-$D --read-only 2>&1 | tee step0.txt        # "Serial timeout (cmd 15): …" for 0x80 and for 0x81
+run() { $D "$@" 2>&1 | tee -a $OUT; echo "exit=${PIPESTATUS[0]}" | tee -a $OUT; }
+$D --help 2>&1 | grep -q -- --drive && echo "image ok" || echo "STOP: this image's tool drives by default"
+run --read-only                    # the active values (cmd 15) and battery voltages
 ```
 
-Go on only if the `--help` line printed `image ok`.
-- **A controller that read 0:** set and save it. Use `--front-only` for 0x80, `--rear-only` for
-  0x81, and neither only if both read 0. The tool first reloads the saved settings (command 95);
-  if that or the set fails, it saves nothing and says so.
-- **A value other than 0 and 0.5 s** is someone's choice. Record it, and decide before changing it.
+Go on only if the `--help` line printed `image ok`. Then set and save on each controller, whatever
+it read:
 
 ```bash
-$D --front-only --set-serial-timeout 0.5 --write-nvm 2>&1 | tee -a step0.txt   # or --rear-only
+run --front-only --set-serial-timeout 0.5 --write-nvm
+run --rear-only --set-serial-timeout 0.5 --write-nvm
 ```
 
-Read again once the controller is back. Its name may change; the tool finds it by address. On "not
-detected", wait and run it again.
+- **Each line should end `exit=0`**, with "It already reads 0.5 s, so nothing is set or saved" or
+  with "Saved." and a reset.
+- **On `exit=1`, run the same line again, never `--read-only` in its place.** The line reloads the
+  saved settings first, so it reads what was saved: after a save that took it reads 0.5 s and
+  writes nothing, and after one that did not it sets and saves again. A `--read-only` read shows the active value,
+  which the set left at 0.5 s whether or not the save took.
+- On "not detected", the controller is still resetting. Wait until `ls /dev/roboclaw*` shows two
+  names, then run the same line again; its name may change, and the tool finds it by address. A
+  "not detected" run does not count below.
+- **If a second run that reached the controller also ends `exit=1`**, stop: record the output and
+  do not start `base`.
+
+Then the proof that 0.5 s is saved, which needs a power-up. Unplug both RoboClaws' USB first, so
+neither can run on USB power. Then cut main power, wait 10 s, restore it, and plug the USB back in.
 
 ```bash
 sleep 10; ls -la /dev/roboclaw*
-$D --read-only 2>&1 | tee -a step0.txt     # the saved value, loaded at the reset
+run --read-only                    # the saved values, loaded at power-up
 ```
 
-The hardware check:
-- **Go on only if both now read 0.5 s.**
-- **Lift the wheels first:** this run drives each motor at duty 32/127 for 1 s.
-- **What to expect.** The speed read at 1 s comes out near zero, because the controller stopped the
-  motor at 0.5 s. The encoder count printed after each hold shows whether the motor moved, but it
-  counts from the controller's last reset. On a controller the save just reset, a count well away
-  from zero is this hold's motion. On the other, run this line twice and compare the counts.
-- **A speed well above zero** means the timeout did not act over this link. Record that and stop.
+- **Go on only if both read 0.5 s.** If one does not, run its set line again and repeat the power
+  cycle once. If it still does not read 0.5 s, stop: record the output and do not start `base`.
+- **Optional, with the wheels lifted:** `--drive` runs the duty test, each motor at duty 32/127 for
+  1 s.
+  - **Expect** a speed near zero in the read at 1 s, because the controller stopped the motor at
+    0.5 s.
+  - **The encoder count** printed after each hold shows whether the motor moved. It counts from
+    the controller's last power-up, so run the line straight after the power-up above, or run it
+    twice and compare.
+  - **A speed well above zero** means the timeout did not act over this link. Record that and
+    stop.
 
 ```bash
-$D 2>&1 | tee -a step0.txt
-cd ~/Sim2RealLab
+run --drive
 ```
 
-- **If a motor keeps running**, stop it with
-  `docker compose run --rm --no-deps base python3 /ws/src/strafer_ros/tune_pid.py --stop`, or cut
-  main power.
-- **What to record**, per controller (0x80, 0x81), in a dated note on `jetson-untether`'s
-  serial-timeout box: the first reading, the reading after the save, and the hardware check's
-  speeds and encoder counts. `step0.txt` holds the output.
+**What to record**, per controller (0x80, 0x81), in a dated note on `jetson-untether`'s
+serial-timeout box:
+- the battery voltage and the first reading;
+- each set line's result and exit;
+- the reading after the power cycle;
+- the duty test's speeds and counts, if it ran.
+
+`$OUT` holds the output.
 
 ```bash
-cd source/strafer_ros/deploy && docker compose up -d base     # camera attached
+cd ~/Sim2RealLab/source/strafer_ros/deploy && docker compose up -d base     # camera attached
 docker logs strafer_base 2>&1 | grep -E 'revision=|Auto-detect|RoboClawNode starting'
 sudo fuser -v "$CAM"                 # the camera's CDC (vendor 8086): no strafer process holds it
 ```
@@ -410,15 +448,20 @@ sudo fuser -v "$CAM"
 |---|---|
 | repository | https://github.com/zachoines/Sim2RealLab-Artifacts |
 | deposit directory | `chassis-driver-port-fence-2026-10-14/record-files/` |
-| deposit commit | `c12d4f30c0573002539820c6bc34d293270e8fd1` |
+| deposit commit | `0c9649104d91aeae69a92ee2e67114922d9bfb8c` |
 
-The deposit was made in four commits:
+The deposit was made in five commits:
 - `e4a45b71c40dd1c2061908b461afa99232d57e04` holds the first pass;
 - `ac50a32f` corrects three statements in its `DEPOSIT.md` and changes no other file;
 - `46317a15` adds the second pass under `pass2/` and rewrites `DEPOSIT.md`, which dates
   the correction and lists the digests of every file. It changes no first-pass file;
 - `c12d4f30` corrects two second-pass statements in `DEPOSIT.md` (a module digest, and how many
-  added tests fail at `3a42c23`) and changes no other file.
+  added tests fail at `3a42c23`) and changes no other file;
+- `0c964910` adds the third pass under `pass3/`, for §7's step 0. It is the RoboClaw
+  serial timeout's evidence at `455e2d9`, with the counts first reported at `cb2ea64` run again.
+  In `DEPOSIT.md` it adds the third pass's section and digests, and qualifies two first-pass
+  statements: the opening paragraph's count of passes, and the host paragraph's "No RoboClaw was
+  connected". No other earlier file changes.
 
 The deposit holds:
 - **The first pass, at `62bb9ee`:**
@@ -434,10 +477,18 @@ The deposit holds:
   - `tests/mutate2.py`, `tests/mutation_runs.txt` and `tests/mutations/*.xml`;
   - `entrypoint/`: the image layout and label, the node, `base`'s launch and its control, the
     launch probes, and the diagnose tool.
+- **The third pass, at `455e2d9`, under `pass3/`:**
+  - `run_evidence3.sh` and `run_stamps.txt`;
+  - `tests/main/` and `tests/prev/`: `455e2d9`'s two test modules on `main` and on `9489177`;
+  - `tests/first/` and `tests/first-main/`: the whole ROS suite at `cb2ea64`, and `cb2ea64`'s two
+    test modules on `main`;
+  - `tests/fix/`: the whole ROS suite at `455e2d9`;
+  - `tests/mutate3.py`, `tests/mutation_runs.txt` and `tests/mutations/*.xml`;
+  - `host/`: the serial devices' udev properties, ModemManager's journal, and the image label.
 - `DEPOSIT.md`, with the host, the trees and the sha256 of every file.
 
 Paths in this record resolve in that directory: `tests/...` and `entrypoint/...` are the second
-pass's under `pass2/`, unless the text says first pass. Verify the digests with:
+pass's under `pass2/`, unless the text says first or third pass. Verify the digests with:
 
 ```
 git clone git@github.com:zachoines/Sim2RealLab-Artifacts.git

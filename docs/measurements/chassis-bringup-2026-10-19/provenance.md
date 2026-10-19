@@ -27,7 +27,7 @@ Every driver and tool run found both by address.
 |---|---|
 | tree | `main` at `371e848`, which merges `compose-stop-signal-sigint` (#248) and `roboclaw-serial-timeout` (#249), in a clean detached worktree (`images/tree.txt`) |
 | images | `strafer-cpu:humble` `4473c937e6a3`, `strafer-gpu:humble` `c11bedfb3979`, both labelled `371e8487533a`, built by `make images` in that tree (`images/`) |
-| previous images | `52d829c3656c` and `8513326715ec`, labelled `9f7d20758d5b`, untagged by the build |
+| previous images | `52d829c3656c` and `8513326715ec`, labelled `9f7d20758d5b`; after the build neither ID exists on the host, so there is no rollback image |
 | compose | `source/strafer_ros/deploy` of that tree, with no override file; `base` with `stop_signal: SIGINT` (`host/compose_config_base.yml`) |
 | udev | `99-strafer.rules` from that tree in `/etc/udev/rules.d/`, its sha256 equal to the tree's (`host/host_udev_mm.txt`) |
 

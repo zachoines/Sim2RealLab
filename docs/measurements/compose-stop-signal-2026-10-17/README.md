@@ -225,6 +225,10 @@ records. The serial writes do not depend on that context.
 - **`base` on the robot.** §4 is the driver's own teardown against fake controllers. The on-robot
   read, `docker compose stop base` with both RoboClaws attached and the motor stop seen on the
   controllers, needs the hardware.
+  *2026-10-19: shown on the robot, with the wheels lifted, during a spin. The stop returned in
+  0.87 s with exit 0, `roboclaw_node` logged "Shutting down -- stopping motors." 0.18 s after
+  the command, and the wheels turned about 0.1 s more:
+  [`chassis-bringup-2026-10-19`](../chassis-bringup-2026-10-19/README.md) §6.*
 - **A real map's save time**, and whether rtabmap's save survives launch's 5 s SIGTERM. The timed
   database was empty. Raising launch's timeouts for `slam` is
   [`slam-stop-save-window`](../../tasks/active/reliability/slam-stop-save-window.md).

@@ -20,7 +20,8 @@ the sim host's scratch (§7).
 **The frame holds in neither arm. Arm A's failures are closure-driven: one accepted wrong closure, 142→16, rotated
 F1's frame 86.84°. Arm B's 0.40–0.90 m drifts are the accumulated error of visual neighbour-link refinement
 (`RGBD/NeighborLinkRefining` true, `Reg/Strategy` 0, `Vis/MinInliers` 15) replacing the bridge's ground-truth odometry
-links. B does not isolate the bridge's publication, so the pre-registered both-fail branch does not follow** (§5).
+links; the drift is mainly accumulated per-link yaw error. B does not isolate the bridge's publication, so the
+pre-registered both-fail branch does not follow** (§5).
 
 B's "100 % of the motion in refinement-only iterations" is what rtabmap 0.23.7 produces by construction once closures
 are off: the refinement branch is then the only remaining writer of the map correction. It is a manipulation check,
@@ -40,8 +41,9 @@ not a finding.
     the frame's motion fell in iterations whose only accepted change was a neighbour-link refinement. With closures
     off, that is what rtabmap 0.23.7 produces: a manipulation check. Its 875 iterations that accepted nothing moved
     the frame 0.0002 m in all.
-  - **Per link (read after the runs),** the refined links' error was isotropic, a median 11.4 mm and 0.220°, and
-    barely tied to the inlier count (§5).
+  - **Per link (read after the runs).** The refined links' error was a median 11.4 mm and 0.220°, isotropic in
+    spread, 3.6 % short along the motion on average, and barely tied to the inlier count. Composed, the links
+    reproduce the recorded frame exactly, and their yaw errors carry most of the drift (§5).
   - **Without F1 the arms overlap.** F3 and F5 drifted 0.734 and 0.502 m against B's 0.404–0.898 m, and B spent more
     of its samples above 0.30 m (91.2 % and 86.6 % in F4 and F6, against 31.0 % and 15.5 % in F3 and F5). The
     comparison is descriptive; three boots per arm support no test.
@@ -296,7 +298,7 @@ more, over at least 12 scored reaches in the arm.
 - **Arm A's failures are closure-driven.** One accepted wrong closure, 142→16, rotated F1's frame 86.84°.
 - **Arm B's 0.40–0.90 m drifts are the accumulated error of visual neighbour-link refinement**
   (`RGBD/NeighborLinkRefining` true, `Reg/Strategy` 0, `Vis/MinInliers` 15) replacing the bridge's ground-truth
-  odometry links.
+  odometry links. The drift is mainly accumulated per-link yaw error.
 - **The both-fail branch does not follow.** Its premise was that an arm without loop closure isolates the bridge's
   publication. B does not: refinement still writes the map correction.
 - **B's 100 % is a manipulation check.** That 100 % of its motion falls in refinement-only iterations is what
@@ -312,17 +314,54 @@ more, over at least 12 scored reaches in the arm.
   max 5.8 mm) and 0.023° over 647 iterations.
 - **Per-link error.** Arm B, 545 links: median 11.4 mm and 0.220° (95th percentile 48.4 mm and 1.232°). Arm A, 417
   links: 13.3 mm and 0.230°.
-- **Isotropic.** In B the body-frame spreads are 16.3 mm along x and 16.8 mm along y, with means near −1 mm.
-- **Barely tied to inliers in B.** The Spearman correlation with `NeighborLinkRefining/Inliers` (median 32, range
-  15–75) is −0.03 for translation and −0.15 for rotation; in A it is −0.18 and −0.34.
+- **Isotropic in spread, not in mean.** In B the body-frame spreads are 16.3 mm along x and 16.8 mm along y. The
+  mean is not isotropic: along the motion the refined link is short (the decomposition below).
+- **Barely tied to inliers in B.** The Spearman correlation (ties ranked ordinally) with
+  `NeighborLinkRefining/Inliers` (median 32, range 15–75) is −0.03 for translation and −0.15 for rotation; in A it is
+  −0.18 and −0.34.
 - **Mildly tied to the link's own motion:** +0.25 for translation and +0.24 for rotation, in B.
-- **A stamp-lag signature, if images lagged odometry by τ,** would make E ≈ −τ · Δv, with Δv the change of
-  body-frame velocity across the link. The fitted slope gives τ = 38 ms in B (95 % 21–55 ms; R² 0.018). The lag term
-  carries 8.1 % of B's summed error. In A, τ = 7 ms (−16 to +31 ms) and the share is 1.4 %.
-- **What that bounds.** It puts a stamp lag's share of B's error at under 13 %. It does not show the lag to be under
-  one 33 ms camera frame: B's estimate lies between about two thirds of a frame and five thirds.
+- **A stamp lag cannot be what drives the error.** If the images lagged odometry by τ, a refined link would carry
+  −τ · Δv, with Δv the change of body-frame velocity across the link.
+  - **The size bound.** A lag of any size up to 55 ms makes that term a median 0.47–0.69 mm (at 38–55 ms), against
+    the 11.4 mm observed.
+  - **Where no timing error can act, the error is the same.** On rotation-only links (translation under 10 mm; 216
+    links) it is 9.4 mm and 0.29°, and on links with |Δv| < 0.02 m/s (335 links) it is 10.4 mm.
+  - **The fitted slope of E on Δv is not a lag measurement.**
+    - It rests on about twenty high-|Δv| links: 38 ms with them, 16.5 ms without.
+    - It drops to 26 ms when a scale term is co-fitted.
+    - It disagrees across segments: +30 to +55 ms in four, −284 ms in F2r.
+    - The fitted term's L1 size, 8.1 % of the summed error (a permuted regressor's median 1.3 %), is not an
+      explained share. The term removes 0.6 % of the summed error, with R² 1.8 %.
+
+**The decomposition (read after the runs, not pre-registered).**
+
+Sources: `posthoc_decomposition.py` and `analysis/posthoc_decomposition.txt`, run on `links/links_<RUN>.json`, which
+`posthoc_extract_links.py` extracted from each segment's rtabmap database. For each neighbour link, odometry's delta O
+is the true link, rtabmap's stored link R is the refined one, and E = O⁻¹ · R.
+- **The frame's motion is the accumulated link error.** In every B segment, composing the refined links from the
+  root reproduces the recorded `map→odom` at every node, to 0.00 mm and 0.000°. The graph is a chain, and
+  `Loop/Optimization_error` is 0.0 on every iteration. Arm A's graphs, with closures, do not reduce to the chain.
+- **The mean error is not isotropic.** Over B's 322 accepted links that translate 20 mm or more, the refined link is
+  short along the motion by 3.61 % of the link (sd 21.2 %, z −3.1). Across the motion the mean is −1.08 % (z −0.9).
+  By segment the shortening is 0.0 % (F2), 2.0 % (F2r2), 5.4 % (F4) and 4.8 % (F6).
+- **The drift is mainly accumulated per-link yaw error.** The chain was recomposed with each link's translation error
+  zeroed, and then with its rotation error zeroed:
+
+  | segment | largest drift: full | rotation errors only | translation errors only | `map→odom` yaw over the window: end, largest |
+  |---|---:|---:|---:|---|
+  | F2r2 | 0.652 m | 0.613 m | 0.150 m | +7.25°, 7.25° |
+  | F4 | 0.898 m | 0.760 m | 0.387 m | +4.78°, 8.84° |
+  | F6 | 0.663 m | 0.569 m | 0.316 m | +4.62°, 8.21° |
+  | F2 | 0.404 m | 0.242 m | 0.200 m | −0.57°, 3.93° |
+
+  On the goals' ~3 m lever arms the yaw accounts for the larger part of the drift.
+- **More inliers do not lower the error.** The 169 of B's 545 links (31 %) whose refinement had 40 inliers or more
+  have the same median translation error, 11.4 mm, as the rest. Raising `Vis/MinInliers` to 40 (A″ below) would
+  therefore drop about two thirds of the refinements rather than make the accepted ones more accurate.
 
 **The next measurements (a proposal).**
+- **First, offline.** The eight databases keep their sensor data (`Mem/BinDataKept` true; every Data row keeps its
+  image). So A′ and A″ can be reprocessed on identical data before any new boot. The copies are on the sim host.
 - **Not B with refinement off.** With closures already off there is then no refinement and no optimisation
   trigger, so `_mapCorrection` never changes. The frame would be constant by construction, which is not a measurement.
 - **The candidate arms build on the deployed configuration:**
@@ -330,8 +369,9 @@ more, over at least 12 scored reaches in the arm.
   - **A″:** refinement on, with `Vis/MinInliers` raised (for example to 40).
 
   Both need no new tool; only the mounted file changes.
-- **The bridge stamp check** of its camera, odometry and `/clock` is a static, lower-priority item. The read above
-  already bounds a lag's share of B's error at under 13 %, at a lag estimated at 21–55 ms.
+- **The bridge stamp check** of its camera, odometry and `/clock` is a static, lower-priority item. A lag up to
+  55 ms changes the per-link error by under 1 mm against 11 mm, and the error is the same where no timing error can
+  act.
 
 **The arm-A spin pattern is descriptive, and not one of the rule's branches.**
 - **The large rotations.** F1's two large rotations (+86.84° at 75.2 s, −71.57° at 163.3 s) came in iterations that
@@ -429,8 +469,8 @@ The terminal band is scored descriptively against the live frame, with each reac
   - The goals at `514bdb8`, before the first reach.
   - The amendments at `849595a`, `01dd2a5` and `4e7e324`.
   - The runs at `f689d6d`.
-  - The deposit's dated corrections at `c854a8f` (2026-10-18) and `715c61e` (2026-10-19), each described in
-    `DEPOSIT.md`.
+  - The deposit's dated corrections at `c854a8f` (2026-10-18), `715c61e` and `c0c02e6` (2026-10-19), each described
+    in `DEPOSIT.md`.
 - **Changes after the pre-registration.** `frame_health.py` is unchanged from `ea69464`. `odom_terminal.py` differs by
   one not-scored row label, with no read changed (`DEPOSIT.md`). `arm_summary.py` and `reproduce.sh` were written
   after the runs.
@@ -439,5 +479,6 @@ The terminal band is scored descriptively against the live frame, with each reac
 
       bash reproduce.sh        # analysis/frame_health_<RUN>.{txt,json}, analysis/odom_terminal.{txt,json}, analysis/arm_summary.txt
 
-  It regenerates all 22 analysis files byte for byte from a clean copy; `posthoc_link_error.txt` is the post-hoc
-  per-link read.
+  It regenerates all 23 analysis files byte for byte from a clean copy. `posthoc_link_error.txt` and
+  `posthoc_decomposition.txt` are the post-hoc reads. `links/` holds the neighbour links that
+  `posthoc_extract_links.py` extracted from the rtabmap databases, which are not deposited.

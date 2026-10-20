@@ -432,9 +432,12 @@ one it replaces comes out.
       - *front 0x80: read 0.0 s at 10.3 V;*
       - *rear 0x81: read 0.0 s at 11.1 V;*
       - *each set and saved, acknowledging 95 and 94, and re-enumerated its USB 3 s later;*
-      - *after a main-power cycle with the USB out first, both read 0.5 s;*
-      - *killed mid-spin, the driver's last command ran 0.55 s before the controllers stopped the
-        wheels (§6).*
+      - *after a power cycle with the USB out first, both read 0.5 s. The kernel log shows the USB
+        gaps of 35 s and 54 s. The main-power cut inside them is the maintainer's action, which
+        the host cannot observe;*
+      - *killed mid-spin, the encoders show 3.25–3.37 rad more after the last sample, 0.55–0.56 s
+        at their last speed. The stop fell about 0.5 s after the driver's last packet, and the
+        rest is spin-down (§6).*
 - [x] With the D555 attached and either RoboClaw missing, nothing opens or writes to the camera's
       serial port. Either `base` is left out of every boot and `up` path until both controllers are
       attached, or the driver stops probing `/dev/ttyACM*` and stops falling back to the configured
@@ -460,7 +463,8 @@ one it replaces comes out.
         `fuser` found nothing on the camera's port;*
       - *with the rear unplugged, it refused 10 times ("found 1/2 controllers … Refusing to
         start"), each with exit 1 and a restart;*
-      - *149 `fuser` samples of the camera's port found no process;*
+      - *over the first eight refusals, a loop ran `fuser` on the camera's port 149 times and
+        reported no process. Only that summary was kept;*
       - *plugged back in, the next start found both.*
 
 **Cutover and cold boot**

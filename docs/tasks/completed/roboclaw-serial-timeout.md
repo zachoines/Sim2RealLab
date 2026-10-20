@@ -161,7 +161,7 @@ Code read at `0a975ef`. The protocol is from the RoboClaw user manual, Revision 
       bring-up expects, with a one-line comment naming the command.
 - [x] **The node does not write it.** The reason is under Context, and
       `test_node_never_sends_timeout_or_flash_commands` pins it.
-- [ ] **On site, for the maintainer.** Do this before `base` first drives the chassis, with both
+- [x] **On site, for the maintainer.** Do this before `base` first drives the chassis, with both
       RoboClaws connected, their main power on before their USB:
       - read each controller's timeout with `diagnose_roboclaw.py --read-only`. Command 15 reads the
         active value only;
@@ -178,6 +178,12 @@ Code read at `0a975ef`. The protocol is from the RoboClaw user manual, Revision 
       The commands, the emergency stop and the plug order's reason are in the port-fence record's
       [§7, step 0](../../measurements/chassis-driver-port-fence-2026-10-14/README.md#7-the-on-site-check).
       Until the values are read, the chassis bring-up carries this step first.
+      *2026-10-19, on the robot:
+      [`chassis-bringup-2026-10-19`](../../measurements/chassis-bringup-2026-10-19/README.md) §2.*
+      - *Both controllers read 0.0 s, then took 0.5 s and saved it.*
+      - *Both read 0.5 s after a power cycle with the USB out first. The main-power cut is the
+        maintainer's report.*
+      - *The readings are in `jetson-untether`'s box.*
 - [x] If your work invalidates a fact in any referenced context module, package README,
       top-level `Readme.md`, or guide under `docs/`, update those in the same commit. See
       [`conventions.md`'s user-facing documentation maintenance section](../context/conventions.md#user-facing-documentation-maintenance).

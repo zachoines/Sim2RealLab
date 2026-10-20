@@ -41,8 +41,8 @@ Every driver and tool run found both by address.
 | the image's `--help` check | 21:37:10 |
 | step 0: `--read-only` | 21:39:46 |
 | step 0: front set and save; rear set and save | 22:49:43; 22:50:14 |
-| a power cycle reported done, with no USB event in the kernel log; not counted | about 22:51 |
-| the power cycle: USB out, main power off and on, USB in | 22:52:19–22:53:13 |
+| a power cycle reported done by the maintainer, with no USB event in the kernel log; not counted | about 22:51 |
+| the power cycle: USB out and back in (kernel log); main power off and on between, the maintainer's report, which the host cannot observe | 22:52:19–22:53:13 |
 | step 0: the proof read | 22:53:20 |
 | DDS census of domain 42 | 22:53:48 |
 | §7's positive half: `base` up | 22:54:16 |
@@ -51,7 +51,7 @@ Every driver and tool run found both by address.
 | the rear's USB back (port `1-2.4`); `base` ready | 23:00:16; 23:00:56 |
 | `base` stopped for the duty test; the duty test; `base` up | 23:06:07; 23:06:19; 23:06:47 |
 | `cmd_vel`: 0.1 m/s; 0.1 m/s again; 0.3 m/s | 23:12:22; 23:15:55; 23:16:10 |
-| a spin whose stop command was not sent (see below) | 23:17:24–23:17:36 |
+| the first attempt at the compose-stop test, whose stop command was not sent (see below) | 23:17:24–23:17:36 |
 | the spin with `docker compose stop base` | 23:18:19; stop at 23:18:25.271 |
 | `base` up | about 23:19 |
 | the spin with SIGKILL | 23:19:57; kill at 23:20:03.977 |
@@ -67,14 +67,13 @@ Every driver and tool run found both by address.
 - **The plug-order step ran before the rule was installed.** The controllers were powered and
   then plugged in at 20:57:46, and each re-plugged with power on. The rule's trigger then created
   the names.
-- **The duty test ran before the first closed-loop drive,** not last. It was the polarity check
-  in the record's §4.
+- **The duty test ran before the first closed-loop drive,** not last, at the maintainer's choice.
+  It was the polarity check in the record's §4.
 - **The drive speed.** At 0.1 m/s two of the four wheels did not turn, so the stops (§6) used a
   0.8 rad/s spin. That turns each wheel at the same speed as the 0.3 m/s run, where all four
   moved.
-- **A spin whose stop was not sent.** The first attempt at the SIGINT stop ran
-  `docker compose stop base` from the wrong directory, and it failed with "no configuration file
-  provided".
+- **The first attempt at the compose-stop test sent no stop.** It ran `docker compose stop base`
+  from the wrong directory, which failed with "no configuration file provided".
   - The spin ran its full 12 s and ended with the publisher.
   - The driver's watchdog stopped the wheels 0.50 s after the last message.
   - That run is kept as `drive/step6b_attempt1_*` and shows the joint-position wrap in §7. The

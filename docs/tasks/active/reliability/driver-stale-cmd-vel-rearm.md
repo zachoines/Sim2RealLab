@@ -1,24 +1,29 @@
 # Stop the RoboClaw driver from running a stale `cmd_vel` as fresh after a stall
 
-**Type:** bug (after a stall of the driver, a `cmd_vel` that waited through the stall drives the
-wheels for another 0.5 s, also after the watchdog has stopped them)
+**Type:** bug (after a whole-executor stall of the driver, a `cmd_vel` that waited through the
+stall drives the wheels for another 0.5 s, also after the watchdog has stopped them)
 **Owner:** Jetson (`strafer_driver`)
-**Priority:** P1.
-- The watchdog is the stop for a publisher that falls silent, and a stall can undo it with a
-  command that is no longer current.
-- On the robot a spin at least 1.0 s old re-ran for 0.5 s after the watchdog's stop. At the
-  1.57 m/s top speed, 0.5 s is about 0.8 m.
-- It takes a stall of over 0.5 s, and a publisher that sends into it and then falls silent
-  without a final zero. On the robot only `docker pause` has produced the stall.
+**Priority:** P2, by exposure.
+- It needs a stall of the driver's executor over 0.5 s, and a publisher that sends into the stall
+  and then stops without a zero, on one fault. No deployed publisher does that: the inference node
+  ends every mission with a zero, and zeroes `/cmd_vel` about 0.2 s after `joint_states` stops
+  (0.2 s plus up to one 1/30 s tick).
+- On the robot only `docker pause` has produced the stall, and only a bench publisher the silence.
+- The re-armed 0.5 s covers 0.39 m at the 0.784 m/s cap the policy lane and Nav2 share
+  (`navigation.launch.py` replaces the smoother's YAML 0.5 m/s with `NAV_LINEAR_VEL`). Nav2 caps
+  each axis on its own, so a Nav2 diagonal reaches 1.11 m/s, 0.55 m. It reaches 0.8 m only from
+  an uncapped publisher.
 
-**Estimate:** S–M
-**Branch:** `task/driver-stale-cmd-vel-rearm`
+**Estimate:** S
+**Branch:** `task/driver-stall-and-reconnect-hardening`, with
+[`driver-unanswered-controller-stall`](driver-unanswered-controller-stall.md) and
+[`driver-reconnect-reapplies-gains`](driver-reconnect-reapplies-gains.md)
 
 ## Story
 
-As **anything that stops the robot by no longer publishing `cmd_vel`** (a publisher that exits,
-crashes or loses its link), I want **the driver to run no command after the watchdog's window
-from its send**, so that **a stop does not come undone when the driver stalls.**
+As **anything that stops the robot by no longer publishing `cmd_vel`**, I want **the driver to run
+no message that waited through a stall of its executor**, so that **a stop does not come undone
+when the driver resumes.**
 
 ## Context bundle
 
@@ -30,60 +35,81 @@ from its send**, so that **a stop does not come undone when the driver stalls.**
 
 ## Context
 
-Read at `97c035f`, and seen on the robot on 2026-10-20.
+Read at `72b9ba7`, and seen on the robot on 2026-10-20.
 
 - **The watchdog.** `roboclaw_node.py`'s `_cmd_vel_callback` stores the message and stamps
   `_last_cmd_vel_time` with the node's clock when it takes it. The 50 Hz timer zeroes the motors
   once that stamp is more than `WATCHDOG_TIMEOUT_SEC` (0.5 s) old. A `Twist` has no header, so
   the take is the only age the driver knows.
-- **The subscription** is `QoSProfile(depth=1, reliability=RELIABLE)`. After a stall, a message
-  sent into it is waiting to be taken.
 - **The order.** Humble's rclpy executor yields ready timers before ready subscriptions
-  (`executors.py`, `_wait_for_ready_callbacks`).
-  - After a stall, the overdue tick runs first and zeroes the motors: `No cmd_vel for <stall>s`.
-  - The callback then takes the waiting message and stamps it with the current time.
-  - The next ticks drive it until the watchdog fires again 0.5 s later.
+  (`executors.py`, `_wait_for_ready_callbacks`), and rcl schedules a timer's next call on its
+  period grid. After a stall the overdue tick zeroes the motors, and a catch-up tick can follow
+  within milliseconds, before the take.
+  - In pause_3 two ticks, with clock reads at +0.037 and +0.045 s, sent zero; the callback then
+    took the waiting message (+0.046 to +0.056 s) and stamped it as new; the next ticks drove it.
+  - pause_2 shows the same pair of ticks, at +0.039 and +0.047 s.
+- **The subscription keeps one message** (`QoSProfile(depth=1, reliability=RELIABLE)`), so only
+  the newest is taken. Where it waited during the stall is a reading, not measured.
 - **Seen on the robot (pause_3).** `docker pause` froze `base` for 3 s mid-spin. The publisher
   kept sending for 2 s into the pause, then stopped.
   - The driver logged `No cmd_vel for 3.09s` 0.039 s after the unpause.
-  - By the second watchdog line, it then took a message at +0.048 to +0.058 s. It was one sent
-    into the pause, at least 1.0 s old.
-  - It drove the spin until `No cmd_vel for 0.51s` at +0.565 s. Its counts moved from +0.089
-    to +0.667 s, at up to 5.27 rad/s, and the wheels turned 2.47–2.64 rad.
-  - In pause_2 the driver took the last message before the freeze, so nothing was waiting, and
-    nothing moved.
-  - In pause_1 a message was waiting, but a main-power cut hid the outcome.
-- **The general case.** The watchdog counts from the take, so a delay between send and take adds
-  to a command's life.
-  - A stall of over 0.5 s, during which the publisher sent and then fell silent, restarts the
-    wheels after the watchdog's stop.
-  - A shorter stall lengthens the run by up to the stall.
-  - A link outage with reliable retransmission may deliver a stale message the same way. That is
-    a reading of the QoS, not measured.
-- **What Humble gives.** The subscription's `take_message` returns the message with its
-  `rmw_message_info`, which carries the writer's `source_timestamp`. Humble's executor drops it:
-  `_take_subscription` returns `msg_info[0]`. So the callback has no send time as it stands.
+  - By its second watchdog line it took a message at +0.046 to +0.056 s; the publisher's last
+    message was then 1.05–1.06 s old.
+  - It drove the spin until `No cmd_vel for 0.51s` at +0.563 s. The counts moved from +0.081 to
+    +0.661 s by the samples' stamps, and the wheels turned 2.47–2.64 rad.
+  - In pause_2 the driver took the last message before the freeze, so nothing was waiting and
+    nothing moved. In pause_1 a message was waiting, but a main-power cut hid the outcome.
+- **The precondition is a stall of the whole executor, longer than the watchdog window.** The
+  record's USB pull is the contrast.
+  - Its loop waited on the rear's serial timeouts for about 0.2 s, under the window.
+  - In the 10 s of error state that followed, the executor kept serving the subscription between
+    ticks. The reconnect's watchdog line dates the last take to +0.217–0.227 s, at the
+    publisher's last message.
+  - So nothing waited through the outage, and nothing re-armed after the reconnect.
+- **The fix.**
+  - `_timer_callback` records the time from its previous start to this one, on
+    `time.monotonic()`.
+  - A gap over `WATCHDOG_TIMEOUT_SEC` marks a stall.
+  - The short-gap ticks after it leave the mark in place. A mark that every tick reassigned would
+    already be clear at pause_3's take, because the catch-up tick ran first.
+  - `_cmd_vel_callback` drops the first message it takes while the mark is set, and clears it.
+  - A tick more than `WATCHDOG_TIMEOUT_SEC` after the mark also clears it. A stall with nothing
+    waiting, as in pause_2, then does not cost a later fresh message.
+  - The threshold is the watchdog window, not two timer periods. A loop that runs slow every tick
+    (one silent controller costs about 0.31 s per tick) must not drop every message.
+- **Rejected: the writer's `source_timestamp`.**
+  - The subscription's `take_message` returns it in the message info, but Humble's executor
+    drops the info (`_take_subscription` returns `msg_info[0]`). Reaching it needs a custom take.
+  - An age check against it also needs the publisher's clock to agree with the driver's, which a
+    remote publisher's does not promise.
+  - It would also cover a delay outside the driver, such as a link outage with reliable
+    retransmission. The stall flag does not.
+- **The residual.**
+  - A stall under 0.5 s still lengthens a run by up to the stall.
+  - A delay outside the driver is not covered.
+  - If a stall left more than one stale message for the subscription after the dropped one, the
+    next would run. With one message kept and the overdue ticks' serial I/O between the wake
+    and the take, that is not expected.
 
 ## Acceptance criteria
 
-- [ ] **A test reproduces the re-arm and fails on `main`.**
-  - It drives the node through a real executor, with a publisher in the same process and the fake
-    serial layer.
-  - It spins while a 0.8 rad/s spin is published, then stops spinning: that is the stall.
-  - It publishes for another 0.5 s, stops publishing, and waits until the newest message is 1 s
-    old. Then it spins again.
-  - On `main` the fake bus receives a non-zero speed after the watchdog's zero; with the fix it
-    receives none.
+- [ ] **A test through a real executor reproduces the re-arm and fails on `main`.**
+  - It uses the fake serial bus and a publisher in the same process.
+  - It spins while a 0.8 rad/s spin is published, then stops spinning, and publishes on into the
+    stall.
+  - It stops publishing, waits 1 s, then spins again.
+  - It runs twice: with the take straight after the overdue tick, and in pause_3's order, with a
+    catch-up tick between them.
+  - On `main` the fake bus receives a non-zero speed after the watchdog's zero; with the fix,
+    none.
 - [ ] **A live publisher still drives after a stall.** The same test, with the publisher still
       sending when the spin resumes: non-zero speeds return within one publisher period.
-- [ ] **The fix and its reason are recorded,** against the other candidates.
-  - Candidates: the writer's `source_timestamp`, through a take that keeps the message info; or
-    a stall check in the timer that drops a message taken right after an overdue tick.
-  - The choice weighs the clock offset between hosts for a remote publisher, and the link-outage
-    case.
-- [ ] **On the robot,** with the wheels lifted, the record's pause_3 run again shows no re-arm.
-  - That is one watchdog line after the unpause, and `joint_states` at zero.
-  - The run is deposited, and a record states it.
+- [ ] **The gap is measured start to start on `time.monotonic()`, against
+      `WATCHDOG_TIMEOUT_SEC`. The mark holds through the short-gap ticks until the first take, or
+      until a tick `WATCHDOG_TIMEOUT_SEC` after it.**
+- [ ] **On the robot,** with the wheels lifted, the record's pause_3 run again shows one watchdog
+      line after the unpause, `joint_states` at zero and a still camera. The run is deposited and
+      a record states it.
 - [ ] If your work invalidates a fact in any referenced context module, package README,
       top-level `Readme.md`, or guide under `docs/`, update those in the same commit. See
       [`conventions.md`'s user-facing documentation maintenance section](../../context/conventions.md#user-facing-documentation-maintenance).
@@ -96,8 +122,7 @@ Read at `97c035f`, and seen on the robot on 2026-10-20.
 - Humble's `rclpy/executors.py`: `_wait_for_ready_callbacks`, where timers are yielded before
   subscriptions, and `_take_subscription`, which drops the message info.
 - `source/strafer_ros/strafer_driver/test/test_port_fence.py` (`FakeRoboClaw`, `FakeBus`,
-  `build_node`) and `test_serial_timeout.py`
-  (`test_node_never_sends_timeout_or_flash_commands`, which drives `_timer_callback` directly).
+  `build_node`).
 - The record's deposit: `pause_3/spin.csv`, `pause_3/base_log.txt`, and `scripts/pause_run.sh`
   with `STOP_DELAY=2`, which keeps the publisher sending 2 s into the pause.
 
@@ -105,8 +130,7 @@ Read at `97c035f`, and seen on the robot on 2026-10-20.
 
 - **`TwistStamped` across the stack.** Nav2's Humble controller and the inference node publish
   `Twist`.
-- **The driver's blocking reads.** One controller that does not answer holds the whole loop in
-  0.1 s timeouts (the record's finding 2). A controller that stops answering but stays on USB is
-  not measured.
+- **A delay outside the driver,** such as a link outage with retransmission (the residual above).
+- **The loop's blocking reads:** [`driver-unanswered-controller-stall`](driver-unanswered-controller-stall.md).
 - **The controllers' serial timeout,** which already stops the wheels when the driver stops
   sending.

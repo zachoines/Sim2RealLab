@@ -420,13 +420,25 @@ one it replaces comes out.
 **The camera's serial interface, fenced before any RoboClaw is plugged in**
 
 - [ ] `99-strafer.rules` is installed and survives a reboot.
-- [ ] **Each RoboClaw's packet-serial timeout is read, set to 0.5 s and saved on each controller
+      *2026-10-19: installed from `371e848`, giving `/dev/roboclaw1` and `/dev/roboclaw2` with
+      `ID_MM_DEVICE_IGNORE=1` ([`chassis-bringup-2026-10-19`](../../../measurements/chassis-bringup-2026-10-19/README.md) §1). The reboot is unread.*
+- [x] **Each RoboClaw's packet-serial timeout is read, set to 0.5 s and saved on each controller
       whatever it read, and read again after a main-power cycle, before `base` first drives the
       chassis** *(added 2026-10-17)*. Record the readings per controller. This is the first RoboClaw
       step once both are plugged in, main power before USB, ahead of the box below. The commands
       are in the port-fence record's §7, step 0; the reason is in
       [`roboclaw-serial-timeout`](../../completed/roboclaw-serial-timeout.md).
-- [ ] With the D555 attached and either RoboClaw missing, nothing opens or writes to the camera's
+      *2026-10-19 ([`chassis-bringup-2026-10-19`](../../../measurements/chassis-bringup-2026-10-19/README.md) §2):*
+      - *front 0x80: read 0.0 s at 10.3 V;*
+      - *rear 0x81: read 0.0 s at 11.1 V;*
+      - *each set and saved, acknowledging 95 and 94, and re-enumerated its USB 3 s later;*
+      - *after a power cycle with the USB out first, both read 0.5 s. The kernel log shows the USB
+        gaps of 35 s and 54 s. The main-power cut inside them is the maintainer's action, which
+        the host cannot observe;*
+      - *killed mid-spin, the encoders show 3.25–3.37 rad more after the last sample, 0.55–0.56 s
+        at their last speed. The stop fell about 0.5 s after the driver's last packet, and the
+        rest is spin-down (§6).*
+- [x] With the D555 attached and either RoboClaw missing, nothing opens or writes to the camera's
       serial port. Either `base` is left out of every boot and `up` path until both controllers are
       attached, or the driver stops probing `/dev/ttyACM*` and stops falling back to the configured
       ports when a controller is not found. Shown on a
@@ -445,6 +457,15 @@ one it replaces comes out.
       *2026-10-16: a refusal now ends `base`'s launch with exit 1, so compose restarts `base` and
       detection runs again; its restart count climbs. The check's expectations are in the
       record's §7.*
+      *2026-10-19, on images built at `371e848` with the camera attached
+      ([`chassis-bringup-2026-10-19`](../../../measurements/chassis-bringup-2026-10-19/README.md) §3):*
+      - *with both controllers, `base` started on `/dev/roboclaw1` and `/dev/roboclaw2`, and
+        `fuser` found nothing on the camera's port;*
+      - *with the rear unplugged, it refused 10 times ("found 1/2 controllers … Refusing to
+        start"), each with exit 1 and a restart;*
+      - *over the first eight refusals, a loop ran `fuser` on the camera's port 149 times and
+        reported no process. Only that summary was kept;*
+      - *plugged back in, the next start found both.*
 
 **Cutover and cold boot**
 

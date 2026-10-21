@@ -296,6 +296,11 @@ under the image's launch, with stand-in children:
 This needs the robot, and it is not done here. Run it on an image built from a commit that carries
 the fence.
 
+*2026-10-19: run on the robot, step 0 included, on images built at `371e848`. Every expectation
+below held. The names came out as `/dev/roboclaw1` and `/dev/roboclaw2`, and in the negative
+half the rear was plugged back into another hub port and still found by address:
+[`chassis-bringup-2026-10-19`](../chassis-bringup-2026-10-19/README.md).*
+
 ```bash
 cd ~/Sim2RealLab && git rev-parse --short=12 HEAD && git status --short --untracked-files=no
 make images                            # stamps that hash (+ -dirty if tracked files changed); the entrypoint prints it

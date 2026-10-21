@@ -393,7 +393,9 @@ command velocities beyond the robot's safe operating range.
 
 **Proposal.** The driver node `RoboClawNode` (in
 `strafer_driver/strafer_driver/roboclaw_node.py`) already has a `cmd_vel`
-watchdog that stops motors if no `/strafer/cmd_vel` arrives within 500 ms.
+watchdog that stops motors if no `cmd_vel` arrives within 500 ms. The driver
+subscribes on `/cmd_vel`: `driver.launch.py` remaps the node's
+`/strafer/cmd_vel` to it.
 Add a complementary velocity magnitude check in the same node's control loop.
 
 The odom topic is `/strafer/odom` (type `nav_msgs/msg/Odometry`). The driver

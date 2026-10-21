@@ -13,8 +13,8 @@ captured_date: 2026-10-20 CDT (2026-10-21 UTC)
 | power | a 4S LiPo charged to 16.8 V, a 300 W 12 V buck converter, a Y harness to both controllers; main power cuts the RoboClaws only, and the Jetson has its own supply |
 | chassis | on blocks, all four wheels off the ground, for every drive |
 
-The maintainer's reports and each checkpoint's wording are verbatim in the deposit's
-`operator_notes.txt`.
+The maintainer's reports, and each question put to the maintainer before a run, are verbatim in
+the deposit's `operator_notes.txt`.
 
 ## Tree and images
 
@@ -22,7 +22,7 @@ The maintainer's reports and each checkpoint's wording are verbatim in the depos
 |---|---|
 | tree | `main` at `371e848`, in the clean worktree the bring-up built from |
 | images | `strafer-cpu:humble` `4473c937e6a3`, labelled `371e8487533a` (`host/image.txt`); no build for this record |
-| compose | `source/strafer_ros/deploy` of that tree, with no override file; `base` with `stop_signal: SIGINT` and `restart: unless-stopped` (`gate/base_up.txt`) |
+| compose | `source/strafer_ros/deploy` of that tree, with no override file. In its `docker-compose.yml` at `371e848`, `base` takes `restart: unless-stopped` and `stop_signal: SIGINT` from the `x-cpu-svc` anchor; `gate/base_up.txt` shows the running container's stop signal |
 | publisher | `drive_probe.py` in a separate `strafer-cpu:humble` container on domain 42, with the deploy's Cyclone config: `Twist(angular.z=0.8)` on `/cmd_vel` at 20 Hz until a stop file appears, recording `/strafer/joint_states` |
 | webcam capture | `wheelcam.py` on the host (OpenCV 4.8), raw MJPEG frames written as they arrive, each with its V4L2 buffer timestamp |
 
@@ -30,12 +30,14 @@ The maintainer's reports and each checkpoint's wording are verbatim in the depos
 
 | event | time |
 |---|---|
+| the maintainer describes the power chain, 300 W buck included (2026-10-20) | 22:17:13 |
 | front and rear enumerate | 01:54:33; 01:54:34 |
 | both drop off USB, 0.14 s apart; both back | 01:56:27; 01:56:40 |
 | the webcam enumerates on `1-2.1` | 02:08:54 |
+| the maintainer reports the meter readings | 02:09:16 |
 | pre-registration commit `42a810c` | 02:11:16 |
 | step 0: `--read-only` | 02:11:25 |
-| the webcam's analysis parameters fixed | 02:13:55 |
+| the webcam's analysis parameters fixed, by the file's header | 02:13:55 |
 | census; `base` up | before 02:14:31; 02:14:31 |
 | the webcam streams 10 s with `base` up | 02:14:52–02:15:02 |
 | pause_1: pause; unpause | 02:18:20.006; 02:18:23.074 |
@@ -55,6 +57,8 @@ The maintainer's reports and each checkpoint's wording are verbatim in the depos
 | deposit correction `365e754f`: `analysis.py` prints the rest of the cited figures; the manifest's wording | 02:55:44 |
 | `base`'s whole log read from Docker's retained log | 03:28:07 |
 | deposit correction `613caf68`: more checks in `analysis.py`; `base`'s whole log, the operator notes, and `pause_run.sh` as pause_1 and pause_2 ran it | 03:31:27 |
+| deposit correction `76caf139`: the frame cut short decoded through PIL on every host; log lines on their ROS stamps; takes dated by the tick's clock; the power-chain statement | 13:39:14 |
+| deposit correction `f2ed7f80`: the first ticks after each unpause, showing the catch-up tick | 22:41:48 |
 
 ## Departures from the pre-registration
 
@@ -63,6 +67,9 @@ The maintainer's reports and each checkpoint's wording are verbatim in the depos
   - The run scripts issue the pause or kill at a fixed time, so no key press is filmed.
   - Stops are counted from the command's issue time, not from a key press.
   - The frames carry arrival times, not capture times; the record says so.
+- **The camera's analysis parameters.** The threshold and the hold are stated in
+  `analysis_params.txt`, whose header puts their fixing at 02:13:55, before the drives. The file
+  was deposited with the runs, after them, so that time rests on its header.
 - **The webcam also filmed the USB pull and the process kill.** The pre-registration timed those
   by encoders and logs alone.
 - **The power-cut check.** The pre-registration's §0 planned a hand-turned FL, then a cut. The
@@ -76,11 +83,13 @@ The maintainer's reports and each checkpoint's wording are verbatim in the depos
   - RR read 3 ticks, one past the ±2 expected.
   - pause_1's unplanned cut gave the clean check: no USB event between `base`'s first start and
     the cut, and every count at 0 after it.
-- **pause_1's main-power cut.** The checkpoint before the run said "Your abort during the pause
-  is the main-power cut.", without a condition.
+- **pause_1's main-power cut.** The question put to the maintainer before the run said "Your
+  abort during the pause is the main-power cut.", without a condition.
   - The maintainer cut main power near the end of the pause.
-  - Under the pre-registered rule no abort was due: FR was at rest at +0.609 s.
-  - That left 1.4, the re-arm, undecided. pause_2 repeated the run, its checkpoint saying "Main
+  - The pre-registered rule called for an abort only if a wheel was not at rest within 1 s of its
+    expected stop. FR, the one wheel filmed, was at rest at +0.609 s; pause_1 has no reading of
+    FL, RL or RR after +0.037 s.
+  - That left 1.4, the re-arm, undecided. pause_2 repeated the run, its question saying "Main
     power stays on unless a wheel keeps turning ~1 s after the pause."
 - **pause_3 was added.** pause_2 showed no re-arm with nothing waiting. pause_3 kept the publisher
   sending into the pause, to test the competing prediction. It was pre-registered in `a923c14`
@@ -88,6 +97,10 @@ The maintainer's reports and each checkpoint's wording are verbatim in the depos
 - **The order.** The pre-registration listed the pack, the pause, SIGKILL, the USB pull, then the
   process kill. The runs went pause_1, pause_2, SIGKILL, the USB pull, the process kill, then
   pause_3.
+- **The USB pull's publisher sent its last message 0.222 s after the kernel's line,** not at the
+  pull. The script's sample stamped +0.047 s saw the pull, and the script touched the stop file
+  only after that sample's `fuser` check. That is harmless: the driver was in its error state from +0.155 s, and the
+  reconnect's watchdog line dates its last take to +0.217–0.227 s.
 - **`pause_run.sh` changed between the pauses.** For pause_3, one text replacement at 02:34:38
   added `STOP_DELAY`.
   - pause_1 and pause_2 ran the version before it, which the deposit rebuilds as

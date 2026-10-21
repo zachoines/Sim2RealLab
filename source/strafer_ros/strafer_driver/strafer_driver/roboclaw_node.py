@@ -219,6 +219,10 @@ class RoboClawNode(Node):
         self._latest_twist = Twist()  # zero velocity
         self._last_cmd_vel_time = self.get_clock().now()
         self._watchdog_active = False
+        # The start of a tick that came more than the watchdog window after the one before
+        # it. The first cmd_vel taken after such a stall waited through it and is dropped.
+        self._last_tick_start: float | None = None
+        self._stall_end: float | None = None
 
         # Odometry integration (in odom frame)
         self._odom_x = 0.0
@@ -266,7 +270,15 @@ class RoboClawNode(Node):
     # ==================================================================
 
     def _cmd_vel_callback(self, msg: Twist) -> None:
-        """Store the latest Twist. Serial I/O happens in the timer."""
+        """Store the latest Twist. Serial I/O happens in the timer.
+
+        A Twist carries no stamp, so its age is counted from this take. After a stall of
+        the executor the overdue tick runs first, and the message taken next waited
+        through the stall: it is dropped, so it cannot re-arm a stopped drive.
+        """
+        if self._stall_end is not None:
+            self._stall_end = None
+            return
         self._latest_twist = msg
         self._last_cmd_vel_time = self.get_clock().now()
         self._watchdog_active = False
@@ -301,6 +313,21 @@ class RoboClawNode(Node):
     def _timer_callback(self) -> None:
         """50 Hz control loop: send commands, read encoders, publish."""
         now = self.get_clock().now()
+        tick_start = time.monotonic()
+        if (
+            self._last_tick_start is not None
+            and tick_start - self._last_tick_start > WATCHDOG_TIMEOUT_SEC
+        ):
+            self._stall_end = tick_start
+        elif (
+            self._stall_end is not None
+            and tick_start - self._stall_end > WATCHDOG_TIMEOUT_SEC
+        ):
+            # Nothing waited through the stall. The mark is kept until then, not reset by
+            # the next tick: rcl schedules ticks on the period grid, so a catch-up tick can
+            # run milliseconds after the overdue one and before the waiting message is taken.
+            self._stall_end = None
+        self._last_tick_start = tick_start
 
         # ------------------------------------------------------------------
         # Error state: attempt reconnect periodically
@@ -313,9 +340,17 @@ class RoboClawNode(Node):
                 front_ok = self._front.reconnect()
                 rear_ok = self._rear.reconnect()
                 if front_ok and rear_ok:
-                    self.get_logger().info("RoboClaw reconnected successfully.")
-                    self._in_error_state = False
-                    self._consecutive_failures = 0
+                    # A power cycle reloads each controller's saved gains, so the
+                    # driver's go back on, and are read back, before it drives again.
+                    self._configure_pid(self._front, "Front")
+                    self._configure_pid(self._rear, "Rear")
+                    if self._gains_hold(self._front, "Front") and self._gains_hold(
+                        self._rear, "Rear"
+                    ):
+                        self.get_logger().info("RoboClaw reconnected successfully.")
+                        self._in_error_state = False
+                        self._consecutive_failures = 0
+                        self._last_success_time = time.monotonic()
                 else:
                     self.get_logger().error("Reconnect failed.")
             self._publish_diagnostics()
@@ -478,6 +513,29 @@ class RoboClawNode(Node):
     # Helpers
     # ==================================================================
 
+    def _gains_hold(self, rc: RoboClawInterface, label: str) -> bool:
+        """Read both motors' velocity gains back; True only if they are the driver's."""
+        want = {
+            "P": ROBOCLAW_PID_P,
+            "I": ROBOCLAW_PID_I,
+            "D": ROBOCLAW_PID_D,
+            "QPPS": ROBOCLAW_QPPS,
+        }
+        try:
+            got = [rc.read_velocity_pid_m1(), rc.read_velocity_pid_m2()]
+        except Exception as e:
+            self.get_logger().error(
+                f"{label} gains could not be read back: {e} -- staying in error state."
+            )
+            return False
+        if got != [want, want]:
+            self.get_logger().error(
+                f"{label} gains read back {got}, not {want} -- staying in error state."
+            )
+            return False
+        self.get_logger().info(f"{label} gains read back {got}")
+        return True
+
     def _handle_serial_failure(self, msg: str) -> None:
         """Track consecutive failures and escalate to error state."""
         self._consecutive_failures += 1
@@ -486,10 +544,16 @@ class RoboClawNode(Node):
             f"{msg} (consecutive failures: {self._consecutive_failures})"
         )
 
-        if self._consecutive_failures >= MAX_CONSECUTIVE_FAILURES:
+        # A controller that stays on USB but does not answer costs each tick its read
+        # timeouts, so the count alone would take seconds; time bounds it too.
+        since_success = time.monotonic() - self._last_success_time
+        if (
+            self._consecutive_failures >= MAX_CONSECUTIVE_FAILURES
+            or since_success > WATCHDOG_TIMEOUT_SEC
+        ):
             self.get_logger().error(
-                f"{MAX_CONSECUTIVE_FAILURES} consecutive failures -- "
-                "stopping motors and entering error state."
+                f"{self._consecutive_failures} consecutive failures over "
+                f"{since_success:.2f}s -- stopping motors and entering error state."
             )
             try:
                 self._front.stop_motors()

@@ -35,7 +35,7 @@ Sibling packages it interacts with:
 
 ## What ships today
 
-- **RoboClaw driver** (`strafer_driver/roboclaw_node.py`) — single-threaded executor, 50 Hz timer for all serial I/O, auto-writes PID/QPPS from `strafer_shared.constants` at startup, dual-controller addressing (0x80 front, 0x81 rear), `/cmd_vel` → per-wheel mecanum IK, 500 ms watchdog.
+- **RoboClaw driver** (`strafer_driver/roboclaw_node.py`) — single-threaded executor, 50 Hz timer for all serial I/O, auto-writes PID/QPPS from `strafer_shared.constants` at startup, dual-controller addressing (0x80 front, 0x81 rear), `/cmd_vel` → per-wheel mecanum IK, 500 ms watchdog. The first `cmd_vel` taken after an executor stall longer than the watchdog window is dropped, since it waited through the stall. Ten consecutive serial failures, or 500 ms without a good exchange, stop both controllers and enter the error state. From there the driver reconnects the configured ports every 2 s, re-writes the gains and reads them back before driving again. A swap in the controllers' enumeration order needs a restart of `base`, which re-runs detection.
 - **RealSense D555 stack** (`strafer_perception/`) — launch wiring for the RealSense ROS 2 node (stream profiles, depth alignment, and the four post-processing filters off plus depth auto-exposure on, pinned as `rs_launch.py` arguments and asserted by `test_perception_launch.py`), `timestamp_fixer` (relays colour and aligned depth as the `*_sync` topics, stamps unchanged), `depth_downsampler` (640×360 depth → 80×45 float32 meters; diagnostic, not the policy input), `imu_filter_madgwick` for filtered `/d555/imu/filtered`.
 - **Goal projection service** (`strafer_perception/goal_projection_node.py`) — implements `ProjectDetectionToGoalPose.srv`: VLM bbox (Qwen normalized `[0, 1000]`) → pixel → depth lookup (5×5 median) → 3D camera frame → TF to map → standoff offset → reachability check.
 - **URDF + TF tree** (`strafer_description/`) — URDF with chassis, 4 wheels, and `d555_link`; `robot_state_publisher` broadcasts `base_link → {chassis, wheels, d555_link}` from joint states and URDF.
@@ -124,7 +124,7 @@ map ← odom ← base_link ← {chassis, wheel_*, d555_link}
 - Dual RoboClaw ST 2x45A over USB serial, at `/dev/roboclaw<N>` via udev (the kernel names them `/dev/ttyACM<N>`). Addresses `0x80` (front) + `0x81` (rear). Baud 115200, Packet Serial mode.
 - 4× GoBilda 5203 motors at 19.2:1. Encoder resolution 537.7 PPR at output shaft.
 - `wheel_axis_signs = [-1, 1, -1, 1]` for `[FL, FR, RL, RR]` is applied inside `strafer_shared.mecanum_kinematics`. **Do not** re-apply sign inversion inside this package.
-- RoboClaw PID values (`P=15000`, `I=750`, `D=0`, `QPPS=2796`) live in `strafer_shared.constants` and are auto-written to RAM on every `roboclaw_node` startup.
+- RoboClaw PID values (`P=15000`, `I=750`, `D=0`, `QPPS=2796`) live in `strafer_shared.constants` and are auto-written to RAM on every `roboclaw_node` startup, and again after every reconnect, where they are also read back.
 - udev rules in [`99-strafer.rules`](99-strafer.rules) create a `/dev/roboclaw<N>` symlink for each RoboClaw (`<N>` is its ttyACM number, so with the camera at `ttyACM0` the pair may be 1 and 2) and grant IIO permissions for the D555 IMU stack.
 - **Before powering the robot** (evidence: [`jetson-untether`](../../docs/tasks/active/reliability/jetson-untether.md)):
   - **Plug the D555 in after the Jetson has booted.** Attached at power-on, it enumerates without a

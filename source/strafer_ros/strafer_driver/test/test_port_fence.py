@@ -25,6 +25,8 @@ from strafer_driver import roboclaw_node
 from strafer_driver.roboclaw_interface import (
     CMD_M1_FORWARD,
     CMD_M2_FORWARD,
+    CMD_READ_M1_VEL_PID,
+    CMD_READ_M2_VEL_PID,
     CMD_READ_MAIN_BATTERY,
     CMD_SET_M1_VEL_PID,
     CMD_SET_M2_VEL_PID,
@@ -63,7 +65,8 @@ class FakeRoboClaw:
     It keeps a serial-timeout register (commands 14 and 15, raw 100 ms units)
     and a saved copy of it. A flash write (command 94, acknowledged only with
     the key) copies the register into the saved copy; a reload (command 95)
-    copies it back. Both are counted.
+    copies it back. Both are counted. It also keeps each motor's velocity gains
+    (set by commands 28 and 29, read by 55 and 56), all zero until written.
     """
 
     def __init__(self, address, *more, serial_timeout=0):
@@ -72,6 +75,7 @@ class FakeRoboClaw:
         self.saved_serial_timeout = serial_timeout
         self.nvm_writes = 0
         self.reloads = 0
+        self.gains = {1: (0, 0, 0, 0), 2: (0, 0, 0, 0)}  # P, I, D, QPPS per motor
 
     def respond(self, packet):
         if len(packet) < 4 or packet[0] not in self.addresses:
@@ -87,6 +91,12 @@ class FakeRoboClaw:
             payload = struct.pack(">i", 0) + b"\x00"
         elif command == CMD_READ_SERIAL_TIMEOUT:
             payload = bytes([self.serial_timeout])
+        elif command in (CMD_READ_M1_VEL_PID, CMD_READ_M2_VEL_PID):
+            payload = struct.pack(">IIII", *self.gains[1 if command == CMD_READ_M1_VEL_PID else 2])
+        elif command in PID_COMMANDS:  # the packet carries D, P, I, QPPS
+            d, p, i, qpps = struct.unpack(">IIII", packet[2:18])
+            self.gains[1 if command == CMD_SET_M1_VEL_PID else 2] = (p, i, d, qpps)
+            return b"\xff"
         elif command == CMD_SET_SERIAL_TIMEOUT:
             self.serial_timeout = packet[2]
             return b"\xff"

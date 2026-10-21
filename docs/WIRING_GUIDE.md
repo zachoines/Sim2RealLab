@@ -228,7 +228,7 @@ Battery connects to the **power/motor terminals** (large phillips-head screws). 
     └── (-) ──> RoboClaw #2 (-) power/motor terminal
 ```
 
-Use a wiring harness or terminal block to split battery power to both RoboClaws. Keep leads as short as possible to reduce inductance.
+Use a wiring harness or terminal block to split battery power to both RoboClaws. Keep leads as short as possible to reduce inductance. *2026-10-21: as built, the chain has a 12 V buck: a 4S LiPo, a 300 W 12 V buck converter, then a Y harness to both RoboClaws. At a metered 12 V, read to the volt, the controllers read about 0.8–1.8 V low ([`chassis-stop-modes-2026-10-20`](measurements/chassis-stop-modes-2026-10-20/README.md) §1).*
 
 ### Jetson Power
 

@@ -7,10 +7,11 @@ error state for about 3 s, while the other controller holds the last command)
 - No such controller has been seen. On the robot a main-power cut drops a RoboClaw off USB, which
   fails fast and reaches the error state in 0.155 s (the record's USB pull).
 - The case needs a controller that is enumerated and silent, such as a firmware hang.
-- On a policy mission the inference node zeroes `/cmd_vel` about 0.2 s after `joint_states`
-  stops. The zero lands mid-tick, and the executor runs the overdue next tick on the old command
-  before the take, so the other controller is sent the zero about 0.6–0.75 s after the last good
-  tick. The 3 s stands for Nav2 and bench publishers.
+- On a policy mission the inference node zeroes `/cmd_vel` 0.20–0.24 s after `joint_states`
+  stops, which lands mid-tick. The overdue next tick runs the old command, and the take applies at
+  the tick after. So the other controller is sent the zero about 0.65 s after the last good tick:
+  one period plus two stalled ticks of about 0.31 s. The 3 s stands for Nav2 and bench
+  publishers.
 
 **Estimate:** S
 **Branch:** `task/driver-stall-and-reconnect-hardening`, with

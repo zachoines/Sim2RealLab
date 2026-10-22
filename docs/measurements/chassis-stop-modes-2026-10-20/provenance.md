@@ -59,6 +59,8 @@ the deposit's `operator_notes.txt`.
 | deposit correction `613caf68`: more checks in `analysis.py`; `base`'s whole log, the operator notes, and `pause_run.sh` as pause_1 and pause_2 ran it | 03:31:27 |
 | deposit correction `76caf139`: the frame cut short decoded through PIL on every host; log lines on their ROS stamps; takes dated by the tick's clock; the power-chain statement | 13:39:14 |
 | deposit correction `f2ed7f80`: the first ticks after each unpause, showing the catch-up tick | 22:41:48 |
+| deposit correction `52015a11` (2026-10-22): the wheel speeds the record cites; each correction named by its commit | 19:16:14 |
+| deposit correction `536f95bc` (2026-10-22): pause_3's margin between the catch-up tick and the take | 19:17:38 |
 
 ## Departures from the pre-registration
 

@@ -47,6 +47,9 @@ Read at `72b9ba7`, and seen on the robot on 2026-10-20.
   within milliseconds, before the take.
   - In pause_3 two ticks, with clock reads at +0.037 and +0.045 s, sent zero; the callback then
     took the waiting message (+0.046 to +0.056 s) and stamped it as new; the next ticks drove it.
+  - The margin: the take window's lower edge is 0.6 ms after the second tick's clock read, and that
+    tick's own body, about 5 ms, puts the take at least that much later. The executor's first wait
+    after the unpause must have missed the subscription.
   - pause_2 shows the same pair of ticks, at +0.039 and +0.047 s.
 - **The subscription keeps one message** (`QoSProfile(depth=1, reliability=RELIABLE)`), so only
   the newest is taken. Where it waited during the stall is a reading, not measured.
@@ -62,10 +65,9 @@ Read at `72b9ba7`, and seen on the robot on 2026-10-20.
 - **The precondition is a stall of the whole executor, longer than the watchdog window.** The
   record's USB pull is the contrast.
   - Its loop waited on the rear's serial timeouts for about 0.2 s, under the window.
-  - In the 10 s of error state that followed, the executor kept serving the subscription between
-    ticks. The reconnect's watchdog line dates the last take to +0.217–0.227 s, at the
-    publisher's last message.
-  - So nothing waited through the outage, and nothing re-armed after the reconnect.
+  - The executor served the subscription in the error state that followed: the reconnect's
+    watchdog line dates a take at +0.217–0.227 s, at the publisher's last message, and nothing
+    re-armed after the reconnect.
 - **The fix.**
   - `_timer_callback` records the time from its previous start to this one, on
     `time.monotonic()`.

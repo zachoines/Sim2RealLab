@@ -15,7 +15,10 @@ Stops are timed two ways:
 
 Every expectation was pre-registered in the deposit before its run. The chassis stood on blocks.
 Every drive was a 0.8 rad/s spin, 6.24 rad/s commanded at each wheel, published on `/cmd_vel` from
-a separate container. At the last sample before each trigger the wheels read 5.55–6.24 rad/s. The deposit's `scripts/analysis.py` recomputes every figure from the runs.
+a separate container. At the driver's last sample before each stop took effect, the one the encoder
+figures use, the wheels read 5.55–6.31 rad/s. Mid-spin they dip: from 2 s into the spin to the
+trigger, FR reads down to 4.95–5.16 rad/s and the others to 5.48–5.73. The deposit's
+`scripts/analysis.py` recomputes every figure from the runs.
 
 **Result.**
 - **Each of the four ways tested stops the wheels.**
@@ -77,8 +80,9 @@ a separate container. At the last sample before each trigger the wheels read 5.5
   - With uvcvideo's `hwtimestamps=0`, that timestamp is when the frame's first USB packet reached
     the host. So every camera time is late by the webcam's latency, which is not measured, and
     each stop came no later than stated.
-  - **Motion** is the mean absolute difference of consecutive frames in a box around the hub. At
-    rest it measures a mean of 1.08 and a maximum of 2.99.
+  - **Motion** is the mean absolute difference of consecutive grayscale frames, after a 5×5
+    Gaussian blur, in a box around the hub. At rest it measures a mean of 1.08 and a maximum of
+    2.99.
   - **The threshold** of 4.0, and "at rest" meaning under it for 0.5 s, are stated in
     `analysis_params.txt`, whose header puts their fixing before the drives (02:13:55 UTC). The
     file itself was deposited after the runs.
@@ -163,15 +167,20 @@ The pause takes effect within the 46–56 ms the command takes to return. In eac
     two ticks, with clock reads at +0.037 and +0.045 s, sent the watchdog's zero before the take
     (pause_2 shows the same pair, +0.039 and +0.047 s). The callback then stored the old message
     as new, and the next ticks drove it until the watchdog fired 0.5 s later.
+  - **The take followed the catch-up tick, with a margin.** By the age arithmetic the take
+    window's lower edge is 0.6 ms after the second tick's clock read. The callback cannot run
+    inside that tick, whose body took about 5 ms (its sample reached the probe 5.5 ms after its
+    clock read), so the take came at least that much later. The executor's first wait after the
+    unpause must therefore have missed the subscription. pause_1's take window, +0.040–0.050 s,
+    straddles its second tick, so pause_1 shows only that a message waited.
   - The subscription keeps one message (`depth=1`), which is why only the newest is taken. Where
     the messages waited during the freeze, in the socket buffer or in the publisher's
     retransmission, is a reading, not measured.
   - **The precondition is a stall of the whole executor, longer than the watchdog window.** The
     USB pull (§4) is the contrast. Its loop waited on the rear's timeouts for about 0.2 s, under the
-    window. In the 10 s of error state that followed, the executor kept serving the subscription
-    between ticks: the reconnect's watchdog line dates the last take to +0.217–0.227 s, at the
-    publisher's last message. So nothing waited through the outage, and nothing re-armed after the
-    reconnect.
+    window. The executor served the subscription in the error state that followed: the
+    reconnect's watchdog line dates a take at +0.217–0.227 s, at the publisher's last message, and
+    nothing re-armed after the reconnect.
 
 ## 3. SIGKILL, timed contactlessly
 
@@ -257,7 +266,7 @@ from the watchdog lines, are post-hoc.
    - Here that restarted a spin 1.05–1.06 s old at the take, after the watchdog's stop.
    - It takes a publisher that sends into the stall and then falls silent without a final zero.
      pause_2, with nothing sent into the stall, did not re-arm. Nor did the USB pull, whose
-     executor kept serving the subscription through its 10 s outage.
+     executor served the subscription in its error state.
 
    Filed as
    [`driver-stale-cmd-vel-rearm`](../../tasks/active/reliability/driver-stale-cmd-vel-rearm.md).
@@ -291,10 +300,11 @@ from the watchdog lines, are post-hoc.
   - From the code, each tick would then wait out about 0.3 s of timeouts, so the 10 failures
     before the driver's stop would take about 3 s.
   - All that time it would keep commanding the other controller with the last command.
-  - On a policy mission the inference node zeroes `/cmd_vel` about 0.2 s after `joint_states`
-    stops. The zero lands mid-tick, and the overdue next tick runs on the old command before the
-    take, so the other controller would get its zero about 0.6–0.75 s after the last good tick.
-    The 3 s stands for Nav2 and bench publishers.
+  - On a policy mission the inference node zeroes `/cmd_vel` 0.20–0.24 s after `joint_states`
+    stops, which lands mid-tick. The overdue next tick runs the old command, and the take applies
+    at the tick after. So the other controller would get its zero about 0.65 s after the last
+    good tick: one period plus two stalled ticks of about 0.31 s. The 3 s stands for Nav2 and
+    bench publishers.
 - **The webcam's latency.** Its frame times are arrivals, so every camera time is late by an
   unmeasured amount.
 - **A pull of the front controller.** Only the rear's USB was pulled.
@@ -306,7 +316,7 @@ from the watchdog lines, are post-hoc.
 |---|---|
 | repository | https://github.com/zachoines/Sim2RealLab-Artifacts |
 | deposit directory | `chassis-stop-modes-2026-10-20/record-files/` |
-| deposit commit | `f2ed7f80c51fee3bd6265bbae09b1d81782f3be4` |
+| deposit commit | `536f95bc2b137708c44dc90db92ea36c282f73d6` |
 | pre-registration commits | `42a810ca` (the record's), `a923c14` (pause_3's) |
 
 **What the deposit holds:**

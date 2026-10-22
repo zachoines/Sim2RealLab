@@ -320,18 +320,57 @@ more, over at least 12 scored reaches in the arm.
   `NeighborLinkRefining/Inliers` (median 32, range 15–75) is −0.03 for translation and −0.15 for rotation; in A it is
   −0.18 and −0.34.
 - **Mildly tied to the link's own motion:** +0.25 for translation and +0.24 for rotation, in B.
-- **A stamp lag cannot be what drives the error.** If the images lagged odometry by τ, a refined link would carry
-  −τ · Δv, with Δv the change of body-frame velocity across the link.
-  - **The size bound.** A lag of any size up to 55 ms makes that term a median 0.47–0.69 mm (at 38–55 ms), against
-    the 11.4 mm observed.
-  - **Where no timing error can act, the error is the same.** On rotation-only links (translation under 10 mm; 216
-    links) it is 9.4 mm and 0.29°, and on links with |Δv| < 0.02 m/s (335 links) it is 10.4 mm.
+- **A stamp lag cannot be what drives the translation error.** If the images lagged odometry by τ, a refined link would
+  carry −τ · Δv, with Δv the change of body-frame velocity between the link's two ends.
+  - **The term's size, for a lag of 38–55 ms** (the scale of the fitted slopes below, which are not lag
+    measurements). In B (545 links) its median depends on how Δv is estimated, and stays far below the error under
+    each estimator:
+    - 0.47–0.69 mm by `posthoc_link_error.py`'s estimator: the odometry velocity over the iteration that added the
+      link's new node, minus the velocity over the iteration before. The script's docstring calls these velocities
+      link-averaged; they are per iteration. On 104 of the 545 links the from-node is not the previous iteration's
+      node, because rtabmap had discarded small-movement nodes between the link's ends; on 97 of those the
+      iteration's step translates less than the link.
+    - 0.51–0.75 mm with Δv link-averaged (541 links; four have no link into their from-node): the link's mean
+      odometry velocity over its own time span, minus that of the link into its from-node.
+    - 1.06–1.53 mm with Δv from the odometry twist rtabmap stored with the link's two end nodes.
+
+    Across the three estimators the term exceeds 1 mm on 30.3–61.1 % of links, and its 95th percentile is
+    5.94–11.99 mm against the error's 48.4 mm. Link by link it is a median 4.3–13.5 % of the link's own error and
+    exceeds that error on 3.1–8.6 % of links. In A (417 links; 414 link-averaged) its median is 0.57–1.54 mm against
+    the error's 13.3 mm.
+  - **Where the translational lag term is small, most of the translation error remains.** On links with
+    |Δv| < 0.02 m/s, where the term is under 1.1 mm at 55 ms by construction, the error is 10.4–10.8 mm (335, 310 and
+    224 links by the three estimators), against 11.8–12.5 mm on the other links. On rotation-only links, which barely
+    translate, it is 9.4 mm against 12.7 mm on the other links (216 links whose iteration translated under 10 mm), or
+    9.0 mm against 12.9 mm (206 links by the link's own translation); there the term's median is 0.18–0.78 mm across
+    the three estimators.
+  - **The bound is for the translational term only.** A lag would also add a rotational term, τ · |Δω|, with Δω the
+    change of yaw rate between the link's ends, which the bound does not cover. In B (545 links; 541 link-averaged),
+    under the same model and the same three estimators, its median at 38–55 ms is 0.03–0.12° (0.08–0.12° from the
+    stored twist) against the rotation error's median 0.220°, and its 95th percentile is 0.74–1.26° against the
+    error's 1.232°. In A its median is 0.02–0.10° against 0.230°. The heading therefore covers the translation error
+    only: for the rotation error, which carries most of the drift, a lag's share is not bounded here. *Correction
+    2026-10-22: this sub-item is added, and the heading, which read "A stamp lag cannot be what drives the error", is
+    narrowed to the translation error; the rotational term is printed in
+    `lag-bound-estimators/lag_bound_estimators.txt`.*
   - **The fitted slope of E on Δv is not a lag measurement.**
     - It rests on about twenty high-|Δv| links: 38 ms with them, 16.5 ms without.
     - It drops to 26 ms when a scale term is co-fitted.
     - It disagrees across segments: +30 to +55 ms in four, −284 ms in F2r.
     - The fitted term's L1 size, 8.1 % of the summed error (a permuted regressor's median 1.3 %), is not an
       explained share. The term removes 0.6 % of the summed error, with R² 1.8 %.
+
+  *Correction 2026-10-21: this item defined Δv as the change "across the link", bounded the term by
+  `posthoc_link_error.py`'s estimator alone ("A lag of any size up to 55 ms makes that term a median 0.47–0.69 mm (at
+  38–55 ms)", which are the 38 and 55 ms values), and headed the two subsets "Where no timing error can act, the error
+  is the same", giving the rotation-only links' 0.29°. That script's Δv is the difference of the last two iteration
+  steps' velocities, not of the link's ends. "The same" set the subsets against the whole that contains them; they are
+  now set against the other links. On rotation-only links a lag still adds a small translational term and a rotational
+  one, so the heading now speaks of a small translational term and the translation error. The other two estimators,
+  the figures spanning all three, the link-by-link shares, the subsets under them, the rotation-only links by the
+  link's own translation, the term on the rotation-only links, the comparisons with the other links, and the counts of
+  104 and 97 come from `lag-bound-estimators/lag_bound_estimators.txt` (sibling deposit below); the deposited
+  `posthoc_link_error.txt` keeps its original labels. The conclusion holds under all three.*
 
 **The decomposition (read after the runs, not pre-registered).**
 
@@ -342,8 +381,11 @@ is the true link, rtabmap's stored link R is the refined one, and E = O⁻¹ · 
   root reproduces the recorded `map→odom` at every node, to 0.00 mm and 0.000°. The graph is a chain, and
   `Loop/Optimization_error` is 0.0 on every iteration. Arm A's graphs, with closures, do not reduce to the chain.
 - **The mean error is not isotropic.** Over B's 322 accepted links that translate 20 mm or more, the refined link is
-  short along the motion by 3.61 % of the link (sd 21.2 %, z −3.1). Across the motion the mean is −1.08 % (z −0.9).
-  By segment the shortening is 0.0 % (F2), 2.0 % (F2r2), 5.4 % (F4) and 4.8 % (F6).
+  short along the motion by a mean 3.61 % of the link (sd 21.2 %, z −3.1), or 3.25 % weighted by link length.
+  Across the motion the mean is −1.08 % (z −0.9). By segment the mean shortening is 0.0 % (F2), 2.0 % (F2r2), 5.4 %
+  (F4) and 4.8 % (F6). *Correction 2026-10-21: the length-weighted figure is added beside the unweighted mean, which
+  counts every link alike (`lag-bound-estimators/lag_bound_estimators.txt`, sibling deposit below); the whole-arm and
+  per-segment figures are named as means.*
 - **The drift is mainly accumulated per-link yaw error.** The chain was recomposed with each link's translation error
   zeroed, and then with its rotation error zeroed:
 
@@ -354,7 +396,10 @@ is the true link, rtabmap's stored link R is the refined one, and E = O⁻¹ · 
   | F6 | 0.663 m | 0.569 m | 0.316 m | +4.62°, 8.21° |
   | F2 | 0.404 m | 0.242 m | 0.200 m | −0.57°, 3.93° |
 
-  On the goals' ~3 m lever arms the yaw accounts for the larger part of the drift.
+  On the goals' ~3 m lever arms the yaw accounts for the larger part of the drift. In F2 the drifts from rotation
+  errors only and from translation errors only are close (0.242 m and 0.200 m), and in F2r, which the table leaves
+  out, closer still (0.117 m and 0.114 m; `analysis/posthoc_decomposition.txt`). *Correction 2026-10-21: the F2 and
+  F2r sentence is added, to bound "the larger part" where the two recompositions are close.*
 - **More inliers do not lower the error.** The 169 of B's 545 links (31 %) whose refinement had 40 inliers or more
   have the same median translation error, 11.4 mm, as the rest. Raising `Vis/MinInliers` to 40 (A″ below) would
   therefore drop about two thirds of the refinements rather than make the accepted ones more accurate.
@@ -369,9 +414,17 @@ is the true link, rtabmap's stored link R is the refined one, and E = O⁻¹ · 
   - **A″:** refinement on, with `Vis/MinInliers` raised (for example to 40).
 
   Both need no new tool; only the mounted file changes.
-- **The bridge stamp check** of its camera, odometry and `/clock` is a static, lower-priority item. A lag up to
-  55 ms changes the per-link error by under 1 mm against 11 mm, and the error is the same where no timing error can
-  act.
+- **The bridge stamp check** of its camera, odometry and `/clock` is a static item; it would bound the rotational share
+  that the per-link read leaves open. In B, for a lag of 38–55 ms the translational lag term's median is 0.47–1.53 mm,
+  depending on how the velocity change is estimated, against the error's 11.4 mm; where the term is small (low-|Δv|
+  links) or the robot barely translates (rotation-only links), most of the translation error remains (9.0–9.4 mm on
+  rotation-only links and 10.4–10.8 mm on low-|Δv| links, against 11.8–12.9 mm on the other links). A lag's share of the
+  rotation error is not bounded (the stamp-lag item above). *Correction 2026-10-21: this read "A lag up to 55 ms changes
+  the per-link error by under 1 mm against 11 mm, and the error is the same where no timing error can act". Under 1 mm
+  holds for the median under `posthoc_link_error.py`'s and the link-averaged estimators, not under the stored-twist
+  estimator (1.06–1.53 mm). The term is part of the error, not a change in it; the subsets are now set against the other
+  links, and the heading is narrowed as in §5's note.* *Correction 2026-10-22: it read "a static, lower-priority item";
+  its priority rested on the translational term alone. "Translational" and the rotational sentence are added.*
 
 **The arm-A spin pattern is descriptive, and not one of the rule's branches.**
 - **The large rotations.** F1's two large rotations (+86.84° at 75.2 s, −71.57° at 163.3 s) came in iterations that
@@ -453,9 +506,16 @@ The terminal band is scored descriptively against the live frame, with each reac
 ## 8. What is not claimed
 
 - **No test between the arms.** Three boots per arm cannot support one; the comparisons above are descriptive.
-- **No full cause for refinement's link errors.** The post-hoc per-link read finds them isotropic, of about 1 cm and
-  0.2°, and barely tied to the inlier count. A stamp lag carries at most a small share of them. What produces the
-  rest of the visual registration error is not shown.
+- **No full cause for refinement's link errors.** The post-hoc reads find them of about 1 cm and 0.2° and isotropic in
+  spread. In B, the accepted links of 20 mm or more are 3.61 % short along the motion on average, the errors are barely
+  tied to the inlier count, and, composed, their yaw errors carry most of the drift (in F2 and F2r the two
+  recompositions are close). A stamp lag of up to 55 ms would carry a small share of their translation error (link by
+  link a median 4.3–13.5 % at 38–55 ms, §5); its share of the rotation error is not bounded (§5). What produces the rest
+  of the visual registration error is not shown. *Correction 2026-10-21: this item read "The post-hoc per-link read
+  finds them isotropic, of about 1 cm and 0.2°, and barely tied to the inlier count". §5's per-link read shows they are
+  isotropic in spread, and its decomposition that they are not isotropic in mean; the shortening, the composed yaw, the
+  arm and the lag share are added from §5.* *Correction 2026-10-22: "them" is narrowed to their translation error, and
+  the rotation error's unbounded share is added.*
 - **The spin is not shown to cause anything.** It is not established that the spin, rather than the start point,
   explains arm A's closures to spin nodes, or that either causes F1's wrong closure.
 - **The two power losses are unexplained.**
@@ -482,3 +542,35 @@ The terminal band is scored descriptively against the live frame, with each reac
   It regenerates all 23 analysis files byte for byte from a clean copy. `posthoc_link_error.txt` and
   `posthoc_decomposition.txt` are the post-hoc reads. `links/` holds the neighbour links that
   `posthoc_extract_links.py` extracted from the rtabmap databases, which are not deposited.
+
+## Evidence — sibling deposit (2026-10-21 and 2026-10-22 corrections)
+
+| | |
+|---|---|
+| repository | https://github.com/zachoines/Sim2RealLab-Artifacts |
+| deposit directory | `lane-slam-frame-health-2026-10-17/lag-bound-estimators/` |
+| deposit commit | `9325a4949c9536d250bd81b9435a6e541bbc38c6` |
+
+It holds `lag_bound_estimators.py`, which reads `record-files/` and `velocity/`, and its output
+`lag_bound_estimators.txt`. Run from the deposit directory, it regenerates the output byte for byte:
+
+    python3 lag_bound_estimators.py ../record-files velocity | cmp - lag_bound_estimators.txt
+
+`velocity/` holds each node's stored odometry twist, extracted by `extract_node_velocity.py` from the rtabmap
+databases, which are not deposited. `record-files/` is unchanged.
+
+sha256 of every file in the deposit except its `DEPOSIT.md`:
+
+```
+64656d5a9a6290395f471042fdc723ac322078d32a65bf376dbba59080f3f199  extract_node_velocity.py
+5342d8e57bd2bb64f3800ba907c9acf18eef70a0a23d93693fd6b6b97605671b  lag_bound_estimators.py
+a319169d67964cb4068ca3703bb220c30340be5bd9f2cea6cae4d0b9d0fbed25  lag_bound_estimators.txt
+db9e56145c2fee239e0b68b7454eb4d152291e4db25d8f8aa7439b1af9f248d2  velocity/velocity_F1.json
+07bb7d392b853386b1ff760f52081f5f9c96d3bddb2d9a5d2fd53baa60654e97  velocity/velocity_F2.json
+479b669c78f6d83b8c41589a00d9252312c427b1e85705daa03d602f9e18686b  velocity/velocity_F2r2.json
+f5c698720335925cc90377a6eabae24638daf8469a4d93dfc3a4803beadb9bf5  velocity/velocity_F2r.json
+0e9f2351f2bb1bce89624abc386f86b3f5b10dc72134df071768182a452c1bc8  velocity/velocity_F3.json
+d3eba5967cef2df1042e3f8211a805255b74e756696d792ae446068cbcb095cd  velocity/velocity_F4.json
+a5d493694802db5b11857451b69bab618ac12b416a1cc754c46a46020b8794dc  velocity/velocity_F5.json
+3f0de0ef75a3bf6289a5ad13a69068e60e9baa6688f386e57a80b86ddffa73f2  velocity/velocity_F6.json
+```

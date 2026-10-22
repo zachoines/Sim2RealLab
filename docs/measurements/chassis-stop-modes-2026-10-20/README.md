@@ -36,9 +36,9 @@ trigger, FR reads down to 4.95–5.16 rad/s and the others to 5.48–5.73. The d
     old when the driver took it.
   - The wheels turned about 0.4 of a turn more, until the watchdog stopped them again 0.5 s
     later. Filed as
-    [`driver-stale-cmd-vel-rearm`](../../tasks/active/reliability/driver-stale-cmd-vel-rearm.md).
+    [`driver-stale-cmd-vel-rearm`](../../tasks/completed/driver-stale-cmd-vel-rearm.md).
 - **A reconnect after a main-power cut restores the link, not the gains.** Filed as
-  [`driver-reconnect-reapplies-gains`](../../tasks/active/reliability/driver-reconnect-reapplies-gains.md).
+  [`driver-reconnect-reapplies-gains`](../../tasks/completed/driver-reconnect-reapplies-gains.md).
 - **The controllers read their supply low.** The maintainer metered 12 V at both controllers'
   terminals; the controllers read 10.2 V and 11.2 V.
 - **A main-power cut shows in the counts.** A cut during the first pause reset every count to 0.
@@ -269,12 +269,12 @@ from the watchdog lines, are post-hoc.
      executor served the subscription in its error state.
 
    Filed as
-   [`driver-stale-cmd-vel-rearm`](../../tasks/active/reliability/driver-stale-cmd-vel-rearm.md).
+   [`driver-stale-cmd-vel-rearm`](../../tasks/completed/driver-stale-cmd-vel-rearm.md).
 2. **One controller that does not answer blocks the driver's whole loop** in its 0.1 s timeouts.
    Here no tick completed for about 0.2 s before the disconnect (§4). That is under the
    controllers' 0.5 s timeout, so here it stopped nothing. Filed, with the longer case from the
    code, as
-   [`driver-unanswered-controller-stall`](../../tasks/active/reliability/driver-unanswered-controller-stall.md).
+   [`driver-unanswered-controller-stall`](../../tasks/completed/driver-unanswered-controller-stall.md).
 3. **The controllers' voltage readings run low,** by about 1.8 V (front) and 0.8 V (rear) against
    the maintainer's metered 12 V at their terminals. That reading rules out a harness drop at
    idle. Which instrument is right in absolute terms stays open.
@@ -289,7 +289,7 @@ from the watchdog lines, are post-hoc.
      until a restart.
 
    Filed as
-   [`driver-reconnect-reapplies-gains`](../../tasks/active/reliability/driver-reconnect-reapplies-gains.md).
+   [`driver-reconnect-reapplies-gains`](../../tasks/completed/driver-reconnect-reapplies-gains.md).
 
 ## What this does not show
 

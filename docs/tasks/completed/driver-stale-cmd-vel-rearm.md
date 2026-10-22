@@ -1,5 +1,8 @@
 # Stop the RoboClaw driver from running a stale `cmd_vel` as fresh after a stall
 
+**Status:** Shipped 2026-10-22 in `73649a0` and `4070d7b` (Jetson); the on-robot box stays open until the bench record.
+**PR:** https://github.com/zachoines/Sim2RealLab/pull/253
+
 **Type:** bug (after a whole-executor stall of the driver, a `cmd_vel` that waited through the
 stall drives the wheels for another 0.5 s, also after the watchdog has stopped them)
 **Owner:** Jetson (`strafer_driver`)
@@ -27,10 +30,10 @@ when the driver resumes.**
 
 ## Context bundle
 
-- [context/repo-topology.md](../../context/repo-topology.md)
-- [context/conventions.md](../../context/conventions.md)
-- [context/branching-and-prs.md](../../context/branching-and-prs.md)
-- [`chassis-stop-modes-2026-10-20`](../../../measurements/chassis-stop-modes-2026-10-20/README.md)
+- [context/repo-topology.md](../context/repo-topology.md)
+- [context/conventions.md](../context/conventions.md)
+- [context/branching-and-prs.md](../context/branching-and-prs.md)
+- [`chassis-stop-modes-2026-10-20`](../../measurements/chassis-stop-modes-2026-10-20/README.md)
   §2 and finding 1, and its deposit's `pause_2/` and `pause_3/`.
 
 ## Context
@@ -92,10 +95,16 @@ Read at `72b9ba7`, and seen on the robot on 2026-10-20.
   - If a stall left more than one stale message for the subscription after the dropped one, the
     next would run. With one message kept and the overdue ticks' serial I/O between the wake
     and the take, that is not expected.
+  - A start-to-start gap over the window whose watchdog has not fired, because the previous tick
+    was slow, drives the old twist one more tick and may drop a queued zero, bounded by that
+    tick's duration.
+  - A publisher that starts within 0.5 s after a stall loses its first message.
+  - A freeze inside a tick body, in an executor pass that already held the subscription, would
+    take before the late tick: rare, and unmeasured.
 
 ## Acceptance criteria
 
-- [ ] **A test through a real executor reproduces the re-arm and fails on `main`.**
+- [x] **A test through a real executor reproduces the re-arm and fails on `main`.**
   - It uses the fake serial bus and a publisher in the same process.
   - It spins while a 0.8 rad/s spin is published, then stops spinning, and publishes on into the
     stall.
@@ -104,18 +113,18 @@ Read at `72b9ba7`, and seen on the robot on 2026-10-20.
     catch-up tick between them.
   - On `main` the fake bus receives a non-zero speed after the watchdog's zero; with the fix,
     none.
-- [ ] **A live publisher still drives after a stall.** The same test, with the publisher still
+- [x] **A live publisher still drives after a stall.** The same test, with the publisher still
       sending when the spin resumes: non-zero speeds return within one publisher period.
-- [ ] **The gap is measured start to start on `time.monotonic()`, against
+- [x] **The gap is measured start to start on `time.monotonic()`, against
       `WATCHDOG_TIMEOUT_SEC`. The mark holds through the short-gap ticks until the first take, or
       until a tick `WATCHDOG_TIMEOUT_SEC` after it.**
 - [ ] **On the robot,** with the wheels lifted, the record's pause_3 run again shows one watchdog
       line after the unpause, `joint_states` at zero and a still camera. The run is deposited and
-      a record states it.
-- [ ] If your work invalidates a fact in any referenced context module, package README,
+      a record states it. *Open until the bench record.*
+- [x] If your work invalidates a fact in any referenced context module, package README,
       top-level `Readme.md`, or guide under `docs/`, update those in the same commit. See
-      [`conventions.md`'s user-facing documentation maintenance section](../../context/conventions.md#user-facing-documentation-maintenance).
-- [ ] No regression: `make test-ros` passes.
+      [`conventions.md`'s user-facing documentation maintenance section](../context/conventions.md#user-facing-documentation-maintenance).
+- [x] No regression: `make test-ros` passes.
 
 ## Investigation pointers
 

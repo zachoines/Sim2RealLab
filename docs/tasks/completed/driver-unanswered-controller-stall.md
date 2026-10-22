@@ -1,5 +1,8 @@
 # Stop both controllers once the watchdog window has passed when one RoboClaw stops answering
 
+**Status:** Shipped 2026-10-22 in `73649a0` and `4070d7b` (Jetson).
+**PR:** https://github.com/zachoines/Sim2RealLab/pull/253
+
 **Type:** bug (one controller that stays on USB but does not answer keeps the driver out of its
 error state for about 3 s, while the other controller holds the last command)
 **Owner:** Jetson (`strafer_driver`)
@@ -27,10 +30,10 @@ the last good exchange**, so that
 
 ## Context bundle
 
-- [context/repo-topology.md](../../context/repo-topology.md)
-- [context/conventions.md](../../context/conventions.md)
-- [context/branching-and-prs.md](../../context/branching-and-prs.md)
-- [`chassis-stop-modes-2026-10-20`](../../../measurements/chassis-stop-modes-2026-10-20/README.md)
+- [context/repo-topology.md](../context/repo-topology.md)
+- [context/conventions.md](../context/conventions.md)
+- [context/branching-and-prs.md](../context/branching-and-prs.md)
+- [`chassis-stop-modes-2026-10-20`](../../measurements/chassis-stop-modes-2026-10-20/README.md)
   §4, finding 2 and "What this does not show".
 
 ## Context
@@ -57,21 +60,23 @@ Read at `72b9ba7`.
     error state would escalate at once.
   - With one silent controller the error state then comes at the second failing tick, about
     0.6 s after the last good one.
+- **The residual.** The first failure after any gap over the window escalates at once, the safe
+  direction: after an executor delay of about 0.3 s, a single failing tick is enough.
 
 ## Acceptance criteria
 
-- [ ] **A fake-bus test with one controller enumerated and silent fails on `main`.** On `main`
+- [x] **A fake-bus test with one controller enumerated and silent fails on `main`.** On `main`
       the driver reaches its error state only at the tenth failure; with the fix, at the first
       failure more than `WATCHDOG_TIMEOUT_SEC` after the last success. Both controllers are sent a
       stop.
-- [ ] **A transient failure still does not escalate.** One failed tick between good ones leaves
+- [x] **A transient failure still does not escalate.** One failed tick between good ones leaves
       the driver out of its error state.
-- [ ] **On hardware this is stated as not reproducible.** A power cut drops a RoboClaw off USB,
+- [x] **On hardware this is stated as not reproducible.** A power cut drops a RoboClaw off USB,
       so the silent-but-enumerated case is covered by the fake bus only.
-- [ ] If your work invalidates a fact in any referenced context module, package README,
+- [x] If your work invalidates a fact in any referenced context module, package README,
       top-level `Readme.md`, or guide under `docs/`, update those in the same commit. See
-      [`conventions.md`'s user-facing documentation maintenance section](../../context/conventions.md#user-facing-documentation-maintenance).
-- [ ] No regression: `make test-ros` passes.
+      [`conventions.md`'s user-facing documentation maintenance section](../context/conventions.md#user-facing-documentation-maintenance).
+- [x] No regression: `make test-ros` passes.
 
 ## Investigation pointers
 

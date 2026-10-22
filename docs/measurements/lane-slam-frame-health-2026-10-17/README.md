@@ -344,6 +344,12 @@ more, over at least 12 scored reaches in the arm.
     translate, it is 9.4 mm against 12.7 mm on the other links (216 links whose iteration translated under 10 mm), or
     9.0 mm against 12.9 mm (206 links by the link's own translation); there the term's median is 0.18–0.78 mm across
     the three estimators.
+  - **The bound is for the translational term only.** A lag would also add a rotational term, τ · |Δω|, which the bound
+    does not cover. Under the same model and the same three estimators, its median at 38–55 ms is 0.03–0.12°
+    (0.08–0.12° from the stored twist) against the 0.220° median rotation error, and its 95th percentile is
+    0.74–1.26°. The heading therefore does not rest on this bound alone: for the rotation error, which carries most of
+    the drift, a lag's share is not bounded here. *Correction 2026-10-22: this sub-item is added; the rotational term
+    is printed in `lag-bound-estimators/lag_bound_estimators.txt`.*
   - **The fitted slope of E on Δv is not a lag measurement.**
     - It rests on about twenty high-|Δv| links: 38 ms with them, 16.5 ms without.
     - It drops to 26 ms when a scale term is co-fitted.
@@ -405,15 +411,16 @@ is the true link, rtabmap's stored link R is the refined one, and E = O⁻¹ · 
   - **A″:** refinement on, with `Vis/MinInliers` raised (for example to 40).
 
   Both need no new tool; only the mounted file changes.
-- **The bridge stamp check** of its camera, odometry and `/clock` is a static, lower-priority item. In B, for a lag
-  of 38–55 ms the lag term's median is 0.47–1.53 mm, depending on how the velocity change is estimated, against the
-  error's 11.4 mm; where the term is small (low-|Δv| links) or the robot barely translates (rotation-only links), most
-  of the translation error remains (9.0–9.4 mm on rotation-only links and 10.4–10.8 mm on low-|Δv| links, against
-  11.8–12.9 mm on the other links). *Correction 2026-10-21: this read "A lag up to 55 ms changes the per-link error by
-  under 1 mm against 11 mm, and the error is the same where no timing error can act". Under 1 mm holds for the median
-  under `posthoc_link_error.py`'s and the link-averaged estimators, not under the stored-twist estimator
-  (1.06–1.53 mm). The term is part of the error, not a change in it; the subsets are now set against the other links,
-  and the heading is narrowed as in §5's note.*
+- **The bridge stamp check** of its camera, odometry and `/clock` is a static, lower-priority item. In B, for a lag of
+  38–55 ms the translational lag term's median is 0.47–1.53 mm (the rotational term is not bounded, §5), depending on
+  how the velocity change is estimated, against the error's 11.4 mm; where the term is small (low-|Δv| links) or the
+  robot barely translates (rotation-only links), most of the translation error remains (9.0–9.4 mm on rotation-only
+  links and 10.4–10.8 mm on low-|Δv| links, against 11.8–12.9 mm on the other links). *Correction 2026-10-21: this read
+  "A lag up to 55 ms changes the per-link error by under 1 mm against 11 mm, and the error is the same where no timing
+  error can act". Under 1 mm holds for the median under `posthoc_link_error.py`'s and the link-averaged estimators, not
+  under the stored-twist estimator (1.06–1.53 mm). The term is part of the error, not a change in it; the subsets are
+  now set against the other links, and the heading is narrowed as in §5's note.* *Correction 2026-10-22: "translational"
+  and the rotational term's clause are added.*
 
 **The arm-A spin pattern is descriptive, and not one of the rule's branches.**
 - **The large rotations.** F1's two large rotations (+86.84° at 75.2 s, −71.57° at 163.3 s) came in iterations that
@@ -537,7 +544,7 @@ The terminal band is scored descriptively against the live frame, with each reac
 |---|---|
 | repository | https://github.com/zachoines/Sim2RealLab-Artifacts |
 | deposit directory | `lane-slam-frame-health-2026-10-17/lag-bound-estimators/` |
-| deposit commit | `b0c3684e022d0e7474cf73985b0bfc8d6f5098d1` |
+| deposit commit | `9325a4949c9536d250bd81b9435a6e541bbc38c6` |
 
 It holds `lag_bound_estimators.py`, which reads `record-files/` and `velocity/`, and its output
 `lag_bound_estimators.txt`. Run from the deposit directory, it regenerates the output byte for byte:
@@ -551,8 +558,8 @@ sha256 of every file in the deposit except its `DEPOSIT.md`:
 
 ```
 64656d5a9a6290395f471042fdc723ac322078d32a65bf376dbba59080f3f199  extract_node_velocity.py
-6ac2c8c3b751a5d85f35367cfb6690d5bdea5facab86a2a591ce35dc6d5dfbcb  lag_bound_estimators.py
-a873074bc443144b5e4f924a409c063c985a52bac551cd7122fde7e9242e931e  lag_bound_estimators.txt
+5342d8e57bd2bb64f3800ba907c9acf18eef70a0a23d93693fd6b6b97605671b  lag_bound_estimators.py
+a319169d67964cb4068ca3703bb220c30340be5bd9f2cea6cae4d0b9d0fbed25  lag_bound_estimators.txt
 db9e56145c2fee239e0b68b7454eb4d152291e4db25d8f8aa7439b1af9f248d2  velocity/velocity_F1.json
 07bb7d392b853386b1ff760f52081f5f9c96d3bddb2d9a5d2fd53baa60654e97  velocity/velocity_F2.json
 479b669c78f6d83b8c41589a00d9252312c427b1e85705daa03d602f9e18686b  velocity/velocity_F2r2.json

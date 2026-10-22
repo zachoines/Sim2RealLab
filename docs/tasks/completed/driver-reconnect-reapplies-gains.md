@@ -1,5 +1,8 @@
 # Re-apply the RoboClaw gains on reconnect, and read them back before driving
 
+**Status:** Shipped 2026-10-22 in `73649a0` and `4070d7b` (Jetson); the on-robot box stays open until the bench record.
+**PR:** https://github.com/zachoines/Sim2RealLab/pull/253
+
 **Type:** bug (after a main-power cut, the driver's reconnect restores the link but not the
 velocity gains, so its next drive runs the rear on zero gains)
 **Owner:** Jetson (`strafer_driver`)
@@ -22,10 +25,10 @@ configured them, or leaves the driver stopped.**
 
 ## Context bundle
 
-- [context/repo-topology.md](../../context/repo-topology.md)
-- [context/conventions.md](../../context/conventions.md)
-- [context/branching-and-prs.md](../../context/branching-and-prs.md)
-- [`chassis-stop-modes-2026-10-20`](../../../measurements/chassis-stop-modes-2026-10-20/README.md)
+- [context/repo-topology.md](../context/repo-topology.md)
+- [context/conventions.md](../context/conventions.md)
+- [context/branching-and-prs.md](../context/branching-and-prs.md)
+- [`chassis-stop-modes-2026-10-20`](../../measurements/chassis-stop-modes-2026-10-20/README.md)
   §2 (pause_1) and finding 5, and its deposit's `step0/step0.txt` and
   `pause_1/base_log_full_after.txt`.
 
@@ -62,16 +65,24 @@ Read at `72b9ba7`, and seen on the robot on 2026-10-20.
   - After `reconnect()` succeeds on both ports, re-run the gain writes on both, and read the gains
     back (`read_velocity_pid_m1`, `_m2`), before clearing the error state.
   - If any read-back disagrees, or a write or read fails, stay in the error state and log which.
-  - The enumeration swap is documented with restart as the recovery, not re-detected.
+  - **At startup too.** The startup gain writes are read back the same way. Until both
+    controllers hold the gains the driver stays in its error state, whose reconnect re-applies
+    and reads them back every 2 s, so nothing drives on a controller's saved gains.
+  - The enumeration swap is documented with restart as the recovery, not re-detected. So is a
+    controller replugged before the first reconnect attempt releases the descriptor the driver
+    holds, which returns under a new `ttyACM` number.
 
 ## Acceptance criteria
 
-- [ ] **A fake-bus test fails on `main`.** Fake controllers lose their gains across a simulated
+- [x] **A fake-bus test fails on `main`.** Fake controllers lose their gains across a simulated
       power cycle, and the driver reconnects. On `main` the error state clears with the rear's
       gains at zero; with the fix, both read 15000/750/0/2796 when it clears.
-- [ ] **A disagreeing read-back keeps the error state.** A fake controller that reads back other
+- [x] **A disagreeing read-back keeps the error state.** A fake controller that reads back other
       gains after the write leaves the driver in its error state, and the log names it.
-- [ ] **The enumeration swap is documented** where the driver's recovery is described, with restart
+- [x] **At startup, unconfirmed gains hold the error state.** A fake controller that leaves the
+      startup gain writes unanswered keeps the driver in its error state, with no drive command
+      sent, until it answers; then the error state clears and driving resumes.
+- [x] **The enumeration swap is documented** where the driver's recovery is described, with restart
       as the recovery.
 - [ ] **On the robot,** with `base` idle and no publisher, cut main power with the USB in.
   - After `RoboClaw reconnected`, the driver's logged read-back shows P 15000, I 750, D 0 and
@@ -80,11 +91,11 @@ Read at `72b9ba7`, and seen on the robot on 2026-10-20.
   - Then, with `base` stopped, `diagnose_roboclaw.py --read-only` shows the same gains on both. A
     stop leaves the RAM gains in place; the read waits for the stop because two processes cannot
     share a controller's port.
-  - The run is deposited and a record states it.
-- [ ] If your work invalidates a fact in any referenced context module, package README,
+  - The run is deposited and a record states it. *Open until the bench record.*
+- [x] If your work invalidates a fact in any referenced context module, package README,
       top-level `Readme.md`, or guide under `docs/`, update those in the same commit. See
-      [`conventions.md`'s user-facing documentation maintenance section](../../context/conventions.md#user-facing-documentation-maintenance).
-- [ ] No regression: `make test-ros` passes.
+      [`conventions.md`'s user-facing documentation maintenance section](../context/conventions.md#user-facing-documentation-maintenance).
+- [x] No regression: `make test-ros` passes.
 
 ## Investigation pointers
 
@@ -98,7 +109,7 @@ Read at `72b9ba7`, and seen on the robot on 2026-10-20.
 ## Out of scope
 
 - **Saving the gains to the controllers' flash.** That is
-  [`chassis-velocity-pid-tuning`](chassis-velocity-pid-tuning.md)'s decision of where the gains
+  [`chassis-velocity-pid-tuning`](../active/reliability/chassis-velocity-pid-tuning.md)'s decision of where the gains
   live.
 - **Re-detecting by serial number on reconnect.** Restart stays the recovery from a swap.
 - **The other driver stalls:** [`driver-stale-cmd-vel-rearm`](driver-stale-cmd-vel-rearm.md),

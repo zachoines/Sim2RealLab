@@ -9,7 +9,7 @@ captured_date: 2026-10-19 CDT (2026-10-19 UTC)
 | host | strafer-nx: Jetson Orin NX 16 GB, L4T R36.4.3, kernel 5.15.148-tegra, Docker 29.1.3 |
 | controllers | two RoboClaw ST 2x45A, USB `03eb:2404`, on the hub at USB port `1-2`: front 0x80, rear 0x81 |
 | camera | D555, CDC interface at `/dev/ttyACM0` (`8086:0b56`), attached throughout |
-| power | one LiPo feeding both controllers through a main power switch that cuts the RoboClaws only; the Jetson has its own supply |
+| power | one LiPo feeding both controllers through a main power switch that cuts the RoboClaws only; the Jetson has its own supply. *2026-10-21: as built, the LiPo is a 4S feeding both through a 300 W 12 V buck converter and a Y harness ([`chassis-stop-modes-2026-10-20`](../chassis-stop-modes-2026-10-20/README.md) §1).* |
 | chassis | on blocks, all four wheels off the ground, from the first `base` start on |
 | sim host | no container and no ROS process running (read over SSH before the first drive) |
 

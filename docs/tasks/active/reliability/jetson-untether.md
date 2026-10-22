@@ -182,6 +182,12 @@ supply.**
     and :197, and `strafer_lab/.../navigation/sim_real_cfg.py`:135, :140.
 
   The pack choice decides which of these change.
+
+  *2026-10-21: as built, the motor supply is a 4S LiPo through a 300 W 12 V buck converter and a
+  Y harness to both RoboClaws. The controllers read about 0.8–1.8 V below a metered 12 V at their
+  terminals. They cannot run on USB power: a main-power cut drops both off USB
+  ([`chassis-stop-modes-2026-10-20`](../../../measurements/chassis-stop-modes-2026-10-20/README.md)
+  §1 and finding 4).*
 - **The on-board monitor does not see the whole robot.** INA3221 channel 1
   (`/sys/bus/i2c/drivers/ina3221/1-0040/hwmon/hwmon*/in1_*`, `curr1_*`) reads without root. Its
   alert limit `curr1_crit` is 3.32 A, which is an alert setting and not the carrier's rating.

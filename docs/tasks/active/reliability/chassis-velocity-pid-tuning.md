@@ -46,8 +46,13 @@ What the deposit shows:
   195, against 253 for FL and RL.
 - **Gains untuned for the low speed.** 0.1 m/s is 178 ticks/s, 6 % of QPPS. At 0.3 m/s all four
   follow, and the right side overshoots by 9–15 %.
-- **The two controllers read different voltages from one pack at no load:** 10.3 V at one, 11.1 V
-  at the other. A charged 3S pack reads 12.6 V.
+- **One 12 V supply:** a 4S LiPo through a 12 V buck and a Y harness feeds both controllers. The
+  controllers' readings here, 10.3 V and 11.1 V, are within 0.1 V of their 2026-10-20 readings,
+  10.2 V and 11.2 V, taken against a metered 12 V at their terminals: about 1.8 V and 0.8 V low.
+  The evidence favours their own sensing; which instrument is right stays open (corrected
+  2026-10-21 from
+  [`chassis-stop-modes-2026-10-20`](../../../measurements/chassis-stop-modes-2026-10-20/README.md)
+  §1). ~~A charged 3S pack reads 12.6 V.~~
 
 **A gains save goes with the timeout save.** Command 94 saves every active setting.
 `diagnose_roboclaw.py --write-nvm` reloads the saved settings (95) before its save, so it never
@@ -55,11 +60,17 @@ saves gains the node wrote to RAM. A gains save would be a deliberate choice.
 
 ## Acceptance criteria
 
-- [ ] **The pack is metered and charged.** Meter the pack, and each controller's `+`/`−`
+- [x] **The pack is metered and charged.** Meter the pack, and each controller's `+`/`−`
       terminals, at no load. Record the three readings beside each controller's own reading, then
       charge the pack and record its charged voltage.
-- [ ] **The M2 deficit is re-measured with the charged pack.** Run the open-loop duty test under
-      equal duty, with the wheels lifted, and compare FR and RR against FL and RL. Record whether
+      *2026-10-20 ([`chassis-stop-modes-2026-10-20`](../../../measurements/chassis-stop-modes-2026-10-20/README.md) §1):
+      the chain is a 4S LiPo, a 300 W 12 V buck converter and a Y harness to both controllers.
+      Charged, the pack read 16.8 V; the buck's output and both controllers' terminals read 12 V,
+      by the maintainer's meter at idle, read to the volt. The controllers read 10.2 V (front) and
+      11.2 V (rear). The pack was not metered before the charge: the maintainer found it at a 4S
+      storage charge and charged it first, so every reading here followed the charge.*
+- [ ] **The M2 deficit is re-measured with the charged pack,** at a metered 12 V supply. Run the
+      open-loop duty test under equal duty, with the wheels lifted, and compare FR and RR against FL and RL. Record whether
       the deficit holds, and by how much.
 - [ ] **Tuning, only after both boxes above:**
       - each motor's breakaway speed, the lowest commanded speed at which it turns, measured on

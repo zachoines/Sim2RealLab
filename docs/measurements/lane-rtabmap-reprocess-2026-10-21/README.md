@@ -18,8 +18,8 @@ Link and Node tables.
 
 The matrix, its reads, a distributional control and the decision rule were committed (`ff3336f` in the evidence
 repository) before any matrix run; one mechanics run preceded the registration (§1). A third arm, A‴, makes both
-changes. It was registered by amendment (`78b1227`) after the registered matrix's 0.23.7 runs had been read, and
-before any of its own runs.
+changes. It was registered by amendment (`78b1227`) after the primary set (§1) had been read, and before any of its
+own runs.
 
 The reads are the frame-health record's. A segment's **window** runs from its **reference**, the frame once the
 warm-up spin has settled, to its last node result. **Drift** is the largest displacement, over four goals anchored in
@@ -29,10 +29,11 @@ the recorded run passes the control (§2).
 
 **By the registered rule, neither A′ nor A″ holds.** A′ holds in all ten runs on one of the seven valid segments (F6),
 and A″ on two (F2 and F6). The registered next step is therefore the refinement's scale shortfall against the camera
-intrinsics, which the same databases can test. The two arms fail in different ways. A‴ (the amendment, chosen after
-A′ and A″ were read, on the same data) holds in all ten runs on all eight segments, under both rtabmap builds.
-On this lane, though, odometry is ground truth, and A‴ accepts few closures. It moves the frame by at most 0.079 m,
-which is not the same as correcting a drifting wheel odometry.
+intrinsics, which the same databases can test (deferred, §7). The two arms fail in different ways. A‴ (the amendment,
+chosen after A′ and A″ were read, on the same data) holds in all ten runs on all eight segments, under both rtabmap
+builds. On this lane, though, odometry is ground truth, and A‴ accepts few closures. With the covariance restored it
+moves the frame by at most 0.079 m (0.084 m on the `asis` inputs, §9), which is not the same as correcting a drifting
+wheel odometry.
 
 Figures below are rtabmap 0.23.7's unless marked.
 - **The control.** Seven of eight segments are valid.
@@ -40,12 +41,15 @@ Figures below are rtabmap 0.23.7's unless marked.
   - The recorded largest drift lies within the ten runs' range on six segments. It lies 0.010 m above it on F2r2,
     where the recorded run also steps once and none of the ten does, and 0.059 m above it on F2r.
   - F2r, a 14.5 s segment with no reach, is therefore invalid: 0.059 m exceeds the 0.05 m tolerance.
-  - The recorded frame differs from the ten runs' by more than they differ from each other in five of eight segments,
-    by up to 1.58×.
-  - The tool cannot reproduce the recorded frame iteration for iteration, by construction (§1).
+  - The ten runs reproduce the recorded verdict in all eight segments and bracket its largest drift in six; they do
+    not reproduce its frame. By the mean frame difference, the recorded run lies farther from the ten than they lie
+    from each other on six of eight segments (five by the tabled medians). Its rank among the eleven gives P = 0.007
+    under exchangeability (§2, read after the runs). So the reprocessing differs systematically from the live run,
+    for a reason the deposit does not separate.
 - **The deployed set** (arm A's configuration, run on all eight databases) fails in 70 of its 80 runs.
-  - In all 18 of its failing runs whose largest step is 1 m or more, that step closes on a node created before the
-    lane's warm-up spin ended (15 of 16 under 0.23.13).
+  - Read after the runs: in all 18 of its failing runs whose largest step is 1 m or more, that step closes on a node
+    created before the lane's warm-up spin ended (15 of 16 under 0.23.13); per step, 36 of its 47 steps of 1 m or
+    more do (25 of 34).
   - The warm-up spin is the 360° turn the lane's perception service makes at bring-up; it covers nodes 1–24.
   - On F2 its median largest drift is 7.34 m (0.381 m under 0.23.13).
 - **A′ (refinement off)** removes the refinement drift but not the wrong closures.
@@ -57,8 +61,8 @@ Figures below are rtabmap 0.23.7's unless marked.
   - No run has a step of 1 m or more, and none accepts 142→16.
   - It fails in 29 of 80 runs, 27 of them with no step, mainly through the drift of the refinements it keeps. F4,
     where only refinement moved the frame, holds in 0 of 10 runs, at 0.57–0.83 m.
-- **A‴ (the amendment)** holds in all 160 runs, under 0.23.7 and 0.23.13. Its largest drift is 0.074 m (0.079 m
-  under 0.23.13).
+- **A‴ (the amendment)** holds in all 160 of its matrix runs, under 0.23.7 and 0.23.13. Its largest drift is
+  0.074 m (0.079 m under 0.23.13).
   - Per window its median run accepts at most 6 global closures and 4 proximity detections, and no refinement. On the
     seven segments other than F2r, the deployed set's median run accepts 4.5–38.5, 10.5–42 and 71–163.5.
   - On F2, F2r and F4 its median run accepts nothing. On F2r and F4 the frame does not move in any run.
@@ -67,6 +71,10 @@ Figures below are rtabmap 0.23.7's unless marked.
   - Its refinement-driven drift varies far less from run to run.
   - Its accepted closures still split from run to run, and under the deployed set they add metre-scale outliers on F5
     and F6.
+- **Addendum (2026-10-22, §9).** Restoring the odometry covariance does not change either arm's outcome by the
+  registered rule: A‴ holds on all eight segments on both inputs (largest drift 0.084 m on `asis`), and A′ on one
+  valid segment. On F1 and F2, started at the first node after the spin, the deployed set's steps of 1 m or more
+  fall from 24 to 1 and from 15 to 0 over ten runs each; none of the 20 cut runs holds.
 - **Per link, from the databases.**
   - Arm B's 545 refined links match the frame-health record's per-link read to 0.0007 mm.
   - Arm A's 511 refined links err by a median 12.4 mm and 0.255°.
@@ -81,18 +89,25 @@ Figures below are rtabmap 0.23.7's unless marked.
   - It feeds every Node row in id order, including the small-movement nodes rtabmap discarded (weight −9).
   - It reuses each node's stored features, and detects closures afresh rather than replaying the recorded ones.
   - Each run is a sealed container, with its input mounted read-only.
-- **No two runs need be identical, and none is expected to reproduce the live one.** rtabmap's FLANN kd-trees
-  shuffle with `std::random_device`. In both builds that touches the vocabulary, and the matching for global closures
-  and proximity detections. In 0.23.7 it also touches refinement's guess-window search: the search for matches within
-  40 px of each feature projected through the odometry guess. The registration stated this more narrowly, naming the
-  vocabulary alone for 0.23.13.
-  - So no reprocessing can reproduce the recorded frame iteration for iteration. Each configuration runs ten times,
-    and the recorded run is compared with the ten (§2).
-  - A run that accepts no closure and no refinement is not affected. For example, A‴ on F4 drifts 0.000 m in all ten
-    runs.
-  - A mechanics run made before the registration differed from the recorded frame by 62.9 mm and 0.93° at its 24th
-    iteration (`analysis/mechanics_run_check.txt`). It covered F2r's first 24 nodes, the warm-up spin, on the `asis`
-    input below, so that difference is not randomness alone. The registration declares it.
+- **Most configurations vary from run to run, and none is expected to reproduce the live one.** By a
+  reading of the source between the releases (`debian/ros-humble-rtabmap_0.23.7-1_jammy` and
+  `debian/ros-humble-rtabmap_0.23.13-1_jammy` of `ros2-gbp/rtabmap-release`), rtabmap's FLANN kd-trees shuffle with
+  `std::random_device`. In both builds that touches the vocabulary, and the matching for global closures and proximity
+  detections. In 0.23.7 it also touches refinement's guess-window search: the search for matches within 40 px of each
+  feature projected through the odometry guess. The registration stated this more narrowly, naming the vocabulary alone
+  for 0.23.13.
+  - **Under 0.23.7, refinement varies from run to run.** On F2r, which accepts no closure, the REC and DEP runs vary.
+  - **Under 0.23.13, refinement varies far less, but still varies.** F2r's ten runs are frame-identical under every
+    configuration, the deployed set's refinements included (`analysis/control_detail.txt`). On F4, though, A″'s ten
+    runs move the frame only through refinement (`analysis/failures.txt`) and still differ, with a largest drift of
+    0.669–0.772 m. The source reading above does not name the path behind that variation.
+  - **So no reprocessing can reproduce the recorded frame iteration for iteration.** Each configuration runs ten
+    times, and the recorded run is compared with the ten (§2). A run that accepts no closure and no refinement repeats
+    exactly: A‴ on F4 drifts 0.000 m in all ten runs.
+  - **The mechanics run.** A mechanics run made before the registration differed from the recorded frame by 62.9 mm
+    and 0.93° at its 24th iteration (`analysis/mechanics_run_check.txt`). It covered F2r's first 24 nodes, the warm-up
+    spin, on the `asis` input below. That lies within the ten `asis` REC runs' 16.3–124.4 mm at the same iteration, so
+    the difference is not shown to exceed randomness. The registration declares the run.
 - **The odometry covariance.**
   - Live rtabmap received an odometry variance of 0.001 on every iteration of every database
     (`per-link/link_read.txt`), that is, information 1000·I.
@@ -150,12 +165,24 @@ or over the 45 pairs (run against run).
 | F4 | 0.898, 1, no | 0; 0.625–1.708, 1.154 | yes | yes | yes | 1.122 | 1.015 |
 | F6 | 0.663, 0, no | 0; 0.394–0.913, 0.593 | yes | yes | yes | 0.803 | 0.633 |
 
-- **Within the reprocessings' spread, at its edge in places.**
+- **The ten runs reproduce the recorded verdict; they bracket its largest drift on six segments, and do not reproduce
+  its frame.**
   - The recorded verdict is the ten runs' majority in all eight segments.
-  - Its frame differs from theirs by more than they differ from each other in five of eight segments, by up to 1.58×
-    (F2r).
-  - On F2r2 it steps once where none of the ten does, and its drift lies just above all ten. It passes C2 through the
-    0.05 m widening.
+  - The recorded largest drift lies within the ten runs' range on six segments, and within the 0.05 m widening on F2r2.
+    There the recorded run steps once where none of the ten does.
+  - **The frame.** By the mean frame difference, the recorded frame lies farther from the ten runs than they lie
+    from each other on six of eight segments; by the tabled medians, on five. The median ratio reaches 1.59× on F2r.
+  - **A rank test (read after the runs).** Each of the eleven frames is ranked by its mean frame difference to the
+    other ten (1st = farthest). The recorded run is 3rd, 2nd, 4th, 9th, 1st, 1st, 3rd and 3rd (F1 to F6, as tabled),
+    a rank sum of 26 against 48 expected. Under exchangeability the exact one-sided P is 0.007
+    (`analysis/control_detail.txt`).
+  - **Exchangeability is rejected (P = 0.007, post hoc):** the recorded run differs systematically from the
+    reprocessings. The deposit does not separate why. Candidates are the 0.23.7 rebuild the robot carried, the stored
+    features' order and re-quantised word ids, real-time load, and the covariance restoration itself. The arms ran
+    under identical processing, so that difference does not enter their comparison directly; whether it changes the
+    comparison live, only a boot shows.
+  - **C1 and C2 are verdict-level checks with little power.** C2's band (the runs' range plus 0.10 m) is wider than the
+    0.30 m hold threshold on six of the seven valid segments.
   - On F1 both differences reach about 5.4 m, because the reprocessings split on F1's metre-scale closures to spin
     nodes. Five of the ten runs drift 5.2–7.4 m: three through 142→16, and two through closures to nodes 15 and 22.
 - **F2r is invalid by C2** and drops out of the decision. It is 14.5 s long, with no reach.
@@ -180,7 +207,8 @@ Each cell gives the runs that hold out of ten, then the largest drift's median a
 
 **What failed, run by run** (`analysis/failures.txt`, read after the runs). A step's node is the node that its accepted
 closure or proximity detection matched. A spin node is one created before the warm-up spin ended: nodes 1–24, in every
-segment. Spin nodes cannot be told apart from the start point every reach returns to, as the frame-health record noted.
+segment. In the whole runs, spin nodes cannot be told apart from the start point every reach returns to, as the
+frame-health record noted; §9's cut separates them on F1 and F2.
 
 | arm | runs that fail, of 80 | with no step | whose largest step is 1 m or more | of those, closing on a spin node |
 |---|---:|---:|---:|---:|
@@ -227,14 +255,13 @@ test.
 **The amendment.** A‴ holds in all ten runs on all eight segments, including F2r.
 - **How to read it.** It was registered after the primary set was read, because the two failures looked separable. It
   is tested on the same eight databases that showed them, so it is a candidate, not a confirmed configuration.
-- **What remains of the registered next step.** A‴ turns refinement off, so the scale shortfall does not bear on it.
-  The shortfall still matters for any configuration that keeps refinement.
 
 ## 5. rtabmap 0.23.13
 
-The robot image rebuilt on 2026-10-19 carries rtabmap 0.23.13, not the 0.23.7 that wrote these databases. Among its
-source changes, two lie on refinement's path (`RegistrationVis.cpp`, `OptimizerG2O.cpp`), and a third in the FLANN
-index that the vocabulary uses (`FlannIndex.cpp`):
+The robot image rebuilt on 2026-10-19 carries rtabmap 0.23.13, not the 0.23.7 that wrote these databases. By a reading
+of the source between the releases (`debian/ros-humble-rtabmap_0.23.7-1_jammy` and
+`debian/ros-humble-rtabmap_0.23.13-1_jammy` of `ros2-gbp/rtabmap-release`), two of its changes lie on refinement's path
+(`RegistrationVis.cpp`, `OptimizerG2O.cpp`), and a third in the FLANN index that the vocabulary uses (`FlannIndex.cpp`):
 - refinement's guess-window search becomes exact;
 - bundle-adjustment outliers are counted per observation;
 - the vocabulary's index is rebuilt by a different rule.
@@ -320,8 +347,9 @@ each rtabmap iteration. This read uses neither.
 ## 7. What this means for the next measurements (a proposal)
 
 - **The registered next step is the scale shortfall** against the camera intrinsics, and the same databases can test
-  it offline. It bears on any configuration that keeps refinement, which A‴ does not.
-- **On this lane, A‴ (the amendment) moves the frame by at most 0.079 m.**
+  it offline. It bears on any configuration that keeps refinement, which A‴ does not, so it is deferred until a
+  configuration keeps refinement: if A‴ fails live, or the real-robot gate's SLAM read calls for it.
+- **On this lane, A‴ (the amendment) moves the frame by at most 0.079 m (0.084 m on the `asis` inputs, §9).**
   - The lane's odometry is ground truth. A‴'s few accepted closures move the frame by at most 0.079 m, within the
     0.30 m tolerance. Where it accepts nothing, the frame does not move.
   - That shows it adds little error here. It does not show A‴ corrects anything: its median run accepts 0–6 global
@@ -334,12 +362,13 @@ each rtabmap iteration. This read uses neither.
 - **The warm-up spin.** When a failing deployed-set run's largest step is 1 m or more, that step closes on a spin node
   in 18 of 18 runs (15 of 16 under 0.23.13); for A′, 12 of 13 (9 of 10). The spin is a lane fixture: the robot's
   container stack does not start it.
-  - A lane boot without the spin, under the deployed set, would show how many of those metre-scale steps depend on the
-    spin.
+  - Offline, the 2026-10-22 addendum (§9) reprocesses the deployed set from the first node after the spin on F1 and
+    F2. There its steps of 1 m or more fall from 39 to 1, and none of the 20 runs holds. A lane boot without the spin,
+    under the deployed set, would test this live.
   - Neighbour links join consecutive nodes, and drift is read against a reference taken after the spin, so the
     refinement drift is not expected to depend on it.
-- **The build.** The robot now runs 0.23.13. Its verdicts agree here with 0.23.7's, but its refinement differs. A lane
-  or robot session should record the rtabmap build it ran.
+- **The build.** The robot now runs 0.23.13. Its outcome by the registered rule agrees with 0.23.7's, but its
+  refinement differs. A lane or robot session should record the rtabmap build it ran.
 
 ## 8. What is not claimed
 
@@ -350,24 +379,75 @@ each rtabmap iteration. This read uses neither.
   reprocessings.
 - **Nothing beyond these eight segments' data.** The data was recorded under arm A or arm B, and reprocessing replays
   the recorded trajectories. It cannot show how another configuration would have moved the robot.
-- **The causes of the spin-node closures** are not shown. Spin nodes cannot be told apart from the start point every
-  reach returns to.
+- **The causes of the spin-node closures** are not shown. §9's offline cut separates the spin's nodes from the start
+  point on F1 and F2; a boot without the spin would test it live.
+
+## 9. Addendum (2026-10-22, descriptive)
+
+`ADDENDUM_2026-10-22.md` in the deposit was committed (`8d14c4e`) before its runs. It adds 180 runs under 0.23.7, all
+complete (`addendum-2026-10-22/runs/manifest.jsonl`), read by `tools/addendum.py` (`addendum-2026-10-22/addendum.txt`).
+
+**The odometry-covariance restoration does not change either arm's outcome by the registered rule.** A′ and A‴ also ran
+on the `asis` inputs.
+Each cell gives the runs that hold of ten, then the largest drift's median and maximum, in metres.
+
+| segment | A′ `asis` | A′ restored | A‴ `asis` | A‴ restored |
+|---|---|---|---|---|
+| F1 | 3; 3.316, 5.205 | 1; 4.925, 5.145 | 10; 0.064, 0.076 | 10; 0.065, 0.071 |
+| F3 | 10; 0.242, 0.285 | 9; 0.194, 0.372 | 10; 0.009, 0.053 | 10; 0.020, 0.036 |
+| F5 | 9; 0.163, 5.040 | 9; 0.112, 3.921 | 10; 0.071, 0.084 | 10; 0.059, 0.074 |
+| F2 | 8; 0.122, 7.392 | 9; 0.091, 4.897 | 10; 0.000, 0.000 | 10; 0.000, 0.022 |
+| F2r | 10; 0.000, 0.000 | 10; 0.000, 0.000 | 10; 0.000, 0.000 | 10; 0.000, 0.000 |
+| F2r2 | 8; 0.047, 6.378 | 9; 0.046, 6.116 | 10; 0.038, 0.045 | 10; 0.040, 0.042 |
+| F4 | 8; 0.158, 0.976 | 8; 0.161, 1.020 | 10; 0.000, 0.000 | 10; 0.000, 0.000 |
+| F6 | 8; 0.122, 6.391 | 10; 0.102, 0.135 | 10; 0.038, 0.057 | 10; 0.042, 0.048 |
+
+- **A‴ holds in all ten runs on all eight segments either way.** Its largest drift is 0.084 m on `asis`.
+- **A′ fails either way.** Its one valid all-ten segment is F3 on `asis` and F6 restored, and it keeps metre-scale
+  outliers on both inputs.
+
+**The deployed set from the first node after the spin.** The tool's `-start` began F1 at node 60 and F2 at node 56,
+the first nodes after the spin's last (24) that the recorded graph keeps. Ten runs each are set beside the deployed
+set run whole. This is an offline reprocess of data recorded after a spin (a **cut**: the input from that node on),
+not a boot without the spin. The cut keeps the nodes of the robot's turn toward its first goal, so start-point nodes
+remain. A **start-point node** is one within 0.30 m of the spawn, where every reach starts. A cut run's reference is
+its own first iteration.
+
+| | runs that hold | steps of 0.5 m or more | steps of 1 m or more | iterations closing onto start-point nodes |
+|---|---:|---:|---:|---:|
+| F1, whole | 0 of 10 | 33 | 24 | 251 |
+| F1, from node 60 | 0 of 10 | 11 | 1 | 184 |
+| F2, whole | 0 of 10 | 17 | 15 | 133 |
+| F2, from node 56 | 0 of 10 | 1 | 0 | 134 |
+
+- **On F1 and F2, the cut removes 38 of the 39 steps of 1 m or more,** those onto post-spin nodes included: from 24 to 1
+  on F1 and from 15 to 0 on F2. Steps of 0.5 m or more fall from 33 to 11 on F1 and from 17 to 1 on F2. Closures onto
+  start-point nodes stay frequent.
+- **None of the 20 cut runs holds.** The largest drift is 0.459–1.251 m on F1 and 0.419–0.748 m on F2. Eleven of the
+  20 cut runs have no step of 0.5 m or more. The one step of 1 m or more left is a 1.209 m proximity detection (F1,
+  run 8).
+- **Over all eight segments,** 36 of the deployed set's 47 steps of 1 m or more close on a spin node
+  (`analysis/failures.txt`). Without the spin's data, F1 and F2 lose almost all of their metre-scale steps and still
+  fail.
 
 ## Evidence — deposit
 
 `Sim2RealLab-Artifacts/lane-rtabmap-reprocess-2026-10-21/record-files/`, at commit
-`0380202ab415602e25c2eb40684d8974d62c3d66`.
+`df39404014a607b11d0f3e23543d1a3fe618c4f9`.
 - **Registration:**
   - `PREREGISTRATION.md` at `ff3336f`, before any matrix run;
-  - `AMENDMENT_A3.md` at `78b1227`, before any A‴ run.
+  - `AMENDMENT_A3.md` at `78b1227`, before any A‴ run;
+  - `ADDENDUM_2026-10-22.md` at `8d14c4e`, before any addendum run. Its runs sit in `addendum-2026-10-22/`, apart from
+    the registered matrix's `runs/`.
 - **Changes after the registration.** They are listed in `DEPOSIT.md`; none changes a registered read.
 - **`SHA256SUMS`** lists every file's sha256 except its own and `DEPOSIT.md`'s. Its own sha256 is
-  `1b4733801d5e9f6f1924f381d644566a578a858709be8717f9fadf084744e41f`.
+  `ad084789cdd740dd12f3181e9b0caa2146cfd05012991551b528b220e28bf35a`.
 - **Reproduce** from a clone of the evidence repository, with python3 and the standard library only:
 
       bash lane-rtabmap-reprocess-2026-10-21/record-files/reproduce.sh
 
-  It regenerates every file in `analysis/` and `per-link/link_read.txt` byte for byte. It reads `runs/` (770 runs'
-  extracts and logs), `recorded/` and `per-link/db_links/`, plus the frame-health deposit beside it.
+  It regenerates every file in `analysis/`, `per-link/link_read.txt` and `addendum-2026-10-22/addendum.txt` byte for
+  byte. It reads `runs/` (770 runs' extracts and logs), `addendum-2026-10-22/runs/` (180), `recorded/`,
+  `logs/mechanics_run_frames.json.gz` and `per-link/db_links/`, plus the frame-health deposit beside it.
 - **Not deposited:** the input databases, the prepared inputs and the output databases. Their digests are in the
   deposit (`inputs.sha256`, and each run's manifest line).

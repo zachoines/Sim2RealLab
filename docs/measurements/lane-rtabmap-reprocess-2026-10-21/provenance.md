@@ -1,6 +1,7 @@
 # Provenance — the lane's rtabmap databases, reprocessed, 2026-10-21
 
-captured_date: 2026-10-21 (the runs ran 2026-10-22 03:38–04:11 UTC; 22:38–23:11 local, UTC−5)
+captured_date: 2026-10-21 (the matrix ran 2026-10-22 03:38–04:11 UTC, 22:38–23:11 local on 2026-10-21, UTC−5; the
+2026-10-22 addendum ran 21:56–22:04 UTC, 16:56–17:04 local)
 
 ## Host
 
@@ -27,10 +28,14 @@ captured_date: 2026-10-21 (the runs ran 2026-10-22 03:38–04:11 UTC; 22:38–23
 Both on `ros@sha256:5417e569…`, with the same OpenCV (4.5.4), libg2o (2020.5.29) and gtsam (4.2.0) builds; full package
 lists in `image/<version>/dpkg.txt`. The databases were written by rtabmap 0.23.7 on the robot image of revision
 `9f7d20758d5b` (built 2026-10-11, no longer on the robot host); which 0.23.7 rebuild it carried is not known. The robot
-image rebuilt on 2026-10-19 carries 0.23.13 at the build listed above.
+image rebuilt on 2026-10-19 carries 0.23.13 at the build listed above. The replicate image carries the robot's
+rtabmap core build (`…20261002.091850`) and no rtabmap-ros wrapper package, which `rtabmap-reprocess` does not use. On
+the robot, `-slam`, `-launch`, `-demos`, `-examples` and `-ros` are at `…20261008.*` and the other wrapper packages at
+`…20261002.*` (`chassis-bringup-2026-10-19`'s deposit, `images/make_images.log`).
 
 ## Registration
 
 - `PREREGISTRATION.md`, evidence repository commit `ff3336f`, before any matrix run.
 - `AMENDMENT_A3.md`, commit `78b1227`, after the primary set was read and before any A‴ run.
 - One mechanics run preceded the registration (F2r, `-stop 24`), declared in it.
+- `ADDENDUM_2026-10-22.md`, commit `8d14c4e`, before any addendum run.

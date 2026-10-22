@@ -237,6 +237,13 @@ class RoboClawNode(Node):
         self._in_error_state = False
         self._last_reconnect_time = 0.0
 
+        # The gains written above are read back, as after a reconnect. Until both controllers
+        # hold them the driver stays in its error state, whose reconnect re-applies and reads
+        # them back every 2 s, so nothing drives on a controller's saved gains.
+        if not (self._gains_hold(self._front, "Front") and self._gains_hold(self._rear, "Rear")):
+            self.get_logger().error("Gains not confirmed at startup -- holding in error state.")
+            self._in_error_state = True
+
         # ------------------------------------------------------------------
         # Publishers
         # ------------------------------------------------------------------
@@ -294,7 +301,7 @@ class RoboClawNode(Node):
     def _configure_pid(self, rc: RoboClawInterface, label: str) -> None:
         """Set velocity PID on both motors of a controller.
 
-        Called on startup to ensure PID values are loaded into RAM.
+        Called at startup and after a reconnect, so the values are in RAM.
         """
         p, i, d, qpps = ROBOCLAW_PID_P, ROBOCLAW_PID_I, ROBOCLAW_PID_D, ROBOCLAW_QPPS
         try:
@@ -341,7 +348,7 @@ class RoboClawNode(Node):
                 rear_ok = self._rear.reconnect()
                 if front_ok and rear_ok:
                     # A power cycle reloads each controller's saved gains, so the
-                    # driver's go back on, and are read back, before it drives again.
+                    # driver's gains go back on, and are read back, before it drives again.
                     self._configure_pid(self._front, "Front")
                     self._configure_pid(self._rear, "Rear")
                     if self._gains_hold(self._front, "Front") and self._gains_hold(

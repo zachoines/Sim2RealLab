@@ -75,7 +75,10 @@ def node_on(bus_fixture, bus):
 
 @pytest.fixture
 def local_dds(monkeypatch):
-    """These tests publish motion commands: keep them on this host, off the stack's domain."""
+    """These tests publish motion commands: keep them on this host, off the stack's domain.
+
+    The domain is fixed, so two runs of this suite at once on one host would cross-talk.
+    """
     monkeypatch.setenv("ROS_LOCALHOST_ONLY", "1")
     monkeypatch.setenv("ROS_DOMAIN_ID", "77")
 
@@ -234,19 +237,23 @@ def test_one_failed_tick_between_good_ones_does_not_escalate(silenceable):
 class GainsClaw(FakeRoboClaw):
     """A RoboClaw whose power cycle reloads its saved gains over the ones written to RAM.
 
-    With *stuck* set, it reads those gains back whatever was written.
+    With *stuck* set, it reads those gains back whatever was written. While *deaf*, it ignores
+    the gain writes, unanswered.
     """
 
-    def __init__(self, address, saved=(0, 0, 0, 0), stuck=None):
+    def __init__(self, address, saved=(0, 0, 0, 0), stuck=None, deaf=False):
         super().__init__(address)
         self.saved = {1: saved, 2: saved}
         self.gains = dict(self.saved)
         self.stuck = stuck
+        self.deaf = deaf
 
     def power_cycle(self):
         self.gains = dict(self.saved)
 
     def respond(self, packet):
+        if self.deaf and packet[:1] and packet[0] in self.addresses and packet[1] in (28, 29):
+            return b""
         if self.stuck and packet[:1] and packet[0] in self.addresses and packet[1] in READ_PID:
             payload = struct.pack(">IIII", *self.stuck)
             return payload + struct.pack(">H", _crc16(packet[:2] + payload))
@@ -288,5 +295,27 @@ def test_a_disagreeing_read_back_keeps_the_error_state(patched):
         assert node._in_error_state
         errors = [str(call) for call in logger.return_value.error.call_args_list]
         assert any("Rear gains read back" in e for e in errors), errors
+    finally:
+        node.destroy_node()
+
+
+def test_unconfirmed_gains_at_startup_hold_the_error_state(patched):
+    rear = GainsClaw(REAR, deaf=True)
+    bus = bus_with(GainsClaw(FRONT), rear)
+    node = node_on(patched, bus)
+    try:
+        assert node._in_error_state, "the rear never took its gains, yet the driver would drive"
+        mark = len(bus.writes)
+        for _ in range(3):
+            node._timer_callback()
+        assert not drives(bus, mark), "a drive command went out on unconfirmed gains"
+
+        rear.deaf = False
+        node._last_reconnect_time = 0.0
+        node._timer_callback()
+        assert not node._in_error_state
+        assert rear.gains == {1: GAINS, 2: GAINS}
+        node._timer_callback()
+        assert drives(bus, mark)
     finally:
         node.destroy_node()

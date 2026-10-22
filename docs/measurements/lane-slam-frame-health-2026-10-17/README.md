@@ -320,8 +320,8 @@ more, over at least 12 scored reaches in the arm.
   `NeighborLinkRefining/Inliers` (median 32, range 15–75) is −0.03 for translation and −0.15 for rotation; in A it is
   −0.18 and −0.34.
 - **Mildly tied to the link's own motion:** +0.25 for translation and +0.24 for rotation, in B.
-- **A stamp lag cannot be what drives the error.** If the images lagged odometry by τ, a refined link would carry
-  −τ · Δv, with Δv the change of body-frame velocity between the link's two ends.
+- **A stamp lag cannot be what drives the translation error.** If the images lagged odometry by τ, a refined link would
+  carry −τ · Δv, with Δv the change of body-frame velocity between the link's two ends.
   - **The term's size, for a lag of 38–55 ms** (the scale of the fitted slopes below, which are not lag
     measurements). In B (545 links) its median depends on how Δv is estimated, and stays far below the error under
     each estimator:
@@ -344,12 +344,15 @@ more, over at least 12 scored reaches in the arm.
     translate, it is 9.4 mm against 12.7 mm on the other links (216 links whose iteration translated under 10 mm), or
     9.0 mm against 12.9 mm (206 links by the link's own translation); there the term's median is 0.18–0.78 mm across
     the three estimators.
-  - **The bound is for the translational term only.** A lag would also add a rotational term, τ · |Δω|, which the bound
-    does not cover. Under the same model and the same three estimators, its median at 38–55 ms is 0.03–0.12°
-    (0.08–0.12° from the stored twist) against the 0.220° median rotation error, and its 95th percentile is
-    0.74–1.26°. The heading therefore does not rest on this bound alone: for the rotation error, which carries most of
-    the drift, a lag's share is not bounded here. *Correction 2026-10-22: this sub-item is added; the rotational term
-    is printed in `lag-bound-estimators/lag_bound_estimators.txt`.*
+  - **The bound is for the translational term only.** A lag would also add a rotational term, τ · |Δω|, with Δω the
+    change of yaw rate between the link's ends, which the bound does not cover. In B (545 links; 541 link-averaged),
+    under the same model and the same three estimators, its median at 38–55 ms is 0.03–0.12° (0.08–0.12° from the
+    stored twist) against the rotation error's median 0.220°, and its 95th percentile is 0.74–1.26° against the
+    error's 1.232°. In A its median is 0.02–0.10° against 0.230°. The heading therefore covers the translation error
+    only: for the rotation error, which carries most of the drift, a lag's share is not bounded here. *Correction
+    2026-10-22: this sub-item is added, and the heading, which read "A stamp lag cannot be what drives the error", is
+    narrowed to the translation error; the rotational term is printed in
+    `lag-bound-estimators/lag_bound_estimators.txt`.*
   - **The fitted slope of E on Δv is not a lag measurement.**
     - It rests on about twenty high-|Δv| links: 38 ms with them, 16.5 ms without.
     - It drops to 26 ms when a scale term is co-fitted.
@@ -411,16 +414,17 @@ is the true link, rtabmap's stored link R is the refined one, and E = O⁻¹ · 
   - **A″:** refinement on, with `Vis/MinInliers` raised (for example to 40).
 
   Both need no new tool; only the mounted file changes.
-- **The bridge stamp check** of its camera, odometry and `/clock` is a static, lower-priority item. In B, for a lag of
-  38–55 ms the translational lag term's median is 0.47–1.53 mm (the rotational term is not bounded, §5), depending on
-  how the velocity change is estimated, against the error's 11.4 mm; where the term is small (low-|Δv| links) or the
-  robot barely translates (rotation-only links), most of the translation error remains (9.0–9.4 mm on rotation-only
-  links and 10.4–10.8 mm on low-|Δv| links, against 11.8–12.9 mm on the other links). *Correction 2026-10-21: this read
-  "A lag up to 55 ms changes the per-link error by under 1 mm against 11 mm, and the error is the same where no timing
-  error can act". Under 1 mm holds for the median under `posthoc_link_error.py`'s and the link-averaged estimators, not
-  under the stored-twist estimator (1.06–1.53 mm). The term is part of the error, not a change in it; the subsets are
-  now set against the other links, and the heading is narrowed as in §5's note.* *Correction 2026-10-22: "translational"
-  and the rotational term's clause are added.*
+- **The bridge stamp check** of its camera, odometry and `/clock` is a static item; it would bound the rotational share
+  that the per-link read leaves open. In B, for a lag of 38–55 ms the translational lag term's median is 0.47–1.53 mm,
+  depending on how the velocity change is estimated, against the error's 11.4 mm; where the term is small (low-|Δv|
+  links) or the robot barely translates (rotation-only links), most of the translation error remains (9.0–9.4 mm on
+  rotation-only links and 10.4–10.8 mm on low-|Δv| links, against 11.8–12.9 mm on the other links). A lag's share of the
+  rotation error is not bounded (the stamp-lag item above). *Correction 2026-10-21: this read "A lag up to 55 ms changes
+  the per-link error by under 1 mm against 11 mm, and the error is the same where no timing error can act". Under 1 mm
+  holds for the median under `posthoc_link_error.py`'s and the link-averaged estimators, not under the stored-twist
+  estimator (1.06–1.53 mm). The term is part of the error, not a change in it; the subsets are now set against the other
+  links, and the heading is narrowed as in §5's note.* *Correction 2026-10-22: it read "a static, lower-priority item";
+  its priority rested on the translational term alone. "Translational" and the rotational sentence are added.*
 
 **The arm-A spin pattern is descriptive, and not one of the rule's branches.**
 - **The large rotations.** F1's two large rotations (+86.84° at 75.2 s, −71.57° at 163.3 s) came in iterations that
@@ -502,15 +506,16 @@ The terminal band is scored descriptively against the live frame, with each reac
 ## 8. What is not claimed
 
 - **No test between the arms.** Three boots per arm cannot support one; the comparisons above are descriptive.
-- **No full cause for refinement's link errors.** The post-hoc reads find them of about 1 cm and 0.2° and isotropic
-  in spread. In B, the accepted links of 20 mm or more are 3.61 % short along the motion on average, the errors are
-  barely tied to the inlier count, and, composed, their yaw errors carry most of the drift (in F2 and F2r the two
-  recompositions are close). A stamp lag of up to 55 ms would carry a small share of them (link by link a median
-  4.3–13.5 % at 38–55 ms, §5). What produces the rest of
-  the visual registration error is not shown. *Correction 2026-10-21: this item read "The post-hoc per-link read
-  finds them isotropic, of about 1 cm and 0.2°, and barely tied to the inlier count". §5's per-link read shows they
-  are isotropic in spread, and its decomposition that they are not isotropic in mean; the shortening, the composed
-  yaw, the arm and the lag share are added from §5.*
+- **No full cause for refinement's link errors.** The post-hoc reads find them of about 1 cm and 0.2° and isotropic in
+  spread. In B, the accepted links of 20 mm or more are 3.61 % short along the motion on average, the errors are barely
+  tied to the inlier count, and, composed, their yaw errors carry most of the drift (in F2 and F2r the two
+  recompositions are close). A stamp lag of up to 55 ms would carry a small share of their translation error (link by
+  link a median 4.3–13.5 % at 38–55 ms, §5); its share of the rotation error is not bounded (§5). What produces the rest
+  of the visual registration error is not shown. *Correction 2026-10-21: this item read "The post-hoc per-link read
+  finds them isotropic, of about 1 cm and 0.2°, and barely tied to the inlier count". §5's per-link read shows they are
+  isotropic in spread, and its decomposition that they are not isotropic in mean; the shortening, the composed yaw, the
+  arm and the lag share are added from §5.* *Correction 2026-10-22: "them" is narrowed to their translation error, and
+  the rotation error's unbounded share is added.*
 - **The spin is not shown to cause anything.** It is not established that the spin, rather than the start point,
   explains arm A's closures to spin nodes, or that either causes F1's wrong closure.
 - **The two power losses are unexplained.**
@@ -538,7 +543,7 @@ The terminal band is scored descriptively against the live frame, with each reac
   `posthoc_decomposition.txt` are the post-hoc reads. `links/` holds the neighbour links that
   `posthoc_extract_links.py` extracted from the rtabmap databases, which are not deposited.
 
-## Evidence — sibling deposit (2026-10-21 correction)
+## Evidence — sibling deposit (2026-10-21 and 2026-10-22 corrections)
 
 | | |
 |---|---|

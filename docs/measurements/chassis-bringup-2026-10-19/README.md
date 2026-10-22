@@ -60,6 +60,9 @@ Every figure here is recomputed from the deposit by its `scripts/analysis.py`.
 - **The controllers.**
   - Two RoboClaw ST 2x45A on one USB hub: the front at address 0x80, the rear at 0x81.
   - One LiPo feeds both through a main power switch that cuts the RoboClaws only.
+    *2026-10-21: as built, the LiPo is a 4S feeding both through a 300 W 12 V buck converter and
+    a Y harness ([`chassis-stop-modes-2026-10-20`](../chassis-stop-modes-2026-10-20/README.md)
+    §1).*
   - Both enumerated at 15:57:46 CDT with main power already on, and each USB was then re-plugged
     once.
 - **Nothing else could command the wheels.** Before `base` first started, a census of DDS domain
@@ -222,6 +225,11 @@ chassis, or checks that nothing does, uses `/cmd_vel`.
 3. **The two controllers read different battery voltages from one pack at no load:** front
    10.2–10.3 V, rear 11.1 V. A meter on the pack and on each controller's terminals settles which
    is right. A charged 3S pack reads 12.6 V.
+   *2026-10-21: metered, the supply is 12 V at both controllers' terminals, behind a 12 V buck from
+   a 4S pack, so the 3S comparison does not apply. At that metered supply, in
+   [`chassis-stop-modes-2026-10-20`](../chassis-stop-modes-2026-10-20/README.md) §1, the
+   controllers read 10.2 V (front) and 11.2 V (rear), about 1.8 V and 0.8 V low. The readings here
+   are within 0.1 V of those.*
 4. **ModemManager and the camera.** On this host ModemManager takes up the D555's CDC port as a
    modem candidate at each enumeration, and the RoboClaw rule does not cover it. The narrowed
    trigger in §1 avoided adding another such probe. See `roboclaw-serial-timeout`'s out-of-scope

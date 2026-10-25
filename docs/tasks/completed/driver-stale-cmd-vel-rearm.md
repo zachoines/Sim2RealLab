@@ -1,6 +1,6 @@
 # Stop the RoboClaw driver from running a stale `cmd_vel` as fresh after a stall
 
-**Status:** Shipped 2026-10-22 in `73649a0` and `4070d7b` (Jetson); the on-robot box stays open until the bench record.
+**Status:** Shipped 2026-10-22 in `73649a0` and `4070d7b` (Jetson); checked on the robot 2026-10-25.
 **PR:** https://github.com/zachoines/Sim2RealLab/pull/253
 
 **Type:** bug (after a whole-executor stall of the driver, a `cmd_vel` that waited through the
@@ -118,9 +118,14 @@ Read at `72b9ba7`, and seen on the robot on 2026-10-20.
 - [x] **The gap is measured start to start on `time.monotonic()`, against
       `WATCHDOG_TIMEOUT_SEC`. The mark holds through the short-gap ticks until the first take, or
       until a tick `WATCHDOG_TIMEOUT_SEC` after it.**
-- [ ] **On the robot,** with the wheels lifted, the record's pause_3 run again shows one watchdog
+- [x] **On the robot,** with the wheels lifted, the record's pause_3 run again shows one watchdog
       line after the unpause, `joint_states` at zero and a still camera. The run is deposited and
-      a record states it. *Open until the bench record.*
+      a record states it.
+      *2026-10-25 ([`driver-hardening-bench-2026-10-25`](../../measurements/driver-hardening-bench-2026-10-25/README.md) §2): twice, one watchdog line after the
+      unpause and 325 and 326 ticks at 0.00 rad/s with no count change; the camera, in the second
+      run, at most 0.76 after the unpause. The catch-up tick came 8 ms after the overdue one, and in
+      the second run the freeze landed inside a tick body; the stale message was dropped both
+      times.*
 - [x] If your work invalidates a fact in any referenced context module, package README,
       top-level `Readme.md`, or guide under `docs/`, update those in the same commit. See
       [`conventions.md`'s user-facing documentation maintenance section](../context/conventions.md#user-facing-documentation-maintenance).

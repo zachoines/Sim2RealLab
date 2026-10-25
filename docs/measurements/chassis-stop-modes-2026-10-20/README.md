@@ -270,6 +270,7 @@ from the watchdog lines, are post-hoc.
 
    Filed as
    [`driver-stale-cmd-vel-rearm`](../../tasks/completed/driver-stale-cmd-vel-rearm.md).
+   *2026-10-25: fixed in #253; pause_3 run again on the fixed driver did not re-arm ([`driver-hardening-bench-2026-10-25`](../driver-hardening-bench-2026-10-25/README.md)).*
 2. **One controller that does not answer blocks the driver's whole loop** in its 0.1 s timeouts.
    Here no tick completed for about 0.2 s before the disconnect (§4). That is under the
    controllers' 0.5 s timeout, so here it stopped nothing. Filed, with the longer case from the
@@ -290,6 +291,7 @@ from the watchdog lines, are post-hoc.
 
    Filed as
    [`driver-reconnect-reapplies-gains`](../../tasks/completed/driver-reconnect-reapplies-gains.md).
+   *2026-10-25: fixed in #253; on the robot a reconnect re-applied and read back the gains ([`driver-hardening-bench-2026-10-25`](../driver-hardening-bench-2026-10-25/README.md)).*
 
 ## What this does not show
 

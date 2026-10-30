@@ -50,16 +50,17 @@ The other reads, in brief:
   two transits pinned at the doorway, so the robot never returned to the start point after its first reach. B7 cannot
   show what removing the spin does to the deployed set's closures there (§5).
 - **Departures.** B2's fourth transit pinned, and the bridge then hung. B2 was relaunched once, as B2r, under a count
-  rule stated before it ran, with the live frame checks of B1–B6 in view. After the campaign, before any scorer ran,
-  `odom_terminal.py` was fixed mechanically and `arm_summary.py` was changed to apply that count rule. An outside stall
-  guard stopped pinned transits: B2's re-run from 19:57 CDT, every remaining transit from 22:35. A viewer and read-only
-  analyses also ran on the sim host. Each departure is logged with its time (§1).
+  rule stated before it ran, with the live frame checks of B1–B6 in view. The amendment and the two scorer changes (a
+  mechanical fix to `odom_terminal.py`, and a change to `arm_summary.py` that applies the count rule) landed in one
+  evidence commit with all 24 analysis outputs, six minutes after the campaign ended. An outside stall guard stopped
+  pinned transits: B2's re-run from 19:57 CDT, every remaining transit from 22:35. A viewer and read-only analyses also
+  ran on the sim host. Each departure is logged with its time (§1).
 - **Defects.** The lane's transit tool never detects a pinned transit while its re-plans succeed (§6). The bridge hung
   once mid-run, after B2's last scored reach (§7).
-- **Post hoc (2026-10-23, run during the campaign).** Two of this session's four goals, G1 and L2, lie outside the
-  room. G1 has lain outside it since the Isaac Lab pair flip of 2026-09-12 (lane reaches from 2026-09-25); L2 lay outside
-  it before the flip too, since the goals were first set. Both arms ran the same goals, so the comparison stands. The
-  deployed set's failure rate on this lane may not transfer to a room without that exterior (§8).
+- **Post hoc.** Two of this session's four goals, G1 and L2, lie outside the room, and 12 of the 24 reaches the two arms
+  count (12 per arm) went to them, six per arm. Both arms ran the same goals, so the comparison stands; the deployed
+  set's failure rate on this lane may not transfer to a room without that exterior. The audit that found it has its own
+  record (§8).
 
 ## 1. Method and departures
 
@@ -121,15 +122,15 @@ each byte-equal to that deposit's, and `arm_summary.py` adapted to this session'
 ### Departures from the registration
 
 Each is logged with its time (CDT, 2026-10-23) in `campaign/interventions.log`, `campaign/campaign.log`,
-`campaign/viewer_start.txt`, or the boot's `chain.log` and `boot.log`; the audit's times are in
-`posthoc_outside_room/workflow1_exterior_audit.json`.
+`campaign/viewer_start.txt`, or the boot's `chain.log` and `boot.log`; the audit's times are in its own record's
+deposit (§8).
 1. **Other work on the sim host,** which the registration did not provide for.
    - **A viewer, 19:13:48–23:16:38.** A viewer process ran on the sim host from the B1/B2 boundary to the campaign's end
      (`campaign/viewer_start.txt`). B1 ran without it. It ran during two of the three A‴ boots (B3, B5) and every
      deployed boot, so it does not line up with the arm.
-   - **Read-only analyses, from 20:29.** The §8 audit ran from 20:29 to 21:33, during B3's last minutes, B4 and B5.
-     Further read-only analyses, not part of this record, ran from 21:42, during B6, B7 and B2r (their files' times on
-     the sim host; they are not deposited).
+   - **Read-only analyses, from 20:29.** The outside-room audit (§8) ran from 20:29 to 21:33, during B3's last minutes,
+     B4 and B5. Further read-only analyses, not part of this record, ran from 21:42, during B6, B7 and B2r (their files'
+     times on the sim host; they are not deposited).
    - **Load, read after the runs.** The robot host's 1-min load over each boot's log: a mean of 9.07–10.15 and a maximum
      of 14.10–17.77 in the seven boots with the viewer, against 9.57 and 14.96 in B1
      (`boots/<RUN>/robot/logs/loadavg.log`). The sim host's 1-min load (`load1` in `host/telemetry_session.csv`)
@@ -155,9 +156,9 @@ Each is logged with its time (CDT, 2026-10-23) in `campaign/interventions.log`, 
    `fh_up.sh down` (rtabmap's database saved, 289 MB), and the bridge's stop. The hung Kit process needed SIGKILL
    (20:08:37). The campaign resumed with B3 at 20:08:57, as a new systemd unit.
 5. **B2's relaunch, B2r, under a count rule stated at 22:12:29, before it ran** (`AMENDMENT_RELAUNCH.md`).
-   - The rule was stated 24 s after B6's last frame check (22:12:05), with the live frame checks of B1–B6 in view
-     (each boot's `chain.log` FRAME lines, at its slot boundaries). Every A‴ check read within 0.30 m; B2, B4 and B6 each
-     had at least one read over 0.30 m.
+   - The rule was stated 24 s after B6's last frame check (22:12:05), with the live frame checks of B1–B6 in view (each
+     boot's `chain.log` FRAME lines, at its slot boundaries). Every A‴ check read within 0.30 m; B2, B4 and B6 each had
+     at least one read over 0.30 m.
    - With B2's three scored reaches and four each from B4 and B6, the deployed arm could reach at most 11 of the 12 the
      rule needs. The registration allows one relaunch per boot before an arm is void.
    - The count rule: B2r is B2's one relaunch, and a boot counts once. B2r's scored reaches take B2's place in the arm's
@@ -166,16 +167,23 @@ Each is logged with its time (CDT, 2026-10-23) in `campaign/interventions.log`, 
      with the spin, 22:48:10–23:16:10. It scored 4 of 4.
    - A‴'s outcome does not depend on B2r. Every deployed boot fails, B2 (0.588 m) and B2r (0.497 m) alike (§2). The
      relaunch decides only whether the control reaches the 12 scored reaches the void clause needs.
+   - **How a relaunch counts.** This record counts a relaunched boot once, as a new boot in the original's place (the
+     arm's 12 reaches, B2r's four in B2's place). The frame-health registration's relaunch instead continues from the
+     interrupted slot, with the boot's frame read over both segments, each against its own reference (its F2r, and F2r2
+     after the second power loss). Here both readings give the same verdict, since B2 fails counted or replaced; the
+     next registration states one rule.
 6. **The stall guard, extended at 22:35:36** to every remaining transit (B7 and B2r), after the maintainer reported B7
    pinned at the doorway's north jamb (`stall_guard_campaign.py`, the same thresholds).
    - It stopped all four of B7's slot-2 and slot-3 attempts. The first had made no progress for 113.9 s sim when the
      guard was armed.
    - It did not fire in B2r. Two failed transits in a row stopped B7's chain (exit 6, 22:46:50).
 7. **B7, torn down by hand, 22:47:13–22:47:55,** as B2 was (database saved, 213 MB).
-8. **The amendment (`AMENDMENT_RELAUNCH.md`), written after the campaign and before any scorer ran.** It and the
-   scorer changes were written with every boot's live frame checks in view, B7's and B2r's included (B7 had one read
-   over 0.30 m, B2r two). Neither scorer change touches a definition or a threshold. In the evidence repository,
-   `git diff 030ff40 eeac8d9 -- lane-rtabmap-a3-2026-10-22/record-files/odom_terminal.py
+8. **The amendment (`AMENDMENT_RELAUNCH.md`) and the two scorer changes.** They landed in one evidence commit
+   (`eeac8d9`, 23:22:07), six minutes after the campaign ended (23:16:10), with all 24 analysis outputs; the deposit
+   does not separate when they were written from when the scorers first ran. Every boot's live frame checks were already
+   in view, B7's and B2r's included (B7 had one read over 0.30 m, B2r two). Both changes are mechanical, neither touches
+   a definition or a threshold, and `frame_health.py` is byte-unchanged from `030ff40`. In the evidence repository, `git
+   diff 030ff40 eeac8d9 -- lane-rtabmap-a3-2026-10-22/record-files/odom_terminal.py
    lane-rtabmap-a3-2026-10-22/record-files/arm_summary.py` shows both in full.
    - **`odom_terminal.py`, a mechanical fix.** Its summary named the frame-health session's arms, A and B only, so A‴
      (C) would have had no read-4 summary. After the fix it loops over C, A, N and B, and each row carries its boot.
@@ -305,23 +313,25 @@ step's after-sample to 0.000 m.
 **Closures onto spin and start-point nodes.** A **spin node** is one rtabmap created before the warm-up spin ended:
 nodes 1–24 in every boot with the spin. A **start-point node** is one whose odometry pose, read from the boot's
 database, lies within 0.30 m of the spawn. The counts are of iterations that accepted a global closure or a proximity
-detection, over each boot's whole info ride-along (`analysis/arm_summary.txt`, `analysis/startpoint_count.txt`).
+detection, over each boot's whole info ride-along (`analysis/arm_summary.txt`, `analysis/startpoint_count.txt`; for
+the A‴ boots, `analysis_posthoc/startpoint_count_A3.txt`).
 
 | boot | arm | accepted iterations | onto a spin node | onto a start-point node |
 |---|---|---:|---:|---:|
-| B1 | A‴ | 14 | 11 | — |
-| B3 | A‴ | 8 | 4 | — |
-| B5 | A‴ | 10 | 9 | — |
+| B1 | A‴ | 14 | 11 | 13 |
+| B3 | A‴ | 8 | 4 | 8 |
+| B5 | A‴ | 10 | 9 | 10 |
 | B2r | deployed | 39 | 19 | 39 |
 | B4 | deployed | 34 | 14 | 30 |
 | B6 | deployed | 45 | 34 | 38 |
 | B2 (replaced) | deployed | 18 | 6 | 17 |
 | B7 (counted) | no spin | 12 | (no spin) | 0 |
 
-- **The start-point read was registered for B7 and the deployed boots only.** B2's spin-node count applies
-  `arm_summary.py`'s definition to `analysis/frame_health_B2.json`; the replaced boot's summary does not print it.
-- **A‴ also closes mostly onto spin nodes,** 24 of its 32 accepted iterations. No such closure moved its frame by more
-  than 0.140 m.
+- **The start-point read was registered for B7 and the deployed boots only;** A‴'s column was read after the runs with
+  the same tool. B2's spin-node count applies `arm_summary.py`'s definition to `analysis/frame_health_B2.json`; the
+  replaced boot's summary does not print it.
+- **A‴ also closes mostly onto spin nodes,** 24 of its 32 accepted iterations, and onto start-point nodes, 31 of 32. No
+  such closure moved its frame by more than 0.140 m.
 - **The deployed boots' closures onto start-point nodes caused no step away from the reference this session.**
 - **The spin turns the robot in place at the spawn,** within 0.09 m of every reach's start, so the boots with the spin
   cannot separate its nodes from the start point's (the frame-health record, §3).
@@ -375,7 +385,7 @@ Source: `analysis/odom_terminal.json`, its rows keyed by `boot`, with its per-ar
 - **Odom anchoring kept the goals** within 0.062 m of their anchors at goal-sent, except B2_S1_G1_A (0.397 m), whose
   frame moved between the wrapper's mapping and goal-sent.
 
-Each reach, with its goal's location (inside or outside the room, read after the runs, §8):
+Each reach, with its goal's location (inside or outside the room, read after the runs; §8):
 
 | reach | boot | goal | node: live at the result (m) | odom at the result (m) | in-reach goal excursion (m) | goal at sent vs anchor (m) | stop-short, odom (quiet stop, m); live |
 |---|---|---|---:|---:|---:|---:|---|
@@ -459,28 +469,35 @@ The registration counts, for B7, its accepted closures and proximity detections 
 Every lane reach drives to its start with `to_start.py` (sha256 `8cbeaa66…`,
 `boots/<RUN>/robot/stage0/harness_sha256.txt`). It follows Nav2's planned path in the map frame. The tool is deposited
 with `goal-a-rig-gate-v3-2026-09-25` and `goal-a-cli-confirmation-2026-10-03`; it is not in this repository.
+**Pinned** here means the stall guard's rule (§1, item 3): in transit, more than 0.5 m from the target, with no 0.03 m
+of progress in the straight-line distance to it for 24 s sim.
 - **The defect.** In `track()`, each successful periodic re-plan (every `--replan-sim`, 5 s sim) resets the stall
   check's best remaining path length and its time. The stall check needs `--stall-sim`, 8 s sim, without 0.03 m of
   progress. While re-plans succeed it never fires, so `STALLED` (three stalls in a row) cannot be reached.
-- **What that costs.** A pinned transit runs to the tool's budget (`--budget-sim`, 150 s sim), and the reach wrapper's
-  one retry does the same. B2's first slot-4 attempt took 1144 s wall for its 150.6 s sim.
+- **What that costs.** A transit that stays pinned runs to the tool's budget (`--budget-sim`, 150 s sim), and the reach
+  wrapper's one retry does the same. B2's first slot-4 attempt took 1144 s wall for its 150.6 s sim.
 - **Where it bit.**
   - **B2, slot 4** (the deployed set), back from L2. During that transit's first 26 s sim (152.6–179.0 s sim) the frame
     moved 0.43 m and 4.9° (read after the runs from `boots/B2/robot/logs/ridealong/tf_b2.jsonl`). It sat 0.876 m and
     7.14° off the reference by the re-run (`boots/B2/dgx/chain.log`). The robot was pinned from about 181 s sim
     (`campaign/interventions.log`).
+  - **The frame's motion is one candidate cause, not an established one.** The doorway is hard under a static frame too.
+    A‴'s three transits back from L2 took 30.2 s sim with 4 re-plans (B1; its frame moved 0.077 m), 33.0 s with 5 (B3;
+    0.016 m) and 88.9 s with 16 (B5; 0.015 m), each frame unmoved until the robot had reached the start except B1's.
+    B5's sat at map (−1.03 to −1.01, −0.30) from 63.9 to 118.8 s sim with no 0.03 m of progress, pinned by this rule
+    with its frame unmoved, before it got through unguarded (read after the runs from each boot's `*_R2_C.to_start.out`
+    and `tf_<run>.jsonl`).
   - **B7, slot 2,** back from G1: 113.9 s sim without progress before the extended guard stopped it.
-  - **A precedent, 2026-10-17.** F6_S2_R2_B's transit, back from L2 under the frame-health record's arm B (closures
-    off), sat at map (−1.39 to −1.37, −0.44) from 69.0 to 107.8 s sim, at a drift of 0.394 m, with 8 re-plans in that
-    time, before it got through (`RESULT=OK`; 17 re-plans over the whole transit). Sources, in the frame-health
-    deposit at `9325a49`: `record-files/boots/F6/robot/logs/runs/F6_S2_R2_B.to_start.out` and
-    `record-files/boots/F6/robot/logs/runs/container_gate/F6_S2_R2_B.to_start.json` (its plan times). The drift is
-    `slam_by_location`'s (§8), re-read after the runs from that deposit's `boots/F6/robot/logs/ridealong/tf_f6.jsonl`.
-- **The fix belongs to the tool.**
-  - Measure progress on the robot's distance to the target, and do not reset it on a re-plan; or keep the stall window
-    below the re-plan period.
-  - On `STALLED`, back off before re-planning. The tool's escape path exists, but it triggers only on a planner refusal.
-  - This session applied an outside stall guard instead, on the straight-line distance (§1, items 3 and 6).
+  - **A pin that resolved on the frame-health lane, 2026-10-17.** F6_S2_R2_B's transit, back from L2 under the
+    frame-health record's arm B (closures off), sat at map (−1.39 to −1.37, −0.44) from 69.0 to 107.8 s sim, at a drift
+    of 0.394 m, with 8 re-plans in that time, so pinned by this rule, before it got through (`RESULT=OK`; 17 re-plans
+    over the whole transit). Sources, in the frame-health deposit at `9325a49`:
+    `record-files/boots/F6/robot/logs/runs/F6_S2_R2_B.to_start.out` and
+    `record-files/boots/F6/robot/logs/runs/container_gate/F6_S2_R2_B.to_start.json` (its plan times). The drift is the
+    outside-room audit's (§8), re-read after the runs from that deposit's `boots/F6/robot/logs/ridealong/tf_f6.jsonl`.
+- **The fix belongs to the tool:** progress measured as the robot's displacement in the odom frame, never reset on a
+  re-plan; one back-off per stall, and `STALLED` on the third (a version 2, deposited with the next registered
+  campaign). This session applied an outside stall guard instead, on the straight-line distance (§1, items 3 and 6).
 
 ## 7. The bridge's mid-run hang
 
@@ -508,156 +525,23 @@ with `goal-a-rig-gate-v3-2026-09-25` and `goal-a-cli-confirmation-2026-10-03`; i
   after a 61 s stall in boot. It did not act on this hang.
 - **The cause is not known.**
 
-## 8. The lane's outside-room goals (2026-10-23, post hoc)
+## 8. The lane's outside-room goals (post hoc; its own record)
 
-*Not registered, and written up after the campaign. The maintainer asked, after B2's pin, whether routes that leave the
-room confound the lane. A read-only audit answered it on the sim host on 2026-10-23, 20:29–21:33 CDT, while B3's last
-minutes, B4 and B5 ran. No campaign step cites it: neither the count rule (22:12:29) nor the guard's extension
-(22:35:36) does (`campaign/interventions.log`). It answered in four investigations, each re-derived by a second,
-independent pass. The corrections that bear on the figures used here are folded in; all of them are in
-`posthoc_outside_room/wf_digest.txt`, under the headings `slam_by_location`, `camera_by_location`, `records_survey` and
-`training_and_geometry`. Its full output is `posthoc_outside_room/workflow1_exterior_audit.json`. It read the
-2026-10-17 databases, the reprocess record's 770 runs and its addendum's runs, and the earlier records. Of this session
-it read only B3's dumped grid, the grid hashes of B1–B3 and B2's `chain.log` FRAME lines, not its databases or
-ride-alongs. It changes no registered read.*
-
-**Two of this session's four goals lie outside the room.**
-- **The room** (seed 42; fitted to the dumped grid, which every boot here hashed alike): 4.900–4.945 m by
-  5.805–5.945 m, with walls 2.7 m high and no ceiling (inferred from the 2026-10-17 depth; this session's depth was not
-  checked). One doorway, 1.40–1.57 m wide, opens in the west wall, whose line lies at odom x −0.80 to −0.82
-  (`training_and_geometry`).
-  - The wall pieces also leave a 0.73–0.90 m full-height gap at the north-west corner, wider than the 0.36 m chassis,
-    which furniture blocks in the grid. Whether the robot could pass it was not checked. Every crossing of the west
-    wall line on 2026-10-17 (22) went through the doorway.
-- **The goals.** G1 lies 1.18–1.20 m west of that line, and L2 1.93–1.95 m, beyond training's 8 m grid as well. L1
-  (−2.00, 0.00), used in earlier lane records, lies 1.19 m outside. R1, R2 and both starts are inside
-  (`training_and_geometry`, `records_survey`).
-- **How they came to be outside** (`records_survey`).
-  - G1, L1 and L2 are the 2026-08-17 gate's goals M1, M4 and M5. The seed-42 spawn was then at world (0.35, −1.75),
-    inferred from the 2026-08-22 same-pose probe. G1 and L1 lay inside the room, and L2 lay outside it for any room
-    size.
-  - The Isaac Lab pair flip of 2026-09-12 moved the spawn about 2.3 m, to (−1.65, −0.55). From 2026-09-25 on, the goals
-    were reused relative to the spawn.
-  - 56 of the 75 post-flip v3 lane reaches (75 %) went to an outside goal.
-
-**The exterior is repetitive, not short of features** (`camera_by_location`). Outside the room the camera sees the
-default grid ground plane under a uniform sky.
-- In the 2026-10-17 databases rtabmap extracted a median of 390 words per node outside (696 nodes), against 132 inside
-  (1848 nodes), under a cap of 500.
-- Refinement found a median of 39 inliers outside against 25, and was accepted 83 % of the time against 73 %.
-- No outside node had fewer than 50 words; 135 inside nodes did.
-- **Scope.** The 2026-10-17 return legs were driven with the camera facing outward, so those data hold almost no
-  exterior views facing the room.
-
-**The two SLAM failure modes differ by location** (2026-10-17 data and the reprocess runs).
-- **Metre-scale wrong closures come mostly at the doorway and outside.**
-  - The reprocessing runs (the deployed set and A′, under both builds) with a drift-growing step of 1 m or more took
-    their first such step with the robot at the doorway or outside in 57 of 57 runs. That is about nine distinct places,
-    since the ten reprocessings of a database are not independent (`records_survey`).
-  - Counting every such step of the deployed set by `slam_by_location`'s zones, 21 of 22 came at the doorway or
-    outside under 0.23.7 and 16 of 18 under 0.23.13. The rest came in the start zone.
-  - Drift-growing steps of 0.5–1 m came mostly inside: 13 of 16 for the deployed set under 0.23.7.
-  - F1's closure 142→16, 0.90 m and 89.8° wrong against ground truth, matched two views dominated by the exterior grid,
-    seen at or through the doorway. It had 33 inliers: above the deployed `Vis/MinInliers` 15, below A‴'s 40. Whether
-    0.23.13 registers it alike is not tested (`camera_by_location`).
-  - A‴ accepted no doorway or exterior closure in its 160 runs. In the addendum's post-spin cut of the deployed set
-    (F1 and F2, 10 runs each), such closures fell from 23 to 1 on F1 and from 7 to 0 on F2 (`slam_by_location`).
-- **Refinement drift is not higher outside per metre or matched for rotation; per degree turned it is.**
-  - Matched for rotation, a refined link's yaw error outside is 0.93–0.99 of inside for 2026-10-17's arm A, and
-    0.64–0.67 for arm B (`slam_by_location`).
-  - Per degree turned and per link, outside links err more: 0.237 against 0.058° of yaw error per degree turned for
-    arm A, and 0.185 against 0.048 for arm B; a mean translation error per refined link of 23.3 against 15.8 mm for A,
-    and 17.0 against 15.8 mm for B (`camera_by_location`'s verifier, C12).
-  - Arm B's inside-room link errors alone recompose to 0.49–0.90 m of drift (`records_survey`; 0.46–0.90 m by
-    `slam_by_location`'s classes), and its outside-room link errors alone to 0.17–0.61 m, F4's 0.608 m among them
-    (`slam_by_location`).
-  - The 2026-10-14 scene-axis session never left the room, and its `map→odom` moved up to 1.36 m from its first
-    ride-along sample (`records_survey`'s measure, not this record's drift).
-  - 52 of the deployed set's 70 failing reprocessing runs under 0.23.7 have no step of 1 m or more
-    (`slam_by_location`). Every 2026-10-17 segment but F2r (14 s, 0.34 m) includes G1 or L2, so time outside is
-    confounded with route length.
-- **This session's deployed boots first passed 0.30 m in different places.**
-  - B2 (replaced) and B4 passed it inside the room, before the robot first left it, through refinement: B2 at 35.3 s
-    sim, before its first goal was sent (40.3 s sim), and B4 at 39.3 s sim, during its first reach, to R1.
-  - B2r passed it outside, at 46.2 s sim during its G1 reach, with the robot at odom (−1.92, 1.92), through
-    refinement.
-  - B6 passed it at 92.8 s sim at the spawn, after its L2 reach and as its R2 reach began, through global closures and
-    one proximity detection (§3).
-  - Sources: the excursions in `analysis/frame_health_<RUN>.txt`; the robot's position from the info ride-along's
-    `Loop/MapToBase`, mapped into odom through the tf ride-along (read after the runs); reach times in
-    `analysis/odom_terminal.json`.
-- **Transit pins sit at or near the doorway,** the routes' narrowest passage.
-  - Of the six transit failures `records_survey` located, B2's among them, four sat at a jamb beyond the wall line and
-    two inside, within about 0.7 m of the doorway.
-  - Earlier pins came with the frame already displaced: by 0.68 m on 2026-10-09 and 1.2–1.5 m on 2026-10-14, in
-    `map→odom`'s offset from the session's first ride-along sample (`records_survey`,
-    `wf_records_survey/session_steps.txt`). At B2's pin (181 s sim) its `map→odom` lay 0.87 m from its reference, a
-    drift of 1.22 m (read after the runs from `tf_b2.jsonl`).
-  - B7's slot-2 pin began with its frame 0.28 m off the reference (`map→odom` 0.278 m from it, a drift of 0.282 m, at
-    56.9 s sim; `tf_b7.jsonl`, read after the runs). 2026-10-17's F6 transit sat at a drift of 0.394 m with closures
-    off (§6). Doorway pins here came at drifts of 0.28–0.39 m as well as at B2's 1.22 m.
-  - **B2's pin and F6's sit are different places.** Their map coordinates nearly coincide (§1, item 2; §6) only because
-    their frames differed. In odom, B2's pin lay at about (−1.14, −0.90): at the doorway's south edge (odom y −0.92 to
-    −0.85), 0.32–0.34 m west of the wall line. F6 sat at about (−1.15, −0.50), 0.39–0.40 m further north: within the
-    doorway's north–south span, 0.35–0.42 m north of its south edge, and 0.33–0.35 m west of the wall line, just outside
-    the opening.
-  - Sources, read after the runs: each transit's map poses (`boots/B2/robot/logs/runs/B2_S4_R2_A.to_start.out`; the
-    frame-health deposit's `boots/F6/robot/logs/runs/F6_S2_R2_B.to_start.out`), mapped into odom through the frame then
-    in force (`boots/B2/robot/logs/ridealong/tf_b2.jsonl`; that deposit's `boots/F6/robot/logs/ridealong/tf_f6.jsonl`).
-    B2's position is over 207–326 s sim (the rest of its first attempt, and its retry), at map (−1.42, −0.45); F6's
-    spans its sit, 69.0–107.8 s sim. The door edge and the wall line, in odom, are
-    `posthoc_outside_room/wf_training_and_geometry/notes.txt`'s.
-  - L2's straight line from its start passes the south door edge's outer corner by 0.04–0.11 m, less than the robot's
-    0.18 m half-width (`training_and_geometry`). That bears on the policy's outbound L2 reach; whether the transits'
-    planned paths run that close was not read.
-
-**The policy is outside its training distribution at G1 and L2** (`training_and_geometry`).
-- **Training.** Spawn, goal, path and subgoal are drawn from a free space that marks everything outside the room
-  occupied (`source/strafer_lab/strafer_lab/tasks/navigation/mdp/proc_room.py`, lines 575–591 at `af7d7985`, unchanged
-  since `0a975ef`). A doorway's free space therefore stops 0.30–0.40 m inside the wall line, and straying 0.30 m from
-  the path ends an episode.
-- **What lies beyond a doorway differs.** Training sees doorways from inside: about 42 % of episodes in a walls-only
-  model, possibly more. Beyond a training doorway lies the next room, 2.5–6 m away by the 10 m environment spacing
-  (inferred from the configuration), not open floor.
-- **On the lane.** In the top 11 of 45 depth rows, a median of 100 % of pixels sit at the 6 m far limit outside,
-  against 3.1 % inside. These are the 2026-10-17 perception depth images, not the policy's input.
-  - The split mixes location with heading: no outside node faces east. Inside, near the door and facing west, the same
-    median is 81 % (`training_and_geometry`'s verifier, C1). Doorway and exterior views also occur from inside, on the
-    lane and in training (C2). What training never had is the robot outside the room with its subgoal outside.
-- **Policy-side lane findings at these goals are confounded with it.** On 2026-10-17, 5 of 12 outside reaches and 12 of
-  12 inside reaches ended within 0.30 m in odom (Fisher exact, two-sided p = 0.0046; `records_survey`). The odom
-  distance at the result moves with the frame, and the audit could not separate this split from a direction-dependent
-  frame bias at outside goals (`records_survey`); it does not isolate the policy.
-
-**What it means for this record.**
-- **The comparison stands.** Both arms ran the same four goals in the same three rotations. Half of each arm's 12 scored
-  reaches went to an outside goal, and each complete boot left the room twice. A‴ held through those reaches.
-- **The deployed set's failure rate may not transfer** to a room without this exterior, or to the robot. Its failures
-  here were mainly refinement drift, which the 2026-10-17 data do not concentrate outside per metre or matched for
-  rotation. B4, and the replaced B2, passed 0.30 m inside the room before the robot first left it; B2r passed it
-  outside, during its G1 reach; B6 at the spawn, through global closures. Its metre-scale wrong closures, in the earlier
-  data, sit mostly at the doorway or outside: of its drift-raising steps of 1 m or more in the reprocess runs, 11 came
-  at the doorway and 10 outside under 0.23.7 (21 of 22), and 10 and 6 under 0.23.13 (16 of 18;
-  `posthoc_outside_room/wf_slam_by_location/zones_0.6.txt`).
-- **The terminal reads at G1 and L2** (§4) are reads at goals outside the policy's training distribution.
-- **This session's two pin locations** were each first reached on a transit heading back through the doorway from an
-  outside goal: B2's slot 4 from L2 and B7's slot 2 from G1. B7's slot-3 transit started where slot 2 had pinned, and
-  pinned there too (`boots/B7/robot/logs/runs/B7_S3_L2_N.to_start.out`).
-- **Each reach's class** is in §4's per-reach table: G1 and L2 out, R1 and R2 in. Every scored reach's goal at
-  goal-sent lay within 0.397 m of its anchor. That is less than any anchor's distance from the wall lines
-  (`training_and_geometry`'s odom wall lines): G1 and L2 lie at least 1.18 m outside, R1 and R2 at least 0.75 m
-  inside. So the class holds for the physical goal too.
-
-**Proposed, not decided here.**
-- A lane preflight that refuses a goal or start outside the dumped grid's free space, unless the manifest labels it an
-  exterior condition, re-checked at every scene or spawn change.
-- An inside-room goal set, drawn from the current room.
-- Dated correction lines in the records whose findings rest on outside goals: `goal-a-rig-gate-v3-2026-09-25`'s pass,
-  `policy-time-to-goal-baseline-2026-10-11`'s stop-short gap and limit-cycle evidence,
-  `subgoal-referent-offset-ab-2026-10-11`'s stop-short reading (11 of 12 reaches stopped short, all at G1 and L2; cause
-  unidentified), `lane-slam-frame-health-2026-10-17`'s "SUCCEEDED overstates arrival", and
-  `lane-term-speedcap-ab-2026-10-14`'s verdict.
-- Each live reach's inside or outside class, recorded post hoc: done here, in §4.
+*Dated 2026-10-29; not registered.* After B2's pin the maintainer asked whether routes that leave the room confound the
+lane. A read-only audit answered it on the sim host on 2026-10-23, 20:29–21:33 CDT, during B3's last minutes, B4 and
+B5; no campaign step cites it. It has its own record,
+[`lane-outside-room-goals-2026-10-23`](../lane-outside-room-goals-2026-10-23/README.md), with its deposit (moved there
+from this one) and its verifiers' corrections in full. For this record:
+- **This session's reaches.** G1 and L2 lie outside the room, where training never places the robot or a subgoal (the
+  audit's record); R1 and R2 lie inside it. 12 of the 24 reaches the two arms count (12 per arm) went to outside goals,
+  six per arm. B2's three scored reaches included two outside (G1, L2), and B7's one was outside (G1). §4's table gives
+  each reach's class.
+- **The comparison stands:** both arms ran the same goals in the same rotations.
+- **The transfer caveat.** The deployed set's failure rate on this lane may not transfer to a room without that
+  exterior. In the reprocess runs of the 2026-10-17 databases its metre-scale wrong closures fell at the doorway or
+  outside (57 of 57 first steps of 1 m or more), where the camera sees the scene's default grid ground plane under a
+  uniform sky; no deployed boot here took such a step. Its failures here were mainly refinement drift (§3), which those
+  data do not place outside per metre or matched for rotation (the audit's record).
 
 ## 9. What is not claimed
 
@@ -670,8 +554,8 @@ default grid ground plane under a uniform sky.
   metre-scale step for the spin's absence to remove.
 - **Not that the deployed set fails at this rate on another lane or room** (§8).
 - **Not the policy.** The terminal reads describe this lane under each arm. At G1 and L2 they lie outside the policy's
-  training distribution, and A‴'s count within 0.30 m in odom is a split at the node's own 0.30 m arrival radius, not a
-  measure of arrival.
+  training distribution (§8), and A‴'s count within 0.30 m in odom is a split at the node's own 0.30 m arrival radius,
+  not a measure of arrival.
 - **Not why live A‴ drifted more than offline A‴** (0.148 m against 0.079 m offline under the same build, 0.23.13). The
   two read different trajectories.
 - **Not the hang's cause.**
@@ -682,14 +566,13 @@ default grid ground plane under a uniform sky.
   tracked `rtabmap_params.yaml` change follows in its own PR".
   - This record supports A‴ as the lane's configuration only.
   - The tracked file, `source/strafer_ros/strafer_slam/config/rtabmap_params.yaml`, is byte-equal to the deployed set
-    at `af7d7985` (sha256 `e67c97ff…`), and the robot runs it too. That PR therefore scopes the change to the lane, or
-    states that the robot takes it ahead of the real-robot gate's SLAM read.
+    at `af7d7985` (sha256 `e67c97ff…`), and the robot runs it too. That PR scopes the change to the lane.
 - **The robot question** goes to the real-robot gate's pre-registration: the frame-health record's SLAM read (its §6),
   with A‴'s accepted closures counted beside the steps (the reprocess record, §7).
 - **The scale shortfall** stays deferred, as the reprocess record set it. It bears on a configuration that keeps
   refinement, which A‴ does not, unless the real-robot gate's SLAM read calls for it.
-- **The transit tool's fix** (§6) is for the tool's owner. Until it lands, a lane session needs an outside stall guard.
-- **The outside-room proposals** (§8) wait on a decision.
+- **The transit tool's fix** (§6): a deposited version 2, registered with the next lane campaign.
+- **The outside-room proposals** (§8) are its own record's.
 - **The build.** Stage 0 recorded the robot images' rtabmap build strings in every boot (`provenance.md`). Pinning
   them is [`deploy-rtabmap-build-pin`](../../tasks/active/reliability/deploy-rtabmap-build-pin.md)'s.
 
@@ -699,7 +582,7 @@ default grid ground plane under a uniform sky.
 |---|---|
 | repository | https://github.com/zachoines/Sim2RealLab-Artifacts |
 | deposit directory | `lane-rtabmap-a3-2026-10-22/record-files/` |
-| deposit commit | `e4d1b20ae2d36c69a56e6333974fee3cff6ac37e` |
+| deposit commit | `2fbb2967b19e81544db98b4e74135d634f29d963` |
 
 Unless it names the main repository's tree or another deposit, every path this record names is relative to that
 directory. `DEPOSIT.md`'s `cp -a` restores it into this record directory, where the same paths resolve.
@@ -707,14 +590,17 @@ directory. `DEPOSIT.md`'s `cp -a` restores it into this record directory, where 
 - **The registration.** `PREREGISTRATION.md`, committed at `030ff40` (2026-10-22, 18:45:36 CDT) before the first boot,
   with the session tools and the sim host's power soak (`soak/`).
 - **The campaign,** at `eeac8d9`: the boots' robot and sim-host logs, the campaign and intervention logs, the session
-  telemetry, `AMENDMENT_RELAUNCH.md` (written after the campaign and before any scorer ran), the two scorer changes
-  (§1, item 8), and `analysis/`.
-- **At `e4d1b20`:** `DEPOSIT.md`, `SHA256SUMS` and `posthoc_outside_room/` (§8), and the rig's network addresses
+  telemetry, `AMENDMENT_RELAUNCH.md`, the two scorer changes (§1, item 8) and `analysis/`, six minutes after the
+  campaign ended.
+- **At `e4d1b20`:** `DEPOSIT.md`, `SHA256SUMS` and the outside-room audit's files, and the rig's network addresses
   redacted to `<addr>` in 63 text files (`DEPOSIT.md` lists the change; `analysis/` regenerates byte-identical).
+- **At `1e2447e`:** the audit's files moved to its own record's deposit
+  (`lane-outside-room-goals-2026-10-23/record-files/`), its 20 absolute symlinks made relative. **At `c39b91c`:**
+  `analysis_posthoc/startpoint_count_A3.txt` (§3). **At `2fbb296`:** `DEPOSIT.md`'s account of the amendment's timing.
 - **Changes after the registration** are listed in `DEPOSIT.md`. `frame_health.py` is unchanged from `030ff40`, and
   byte-equal to the frame-health deposit's.
 - **`SHA256SUMS`** lists every file's sha256 except its own and `DEPOSIT.md`'s. Its own sha256 is
-  `693d687a25cf1766881a8c52757f632811f9cdf7552ce8e36afc763a6ced0598`.
+  `ac74d0c0e5ae21f8b13fd7fd98430989a691e95ae63139aaa2fc496cf69ba5e2` (956 files).
 - **Reproduce** from a clone of the evidence repository, with python3 and the standard library only:
 
       bash lane-rtabmap-a3-2026-10-22/record-files/reproduce.sh <absolute db_dir>
@@ -722,7 +608,7 @@ directory. `DEPOSIT.md`'s `cp -a` restores it into this record directory, where 
   With `<db_dir>`, an absolute path, holding the boots' rtabmap databases as `<db_dir>/<RUN>/logs/*.db`, it regenerates
   all 24 files of `analysis/` byte for byte; `reproduce.sh` changes into the deposit directory first, so a relative
   path would not resolve. Without it, it regenerates the 23 that do not read the databases. After it runs,
-  `git status --porcelain lane-rtabmap-a3-2026-10-22/record-files/analysis` is empty. The post-hoc audit's files are
-  deposited as they were produced; `reproduce.sh` does not regenerate them.
+  `git status --porcelain lane-rtabmap-a3-2026-10-22/record-files/analysis` is empty. `reproduce.sh` does not write
+  `analysis_posthoc/`; its file's header gives its command.
 - **Not deposited:** the eight rtabmap databases. Their sha256 are in `host/databases_sha256.txt` and in
   `provenance.md`. Also the planner's and VLM service's log lines after the registration (`DEPOSIT.md`).

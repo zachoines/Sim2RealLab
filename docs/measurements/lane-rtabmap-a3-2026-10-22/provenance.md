@@ -91,10 +91,10 @@ There was no power loss. The registration was committed at `030ff40`, 23:45:36Z.
 samples, with no gap longer than 1.1 s. By `soak/soak_summary.py`'s definitions, read after the runs: GPU at most 64 °C
 and 62.8 W (median 19.5 W); the hottest ACPI zone at most 82.8 °C (20:50:06 local, during B4); no clock-event reason
 and no hardware slowdown ever active. The sim host's 1-min load (`load1`) averaged 2.32–3.50 per boot, with a maximum
-of 8.21 (B5); read-only analyses ran on it from 20:29 (the record's §1, item 1, and §8).
+of 8.21 (B5); read-only analyses ran on it from 20:29 (the record's §1, item 1).
 
 **Timeline** (local, UTC−5, 2026-10-23; `campaign/campaign.log`, `campaign/interventions.log`,
-`campaign/viewer_start.txt`, the boots' `boot.log` and `chain.log`):
+`campaign/viewer_start.txt`, the boots' `boot.log` and `chain.log`; the evidence repository's `eeac8d9` commit time):
 
 | time | event |
 |---|---|
@@ -108,7 +108,7 @@ of 8.21 (B5); read-only analyses ran on it from 20:29 (the record's §1, item 1,
 | 20:06:01 | B2's chain stops (exit 6); the first unit ends |
 | 20:07:17–20:08:37 | B2 torn down by hand; the hung Kit process killed |
 | 20:08:57 | unit `a3-campaign-b3` starts: B3 |
-| 20:29–21:33 | the post-hoc outside-room audit runs on the sim host, read-only (the record's §8; its times in `posthoc_outside_room/workflow1_exterior_audit.json`) |
+| 20:29–21:33 | the post-hoc outside-room audit runs on the sim host, read-only (its own record, `lane-outside-room-goals-2026-10-23`) |
 | 20:33:03 | B4 |
 | 20:59:38 | B5 (the watchdog relaunched its bridge once) |
 | 21:39:25 | B6 |
@@ -123,10 +123,11 @@ of 8.21 (B5); read-only analyses ran on it from 20:29 (the record's §1, item 1,
 | 23:16:38 | the stall guard stopped; the viewer removed |
 | 23:16:47 | the telemetry ends |
 | 23:18:04 | the robot host handed back |
+| 23:22:07 | the amendment, the two scorer changes and `analysis/` committed (`eeac8d9`) |
 
 **Registration and amendment.** `PREREGISTRATION.md` at `030ff40`, before the first boot. `AMENDMENT_RELAUNCH.md` at
-`eeac8d9`, written after the campaign and before any scorer ran; its count rule for B2r was logged at 22:12:29, before
-B2r ran.
+`eeac8d9`, committed with the two scorer changes and `analysis/` six minutes after the campaign ended; its count rule
+for B2r was logged at 22:12:29, before B2r ran.
 
 ## The rtabmap databases (not deposited)
 

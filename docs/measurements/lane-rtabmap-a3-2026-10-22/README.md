@@ -495,6 +495,14 @@ of progress in the straight-line distance to it for 24 s sim.
     `record-files/boots/F6/robot/logs/runs/F6_S2_R2_B.to_start.out` and
     `record-files/boots/F6/robot/logs/runs/container_gate/F6_S2_R2_B.to_start.json` (its plan times). The drift is the
     outside-room audit's (§8), re-read after the runs from that deposit's `boots/F6/robot/logs/ridealong/tf_f6.jsonl`.
+  - **B2's pin and F6's sit are different places.** Their map coordinates nearly coincide only because their frames
+    differed. In odom, B2's pin lay at about (−1.14, −0.90): at the doorway's south edge (odom y −0.92 to −0.85),
+    0.32–0.34 m west of the wall line. F6 sat at about (−1.15, −0.50), 0.39–0.40 m further north: within the doorway's
+    north–south span and just outside the opening. Read after the runs from each transit's map poses
+    (`boots/B2/robot/logs/runs/B2_S4_R2_A.to_start.out`; the frame-health deposit's
+    `boots/F6/robot/logs/runs/F6_S2_R2_B.to_start.out`), mapped into odom through the frame then in force
+    (`boots/B2/robot/logs/ridealong/tf_b2.jsonl`, over 207–326 s sim; that deposit's `tf_f6.jsonl`, over 69.0–107.8 s
+    sim). The door edge and the wall line are the outside-room record's (§8).
 - **The fix belongs to the tool:** progress measured as the robot's displacement in the odom frame, never reset on a
   re-plan; one back-off per stall, and `STALLED` on the third (a version 2, deposited with the next registered
   campaign). This session applied an outside stall guard instead, on the straight-line distance (§1, items 3 and 6).
@@ -539,9 +547,10 @@ from this one) and its verifiers' corrections in full. For this record:
 - **The comparison stands:** both arms ran the same goals in the same rotations.
 - **The transfer caveat.** The deployed set's failure rate on this lane may not transfer to a room without that
   exterior. In the reprocess runs of the 2026-10-17 databases its metre-scale wrong closures fell at the doorway or
-  outside (57 of 57 first steps of 1 m or more), where the camera sees the scene's default grid ground plane under a
-  uniform sky; no deployed boot here took such a step. Its failures here were mainly refinement drift (§3), which those
-  data do not place outside per metre or matched for rotation (the audit's record).
+  outside (the first such step in all 34 deployed-set runs that took one, under both builds; 57 of 57 with A′'s), where
+  the camera sees the scene's default grid ground plane under a uniform sky; no deployed boot here took such a step. Its
+  failures here were mainly refinement drift (§3), which those data do not place outside per metre or matched for
+  rotation (the audit's record).
 
 ## 9. What is not claimed
 

@@ -68,10 +68,9 @@ Thresholds are fixed here, before any build; one changed after its first measure
 gate rests on a modelled number. The design is in the analysis ("The design", "Keeping v3's contract byte-identical").
 
 **Before generator code**
-- [x] **The corridor re-measure, first** (done 2026-10-29, the deposit's `corridor_remeasure/`): on the generator's own
-      functions a gap connects at every phase from 0.80 m (one corridor cell; 0.77–0.79 m at 70–90 % of phases; 1.20 m,
-      4–10 cells), and a drawn door from 0.81 m. The replica agreed; the in-repository probe read one cell wide. Decision 2
-      follows.
+- [x] **The corridor re-measure** (2026-10-29, the deposit's `corridor_remeasure/`): on the generator's own functions a
+      gap connects at every phase from 0.80 m (0.77–0.79 m at 70–90 % of phases; 1.20 m gives 4–10 cells), a drawn door
+      from 0.81 m; the replica agreed, the in-repository probe read one cell wide. Decision 2 follows.
 - [ ] Decisions 2, 3 and 5 recorded (or labelled provisional), and the coordinator's consult on the gated structural
       extensions: a second primitive collection, the larger house grid, a new `SceneSourceCfg` field and new gym IDs.
 

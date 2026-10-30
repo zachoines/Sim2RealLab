@@ -28,7 +28,7 @@ so that **cross-room paths enter training and no v3 ID or golden moves.**
 - [`policy-time-to-goal-baseline-2026-10-11`](../../../measurements/policy-time-to-goal-baseline-2026-10-11/README.md):
   v3's completion-time bound, which the horizon rule uses.
 - **The scoping analysis**, deposited as `procroom-two-room-scoping-2026-10-23/record-files/` in the evidence
-  repository ([Sim2RealLab-Artifacts](https://github.com/zachoines/Sim2RealLab-Artifacts), at `7d5ac8d`): its
+  repository ([Sim2RealLab-Artifacts](https://github.com/zachoines/Sim2RealLab-Artifacts), at `c0dd04b`): its
   `analysis/procroom-two-room-house_analysis.md`, cited below by section name, beside the replica, corpus replay and
   models it cites. Its figures are post hoc; its replica is a numpy stand-in, not the generator.
 
@@ -68,9 +68,10 @@ Thresholds are fixed here, before any build; one changed after its first measure
 gate rests on a modelled number. The design is in the analysis ("The design", "Keeping v3's contract byte-identical").
 
 **Before generator code**
-- [ ] **The corridor re-measure, first:** a Kit-free probe on a worktree of unmodified `main`, with the real rasterizer
-      and disc kernel, recording corridor cells against gap width from 0.60 to 2.00 m at every sub-cell phase. The
-      replica's one-to-two-cell disagreement with the in-repository probe is resolved or stated. Decision 2 follows.
+- [x] **The corridor re-measure, first** (done 2026-10-29, the deposit's `corridor_remeasure/`): on the generator's own
+      functions a gap connects at every phase from 0.80 m (one corridor cell; 0.77–0.79 m at 70–90 % of phases; 1.20 m,
+      4–10 cells), and a drawn door from 0.81 m. The replica agreed; the in-repository probe read one cell wide. Decision 2
+      follows.
 - [ ] Decisions 2, 3 and 5 recorded (or labelled provisional), and the coordinator's consult on the gated structural
       extensions: a second primitive collection, the larger house grid, a new `SceneSourceCfg` field and new gym IDs.
 
@@ -118,7 +119,8 @@ episodes per size-rule arm, one per house, on training's goal draw; a failure st
       criteria read from a Kit boot's grid dump, covered by `test_the_capture_variants_record_the_true_referent`.
 
 **Docs and regression**
-- [ ] A dated correction to `procroom-depth-enrichment.md` T3: Infinigen's two-room opening is 0.80 m, not 2 m.
+- [ ] Dated corrections: `procroom-depth-enrichment.md` T3 (Infinigen's two-room opening is 0.80 m, not 2 m), and
+      `procroom-placement-architecture.md`'s corridor probe (one cell wide; the raster floor is 0.80 m, not 0.70 m).
 - [ ] If your work invalidates a fact in any referenced context module, package README,
       top-level `Readme.md`, or guide under `docs/`, update those in the same commit. See
       [`conventions.md`'s user-facing documentation maintenance section](../../context/conventions.md#user-facing-documentation-maintenance).

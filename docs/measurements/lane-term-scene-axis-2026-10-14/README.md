@@ -53,6 +53,12 @@ characteristics need twelve.
   the frame's drift.** S04's goal was mapped under a frame 1.35 m and 18° off and moved at most 0.119 m
   during its reach. The starts were not kept physical (§4): S04 began 1.35 m from the spawn.
 
+> **Note (2026-10-29).** This record's statements that the video set's G1 and L2 lie outside the
+> room's free space (1.682 m and 2.372 m from the nearest free cell) and that training never puts a
+> goal there stand as written; its own goals A–F lie inside the room. Where G1 and L2 sit against the
+> room's walls and doorway, how they came to be outside, and what that changes in the lane's other
+> records are in [`lane-outside-room-goals-2026-10-23`](../lane-outside-room-goals-2026-10-23/README.md).
+
 ## 1. Setup
 
 | | |

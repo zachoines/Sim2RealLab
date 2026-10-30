@@ -147,6 +147,20 @@ doubles that rate, about a factor of two of the gap to the lane.
 
   Scene and depth content at the lane's goals is not compared either.
 
+> **Correction (2026-10-29).** The rig row read here is almost entirely a read at goals outside the
+> room. Of its 10 band entries, 8 were at G1, L1 or L2 (gate G1, L1, L2 and F1–F3; video G1 and L2),
+> which lie beyond the room's west wall, where training never places the robot or a subgoal; 2 were
+> inside (gate R1 and R2). The pre-crossing stop-short was 6 of 8 outside and 1 of 2 inside. The
+> limit-cycle detector fired on 5 of the 6 outside windows long enough to read and on neither inside
+> one (Fisher's exact p 0.11, two-sided), so a reading that the cycle occurs only at outside goals
+> rests on two inside windows. The size of the stop-short gap to the lane at inside goals is unknown:
+> pooled over the lane's inside reaches in three records, 8 of 18 went quiet before the crossing,
+> under three different stop-short definitions. The training-env measurements (Readings 1–4's
+> training-env figures, §9's pooled cap effect) involve no lane reach and stand. §6's rig comparison
+> and Reading 3's attribution of the rig's limit cycle to the lane's feedback path rest on rig reaches
+> almost all at outside goals. See
+> [`lane-outside-room-goals-2026-10-23`](../lane-outside-room-goals-2026-10-23/README.md).
+
 This record supplies the measurements the brief's Baseline box asks for, and its Deploy-cap box's
 for v3. The addendum's rule (§9) decides the brief's Decision box. The Bound box stays open.
 

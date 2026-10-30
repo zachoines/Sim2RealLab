@@ -88,6 +88,16 @@ case. That agreement is expected rather than independent, because the runner rea
 `map→base_link` transform the node gates on; the independent read is the stable-frame column
 below. No run was unscored, and no mission was re-run.
 
+> **Correction (2026-10-29).** The PASS is unsupported on goals inside the room, not overturned.
+> G1, L1 and L2 lie outside the room, about 1.2, 1.2 and 1.9 m beyond its west wall and past its
+> doorway, where training never places the robot or a subgoal; R1, R2 and R3's goal as listed lie
+> inside. Six of the seven counted successes were at outside goals (G1, L1 and L2 in the six
+> missions, and F1–F3, all at G1); the one inside success is R1. The inside evidence is therefore R1
+> reached and R2 missed. R3 was physically an outside run: its goal was sent on a frame rotated about −77°, which
+> put it just north of the room's north wall, and the robot left through the doorway and parked
+> outside the room. See
+> [`lane-outside-room-goals-2026-10-23`](../lane-outside-room-goals-2026-10-23/README.md).
+
 ## The six
 
 Bearing is taken from the actual start, relative to the actual heading; + is left.

@@ -94,12 +94,15 @@ Read at `72b9ba7`, and seen on the robot on 2026-10-20.
   - The run is deposited and a record states it.
 
   *2026-10-25 ([`driver-hardening-bench-2026-10-25`](../../measurements/driver-hardening-bench-2026-10-25/README.md) §4): the first cut brought the controllers back with
-  their names swapped, so every reconnect attempt failed and the driver stayed stopped until
-  `base` was restarted, as this brief records. The second cut kept the names: the driver
-  re-wrote the gains, read back P 15000, I 750, D 0, QPPS 2796 on all four motors and
-  reconnected with no restart. The spin turned all four wheels at −10 % to −14 % of 6.24 rad/s,
-  and the read after the stop showed the gains on both controllers. Every start read the gains
-  back too.*
+  their names swapped. All 25 reconnect attempts failed, the 20 after the controllers came back
+  at the swapped names, and the driver stayed stopped until `base` was restarted, as this brief
+  records; re-detection is filed as
+  [`driver-reconnect-redetects-by-address`](../active/reliability/driver-reconnect-redetects-by-address.md).
+  The second cut kept the names: the driver re-wrote the gains, read back P 15000, I 750, D 0,
+  QPPS 2796 on all four motors and reconnected with no restart. The spin turned all four wheels
+  at −10 % to −14 % of 6.24 rad/s from 0.6 s to 2.35 s after the first message, against −9 % to
+  −14 % in 2026-10-20's spins over the same 0.6–2.35 s, and the read after the stop showed the
+  gains on both controllers. Every start read the gains back too.*
 - [x] If your work invalidates a fact in any referenced context module, package README,
       top-level `Readme.md`, or guide under `docs/`, update those in the same commit. See
       [`conventions.md`'s user-facing documentation maintenance section](../context/conventions.md#user-facing-documentation-maintenance).

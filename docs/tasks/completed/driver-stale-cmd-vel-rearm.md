@@ -123,9 +123,11 @@ Read at `72b9ba7`, and seen on the robot on 2026-10-20.
       a record states it.
       *2026-10-25 ([`driver-hardening-bench-2026-10-25`](../../measurements/driver-hardening-bench-2026-10-25/README.md) §2): twice, one watchdog line after the
       unpause and 325 and 326 ticks at 0.00 rad/s with no count change; the camera, in the second
-      run, at most 0.76 after the unpause. The catch-up tick came 8 ms after the overdue one, and in
-      the second run the freeze landed inside a tick body; the stale message was dropped both
-      times.*
+      run, at most 0.76 after the unpause. The stale message was dropped both times. The tick after
+      the overdue one came 8 ms later in the first run and 16 ms later in the second: the tick due
+      next on the timer's period grid. In the second run the freeze landed inside a tick body, but
+      in an executor pass that did not hold the subscription, so the residual above of a pass that
+      did stays unmeasured.*
 - [x] If your work invalidates a fact in any referenced context module, package README,
       top-level `Readme.md`, or guide under `docs/`, update those in the same commit. See
       [`conventions.md`'s user-facing documentation maintenance section](../context/conventions.md#user-facing-documentation-maintenance).

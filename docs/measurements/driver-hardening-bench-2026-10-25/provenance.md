@@ -9,7 +9,7 @@ captured_date: 2026-10-25 CDT (2026-10-25 UTC)
 | host | strafer-nx: Jetson Orin NX 16 GB, L4T R36.4.3, kernel 5.15.148-tegra, Docker 29.1.3 |
 | controllers | two RoboClaw ST 2x45A, USB `03eb:2404`, on the hub at port `1-2`: front 0x80 on `1-2.3`, rear 0x81 on `1-2.4`, each with a 0.5 s serial timeout saved. Their `/dev/roboclaw*` names followed the enumeration order, which changed across the power cycles (the record's §4) |
 | depth camera | D555, CDC interface at `/dev/ttyACM0`, attached throughout |
-| webcam | Logitech BRIO on hub port `1-2.1`, `/dev/video6`, on FR's hub as in `chassis-stop-modes-2026-10-20`; uvcvideo with `hwtimestamps=0` |
+| webcam | Logitech BRIO on hub port `1-2.2`, `/dev/video6`, on FR's hub as in `chassis-stop-modes-2026-10-20`; uvcvideo with `hwtimestamps=0` |
 | power | a 4S LiPo, a 300 W 12 V buck converter, a Y harness to both controllers; main power cuts the RoboClaws only |
 | chassis | on blocks, all four wheels off the ground, for every drive |
 
@@ -39,17 +39,18 @@ deposit's `operator_notes.txt`.
 | `base` stopped (SIGINT); the 1.0 s set | 16:18:37.349; 16:18:38 |
 | `base` up (driver ready) | 16:18:48.127 |
 | pause_dose: pause; unpause | 16:18:59.149; 16:19:02.212 |
-| the dose test's power cycle, with `base` up: off USB; back | 16:20:40.973; 16:21:27.277–16:21:30.973 |
+| the dose test's power cycle, with `base` up: off USB; back, rear first | 16:20:40.973; 16:21:27.277–16:21:30.973 |
 | the driver reconnects, gains read back | 16:21:31.390 |
 | `base` stopped (SIGINT); `--read-only` | 16:22:04.264; 16:22:04 |
 | `base` up for step 3 (driver ready) | 16:22:19.983 |
-| first cut, USB in: off USB; back, swapped | 16:24:41.617; 16:24:51.569–16:24:52.021 |
+| first cut, USB in: off USB; back, front first, swapped | 16:24:41.617; 16:24:51.569–16:24:52.021 |
 | `base` restarted: stopped; driver ready | 16:25:33.143; 16:25:35.806 |
-| second cut, USB in: off USB; back | 16:26:22.741; 16:26:34.741–16:26:35.193 |
+| second cut, USB in: off USB; back, front first | 16:26:22.741; 16:26:34.741–16:26:35.193 |
 | the driver reconnects, gains read back | 16:26:36.968 |
 | the spin: first and last message | 16:28:17.225; 16:28:19.579 |
 | `base` stopped (SIGINT); `--read-only` | 16:28:39.852; 16:28:40 |
 | deposit commits `8242cafb`; `862cf84d` (the late sample's positions) | 16:31:51; 16:34:16 |
+| deposit correction `5953ef77`, and `520d984f`, which dates it in UTC (`DEPOSIT.md`'s correction of 2026-10-30) | 2026-10-30 03:00:11; 03:00:41 |
 
 ## Departures from the pre-registration
 
@@ -60,10 +61,13 @@ deposit's `operator_notes.txt`.
   given a relative path. The command's terminal output, filtered to the lines that carry the
   figures, is deposited.
 - **Step 2.4's power cycle ran with `base` up.** The question to the maintainer announced the stop
-  of `base`, but it came only after the cycle. With no publisher, nothing could drive; the cycle is
-  kept as an unplanned reconnect.
+  of `base`, but it came only after the cycle. With no publisher, nothing could drive, though no
+  encoder read covers the cycle; it is kept as an unplanned reconnect. That the USB went out before
+  main power rests on the maintainer's answer: the kernel log is equally consistent with main
+  power first.
 - **Step 3 needed a second cut.** The first came back with the names swapped, the pre-registered
   competing outcome. `base` was restarted, and a second cut, asked of the maintainer then, gave
   the planned case.
 - **The spin's publisher ran 2.35 s, not 4 s.** The probe container's start-up used the rest of
-  the 4 s window, so the hold was 1.75 s.
+  the 4 s window, so the means are taken over 1.75 s, from 0.6 s after the first message to the
+  last, which includes the ramp (the record's §4).

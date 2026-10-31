@@ -1,6 +1,6 @@
 # Re-apply the RoboClaw gains on reconnect, and read them back before driving
 
-**Status:** Shipped 2026-10-22 in `73649a0` and `4070d7b` (Jetson); the on-robot box stays open until the bench record.
+**Status:** Shipped 2026-10-22 in `73649a0` and `4070d7b` (Jetson); checked on the robot 2026-10-25.
 **PR:** https://github.com/zachoines/Sim2RealLab/pull/253
 
 **Type:** bug (after a main-power cut, the driver's reconnect restores the link but not the
@@ -84,14 +84,25 @@ Read at `72b9ba7`, and seen on the robot on 2026-10-20.
       sent, until it answers; then the error state clears and driving resumes.
 - [x] **The enumeration swap is documented** where the driver's recovery is described, with restart
       as the recovery.
-- [ ] **On the robot,** with `base` idle and no publisher, cut main power with the USB in.
+- [x] **On the robot,** with `base` idle and no publisher, cut main power with the USB in.
   - After `RoboClaw reconnected`, the driver's logged read-back shows P 15000, I 750, D 0 and
     QPPS 2796 on both, without a restart of `base`.
   - Then one 0.8 rad/s spin turns all four wheels.
   - Then, with `base` stopped, `diagnose_roboclaw.py --read-only` shows the same gains on both. A
     stop leaves the RAM gains in place; the read waits for the stop because two processes cannot
     share a controller's port.
-  - The run is deposited and a record states it. *Open until the bench record.*
+  - The run is deposited and a record states it.
+
+  *2026-10-25 ([`driver-hardening-bench-2026-10-25`](../../measurements/driver-hardening-bench-2026-10-25/README.md) §4): the first cut brought the controllers back with
+  their names swapped. All 25 reconnect attempts failed, the 20 after the controllers came back
+  at the swapped names, and the driver stayed stopped until `base` was restarted, as this brief
+  records; re-detection is filed as
+  [`driver-reconnect-redetects-by-address`](../active/reliability/driver-reconnect-redetects-by-address.md).
+  The second cut kept the names: the driver re-wrote the gains, read back P 15000, I 750, D 0,
+  QPPS 2796 on all four motors and reconnected with no restart. The spin turned all four wheels
+  at −10 % to −14 % of 6.24 rad/s from 0.6 s to 2.35 s after the first message, against −9 % to
+  −14 % in 2026-10-20's spins over the same 0.6–2.35 s, and the read after the stop showed the
+  gains on both controllers. Every start read the gains back too.*
 - [x] If your work invalidates a fact in any referenced context module, package README,
       top-level `Readme.md`, or guide under `docs/`, update those in the same commit. See
       [`conventions.md`'s user-facing documentation maintenance section](../context/conventions.md#user-facing-documentation-maintenance).

@@ -135,8 +135,12 @@ read wrong. Recorders and parity tooling do not survive them.
       - *`/d555/imu` and `/d555/imu/filtered` publish at 199.8 Hz, stamps every 5.01 ms.*
       - *The inference node's `stale_sources` are `goal joint_states odom subgoal tf`, without
         `imu`.*
-- [ ] Whatever host or image change this takes survives a reboot and is
+- [x] Whatever host or image change this takes survives a reboot and is
       written down for the host's actual L4T and kernel.
+      *2026-11-01: it survives one ([`chassis-velocity-loop-2026-10-31`](../../../measurements/chassis-velocity-loop-2026-10-31/README.md) §10). With the camera unplugged the host
+      rebooted at 04:12:47 UTC; `timedatectl` read synchronized; replugged, the camera gave
+      `/sys/module/uvcvideo/srcversion` `D0E2A5944399A529814A98C`, its HID device bound to
+      `hid-sensor-hub`, and `iio-sensor-proxy` stayed `masked`.*
       `docs/D555_IMU_KERNEL_FIX.md` is updated or generalised if the IMU route
       goes through it.
       *2026-10-04: written down; reboot not yet checked.*

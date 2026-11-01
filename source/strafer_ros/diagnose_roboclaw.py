@@ -2,13 +2,15 @@
 """Quick diagnostic for RoboClaw -- reads each controller, and with --drive tries duty-cycle
 commands instead of PID velocity.
 
-Also reads each controller's packet-serial timeout, and sets it on request.
+Also reads each controller's packet-serial timeout, and sets it on request. On request it
+writes the driver's velocity gains, and with --write-nvm saves either setting to flash.
 """
 
 from __future__ import annotations
 
 import argparse
 import decimal
+import glob
 import struct
 import sys
 import termios
@@ -18,6 +20,10 @@ from strafer_shared.constants import (
     ROBOCLAW_FRONT_ADDRESS,
     ROBOCLAW_REAR_ADDRESS,
     ROBOCLAW_BAUD_RATE,
+    ROBOCLAW_PID_D,
+    ROBOCLAW_PID_I,
+    ROBOCLAW_PID_P,
+    ROBOCLAW_QPPS,
     ROBOCLAW_SERIAL_TIMEOUT_S,
 )
 from strafer_driver.roboclaw_interface import (
@@ -40,6 +46,19 @@ NVM_WRITE_KEY = 0xE22EAB7A
 
 DUTY = 32
 DUTY_HOLD_S = 1.0
+# The gains roboclaw_node writes to both motors of both controllers at every start.
+DRIVER_GAINS = {
+    "P": ROBOCLAW_PID_P,
+    "I": ROBOCLAW_PID_I,
+    "D": ROBOCLAW_PID_D,
+    "QPPS": ROBOCLAW_QPPS,
+}
+# A flash write resets the controller: its USB port drops, then comes back, maybe renamed. The
+# polls are counted as well as timed, so the waits stay bounded when sleeps are skipped.
+RESET_GONE_POLL_S = 0.1
+RESET_GONE_WAIT_S = 5.0
+RESET_BACK_POLL_S = 0.5
+RESET_BACK_WAIT_S = 15.0
 # M1 and M2 of each controller, as the node maps them.
 WHEELS = {ROBOCLAW_FRONT_ADDRESS: ("FL", "FR"), ROBOCLAW_REAR_ADDRESS: ("RL", "RR")}
 SERIAL_ERRORS = (RoboClawError, OSError, termios.error)
@@ -89,6 +108,88 @@ def reload_settings_nvm(claw: RoboClawInterface) -> bool:
         return claw._send_with_ack(CMD_READ_SETTINGS_NVM)
 
 
+def format_gains(gains: dict) -> str:
+    return f"P={gains['P']} I={gains['I']} D={gains['D']} QPPS={gains['QPPS']}"
+
+
+def read_gains(claw: RoboClawInterface) -> list[dict]:
+    """Both motors' velocity gains (commands 55 and 56)."""
+    return [claw.read_velocity_pid_m1(), claw.read_velocity_pid_m2()]
+
+
+def set_driver_gains(claw: RoboClawInterface) -> bool:
+    """Write DRIVER_GAINS to both motors (commands 28 and 29); True if both were acknowledged."""
+    g = DRIVER_GAINS
+    m1 = claw.set_velocity_pid_m1(g["P"], g["I"], g["D"], g["QPPS"])
+    m2 = claw.set_velocity_pid_m2(g["P"], g["I"], g["D"], g["QPPS"])
+    return bool(m1 and m2)
+
+
+def poll(check, period: float, limit: float):
+    """Call *check* every *period* s until it returns a truthy value or *limit* s pass."""
+    t0 = time.monotonic()
+    polls = round(limit / period)
+    for n in range(polls + 1):
+        found = check()
+        if found or n == polls or time.monotonic() - t0 >= limit:
+            return found, time.monotonic() - t0
+        time.sleep(period)
+
+
+def verify_saved_gains(port: str, address: int, label: str, saved_timeout_s: float | None) -> bool:
+    """See the controller reset after a flash write, find it again by address, read what it loaded.
+
+    The gains (55, 56) and serial timeout (15) read after the reset are the ones it loaded from
+    flash, so they must be the driver's gains and the timeout that was saved before.
+    """
+    gone, waited = poll(lambda: not glob.glob(port), RESET_GONE_POLL_S, RESET_GONE_WAIT_S)
+    if not gone:
+        print(
+            f"  {port} was still there {waited:.1f} s after the save, so no reset was seen and "
+            "the save is unverified."
+        )
+        return False
+    print(f"  {port} dropped after {waited:.1f} s: the controller is resetting.")
+    port_back, waited = poll(
+        lambda: detect_roboclaws(
+            ROBOCLAW_FRONT_ADDRESS, ROBOCLAW_REAR_ADDRESS, ROBOCLAW_BAUD_RATE
+        ).get(address),
+        RESET_BACK_POLL_S,
+        RESET_BACK_WAIT_S,
+    )
+    if port_back is None:
+        print(
+            f"  {label} did not answer on /dev/roboclaw* within {waited:.1f} s, so the save is "
+            "unverified; once it is back, run the same command again, not --read-only."
+        )
+        return False
+    print(f"  {label} answers on {port_back}, {waited:.1f} s later.")
+    claw = RoboClawInterface(port_back, address, ROBOCLAW_BAUD_RATE)
+    try:
+        claw.open()
+        loaded = read_gains(claw)
+        loaded_timeout_s = claw.read_serial_timeout()
+    except SERIAL_ERRORS as e:
+        print(f"  Reading what it loaded failed: {e}; the save is unverified.")
+        return False
+    finally:
+        claw.close()
+    print(
+        f"  Loaded at the reset (cmd 55, 56, 15): M1 {format_gains(loaded[0])}, "
+        f"M2 {format_gains(loaded[1])}; serial timeout {loaded_timeout_s:.1f} s"
+    )
+    ok = True
+    if loaded != [DRIVER_GAINS, DRIVER_GAINS]:
+        print(f"  Those gains are not the driver's {format_gains(DRIVER_GAINS)}.")
+        ok = False
+    if saved_timeout_s is not None and loaded_timeout_s != saved_timeout_s:
+        print(f"  The serial timeout changed from the saved {saved_timeout_s:.1f} s.")
+        ok = False
+    if ok:
+        print("  Saved and verified.")
+    return ok
+
+
 def describe_serial_timeout(seconds: float) -> str:
     if seconds == ROBOCLAW_SERIAL_TIMEOUT_S:
         return f"{seconds:.1f} s"
@@ -136,10 +237,14 @@ def diagnose_roboclaw(
     address: int,
     label: str,
     set_timeout_s: float | None = None,
+    set_gains: bool = False,
     write_nvm: bool = False,
     drive: bool = False,
 ) -> int:
-    """Run diagnostics on a single RoboClaw; return 1 if it was not reached or a write failed."""
+    """Run diagnostics on a single RoboClaw.
+
+    Return 1 if it was not reached, a write failed or a save could not be verified.
+    """
     print(f"\n{'='*60}")
     print(f"Diagnosing RoboClaw '{label}' at {port} (address 0x{address:02x})")
     print(f"{'='*60}")
@@ -168,6 +273,18 @@ def diagnose_roboclaw(
         print(f"  Temperature: {t:.1f}°C")
     except RoboClawError as e:
         print(f"  Temperature read failed: {e}")
+
+    if write_nvm and set_gains:
+        try:
+            active = read_gains(claw)
+        except SERIAL_ERRORS as e:
+            print(f"  Velocity gains read failed (cmd 55, 56): {e}. Not setting them.")
+            claw.close()
+            return 1
+        print(
+            f"  Velocity gains in active memory (cmd 55, 56): M1 {format_gains(active[0])}, "
+            f"M2 {format_gains(active[1])}"
+        )
 
     if write_nvm:
         try:
@@ -240,6 +357,51 @@ def diagnose_roboclaw(
             claw.close()
             return 0 if saved else 1
 
+    if set_gains:
+        try:
+            before = read_gains(claw)
+        except SERIAL_ERRORS as e:
+            print(f"  Velocity gains read failed (cmd 55, 56): {e}. Not setting them.")
+            claw.close()
+            return 1
+        print(
+            f"  Velocity gains{' as saved' if write_nvm else ''} (cmd 55, 56): "
+            f"M1 {format_gains(before[0])}, M2 {format_gains(before[1])}"
+        )
+        try:
+            acked = set_driver_gains(claw)
+            after = read_gains(claw)
+        except SERIAL_ERRORS as e:
+            print(f"  Setting the gains (cmd 28, 29) or reading them back failed: {e}")
+            claw.close()
+            return 1
+        print(
+            f"  Velocity gains set to {format_gains(DRIVER_GAINS)} (cmd 28, 29)"
+            f"{'' if acked else ', not acknowledged'}; read back M1 {format_gains(after[0])}, "
+            f"M2 {format_gains(after[1])}"
+        )
+        if not acked or after != [DRIVER_GAINS, DRIVER_GAINS]:
+            print("  The set did not take; nothing more is written to this port.")
+            claw.close()
+            return 1
+
+        if write_nvm:
+            print("  Command 94 saves every active setting to flash and resets the controller.")
+            try:
+                saved = write_settings_nvm(claw)
+            except SERIAL_ERRORS as e:
+                print(f"  Command 94 failed: {e}")
+                saved = False
+            claw.close()
+            if not saved:
+                print(
+                    "  No ack for command 94, so whether anything was saved is unknown; "
+                    "once /dev/roboclaw* is back, run the same command again, not --read-only: "
+                    "it saves again and checks what the controller loads."
+                )
+                return 1
+            return 0 if verify_saved_gains(port, address, label, timeout_s) else 1
+
     # Read PID values
     print("\n  Velocity PID settings:")
     for m in (1, 2):
@@ -255,7 +417,7 @@ def diagnose_roboclaw(
                     f"    *** M{m} PID is all zeros -- velocity commands will NOT work! ***"
                 )
                 print(
-                    f"    *** Use Motion Studio to auto-tune PID, or set QPPS manually ***"
+                    "    *** --set-gains --write-nvm writes and saves the driver's gains ***"
                 )
 
     if not drive:
@@ -301,8 +463,8 @@ def serial_timeout_seconds(text: str) -> float:
 
 def main(argv: list[str] | None = None) -> int | None:
     parser = argparse.ArgumentParser(
-        description="RoboClaw diagnostic tool. It only reads, unless --drive or "
-        "--set-serial-timeout is given."
+        description="RoboClaw diagnostic tool. It only reads, unless --drive, "
+        "--set-serial-timeout or --set-gains is given."
     )
     parser.add_argument("--front", default=None)
     parser.add_argument("--rear", default=None)
@@ -319,7 +481,7 @@ def main(argv: list[str] | None = None) -> int | None:
         "--read-only",
         action="store_true",
         help="Read battery, temperature, serial timeout and velocity PID only, as a run "
-        "without --drive or --set-serial-timeout does; no motor command is sent",
+        "without --drive, --set-serial-timeout or --set-gains does; no motor command is sent",
     )
     mode.add_argument(
         "--drive",
@@ -336,16 +498,26 @@ def main(argv: list[str] | None = None) -> int | None:
         "0.1 s steps, 0 disables it) and read it back; no motor command is sent. Sets "
         "the active value only: a power-up loads the saved one",
     )
+    mode.add_argument(
+        "--set-gains",
+        action="store_true",
+        help=f"Write the driver's velocity gains ({format_gains(DRIVER_GAINS)}, from "
+        "strafer_shared.constants) to both motors of each controller (commands 28, 29) and "
+        "read them back (55, 56); no motor command is sent. Sets the active values only: a "
+        "power-up loads the saved ones",
+    )
     parser.add_argument(
         "--write-nvm",
         action="store_true",
-        help="With --set-serial-timeout, first reload the saved settings (command 95), "
-        "then set the timeout and save every setting to flash (command 94), which resets "
-        "the controller. Run it with base stopped",
+        help="With --set-serial-timeout or --set-gains, first reload the saved settings "
+        "(command 95), then set and save every setting to flash (command 94), which resets "
+        "the controller. With --set-gains it then waits to see the port drop, finds the "
+        "controller again by its address, and checks the gains and timeout it loaded. After a "
+        "failure the next controller is not written. Run it with base stopped",
     )
     args = parser.parse_args(argv)
-    if args.write_nvm and args.set_serial_timeout is None:
-        parser.error("--write-nvm needs --set-serial-timeout")
+    if args.write_nvm and args.set_serial_timeout is None and not args.set_gains:
+        parser.error("--write-nvm needs --set-serial-timeout or --set-gains")
 
     unverified = [p for p in (args.front, args.rear) if p and not is_udev_roboclaw_port(p)]
     if unverified and not args.allow_unverified_ports:
@@ -384,10 +556,11 @@ def main(argv: list[str] | None = None) -> int | None:
 
     flags = dict(
         set_timeout_s=args.set_serial_timeout,
+        set_gains=args.set_gains,
         write_nvm=args.write_nvm,
         drive=args.drive,
     )
-    set_requested = args.set_serial_timeout is not None
+    set_requested = args.set_serial_timeout is not None or args.set_gains
     plan = []
     if not args.rear_only:
         plan.append((args.front, ROBOCLAW_FRONT_ADDRESS, "Front"))
@@ -401,6 +574,9 @@ def main(argv: list[str] | None = None) -> int | None:
         )
     failed = False
     for port, address, label in plan:
+        if failed and args.write_nvm:
+            print(f"\n{label} RoboClaw (0x{address:02X}): not written, after the failure above.")
+            break
         if port:
             failed |= diagnose_roboclaw(port, address, label, **flags) != 0
         else:

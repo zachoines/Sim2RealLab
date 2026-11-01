@@ -124,7 +124,7 @@ map ← odom ← base_link ← {chassis, wheel_*, d555_link}
 - Dual RoboClaw ST 2x45A over USB serial, at `/dev/roboclaw<N>` via udev (the kernel names them `/dev/ttyACM<N>`). Addresses `0x80` (front) + `0x81` (rear). Baud 115200, Packet Serial mode.
 - 4× GoBilda 5203 motors at 19.2:1. Encoder resolution 537.7 PPR at output shaft.
 - `wheel_axis_signs = [-1, 1, -1, 1]` for `[FL, FR, RL, RR]` is applied inside `strafer_shared.mecanum_kinematics`. **Do not** re-apply sign inversion inside this package.
-- RoboClaw PID values (`P=15000`, `I=750`, `D=0`, `QPPS=2657`) live in `strafer_shared.constants` and are auto-written to RAM, and read back, on every `roboclaw_node` startup and after every reconnect.
+- RoboClaw PID values (`P=15000`, `I=750`, `D=0`, `QPPS=2657`) live in `strafer_shared.constants` and are auto-written to RAM, and read back, on every `roboclaw_node` startup and after every reconnect; `diagnose_roboclaw.py --set-gains --write-nvm` saves the same values to each controller's flash.
 - udev rules in [`99-strafer.rules`](99-strafer.rules) create a `/dev/roboclaw<N>` symlink for each RoboClaw (`<N>` is its ttyACM number, so with the camera at `ttyACM0` the pair may be 1 and 2) and grant IIO permissions for the D555 IMU stack.
 - **Before powering the robot** (evidence: [`jetson-untether`](../../docs/tasks/active/reliability/jetson-untether.md)):
   - **Plug the D555 in after the Jetson has booted.** Attached at power-on, it enumerates without a
@@ -245,8 +245,12 @@ python3 source/strafer_ros/tune_pid.py --tune         # set + measure
 # PID and the packet-serial timeout (command 15, the active value). --drive adds the direct
 # duty-cycle test (skips PID; wheels lifted). --set-serial-timeout 0.5 sets the timeout and
 # reads it back; with --write-nvm it first reloads the saved settings (command 95), then sets
-# and saves them all to flash (command 94), which resets the controller.
+# and saves them all to flash (command 94), which resets the controller. --set-gains writes the
+# driver's velocity gains (strafer_shared.constants) to both motors and reads them back; with
+# --write-nvm it saves them the same way, then finds the controller again by its address and
+# reads the saved gains back. Run either save with base stopped.
 python3 source/strafer_ros/diagnose_roboclaw.py
+python3 source/strafer_ros/diagnose_roboclaw.py --set-gains --write-nvm --front-only
 
 # D555 camera + IMU standalone check
 python3 source/strafer_ros/test_d555_camera.py

@@ -428,7 +428,7 @@ one it replaces comes out.
 - [x] `99-strafer.rules` is installed and survives a reboot.
       *2026-10-19: installed from `371e848`, giving `/dev/roboclaw1` and `/dev/roboclaw2` with
       `ID_MM_DEVICE_IGNORE=1` ([`chassis-bringup-2026-10-19`](../../../measurements/chassis-bringup-2026-10-19/README.md) §1). The reboot is unread.*
-      *2026-11-01: it survives one ([`chassis-velocity-loop-2026-10-31`](../../../measurements/chassis-velocity-loop-2026-10-31/README.md) §10). After the reboot, with the camera
+      *2026-11-01: it survives one ([`chassis-velocity-loop-2026-10-31`](../../../measurements/chassis-velocity-loop-2026-10-31/README.md) §9). After the reboot, with the camera
       out at boot, the controllers came up as `/dev/roboclaw0` and `/dev/roboclaw1`, both with
       `ID_MM_DEVICE_IGNORE=1`; the camera's serial interface, plugged in later, took `ttyACM2`
       with no `roboclaw` name.*

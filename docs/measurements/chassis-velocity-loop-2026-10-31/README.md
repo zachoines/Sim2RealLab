@@ -357,6 +357,8 @@ after it records; 8 is an observation.
   from a cold start better than C1's −13.7 to −9.5 % is open.
 - **The lead swap.** Steps 2 and 3 did not run, so the motor and M2's output stage are not
   separated; with no steady deficit, the swap had nothing to place.
+- **The D555's stream after the reboot.** The IMU rate and the aligned depth were not re-read; they
+  are read at the next perception start.
 - **Which battery reading is right,** and why the controllers' USB failed to enumerate.
 - **`make test-ros` and the documentation box,** which belong to the constants change's pull
   request, not to this bench.

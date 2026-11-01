@@ -137,10 +137,6 @@ read wrong. Recorders and parity tooling do not survive them.
         `imu`.*
 - [x] Whatever host or image change this takes survives a reboot and is
       written down for the host's actual L4T and kernel.
-      *2026-11-01: it survives one ([`chassis-velocity-loop-2026-10-31`](../../../measurements/chassis-velocity-loop-2026-10-31/README.md) §10). With the camera unplugged the host
-      rebooted at 04:12:47 UTC; `timedatectl` read synchronized; replugged, the camera gave
-      `/sys/module/uvcvideo/srcversion` `D0E2A5944399A529814A98C`, its HID device bound to
-      `hid-sensor-hub`, and `iio-sensor-proxy` stayed `masked`.*
       `docs/D555_IMU_KERNEL_FIX.md` is updated or generalised if the IMU route
       goes through it.
       *2026-10-04: written down; reboot not yet checked.*
@@ -157,6 +153,12 @@ read wrong. Recorders and parity tooling do not survive them.
         maintainer's remote authorization and against the standing rule that host changes are
         the maintainer's commands. That was a one-off: host changes stay the maintainer's unless
         delegated again, step by step, in writing.*
+      *2026-11-01: it survives one ([`chassis-velocity-loop-2026-10-31`](../../../measurements/chassis-velocity-loop-2026-10-31/README.md) §9). With the camera unplugged the host
+      rebooted at 04:12:47 UTC; `timedatectl` read synchronized; replugged, the camera gave
+      `/sys/module/uvcvideo/srcversion` `D0E2A5944399A529814A98C`, its HID device bound to
+      `hid-sensor-hub`, and `iio-sensor-proxy` stayed `masked`. The stream itself, the IMU rate
+      and the aligned depth, was not re-read after the reboot; it is read at the next perception
+      start.*
 - [x] Each item is read back with the record's probes (its deposit's
       `hw/probe/`) and recorded.
       *Met 2026-10-04: baseline, after stage 1 and after stage 2, in [`d555-stream-integrity-2026-10-04`](../../../measurements/d555-stream-integrity-2026-10-04/README.md).*

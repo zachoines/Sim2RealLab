@@ -240,7 +240,7 @@ ROBOCLAW_REAR_PORT = "/dev/roboclaw1"  # used only with auto_detect false
 ROBOCLAW_PID_P = 15000
 ROBOCLAW_PID_I = 750
 ROBOCLAW_PID_D = 0
-ROBOCLAW_QPPS = 2657  # measured full speed, ticks/s: the four motors' mean (2026-10-31 bench)
+ROBOCLAW_QPPS = 2657  # measured full speed, ticks/s: the four motors' mean
 
 # Packet-serial timeout the bring-up sets on each controller (command 14; 0 disables it).
 ROBOCLAW_SERIAL_TIMEOUT_S = 0.5

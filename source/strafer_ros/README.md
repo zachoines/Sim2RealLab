@@ -124,7 +124,7 @@ map ← odom ← base_link ← {chassis, wheel_*, d555_link}
 - Dual RoboClaw ST 2x45A over USB serial, at `/dev/roboclaw<N>` via udev (the kernel names them `/dev/ttyACM<N>`). Addresses `0x80` (front) + `0x81` (rear). Baud 115200, Packet Serial mode.
 - 4× GoBilda 5203 motors at 19.2:1. Encoder resolution 537.7 PPR at output shaft.
 - `wheel_axis_signs = [-1, 1, -1, 1]` for `[FL, FR, RL, RR]` is applied inside `strafer_shared.mecanum_kinematics`. **Do not** re-apply sign inversion inside this package.
-- RoboClaw PID values (`P=15000`, `I=750`, `D=0`, `QPPS=2796`) live in `strafer_shared.constants` and are auto-written to RAM, and read back, on every `roboclaw_node` startup and after every reconnect.
+- RoboClaw PID values (`P=15000`, `I=750`, `D=0`, `QPPS=2657`) live in `strafer_shared.constants` and are auto-written to RAM, and read back, on every `roboclaw_node` startup and after every reconnect.
 - udev rules in [`99-strafer.rules`](99-strafer.rules) create a `/dev/roboclaw<N>` symlink for each RoboClaw (`<N>` is its ttyACM number, so with the camera at `ttyACM0` the pair may be 1 and 2) and grant IIO permissions for the D555 IMU stack.
 - **Before powering the robot** (evidence: [`jetson-untether`](../../docs/tasks/active/reliability/jetson-untether.md)):
   - **Plug the D555 in after the Jetson has booted.** Attached at power-on, it enumerates without a

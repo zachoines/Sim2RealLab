@@ -79,6 +79,12 @@ before the first 0.30 m crossing
 
 That difference is the finding. This record does not identify which lane condition produces it (§7).
 
+> **Correction (2026-10-29).** All twelve reaches went to G1 and L2, which lie outside the room, past its doorway,
+> where training never places the robot or a subgoal. The referent-offset reading stands at G1 and L2, where it was
+> read, and says nothing of goals inside the room. Its stop-short figures, the 11 of 12 reaches quiet before the
+> 0.30 m crossing among them, are reads at outside goals only; the rate at goals inside the room is not measured
+> here. See [`lane-outside-room-goals-2026-10-23`](../lane-outside-room-goals-2026-10-23/README.md).
+
 ## 1. Setup
 
 | | |

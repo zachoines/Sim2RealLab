@@ -121,6 +121,15 @@ executor turns the robot inside its `translate` skill before it sends the policy
 
 ## Deviations
 
+> **Note (2026-10-29).** Both goals lie outside the room, as this record states; it is
+> descriptive, and nothing in it is overturned. The first attempt's transit back from G1's goal first held
+> 64 s (106.8–170.8 s sim) at map (−1.43, 0.43), world (−2.92, 0.26), just north of the north jamb's end
+> outside the wall, with SLAM's `map→odom` 0.45 m from its first sample in the ride-along; at the jamb (the
+> second item below), over it and its retry (179.8–269.6 s sim), the offset stood 0.59–0.66 m
+> (`logs/runs/container_gate_all/tf_video.jsonl`). The session's largest offset, 0.680 m,
+> came after the nudge, at 289.9 s sim, during the second attempt's transit. See
+> [`lane-outside-room-goals-2026-10-23`](../lane-outside-room-goals-2026-10-23/README.md).
+
 - **Record name and date.** The set was planned as `goal-a-cli-video-2026-10-05` and recorded on
   2026-10-09. The record takes the recording date. The two tools' docstrings still name the planned
   directory.

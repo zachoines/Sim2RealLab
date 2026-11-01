@@ -28,6 +28,15 @@ from the goal before crossing 0.30 m, uncapped and capped alike (§5). The lane'
 on earlier records is 7 of 10; the referent-offset A/B's was 11 of 12. In the training env the rate is
 2.94 % uncapped and 6.40 % capped (pooled).
 
+> **Correction (2026-10-29).** As the Setup's goals row says, G1 and L2 lie outside the room. Of this
+> record's clauses, only the lane clause rests on that: the second session's twelve scored reaches, all
+> at G1 and L2, read the cap as not the lane's main term at those two goals and say nothing of goals
+> inside the room. The earlier lane rates quoted above are likewise outside-goal reads: 8 of the 10
+> band entries behind the 7 of 10, and all 12 reaches behind the 11 of 12. The training-env figures
+> cited above (the doubling, 2.94 % and 6.40 %), on which `depth-subgoal-v4-scoping` carries its
+> speed-envelope item, involve no lane reach and stand. See
+> [`lane-outside-room-goals-2026-10-23`](../lane-outside-room-goals-2026-10-23/README.md).
+
 **Computed after the run: with SLAM's frame held at goal-sent the terminal reads change** (§5).
 - **The held read.** The goal is mapped into odom once and the robot read from the odom series.
 - **Five reaches never came within 0.30 m.** Of the twelve `SUCCEEDED` reaches, five never did:

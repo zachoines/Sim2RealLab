@@ -23,9 +23,10 @@ deposit: B3 done 20:33:03, B4 20:59:38, B5 21:39:25 CDT). No campaign step cites
   structured output is `workflow1_exterior_audit.json`.
 - **No registration.** Nothing was pre-registered. No reach, bridge or robot-side process was run for the audit.
 
-**Recomputation for the record (2026-10-29).** Every figure the README states was recomputed on the same host before
-it was written. Four kinds are marked in the README instead: figures quoted from another record, §2's
-readings quoted from `wf_training_and_geometry/notes.txt`, §5's rotation-matched ratios, and Appendix A's verifier text.
+**Recomputation for the record (2026-10-29).** Every figure the README states was recomputed on the same host before it
+was written. Four kinds are marked in the README instead: figures quoted from another record, §2's readings quoted from
+`wf_training_and_geometry/notes.txt`, §5's rotation-matched ratios, and the stated figures in "Figures the verification
+changed".
 - **How.** By independent code read against the deposits, or by rerunning a copy of a deposited script in a scratch
   directory. No deposited file was run in place or changed.
 - **The databases.** The 2026-10-17 databases were opened read-only (`mode=ro&immutable=1`). Their sha256 were
@@ -43,7 +44,7 @@ readings quoted from `wf_training_and_geometry/notes.txt`, §5's rotation-matche
 | the reprocessing runs | sim host, `~/Workspace/rtabmap_reprocess_dgx/runs/` | `lane-rtabmap-reprocess-2026-10-21/record-files/runs/` (the 770 matrix extracts byte-equal) and `addendum-2026-10-22/runs/`, at `df39404` |
 | the per-link extracts | `lane-rtabmap-reprocess-2026-10-21/record-files/per-link/db_links/` | that deposit |
 | the dumped training grid | sim host, B3's `~/Workspace/rig_lane_a3_dgx/B3/grid_dump.npz`, sha256 `36929c68a9e48a74eed89cfeb27c4dec0d938603e5ee8be2f24321f0b4adbbcd` | `lane-rtabmap-a3-2026-10-22`'s `boots/grid_dump_B3.npz`; byte-equal to `lane-slam-frame-health-2026-10-17`'s `goals/grid_dump_F1.npz` |
-| the 2026-10-23 session | the audit: B3's dumped grid, the grid hashes of B1–B3 and B2's `chain.log` FRAME lines only; the record's reach count (2026-10-29): `analysis/odom_terminal.json`; the README's quoted figures: that record's §6 and its `analysis/frame_health_B2*.txt` | `lane-rtabmap-a3-2026-10-22`'s `boots/` and `analysis/` |
+| the 2026-10-23 session | the audit: B3's dumped grid, the grid hashes of B1–B3 and B2's `chain.log` FRAME lines only; the record's reach count (2026-10-29): `analysis/odom_terminal.json`; the README's quoted figures: that record's §6; the notes in `VERIFICATION.md`: that §6 and its `analysis/frame_health_B2*.txt` | `lane-rtabmap-a3-2026-10-22`'s `boots/` and `analysis/` |
 | the earlier sessions' deposits | `goal-a-rig-gate-2026-08-17`, `goal-a-attribution-2026-08-22`, `goal-a-rig-gate-v3-2026-09-25`, `goal-a-cli-confirmation-2026-10-03`, `goal-a-cli-video-2026-10-09`, `policy-time-to-goal-baseline-2026-10-11`, `subgoal-referent-offset-ab-2026-10-11`, `lane-term-speedcap-ab-2026-10-14`, `lane-term-scene-axis-2026-10-14` | those deposits; `wf_records_survey/leg2_files/` links twenty of the speed-cap deposit's files |
 | the records | the sim host's main checkout at `0a975ef`; the frame-health and reprocessing READMEs from their pull-request branches (`44e56ab`, `1df7935`), merged since | this repository |
 | the source | the sim host's checkout at `0a975ef`, for `proc_room.py`, `commands.py`, `events.py`, `strafer_env_cfg.py` and `bridge_grid_dump.py`; Isaac Lab v3.0.0-beta2.patch1 for the root quaternion's order | the README cites lines at `af7d7985`; `proc_room.py` is unchanged between `615fc14` (v3's training tree) and `af7d7985` |
@@ -62,7 +63,9 @@ readings quoted from `wf_training_and_geometry/notes.txt`, §5's rotation-matche
   - one per verifier (`wf_verify_<name>/`).
 - **Completed** at `e604a87` with `DEPOSIT.md`, the record's recomputation scripts (`recompute_2026-10-29/`) and
   `SHA256SUMS`. Four more recomputation scripts were added at `6b53956`: `closures_beyond_wall.py`, `pins_rule.py`,
-  `live_steps.py` and `checks_starts_views_steps.py` (named so at `3a5a9a9`); `SHA256SUMS` lists 307 files.
+  `live_steps.py` and `checks_starts_views_steps.py` (named so at `3a5a9a9`). `VERIFICATION.md`, the README's former
+  appendix of the verifiers' corrections, was added at `1ad0032`, and its opening paragraph completed at
+  `ac0bf95`; `SHA256SUMS` lists 308 files.
 - **`DEPOSIT.md`** describes the files.
 - **`SHA256SUMS`** lists the sha256 of every regular file except its own and `DEPOSIT.md`'s. The 20 links under
   `wf_records_survey/leg2_files/` are not hashed there; `SOURCES.txt` gives their targets' paths and sha256.

@@ -64,8 +64,8 @@ room, and if so, what does that mean for SLAM, for the policy, and for the recor
   - `training_and_geometry`: the room's geometry, and whether training ever goes outside a room.
 
   Their summaries, tables, verdicts and corrections are in `wf_digest.txt`, and their full output is
-  `workflow1_exterior_audit.json`. Appendix A carries every correction and every missed item. This record states the
-  findings with those corrections applied, and recomputes each figure it states.
+  `workflow1_exterior_audit.json`. `VERIFICATION.md` carries every correction and every missed item. This record states
+  the findings with those corrections applied, and recomputes each figure it states.
 - **Read-only.** The audit read the 2026-10-17 rtabmap databases, the reprocessing record's 770 matrix runs and its
   addendum's 180, the dumped training grid, and the earlier records and their deposits. It ran no bridge, container
   or robot-side process, and no reach. Of the 2026-10-23 session it read only B3's dumped grid, the grid hashes of
@@ -74,8 +74,10 @@ room, and if so, what does that mean for SLAM, for the policy, and for the recor
 - **Recomputed for this record.** Every figure in §§2–7 was recomputed from the deposits, by independent code or by
   rerunning a copy of the deposited script, before it was written here (`recompute_2026-10-29/`). Four kinds are marked
   where they appear instead: figures quoted from another record, §2's readings quoted from
-  `wf_training_and_geometry/notes.txt`, §5's rotation-matched ratios, and Appendix A's verifier text. Where a figure
-  first stated elsewhere did not reproduce, the recomputed value is used, and the difference is named.
+  `wf_training_and_geometry/notes.txt`, §5's rotation-matched ratios, and the stated figures in "Figures the
+  verification changed". Where a figure first stated elsewhere did not reproduce, the recomputed value is used, and the
+  difference is named; where a verifier's figure differs from this record's, `VERIFICATION.md` names it (its first
+  table and its *Record* notes).
 - **Names.**
   - **The 2026-10-17 arms** are A, as deployed, and B, with loop-closure acceptance off. Their segments are F1–F6, with
     F2's relaunches F2r and F2r2 ([`lane-slam-frame-health-2026-10-17`](../lane-slam-frame-health-2026-10-17/README.md),
@@ -353,9 +355,9 @@ the to-node classed by the 0.30 m margin.
 
 - **Per link and per metre, outside links err less in yaw.** They are straight runs.
 - **Per degree turned they err more,** and their median translation error is larger: 15.7 mm against 11.0 mm in arm A.
-- **Matched for rotation,** arm A's outside links carry 0.93–0.99 of the inside yaw error, and arm B's 0.64–0.67.
-  These are the investigation's and its verifier's figures under their binning (Appendix A, `slam_by_location` C4),
-  not re-derived here.
+- **Matched for rotation,** arm A's outside links carry 0.93–0.99 of the inside yaw error, and arm B's 0.64–0.67. These
+  are the investigation's and its verifier's figures under their binning (`VERIFICATION.md`, `slam_by_location` C4), not
+  re-derived here.
 - **Drift without the exterior.** The 2026-10-14 scene-axis session never left the room: its robot came no closer to
   the west wall line than x −2.11. Its `map→odom` still moved 1.362 m from its first ride-along sample.
 - **The exterior without drift.** The 2026-10-11 referent-offset session ran twelve reaches to G1 and L2, and its frame
@@ -440,7 +442,7 @@ unchanged from `615fc14`, the tree v3 trained at).
 - **On the lane, looking out from inside.** The lane's own views out through the doorway are like the outside class.
   Inside but within 1 m of the west wall line, facing west (|heading| over 135°), the far-clamp medians are 0.812 in
   the top 11/45 of the rows and 0.445 over the frame. That is 167 nodes of the 2026-10-17 databases; the verifier's
-  41-frame sample gives the same medians (Appendix A, `training_and_geometry` C1).
+  41-frame sample gives the same medians (`VERIFICATION.md`, `training_and_geometry` C1).
 - **What training never had** is the robot itself outside the room, with its goal and subgoal outside, and a goal
   reached through a doorway.
 
@@ -536,8 +538,8 @@ scene-axis records, which were already right.
 - **Not the inbound view.** The 2026-10-17 data hold almost no exterior views facing the room.
 - **Not the 2026-10-23 session's own data.** Its databases and ride-alongs were not read here. Of its deposit, the audit
   read B3's dumped grid, the grid hashes of B1–B3 and B2's `chain.log` FRAME lines (§1); this record reads its
-  `analysis/odom_terminal.json` for the reach count (§3) and quotes B2's drift (`analysis/frame_health_B2*.txt`) and
-  B5's transit from its record (§5, Appendix A). Its record reads its reaches' classes.
+  `analysis/odom_terminal.json` for the reach count (§3) and quotes B5's transit from its record (§5); the notes in
+  `VERIFICATION.md` also quote B2's drift (`analysis/frame_health_B2*.txt`). Its record reads its reaches' classes.
 - **Not a training rate of exterior views.** The doorway-view figures are a walls-only model, and what lies beyond a
   training doorway is inferred from the environment spacing.
 - **Not that the policy arrives outside.** 48 of 48 is the node's verdict on its live frame. In odom, 7 of
@@ -546,367 +548,36 @@ scene-axis records, which were already right.
 - **Nothing about the real robot.** The bridge supplies ground-truth odometry and a simulated exterior; the robot has
   neither.
 
-## Appendix A. The verifiers' corrections and the items they found missed
+## Figures the verification changed
 
-Every verdict of "holds with correction" and every missed item, from `wf_digest.txt`. The verdict counts:
-- `slam_by_location`: 16 hold and 4 hold with correction;
-- `camera_by_location`: 7 and 8;
-- `records_survey`: 10 and 8;
-- `training_and_geometry`: 9 and 7.
+Each row is a figure an investigation stated (`wf_digest.txt`, `workflow1_exterior_audit.json`) that its verifier
+corrected or narrowed, and the figure this record uses. The verifiers' text, with every correction and every missed
+item, is `VERIFICATION.md`.
 
-The text below is the verifiers' text, with dates, paths and roles written out. Notes in italics marked *This record*
-are added here. Where this record re-derived a figure, the body's figure governs. The rest are the verifiers' and are
-not re-derived here.
-
-**Where the verifiers' figures and the body's differ** (the body's own definitions; §§3–5):
-
-| appendix item | verifier | body |
-|---|---|---|
-| A.3 C15, R3's sent goal | 0.18 m north of the north wall line; left "10.9 s in" | 0.11–0.21 m north over the line's range; crossed x −2.45 10.5 s after goal-sent |
-| A.3 C7, the 09-25 step | rotating in place "through 169–173°"; 0.27 m from the start; 0.78 m from the wall line | heading 169–173° across the step, from −133° at 355.0 s; 0.28 m; 0.77–0.79 m |
-| A.3 C8, the first metre-scale steps | 0.08 m or more beyond the wall line (at −2.46) | 0.07 m or more, over the line's range |
-| A.3 C8, the rotations | "about 80–90°", 76–90° | 75–91° at six places, 59–89° at F5's |
-| A.3 C8, F4 node 153 and F1 node 149 | "about 1°"; "about 1.1 m away" | 0.6–6.4°; 0.94–1.08 m from the spawn |
-| A.3 C11 and its missed item, the pins' frame offsets | 2026-10-09 0.68 m; S11 and S12 1.2–1.5 m; S05 0.96 m | 2026-10-09 0.45 over the first hold, 0.59–0.63 at the jamb, 0.63–0.66 over the retry; S11 and S12 1.25–1.32 m; S05 0.93–1.02 m |
-| A.4 C1 and missed, east-facing outside nodes | 0 of 846 | 0 of 846–852, by the wall line's range |
-| A.2 missed, the doorway crossings | world y −0.98 to −0.22, at x −2.575 | y −0.95 to −0.25, at the wall line |
-| A.4 A7, the straight L2 line's clearance of the south jamb's outer corner | 0.04–0.11 m | 0.04–0.13 m over the grid's wall-line and jamb ranges (§2); 0.04–0.11 m over the generator fit |
-
-### A.1 `slam_by_location`
-
-Corrections:
-- **C4.** The rotation-matched ratio depends on the bins chosen. With bins of 0, 0.25, 0.5, 1, 2, 4, 8 and 16°:
-  - **Arm A** gives 0.95 by link midpoint and 0.99 by to-node location, and **arm B** 0.67 and 0.66.
-  - **The reprocessing runs:** the deployed set gives 0.73 (0.23.7) and 0.68 (0.23.13); A″ gives 0.78 and 0.74.
-  - **So in arm A,** outside links carry about the same rotation-matched yaw error as inside (0.93–0.99), not clearly
-    less. The clearly lower outside ratio is arm B's.
-  - **Translation.** Arm A's length-matched translation ratio is 1.13 by midpoint, 1.25 by to-node, and 1.25 with the
-    box moved 0.3 m: modestly higher outside, above the claimed 0.98–1.16.
-  - **Turning links** (5° or more) err more outside (median 0.889 against 0.596 in arm A), but there are few.
-- **C12.** The "about 22 % of the time" exterior share fits F1 only (22.8 %); F2's is 15.7 %. F2's residual exterior
-  drift share of 15.5 % is still about its time share.
-- **C17.** The 2026-10-23 B2 pin began at 181 s sim, between frame samples at 146.5 and 329.6 s.
-  - **Under the earlier frame.** With the 146.5 s `map→odom` (−0.128, 0.291, 3.65°), the same map point lies at odom
-    (−1.34, −0.66), world (−2.99, −1.21), 0.82 m from the door centre.
-  - **So** the pin's location is uncertain by about 0.3 m, but it lies outside and south of the doorway either way.
-  - *This record: the a3 record's §6 reads that session's ride-along over the pin itself (207–326 s sim) and places it
-    at about odom (−1.14, −0.90), world (−2.79, −1.45), at the doorway's south edge.*
-- **C19.** The goal sampler is traced.
-  - **The code.** `SubgoalCommand._resample_command` (`mdp/commands.py`, about lines 617–640) draws goal candidates from
-    `_proc_room_spawn_pts` and plans on `_proc_room_free_space`. Both come from the clipped occupancy (`proc_room.py`
-    575–590).
-  - **The levels.** The enriched difficulty range U[4, 7] always has room walls, so the open-field levels 0–1, which
-    skip the clip, are never used.
-  - **The points.** The dump's spawn points span world x −2.15 to 1.95 and y −2.45 to 2.45; G1 and L2 lie outside them.
-  - **Not verified:** that the deployed checkpoint was trained with this exact configuration. (`training_and_geometry`
-    B1 below checks the tree.)
-
-Missed:
-- **Most deployed-set failures are not metre-scale steps.**
-  - **The count.** Of the 70 failing deployed runs under 0.23.7, 52 have no step of 1 m or more, with largest drift
-    0.31–1.14 m (54 of 70 under 0.23.13). Only 18 (16) fail on a metre-scale step. So removing the doorway's and the
-    exterior's wrong closures would leave most runs failing the 0.30 m rule.
-  - **The confound.** The only segment that holds, F2r, lasts 14 s, travels 0.34 m and never leaves the room. Every
-    longer segment includes G1 or L2, so exposure outside is confounded with route length at the segment level
-    (`v_largest.py`).
-- **The doorway pin on a return transit already happened on 2026-10-17, with closures off.**
-  - **F6's pin.** F6's (arm B) transit back from L2 held at map (−1.38, −0.44): odom (−1.15, −0.50), world
-    (−2.80, −1.05). It held from about 69 to 107 s sim, re-planning while commanding (−0.207, +0.217) m/s, with the
-    drift constant at 0.394 m. *This record: the frame-health record's dated line describes it as 69–108 s sim,
-    re-planning every 5.1 s, 8 of the transit's 17 re-plans.*
-  - **Near B2's in map coordinates.** Those map coordinates lie within 0.05 m of the 2026-10-23 B2 pin's map (−1.423,
-    −0.455). *This record: in odom they are different places, because the two frames differed. The a3 record's §6
-    places B2's pin at about odom (−1.14, −0.90) and F6's sit at about (−1.15, −0.50).*
-  - **The dwells.** Inbound door-zone dwells (radius 0.6 m) lasted 8–68.5 s in every segment with an excursion, against
-    1.5–2 s outbound: F2 37.5 s, F2r2 29.5 s, at drifts of 0.14–0.17 m.
-  - **So** the pin looks at least partly like a transit and doorway-geometry hazard, not only a SLAM failure. These
-    stalls also inflate the door zone's exposure, which lowers its per-second rate.
-- **Stationarity is a confound.**
-  - **142→16.** F1's closure fired while the robot was nearly stalled in the doorway: 0.04 m/s over the prior 3 s,
-    then a spin, then about 10 s stationary.
-  - **The 7 m closures.** The exterior wrong closures of about 7 m (F2 in 7 of 10 runs; F1 run 05) fired with the robot
-    stopped at G1, odom (−1.84, 2.02), facing about 103–112° onto pure grid and sky. So part of the exterior hazard is
-    where the robot dwells, and G1 is an exterior goal.
-  - **Not all cases fit.** F4 node 153 (0.46 m/s) and F2r2 node 123 (0.22 m/s) were moving.
-- **The spawn is about 0.85 m from the doorway.** The box's west line lies at odom x −0.80 and the door centre at about
-  (−0.85, 0). So the start and door zones are adjacent: the 0.8 m door zone reaches odom x −0.05, and the spawn's spin
-  views face out through the door. Zone shares are not independent of the spin's geometry.
-- **Magnitude shares understate an outside effect whose errors keep one sign.** In F4, outside links carry 20.4 % of
-  the summed |yaw error|. But their signed sum is +8.10° against −3.32° inside, so the outside-only chain reaches
-  0.608 m. |yaw| shares are not drift shares.
-- **One summary figure does not reproduce.** "Refinement is 44–60 % of arm A's frame motion in F3/F5": the
-  frame-health record's motion by iteration class gives F3 60.5 % and F5 58.9 % (F1 31.2 %).
-- **The investigation read unmerged copies.** It read the frame-health and reprocessing READMEs from their
-  pull-request branches; both have since merged.
-- **The reprocessing per-link ratios re-measure the recorded links.** They pool ten repeats of the same eight
-  databases, so their agreement with the recorded ratios is not independent evidence.
-- **Where the verifier's work is.** Its scripts and outputs are deposited in `wf_verify_slam_by_location/`.
-
-### A.2 `camera_by_location`
-
-Corrections:
-- **C2.** "In every segment" overreaches. F2r has no outside node at the 0.30 m margin, so the comparison exists in 7
-  of the 8 segments.
-- **C3.** F1 nodes 439–451 have 5–18 words, not 6–13 (13, 18, 15, 12, 9, 14, 9, 6, 5, 6, 11, 14, 6).
-  - **What they are.** Their depth is 0.42–0.54 m; the run is a dwell at R1 (odom (1.37, 2.49)).
-  - **How many count.** Only 46 of the 135 inside nodes under 50 words are graph nodes; the rest are small-movement
-    dwell duplicates.
-  - **The direction stands:** no outside node falls below 50 words.
-- **C5.** The numbers reproduce, but the "outside, facing the room" bucket (n 56) is a single F6 dwell.
-  - **That dwell** sits at world x −3.13 to −2.79, y −0.21 to 0.01, heading 87–93°, looking north along the west wall's
-    exterior face. 50 of the 56 are small-movement nodes, leaving 6 graph nodes.
-  - **The room-in-view subset** (fraction in (0, 0.5], n 155) is 87 F6 nodes and 63 graph nodes, with a graph-only
-    median of 117 words.
-  - **The return legs faced outward** (holonomic translation): F1's L2 return, nodes 284→312, held heading −131 to
-    −135°, and its G1 return, nodes 115→143, held 112–117°.
-  - **So** the session barely samples exterior views facing the room, and this split cannot speak for inbound views.
-- **C7.** The qualitative description holds, but the grain figure (high-pass std 3.33 against 1.69) was not reproduced;
-  the crops are unknown. A periodicity test on floor crops of F1 nodes 97, 271 and 288 shows column-profile peaks at
-  about 4 and 8 px. That fits either a render pattern or JPEG 8 × 8 blocking, so the grain's origin is undetermined.
-- **C8.** Each wall cuboid is closed, but the enclosure is not sealed.
-  - **The slits.** The code documents that wall pack-gaps and parked wall slots open floor-to-ceiling slits
-    (`proc_room.py` 238–240 and 1136–1138). Inside depth frames contain narrow strips at about 40 m: 8–14 px wide, at
-    rows 182–196, in F1 nodes 37, 225 and 409.
-  - **Depth inside.** The median largest finite depth of inside nodes is 39.6 m.
-  - **The light.** The 50,000 sphere light belongs to `StraferSceneCfg_ProcRoomPerceptionEnriched`
-    (`strafer_env_cfg.py` 1668–1674); that the lane boot used that scene class was not verified.
-- **C11.** The location facts are right, but the framing misleads.
-  - **Six were corrections.** Of the 10 steps other than 142's, 6 moved toward the reference, so they were
-    corrections, not added error: F1 204, 318 and 414; F3 261; F4 285; F5 247.
-  - **F1's later steps follow 142→16.** All six later F1 steps fall within the excursion that the 142↔16 link started,
-    and that link remains in the saved graph. They are closures to the spawn's spin nodes (18–22, 62, 4) reconciling
-    against the bad link, not independent failures of inside views.
-  - **Two came at no motion.** F2r2 229's and F4 285's errors arose at almost no motion (17–19 mm link translation,
-    during the R2 dwell).
-- **C12.** Medians and shares reproduce, but the per-metre conclusion depends on the normalisation.
-  - **All chain-link travel as the denominator** (not refined-link travel): arm A is 138.4 mm/m and 4.04°/m inside
-    against 123.2 and 1.58 outside; arm B 164.4 and 4.36 against 95.4 and 1.42. The direction is the same, at about
-    half the values.
-  - **Per degree turned the other way.** The investigation's own `link_error_by_location.txt` has per-degree-turned
-    figures that point the other way, unreported: arm A 0.237 outside against 0.058 inside, arm B 0.185 against 0.048.
-  - **Per link.** The mean |translation error| per refined link is higher outside: A 23.3 against 15.8 mm, B 17.0
-    against 15.8 mm.
-  - **So** "not concentrated outside" holds per metre only.
-- **C14.** The refutation of "few features" reproduces for exterior views facing away from the room, which is what the
-  2026-10-17 session sampled. Corrections of scope:
-  - **(1) Inbound views.** The data almost never see the exterior while facing the room. The one such dwell (F6) has
-    about 90–117 words, below the inside median of 132, with no node under 50. The verdict cannot be extended to
-    inbound views.
-  - **(2) The catastrophic event.** Exterior excursions did produce the session's only catastrophic event, at the
-    doorway on the G1 return. The concern that routes leaving the room confound the lane is supported, through
-    aliasing rather than a shortage of features.
-  - **(3) Closures outside.** Outside nodes rarely trigger loop closure at all. 5 of 277 arm-A outside nodes reached a
-    highest hypothesis at or above `LoopThr` 0.11, against 177 of 823 inside, and none was accepted. On the lane odom
-    is ground truth, so time spent outside adds only refinement error.
-
-Missed:
-- **The return legs faced outward.** On 2026-10-17 the return legs were holonomic translations with the camera facing
-  away from the room. F1's L2 return (nodes 284→312) held heading −131 to −135° while it moved back to the door, and its
-  G1 return (115→143) held 112–117°. So the session has almost no exterior views facing the room, and the 2026-10-23 B2
-  transit back from L2, if it faced the room, has no matching sample.
-- **The catastrophic closure came on the return from G1.**
-  - **142→16.** It fired in the doorway, with the robot reversing camera-outward (heading 113°). It matched a warm-up
-    spin view (node 16, heading −160°) that looked out through the door.
-  - **Rejected hypotheses.** While F1 dwelt at G1, outside nodes 103, 104, 113 and 115 raised four more above-threshold
-    hypotheses to spawn node 15, also a view out through the door; registration rejected all four (0–8 inliers). F5's
-    outside node 343 raised one more, also rejected. The investigation did not report rejected hypotheses.
-- **The bad closure had 33 inliers** (`Loop/Visual_inliers`, of 63 matches). That passes the deployed `Vis/MinInliers`
-  15 but falls short of A‴'s 40. It fits A‴ holding on the lane, if 0.23.13 registers it alike (not tested).
-- **Arm B is closures off, not refinement off.** All eight databases record `RGBD/NeighborLinkRefining` true and
-  `Vis/MinInliers` 15. Arm B is `RGBD/ProximityBySpace` false with `Rtabmap/LoopThr` and `RGBD/AggressiveLoopThr` 1.1
-  (`Info.parameters`; the frame-health `PREREGISTRATION.md`). The investigation's use of the arms agrees with the
-  databases.
-- **Inside views also put most features on the floor plane** (median ground share 0.958, |z + 0.045| on the floor). So
-  being one plane does not set the exterior apart; what differs is the absence of wall bases and object edges that
-  break the grid's symmetry.
-- **Inside depth frames see out through wall gaps.** They contain thin far-depth strips (about 40 m, 8–14 px wide; F1
-  nodes 37, 225, 409), which the code attributes to floor-to-ceiling pack gaps (`proc_room.py` 238–240, 1136–1138).
-  Inside views can therefore see slivers of the exterior even away from the doorway.
-- **The 2026-10-17 doorway crossings span world y −0.98 to −0.22** (at x −2.575). The 2026-10-23 B2 pin at world
-  (−2.79, −1.45) lies 0.47 m south of the southernmost crossing, on the west wall's exterior side. That fits a
-  re-entry planned in a moved map frame (B2 drift 1.23 m), an untested inference. *This record: the a3 record gives
-  B2's drift as 1.231 m to its ride-along's last sample, and 0.588 m over its registered window
-  (`analysis/frame_health_B2_to_ridealong_end.txt` and `frame_health_B2.txt` in its deposit).*
-
-### A.3 `records_survey`
-
-Corrections:
-- **C2.** The wall lines reproduce: hw in [2.45, 2.475) and hh in [2.875, 2.975). The doorway's north edge lies about
-  0.1 m further north than stated. The jamb faces rasterise to y in [−1.5, −1.4) and [0.0, 0.1), so the doorway spans
-  about −1.45 to +0.05, not −1.4 to −0.05; that is within the investigation's stated ±0.1 m.
-- **C6.** The 2026-10-09 record had 2 reaches, not 3: its L2.1 attempt submitted nothing. Classed by the physical goal
-  under the live frame, 09-25's R3 was an outside reach and the 2026-10-14 first session's S04 an inside one. The
-  corrected counts are 56 of 75 (75 %) post-flip, and 44 of 51 (86 %) before 2026-10-17.
-- **C7.** All three away-steps of 50° or more came on the return from an outside goal, with the robot facing west or
-  out. But:
-  - **The 09-25 step** (356.89→357.00 s) came with the robot at the nominal start, inside the room, 0.78 m from the wall
-    line. It had arrived and was rotating in place through 169–173°; the 0.8 m threshold just includes it.
-  - **Two more steps.** By the "50° or more" definition there are also two return steps with the robot inside: 09-25 at
-    475.5 s (77.5°, after R3), and the 2026-10-14 first session at 218.6 s (52.2°, after S04, physically inside).
-  - **So** "3 of 3" holds only for drift-growing steps.
-  - **No closure.** For 09-25, rtabmap logged no accepted loop closure, so the wrong-closure mechanism is not
-    established for that event.
-- **C8.** The counts reproduce exactly (18, 16, 13, 10), and under a stricter rule every first step had the robot
-  beyond the wall line by 0.08 m or more.
-  - **The rotations.** "Errors of about 80–90°" fits only 6 of the 9 locations: F1 nodes 141–143 and 115 (76–88°), F2
-    nodes 87–99 and 122 (82–86°), F2r2 node 123 and F6 nodes 120–121 (83–90°).
-  - **Translation aliases.** F4 node 153 (8 runs) and F1 node 149 (1 run) rotated the frame by only about 1°: a
-    west-facing doorway view matched to the west-facing spawn node 16, about 1.1 m away.
-  - **F5.** Nodes 355 and 356 (3 runs) rotated about 59° and matched node 80 (41.2 s), a start-position node, not a
-    warm-up spin node.
-  - **The 0.5–1 m steps.** Drift-growing steps of 0.5–1 m are mostly inside (deployed 0.23.7: 13 inside, 3 out), so the
-    doorway concentration is a property of the 1 m tail.
-- **C11.** The locations reproduce: 2026-10-09 at (−2.76, +0.10) with the frame displaced 0.68 m; S11 at (−2.80,
-  −1.39); S12 at (−2.78, −1.65); 2026-10-03 FX at (−1.80, −0.99). B2's could not be checked from the sim host's data.
-  - **"Stalls."** "Every pin was a doorway crossing" rests on calling the two inside failures stalls. By location, 4 of
-    6 transit failures sat at a jamb beyond the wall line, and 2 inside, within about 0.7 m of the doorway.
-  - **After the frame moved.** Several pins came after the frame had already moved: 2026-10-09 0.68 m, S11 and S12
-    after 1.2–1.5 m, B2 0.88 m. S12's transit started near the start and was driven out through the doorway by the
-    moved map.
-  - **So** doorway pins are largely a downstream consequence of frame error at the route's bottleneck, not independent
-    evidence that the exterior breaks SLAM.
-  - *This record: §5's table recomputes the offsets over each pinned spell (2026-10-09 0.63–0.66 m at the retry; S11
-    and S12 1.25–1.32 m). S12's transit trace begins at world (−2.95, −1.65), already beyond the wall line where S11's
-    nudge left the robot, so "started near the start" does not reproduce
-    (`session1/logs/nx/runs/container_gate/S12_G1_C.to_start.json`).*
-- **C13.** All 5 firings were at outside goals, but the detector read 6 outside windows of 45 ticks or more and did not
-  fire on the gate's F1.
-  - **Inside.** It read only 2 inside windows (R1, R2). The comparison is 5 of 6 against 0 of 2 (Fisher p ≈ 0.11), so
-    "only observed at outside goals" rests on two inside windows.
-  - **The stop-short split** of 6 of 8 outside against 1 of 2 inside reproduces, with F2's quiet stop at 0.293 m
-    excluded, matching that README's 7 of 10.
-- **C14.** The 8 of 18 arithmetic is right, but it pools three stop-short definitions: path-end distance in the
-  baseline's rig row, the scene-axis `lane_summary` definition, and live-frame goal distance in the frame-health
-  record.
-  - **One omitted.** It omits the 2026-10-14 first session's S04, physically an inside goal at world (−0.25, 1.66):
-    `SUCCEEDED`, a 38.5 s band, a stop-short at 0.414 m, in a void session.
-  - **Training's rates** of 2.23–7.21 % are confirmed (`posthoc_terminal_modes.txt`, runs 1–3).
-- **C15.** The PASS composition is right: G1, L1, L2 and R1 make the 4 of 6, and the fixed leg is at G1, an outside
-  goal. But "inside goals went 1 of 3 (p = 0.083 against outside 6 of 6)" is wrong physically.
-  - **R3.** Its goal was sent on a frame rotated by −77°, so it lay at world (−1.99, 3.08), 0.18 m north of the north
-    wall line.
-  - **Where it went.** The robot left through the doorway (at (−2.42, −0.30), 10.9 s in), went north along the outside
-    of the west wall, and parked outside at (−2.18, 3.28), 0.27 m from its sent goal in odom.
-  - **Physically,** the inside goals were R1 (reached) and R2 (missed), 1 of 2. Outside was 6 of 7 under the map-frame
-    verdict. Fisher p ≈ 0.42.
-
-Missed:
-- **Physical goal displacement was ignored.** Goals sent in the live map frame land elsewhere when the frame is off.
-  09-25's R3 (listed inside) was physically an outside reach, and the 2026-10-14 first session's S04 (listed outside)
-  was physically inside, with that session's longest band (38.5 s) and a stop-short. Inside or outside must be
-  classed on the physical goal for any reach on a moved frame (`physgoal.py`, `s1goals.py`).
-- **"Few features to track in the open exterior" was never tested directly, and the data argue against it.**
-  - **Inliers.** In the 0.23.7 reprocessings with the odometry covariance restored (run r01, 7 segments), registration
-    inliers are higher outside: a median of 39 against 24 inside. The share of iterations under 20 inliers is 0.21
-    outside against 0.39 inside (`inliers_zone.py`).
-  - **Per-link errors** are not worse outside.
-  - **What can add error.** Odometry is ground truth on the bridge, so a feature-poor scene cannot cause odometry
-    drift; SLAM adds error only through accepted closures and refinements. The catastrophic events are accepted wrong
-    closures (perceptual aliasing), not tracking loss.
-- **The aliasing partner is specific.**
-  - **The match.** The large closures match doorway or exterior views to west-facing nodes at the start, and the
-    warm-up spin's nodes face west through the doorway.
-  - **The frame-health record** already found closures matched to spin nodes, said it could not separate the spin from
-    the start point, and recommended a spin-less boot. The doorway reading complements that lead rather than replacing
-    it.
-  - **One translation alias.** F4 node 153, a west-facing view 1.1 m west of the spawn, matched spawn node 16 with
-    about 1° of rotation.
-- **Outside routes look necessary but far from sufficient for catastrophic rotation.**
-  - **Where they occurred.** Away-rotations of 50° or more occurred in 3 live boots with outside reaches: 09-25, the
-    2026-10-14 first session, and 10-17 F1.
-  - **Where they did not.** None occurred on 2026-10-03, 2026-10-09 or 2026-10-11, in the 2026-10-14 second session, or
-    in the frame-health record's arm-A F3 and F5, which all ran outside reaches.
-  - **A‴** (refinement off, `MinInliers` 40) held on the same outside goals live (the a3 record).
-- **Transit pins are mostly downstream of frame error.** 2026-10-09 pinned with the frame 0.68 m off, S11 and S12
-  after 1.2–1.5 m, B2 at 0.88 m, and S05 after 0.96 m. S12's transit was driven out of the room by the moved map. Pins
-  at the doorway reflect that the doorway is the route's narrowest passage, not that the exterior breaks SLAM.
-  *This record: S12's transit began outside (C11's note above). §5 also quotes a pin with an unmoved frame, A‴'s B5 on
-  2026-10-23.*
-- **"Pinned" against "interrupted."** An analysis note, not deposited, called 10-17's `F2_S3_L2_B` "a pinned transit
-  … the same failure". The frame-health deposit's `AMENDMENT_F2.md` (line 12) calls it "the interrupted slot, not a
-  pinned transit" (`CLOCK_STALLED`, then `NO_SIM_CLOCK`, in `F2_S3_L2_B.to_start.out`), and that README said "none
-  pinned".
-- **The policy-side contrasts are confounded with SLAM.**
-  - **Off-distribution.** Outside goals are off the training distribution: training's grid clips the exterior, and the
-    goal sits in open floor with far-field depth.
-  - **The arrival split.** The odom "never within 0.30 m" finding at outside goals comes with an equal median goal
-    excursion (0.09 m) in both classes. That points to a direction-dependent frame bias at outside goals, not larger
-    drift. The investigation did not take this further (§6 does).
-- **The investigation cited unmerged copies.** It cited the frame-health README from its pull-request branch; the
-  record has since merged.
-
-### A.4 `training_and_geometry`
-
-Corrections:
-- **A6.** The geometry reproduces. "Any route must bend south through the door" depends on furniture blocking the
-  0.73–0.90 m north-west gap, which is physically wider than the 0.36 m chassis; the blockage shows only in the
-  inflated grid. The routes actually driven all went through the door.
-- **A7.** The 0.11–0.20 m figure is the y offset at the wall's centre line, measured to the edge's y. The perpendicular
-  distance from the straight line to the south door edge's outer corner (x = −hw − 0.075) is only 0.04–0.11 m, so the
-  straight route clips the edge more surely.
-- **A8.** Two details are wrong.
-  - **(1) Which start.** Only the G1 and L2 start (odom (0.075, −0.035)) lies 0.88–0.90 m east of the wall line. The R1
-    and R2 start and the spawn (odom (0, 0)) lie 0.80–0.82 m east.
-  - **(2) Facing.** "Back to the door" holds only at the boot spawn. Each reach starts with the goal 45° to the left of
-    the start's heading (G1 87.24°, L2 173.1°), and the executor turns to face the goal (132° and 218°) before the
-    policy drives. At the start of an L2 reach the robot faces almost straight out of the doorway, from about 0.9 m.
-- **B1.** The 0.30–0.32 m figure applies to this room only. Exterior cells are quantised at 0.1 m, so in training rooms
-  generally a doorway's free space stops 0.30–0.40 m inside the wall line. The cited `commands.py` lines are from the
-  checkout of the time; v3 trained at `615fc14`, where `commands.py` differs only by removed debug-visualisation code,
-  so the behaviour is the same.
-- **B3.** The numbers reproduce under the stated model. "Upper bound" is right only for furniture occlusion.
-  - **Heading.** The spawn heading is uniform on (−π, π) and the robot has to turn onto the path, which the
-    along-path heading model leaves out. The investigation's own uniform-heading run gives 0.999 of episodes with the
-    door in view, so the true episode share may exceed 0.42.
-  - **"Steps"** are 0.1 m samples along the path, not control steps.
-  - **The 0.294** averages over all episodes; it is about 0.68 of the samples in episodes that see the door.
-- **C1.** The numbers reproduce, but the inside/outside split mixes location with heading.
-  - **No outside node faces east.** None of 846 outside nodes faces east (heading in [−45, 45)°).
-  - **Inside, looking out.** Inside nodes near the door facing west (x < −1.45 world, |heading| > 135°, 41 depth frames)
-    have a whole-frame far-limit median of 0.445 and a top-11-row median of 0.812. Looking out of the doorway from
-    inside is close to the outside class.
-  - **Not measured:** that training never produces this class. Training's doorway views (about 29 % of path samples,
-    modelled), edge environments facing open floor, and the 30 % of rooms without a ceiling all point to training
-    producing such frames, at a lower, unquantified rate.
-- **C2.** A goal outside the room and a path through the doorway are out of training's distribution; R1 and R2 are
-  exact members of the scene-axis goal pool (`a4_goals.py`, 2.0 m or more).
-  - **"Exterior views" is weaker.** Doorway and exterior views already occur from inside, on the lane (an L2 reach
-    starts facing the door) and in training.
-  - **What training never had** is the robot itself outside the room with its subgoal outside.
-  - **"No walls in view"** holds only while facing outward: outside nodes facing north or south see the room's outer
-    wall (median far share 0.13–0.38).
-
-Missed:
-- **The 2026-10-17 session's one catastrophic false closure.**
-  - **The closure.** F1 (arm A) has a global closure 142→16 whose transform is off from odometry by 0.904 m and −89.8°.
-    Node 142 is just outside the door (world (−2.56, −0.33), heading 113°). Node 16 is at the spawn inside, looking out
-    through the doorway (heading −160°).
-  - **The images.** Both are grid floor, a plain white wall edge and empty sky (`closure_142_16.jpg`). That fits
-    aliasing on the repeating exterior floor grid, not a shortage of features, and one of the two frames was taken from
-    inside looking out.
-  - **Alone.** It is the only closure erring 0.2 m or 10° or more in any segment, except F3's 332→3 (0.289 m, both
-    nodes inside) (`my_closures.py`).
-- **Arm B is not refinement-off.** The databases' `Info` parameters show F2 (arm B) with `RGBD/NeighborLinkRefining`
-  true and `RGBD/ProximityBySpace` false, and F1 (arm A) with both true. Arm B's databases hold no closure links, yet
-  they still drifted.
-- **Where the frame stepped** (per-node `map→odom`, `Loop/MapToBase` composed with the inverse `Node.pose`;
-  `my_mapodom.py`).
-  - **Inside.** Of the steps of 0.25 m or more between consecutive nodes, 7 of 8 happened with the robot inside the
-    room, 6 of them at loop closures. The exception is F1's 1.038 m step at the 142→16 closure, just outside the door.
-  - **Inliers.** Neighbour-refinement inliers are higher outside than inside in all 7 segments (medians 31–44 against
-    22–29).
-  - **What it does not show.** Where the robot was when a step happened does not say which frames caused it, so this
-    neither confirms nor refutes the hypothesis on its own.
-- **At reach start the policy looks at the doorway or the exterior from inside.** The G1 and L2 reaches start at
-  headings 87.24° and 173.1°, and the executor turns to 132° and 218° before the policy drives, from 0.88–0.90 m east of
-  the wall line. "Back to the door" describes the boot spawn only.
-- **The grid dump's docstring has the quaternion order wrong.** `bridge_grid_dump.py`'s docstring documents
-  `spawn_quat_world` as (w, x, y, z). Isaac Lab 3 returns (x, y, z, w), so (0, 0, 0, 1) is the identity. The
-  investigation's yaw-0 reading is correct, but a reader who trusts the docstring would get a 180° spawn and flip
-  every odom-to-world conversion.
-- **No outside node faces east** (0 of 846, heading in [−45, 45)°). The robot left and re-entered without turning back
-  toward the room, strafing or reversing on the mecanum base. So every outside measurement is of views facing outward
-  or sideways.
+| figure | stated | used | section |
+|---|---|---|---|
+| the west wall's doorway, world y | −1.4 to −0.05 | the wall's south piece ends at −1.50 to −1.40 and its north piece starts at 0.00 to 0.10; an opening of 1.40–1.60 m | §2 |
+| the spawn and the starts, east of the west wall line | 0.88–0.90 m for both starts | the spawn 0.80–0.825 m; the G1 and L2 start 0.875–0.90 m | §2 |
+| post-flip v3 lane reaches to outside goals | 57 of 76 (75 %); 45 of 52 before 2026-10-17 | 56 of 75 (75 %); 44 of 51 | §3 |
+| 2026-10-09's reaches | 3 | 2, both outside | §3 |
+| 2026-09-25's R3 | an inside goal | physically outside, world (−1.99, 3.08), 0.11–0.21 m north of the north wall line | §3 |
+| 2026-10-14's first-session S04 | an outside goal (sent to G1) | physically inside, world (−0.25, 1.66) | §3 |
+| the straight line to L2, at the south jamb | 0.11–0.20 m from the south door edge | 0.04–0.13 m from the south jamb's outer corner | §3 |
+| words per node, outside against inside | about 3× more outside | a median of 390.5 against 132, from almost no views facing the room | §4, §9 |
+| exterior views facing the room | 56 outside nodes | almost none: none of the 846–852 outside nodes faces east | §4 |
+| walls in view outside | none | facing north or south, the room's outer wall | §4 |
+| rotation-matched yaw error, outside over inside | arm A 0.93, arm B 0.64: less outside in both | arm A 0.93–0.99, about equal; arm B 0.64–0.67 | §5 |
+| refinement error outside | not concentrated outside | not per metre travelled; per degree turned, more (arm A 0.237 against 0.058) | §5 |
+| where the reprocessing's first steps of 1 m or more came | in the doorway band (from about 0.3 m inside the wall line) or outside, 57 of 57 | beyond the west wall line, by 0.07 m or more, 57 of 57 | §5 |
+| rotation at the reprocessing's first steps of 1 m or more | about 80–90° | 75–91° at six places, 59–89° at F5's, under 6.5° at F4 node 153 and F1 node 149 | §5 |
+| the nodes those closures matched | west-facing warm-up-spin nodes | spin nodes for 14 of 16; F5's two matched node 80, a start-point node | §5 |
+| live frame steps of 50° or more on a return | 3 of 3, from outside goals, at or near the doorway | three that grow the offset (76–88°): two in the doorway, 2026-09-25's inside at the start; two more with the robot inside | §5 |
+| failed transits | every pin a doorway crossing | of six, four beyond the wall line at or near a jamb, two inside within a metre of the doorway | §5 |
+| the G-sim v3 gate by goal class | inside 1 of 3, outside 6 of 6 (p 0.083) | by physical goal, outside 6 of 7, inside 1 of 2 (p 0.42) | §6 |
+| the limit-cycle detector's firings | 5 of 5 at outside goals, none inside | 5 of 6 outside windows, 0 of 2 inside (p 0.11) | §6 |
+| stop-short at inside goals | 8 of 18, "far above training's 2.2–7.2 %" | 8 of 18 over three definitions, S04 left out; its size unknown | §6 |
+| training's doorway free space, short of the wall line | 0.30–0.32 m | 0.30–0.40 m | §6 |
+| training's doorway in view (walls-only model) | an upper bound of about 42 % of episodes | 0.424 with the heading along the path; 0.999 with it drawn afresh | §6 |
 
 ## Evidence — deposit
 
@@ -914,7 +585,7 @@ Missed:
 |---|---|
 | repository | https://github.com/zachoines/Sim2RealLab-Artifacts |
 | deposit directory | `lane-outside-room-goals-2026-10-23/record-files/` |
-| deposit commit | `3a5a9a9957121762104c9241792ea6b214e5dc2e` |
+| deposit commit | `ac0bf958130ac037043ba2a778d8d80e3f70b4c1` |
 
 Unless it names the main repository's tree or another deposit, every path this record names is relative to that
 directory. `DEPOSIT.md`'s `cp -a` restores it into this record directory, where the same paths resolve.
@@ -923,11 +594,13 @@ directory. `DEPOSIT.md`'s `cp -a` restores it into this record directory, where 
   that the 20 links became relative and `SOURCES.txt` was added (below).
 - **`DEPOSIT.md`** describes the files.
 - **`recompute_2026-10-29/`** holds the record's recomputation: 26 scripts and one output, `mc_exterior.json`.
-- **`SHA256SUMS`** lists the sha256 of every regular file except its own and `DEPOSIT.md`'s (307 files; its own sha256
-  `f2ed1cd90f10816370263f8a2143e1846a8bbfe5fb314827834ae526d30e01bb`). The 20 links under
+- **`SHA256SUMS`** lists the sha256 of every regular file except its own and `DEPOSIT.md`'s (308 files; its own sha256
+  `b276005ded11cfd6973aeefebef6dbcab7d41364fb297fc5dde4bedc485f9415`). The 20 links under
   `wf_records_survey/leg2_files/` are not hashed there; `SOURCES.txt` gives their targets' paths and sha256. To check,
   from the deposit directory: `sha256sum -c SHA256SUMS`.
 - **What it holds:**
+  - `VERIFICATION.md`, the verifiers' corrections and the items they found missed, with this record's notes (added at
+    `1ad0032`);
   - `wf_digest.txt`, the four investigations' summaries, verdicts, corrections and tables;
   - `workflow1_exterior_audit.json`, their full output;
   - `wf_<investigation>/` and `wf_verify_<investigation>/`, each investigation's and each verifier's scripts and

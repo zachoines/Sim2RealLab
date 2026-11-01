@@ -573,7 +573,6 @@ from this one) and its verifiers' corrections in full. For this record:
 
 - **The tracked change.** The registration prescribes it: "A‴ holds: it becomes the lane's configuration, and the
   tracked `rtabmap_params.yaml` change follows in its own PR".
-  - This record supports A‴ as the lane's configuration only.
   - The tracked file, `source/strafer_ros/strafer_slam/config/rtabmap_params.yaml`, is byte-equal to the deployed set at
     `af7d7985` (sha256 `e67c97ff…`), and the robot runs it too. That PR changes the one file the lane and the robot both
     load; the robot takes the values at its next image build. This record supports A‴ on the lane only; the robot's SLAM

@@ -67,9 +67,13 @@ deposit's `operator_notes.txt`.
 | the rear's save: start; off USB; back | 03:11:17.869; 03:11:19; 03:11:22 |
 | the final `--read-only` | 03:12:19.885 |
 | deposit commit `4cc75b84`: the flash outputs, their USB events, the last answers, `scripts/analysis.py` and `analysis.txt` | 04:04:55 |
+| step 7: the D555 off USB; the host boots; the controllers enumerate as `ttyACM0` and `ttyACM1` | 04:09:21; 04:12:47; 04:12:59 |
+| step 7: the read; the D555 plugged in again | 04:19:14; 04:25:01 |
+| deposit commit `6cce8172`: step 7 | 04:38:18 |
 
 Commit times are the commits' own; every other time is from `bench_log.txt`, the CSVs, the kernel
-log (`host/`), the step 6 events (`s6/`), the flash outputs (`flash/`) or `operator_notes.txt`.
+log (`host/`), the step 6 events (`s6/`), the flash outputs (`flash/`), step 7's state files (`s7/`) or
+`operator_notes.txt`.
 
 ## Departures from the pre-registration
 

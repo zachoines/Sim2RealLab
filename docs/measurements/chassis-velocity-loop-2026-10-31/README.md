@@ -4,8 +4,8 @@ On 2026-10-19 the front-right wheel did not turn at 0.1 m/s
 ([`chassis-bringup-2026-10-19`](../chassis-bringup-2026-10-19/README.md) §5). This record runs the
 bench [`chassis-velocity-pid-tuning`](../../tasks/active/reliability/chassis-velocity-pid-tuning.md)
 asks for, wheels lifted: the M2 open-loop deficit at a metered 12 V, each motor's breakaway speed
-and full speed (QPPS), gains chosen in a bench tool, those gains through the driver, and their
-save to flash.
+and full speed (QPPS), gains chosen in a bench tool, those gains through the driver, their save to
+flash, and a reboot of the host.
 
 It ran in two sessions, on 2026-10-31 UTC and from 23:53 that day to 03:12 on 2026-11-01; between
 them the maintainer re-seated front-right's miter gears and oiled every wheel. The plan was
@@ -34,6 +34,8 @@ At 537.7 ticks per revolution and a 0.048 m wheel radius, 0.3 m/s is 535 ticks/s
   loaded after its reset; the final read showed 15000/750/0/2657 on all four motors.
 - **Duty 127 drives these controllers full reverse.** Every forward ladder's duty-127 step ran its
   wheel backward at full speed. The bench tool now stops at 126.
+- **The host's setup survives a reboot.** After it the controllers held their gains and timeouts on
+  new names, and the D555's kernel modules, HID binding and masked sensor service were as before.
 
 ## 1. Setup
 
@@ -296,10 +298,29 @@ stopped, and then `--read-only` read both.
 - **The reset is not a power cycle.** A main-power cycle with the USB out first was offered as the
   stronger check, and the maintainer chose the read without it.
 
-## 9. Findings
+## 9. Step 7: the reboot
 
-Findings 1–5 and 7 rest on pre-registered tests; 6 comes from step 4b's runs, as the amendment after
-it records; 8 is an observation.
+With `base` stopped and the D555 unplugged (off USB at 04:09:21), the host rebooted at 04:12:47.
+The controllers were left on main power.
+- **The controllers came back on new names, found by address.** With the D555 out at boot they
+  enumerated at 04:12:59 as `ttyACM0` and `ttyACM1`: front `/dev/roboclaw0`, rear `/dev/roboclaw1`,
+  both with `ID_MM_DEVICE_IGNORE=1`, as step 7 expected. The hub enumerated them at once.
+- **The read at 04:19:14:** both serial timeouts 0.5 s, and 15000/750/0/2657 on all four motors;
+  every count 0, as after the flash saves' resets.
+- **The clock** read synchronized.
+- **The D555, plugged in again at 04:25:01:** `/sys/module/uvcvideo/srcversion`
+  `D0E2A5944399A529814A98C`, its HID device bound to `hid-sensor-hub`, `iio-sensor-proxy`
+  `masked`. Its serial interface took `ttyACM2`, with no `roboclaw` name. It first enumerated at
+  SuperSpeed Plus, dropped at once, and came back at SuperSpeed.
+- **Every step-7 expectation held.** This closes the "survives a reboot" box of
+  [`d555-l4t-stream-integrity`](../../tasks/active/reliability/d555-l4t-stream-integrity.md), and
+  the reboot half of [`jetson-untether`](../../tasks/active/reliability/jetson-untether.md)'s udev
+  box.
+
+## 10. Findings
+
+Findings 1–5, 7 and 9 rest on pre-registered tests; 6 comes from step 4b's runs, as the amendment
+after it records; 8 is an observation.
 
 1. **No steady deficit on FR at a metered 12 V** (1.2 failed; §2). The 2026-10-19 figures came
    from the 1 s duty test, a start from rest plus the spin-down; 1a, the same test, gave FR −7.0 %
@@ -321,17 +342,14 @@ it records; 8 is an observation.
 7. **The controllers' reading gap is not a supply difference** (4.2; §3, §5).
 8. **In step 6, each run in the same direction as the one before it ran closer to the target**
    (§7). It is an observation, not a measured mechanism.
+9. **The D555's host setup and the controllers' udev names and gains survive a reboot** (§9).
 
 ## What this does not show
 
 - **Driving on the floor.** Every run had the wheels lifted. The brief's "on the floor at 0.1 m/s"
   box, with the heading drift over a measured distance, and the breakaway on the floor stay open.
-- **That the flash survives a power cycle.** Command 94's reset is not one, and the main-power
-  cycle with the USB out first was declined.
-- **Step 7, the reboot check, still to run:** 15000/750/0/2657 expected after a Jetson reboot. It
-  closes the "survives a reboot" box of
-  [`d555-l4t-stream-integrity`](../../tasks/active/reliability/d555-l4t-stream-integrity.md), and
-  reads the udev box of [`jetson-untether`](../../tasks/active/reliability/jetson-untether.md).
+- **That the flash survives a power cycle.** Command 94's reset is not one, the main-power cycle
+  with the USB out first was declined, and the controllers kept main power through the reboot.
 - **Backward through the driver from a cold start.** The one backward run followed four forward
   runs and ran −5.2 to −8.7 %. No backward test was pre-registered.
 - **The integral term itself.** It was not read; §7's carry-over is inferred from the speeds.
@@ -349,12 +367,14 @@ it records; 8 is an observation.
 |---|---|
 | repository | https://github.com/zachoines/Sim2RealLab-Artifacts |
 | deposit directory | `chassis-velocity-loop-2026-10-31/record-files/` |
-| deposit commit | `4cc75b84`, the final deposit commit: the flash outputs (`flash/`), `host/s2_kernel_usb_events_flash.txt`, the last answers in `operator_notes.txt`, `scripts/analysis.py` and `analysis.txt` |
+| deposit commit | `6cce8172`, the final one |
 | pre-registration commit | `c19fe7de` |
 | session 1, and the amendment after step 4b | `8d0dc89a` |
 | the amendment before session 2's first motor command | `64704ebe` |
 | session 2's data | `c75fc3f7` |
 | the amendment before the flash save | `35428e1e` |
+| the flash outputs (`flash/`), their USB events, `scripts/analysis.py` and `analysis.txt` | `4cc75b84` |
+| step 7, the reboot (`s7/`, `reads/s7_read.txt`), and its section of `analysis.py` | `6cce8172` |
 
 **What the deposit holds:**
 - `PREREGISTRATION.md` and its amendments;
@@ -363,6 +383,7 @@ it records; 8 is an observation.
 - step 6's census, start log and mounts, and each run's `joint_states`, publisher output, `base` log
   and summary;
 - the flash outputs and the kernel's USB events;
+- step 7's state before and after the reboot (`s7/`) and its read;
 - the tools, with `analysis.py` (standard library only) and its output.
 
 Hosts, trees and times are in [`provenance.md`](provenance.md). Verify the digests, then recompute

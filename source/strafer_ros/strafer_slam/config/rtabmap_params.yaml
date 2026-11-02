@@ -20,7 +20,7 @@ Mem/InitWMWithAllNodes: "false"  # Don't load entire DB into WM on start
 Rtabmap/DetectionRate: "2.0"     # Hz — how often RTAB-Map processes a frame
                                   # 2 Hz is plenty for indoor speeds; saves CPU
 Rtabmap/TimeThr: "0"             # ms — 0 = no hard time limit per iteration
-RGBD/NeighborLinkRefining: "true"       # Refine neighbor links with ICP
+RGBD/NeighborLinkRefining: "false"      # Neighbor links keep odometry; visual re-registration accumulates error
 RGBD/ProximityBySpace: "true"           # Detect loop closures by proximity
 RGBD/ProximityMaxGraphDepth: "0"        # 0 = no depth limit for proximity
 RGBD/OptimizeFromGraphEnd: "false"      # Optimize from first node (anchor)
@@ -31,7 +31,7 @@ RGBD/CreateOccupancyGrid: "true"        # Generate 2D occupancy grid for Nav2
 # ---------------------------------------------------------------------------
 # Visual features
 # ---------------------------------------------------------------------------
-Vis/MinInliers: "15"             # Min inliers for valid transform
+Vis/MinInliers: "40"             # Min inliers to accept a transform; low values admit wrong loop closures
 Vis/InlierDistance: "0.1"        # m — max reprojection inlier distance
 Vis/MaxFeatures: "500"           # Features per image (reduce for Jetson)
 Vis/FeatureType: "8"             # ORB (fast, good enough for indoor)
@@ -86,7 +86,7 @@ Reg/Strategy: "0"                # 0=Visual, 1=ICP, 2=Visual+ICP
 Reg/Force3DoF: "true"            # Force 2D (x, y, theta) — ground robot
 
 # ---------------------------------------------------------------------------
-# ICP (used for neighbor link refining)
+# ICP (unused: Reg/Strategy is visual and RGBD/NeighborLinkRefining is off)
 # ---------------------------------------------------------------------------
 Icp/VoxelSize: "0.05"
 Icp/MaxCorrespondenceDistance: "0.1"

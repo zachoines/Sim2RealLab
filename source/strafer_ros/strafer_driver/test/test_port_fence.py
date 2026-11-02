@@ -63,10 +63,10 @@ class FakeRoboClaw:
     """Answers packet-serial commands sent to its own address (or addresses).
 
     It keeps a serial-timeout register (commands 14 and 15, raw 100 ms units)
-    and a saved copy of it. A flash write (command 94, acknowledged only with
-    the key) copies the register into the saved copy; a reload (command 95)
-    copies it back. Both are counted. It also keeps each motor's velocity gains
-    (set by commands 28 and 29, read by 55 and 56), all zero until written.
+    and each motor's velocity gains (set by commands 28 and 29, read by 55 and
+    56, all zero until written), and a saved copy of both. A flash write
+    (command 94, acknowledged only with the key) copies them into the saved
+    copy; a reload (command 95) copies them back. Both are counted.
     """
 
     def __init__(self, address, *more, serial_timeout=0):
@@ -76,6 +76,7 @@ class FakeRoboClaw:
         self.nvm_writes = 0
         self.reloads = 0
         self.gains = {1: (0, 0, 0, 0), 2: (0, 0, 0, 0)}  # P, I, D, QPPS per motor
+        self.saved_gains = dict(self.gains)
 
     def respond(self, packet):
         if len(packet) < 4 or packet[0] not in self.addresses:
@@ -104,10 +105,12 @@ class FakeRoboClaw:
             if packet[2:6] != NVM_WRITE_KEY:
                 return b""
             self.saved_serial_timeout = self.serial_timeout
+            self.saved_gains = dict(self.gains)
             self.nvm_writes += 1
             return b"\xff"
         elif command == CMD_READ_SETTINGS_NVM:
             self.serial_timeout = self.saved_serial_timeout
+            self.gains = dict(self.saved_gains)
             self.reloads += 1
             return b"\xff"
         else:

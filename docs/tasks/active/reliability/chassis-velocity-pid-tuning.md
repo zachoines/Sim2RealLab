@@ -57,6 +57,9 @@ What the deposit shows:
 **A gains save goes with the timeout save.** Command 94 saves every active setting.
 `diagnose_roboclaw.py --write-nvm` reloads the saved settings (95) before its save, so it never
 saves gains the node wrote to RAM. A gains save would be a deliberate choice.
+*2026-11-01: it was made. `diagnose_roboclaw.py --set-gains --write-nvm` writes the driver's
+gains, saves them, and checks what each controller loads at the reset; both controllers' flash
+now holds P 15000, I 750, D 0, QPPS 2657 ([`chassis-velocity-loop-2026-10-31`](../../../measurements/chassis-velocity-loop-2026-10-31/README.md)).*
 
 ## Acceptance criteria
 
@@ -69,9 +72,15 @@ saves gains the node wrote to RAM. A gains save would be a deliberate choice.
       by the maintainer's meter at idle, read to the volt. The controllers read 10.2 V (front) and
       11.2 V (rear). The pack was not metered before the charge: the maintainer found it at a 4S
       storage charge and charged it first, so every reading here followed the charge.*
-- [ ] **The M2 deficit is re-measured with the charged pack,** at a metered 12 V supply. Run the
+- [x] **The M2 deficit is re-measured with the charged pack,** at a metered 12 V supply. Run the
       open-loop duty test under equal duty, with the wheels lifted, and compare FR and RR against FL and RL. Record whether
       the deficit holds, and by how much.
+      *2026-10-31 ([`chassis-velocity-loop-2026-10-31`](../../../measurements/chassis-velocity-loop-2026-10-31/README.md)): on FR it does not hold. At duty 32/127 over 4 s holds, FR ran
+      2.8 % over the FL/RL mean forward and RR 0.8 % over; RR's 4.1 % backward shortfall was
+      within three repeat spreads (it held, at 3.1 %, in the session after the maintainer's work). The 2026-10-19
+      figures came from half-revolution runs from rest. FR had a slow spot locked to its wheel
+      angle instead, which stalled its low-speed starts; it went after the maintainer re-seated
+      FR's miter gears and oiled every wheel.*
 - [ ] **Tuning, only after both boxes above:**
       - each motor's breakaway speed, the lowest commanded speed at which it turns, measured on
         blocks and on the floor at a recorded voltage;
@@ -79,13 +88,23 @@ saves gains the node wrote to RAM. A gains save would be a deliberate choice.
       - gains chosen, shared or per controller, with the reason;
       - where the gains live decided: the node's constants or each controller's flash, with the
         other made consistent.
+      *2026-11-01 ([`chassis-velocity-loop-2026-10-31`](../../../measurements/chassis-velocity-loop-2026-10-31/README.md)): all but the floor. On blocks, at the metered 12.07 V, the
+      breakaway speeds at the old gains; QPPS 2630.5, 2658.0, 2672.0 and 2666.0 ticks/s, 1.6 % apart, so
+      one shared set: P 15000, I 750, D 0, QPPS 2657, the lowest-gain candidate that passed. They
+      live in `strafer_shared.constants`, and both controllers' flash holds the same. The
+      breakaway on the floor is open.*
 - [ ] **On the floor at 0.1 m/s,** all four wheels turn, and the chassis' heading drift over a
       measured distance is recorded.
-- [ ] **At 0.3 m/s,** each wheel is within ±5 % of its target.
-- [ ] If your work invalidates a fact in any referenced context module, package README,
+- [x] **At 0.3 m/s,** each wheel is within ±5 % of its target.
+      *2026-11-01, on blocks, through the driver ([`chassis-velocity-loop-2026-10-31`](../../../measurements/chassis-velocity-loop-2026-10-31/README.md)): within 2.1–4.0 % in the first
+      run and 0.2–0.4 % in the second; at 0.1 m/s every wheel turned within 0.099–0.123 s.*
+- [x] If your work invalidates a fact in any referenced context module, package README,
       top-level `Readme.md`, or guide under `docs/`, update those in the same commit. See
       [`conventions.md`'s user-facing documentation maintenance section](../../context/conventions.md#user-facing-documentation-maintenance).
-- [ ] No regression: `make test-ros` passes.
+      *2026-11-01: `source/strafer_ros/README.md` (the gains, and `--set-gains`).
+      `SIM_TO_REAL_TUNING_GUIDE.md` is interim and left as it is.*
+- [x] No regression: `make test-ros` passes.
+      *2026-11-01: 989 passed.*
 
 ## Investigation pointers
 

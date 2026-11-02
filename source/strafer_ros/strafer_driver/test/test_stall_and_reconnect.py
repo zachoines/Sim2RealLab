@@ -37,7 +37,7 @@ from test_port_fence import (  # noqa: F401
 DRIVE_M1M2_SPEED = 37
 READ_PID = {55: 1, 56: 2}
 READ_TIMEOUT = 0.1  # RoboClawInterface's default read_timeout
-GAINS = (15000, 750, 0, 2796)  # P, I, D, QPPS, as strafer_shared.constants sets them
+GAINS = (15000, 750, 0, 2657)  # P, I, D, QPPS, as strafer_shared.constants sets them
 FRONT_PORT, REAR_PORT = "/dev/roboclaw2", "/dev/roboclaw1"
 
 SPIN = Twist()

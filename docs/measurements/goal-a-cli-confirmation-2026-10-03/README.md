@@ -22,6 +22,14 @@ over it. See [`goal-a-cli-video-2026-10-09`](../goal-a-cli-video-2026-10-09/READ
 is descriptive. It ran with the livestream on, at a lower RTF, and it does not change this
 record's reading.*
 
+*Correction 2026-10-29: the four goals run here, G1, L1, L2 and FX (FX at G1's coordinates), lie
+outside the room, about 1.2–1.9 m beyond its west wall and past its doorway; R1, the one goal
+inside, was not run. The budget PASS stands: it reads whether the executor cancelled a goal the
+node then reached, which does not depend on where the goal lies. The terminal reads (How the
+reaches were reached, and the final distances in stable frames) are at goals outside the policy's
+training distribution: training never places the robot or a subgoal outside a room. See
+[`lane-outside-room-goals-2026-10-23`](../lane-outside-room-goals-2026-10-23/README.md).*
+
 ## Setup
 
 | | |

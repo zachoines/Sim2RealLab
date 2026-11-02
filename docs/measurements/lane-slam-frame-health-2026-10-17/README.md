@@ -49,6 +49,13 @@ not a finding.
     comparison is descriptive; three boots per arm support no test.
 - **The node's `SUCCEEDED` overstates arrival.** All 24 scored reaches `SUCCEEDED` on the node's live map frame. In
   odom, 7 of 24 never came within 0.30 m of the goal fixed at goal-sent: A 5 of 12, B 2 of 12 (§4).
+  *Correction 2026-10-29: this item is restated. By goal, the seven reaches that never came within 0.30 m in odom were
+  all at G1 and L2, which lie outside the room: 5 of the 12 reaches at G1 and L2 came within 0.30 m, against 12 of 12 at
+  R1 and R2. That split is a frame-direction statistic, not a policy one. At the result the odom distance exceeded the
+  live one on 7 of the 12 G1 and L2 reaches and fell below it on all 12 R1 and R2 reaches (§4's table), so the node
+  misstates arrival by the in-reach frame motion projected on the approach: over at the west goals, G1 and L2, and under
+  at the east goals, R1 and R2. See
+  [`lane-outside-room-goals-2026-10-23`](../lane-outside-room-goals-2026-10-23/README.md).*
 - **The sim host lost power twice during the session,** with no cause logged in its journal, and F2 was relaunched
   twice (§7). Each relaunch and tool fix is recorded in an amendment committed before the reaches it governs.
 
@@ -278,6 +285,13 @@ The live reads use the same definitions on the node's map frame.
   - `F2_S3_L2_B` and `F2r_S3_L2_B`, cut by the sim host's power losses.
 - **No Nav2 fallback, no pins.** No reach fell back to Nav2, and none pinned. For F2, whose chain log was lost, the
   Nav2 check is its autonomy container log: no `falling back to nav2` line.
+  *Correction 2026-10-29: "none pinned" does not hold under the stall rule the lane's later records use for a pin
+  ([`lane-outside-room-goals-2026-10-23`](../lane-outside-room-goals-2026-10-23/README.md) §5): in transit, more than
+  0.5 m from the target, no 0.03 m of progress for 24 s sim. F6_S2_R2_B's transit, back from L2, stayed within 0.03 m
+  of one point, map (−1.38, −0.44), about 1.3 m from its target, from about 69 to 108 s sim, commanding about
+  (−0.21, +0.22) m/s and re-planning every 5.1 s (8 of the transit's 17 re-plans). It then got through and reached the
+  start at 144.5 s sim: a pin that resolved (`boots/F6/robot/logs/runs/F6_S2_R2_B.to_start.out`, and its trace in
+  `container_gate/F6_S2_R2_B.to_start.json` beside it).*
 
 ## 5. The rule's outcome
 

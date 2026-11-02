@@ -4,7 +4,7 @@
 **Owner:** DGX (`strafer_lab`: the ProcRoom generator, the composition, the subgoal command, the instruments)
 **Priority:** P2. Proposed by the maintainer on 2026-10-23: no training path leaves its room, and the deployment's
 houses are made of doorways. Independent of v4: by default the house trains after v4, as a warm-start leg from it (v4h).
-**Estimate:** L (the corridor re-measure, CPU gates, the house IDs and their Kit gates, a bridge variant; no training)
+**Estimate:** L (CPU gates, the house IDs and their Kit gates, a bridge variant; no training)
 **Branch:** `task/procroom-two-room-house`
 
 **Filing this brief starts no training and opens no Kit window.** Every Kit window below is scheduled by the operator,
@@ -19,9 +19,9 @@ so that **cross-room paths enter training and no v3 ID or golden moves.**
 ## Context bundle
 
 - [context/repo-topology.md](../../context/repo-topology.md)
-- [context/conventions.md](../../context/conventions.md)
-- [context/branching-and-prs.md](../../context/branching-and-prs.md)
+- [context/conventions.md](../../context/conventions.md), [context/branching-and-prs.md](../../context/branching-and-prs.md)
 - [context/env-composition-contract.md](../../context/env-composition-contract.md): a new variant is a new ID.
+- [context/path-planning-architecture.md](../../context/path-planning-architecture.md): the one shared A*.
 - [`procroom-placement-architecture`](procroom-placement-architecture.md): F2, the July ruling, F-3, the consult list.
 - [`procroom-depth-enrichment`](procroom-depth-enrichment.md): the descriptors D1–D5 and the enriched parameters.
 - [`depth-subgoal-v4-scoping`](depth-subgoal-v4-scoping.md): v4's one list of changes, which does not carry the house.
@@ -54,10 +54,10 @@ claims no curvature target, and its acceptance rests on crossing support, descri
 | # | Decision | Options and status | Who, when |
 |---|---|---|---|
 | 1 | Scope of "the path-topology case is closed" | **Ruled 2026-10-26:** it closed the curvature case for F2's single-room partition and does not bar a house-scale variant. This brief claims no curvature target; its acceptance stays on crossing support, descriptors and cost | the coordinator; ruled |
-| 2 | Interior door width | (i) [1.2, 2.0] m, ruling F-3's floor applied by analogy; (ii) today's perimeter law, [0.8, 2.0] m; (iii) Infinigen's cutter band, 0.77–0.96 m, which needs an aperture-aware off-path tolerance (out of scope). The analysis leans to (i), which meets F-3's letter for a centred robot but may not meet its intent at off-centre crossings, and leaves every trained door wider than every corpus interior door measured ("The horizon, and the doorway's binding limit") | the maintainer, after the corridor re-measure and before the CPU gates |
-| 3 | Episode horizon on the house IDs | a longer episode, E from Gate C's rule (the replica predicts 25–30 s, against today's 20 s); a path-length cap, which defeats the long band; a per-episode time-out scaled to the planned length, a new termination used only by house IDs | the maintainer, with Gate C's value, before the house IDs fix their episode length |
-| 4 | v4 row or v4h | **v4h, the default:** v4 launches without the house, and a warm-start leg from v4 on the house IDs follows on the maintainer's word. A v4 row needs, before v4's go, the house IDs merged with their gates passed, the v3 house baseline read, and a short warm-start leg from v3 on the house IDs passing its one-room non-regression rule; it also confounds every v4-against-v3 read of v4's other rows ("Relation to v4") | the maintainer, before v4's go |
-| 5 | `p_house`, the per-episode share of house episodes | 0.5, provisional, after the column-knob precedent; another value, chosen after a leg has measured 0.5, re-runs that leg or is labelled post hoc | the maintainer, with decision 4 |
+| 2 | Interior door width (the analysis's 3) | (i) [1.2, 2.0] m, ruling F-3's floor applied by analogy; (ii) today's perimeter law, [0.8, 2.0] m; (iii) Infinigen's cutter band, 0.77–0.96 m, which needs an aperture-aware off-path tolerance (out of scope). The analysis leans to (i), which meets F-3's letter for a centred robot but may not meet its intent at off-centre crossings, and leaves every trained door wider than every corpus interior door measured ("The horizon, and the doorway's binding limit"). The CPU gates are written for (i); if another law is ruled, they are re-stated before any measurement (under (ii) a drawn 1.00 m door can leave 2 cells, below Gate D's 3) | the maintainer, after the corridor re-measure and before the CPU gates |
+| 3 | Episode horizon on the house IDs (the analysis's 5) | a longer episode, E from Gate C's rule (the replica predicts 25–30 s, against today's 20 s); a path-length cap, which defeats the long band; a per-episode time-out scaled to the planned length, a new termination used only by house IDs | the maintainer, with Gate C's value, before the house IDs fix their episode length |
+| 4 | v4 row or v4h (the analysis's 8) | **v4h, the default:** v4 launches without the house, and a warm-start leg from v4 on the house IDs follows on the maintainer's word. A v4 row needs, before v4's go, the house IDs merged with their gates passed, the v3 house baseline read, and a short warm-start leg from v3 on the house IDs passing its one-room non-regression rule; it also confounds every v4-against-v3 read of v4's other rows ("Relation to v4") | the maintainer, before v4's go |
+| 5 | `p_house`, the per-episode share of house episodes (the analysis's 4) | 0.5, provisional, after the column-knob precedent; another value, chosen after a leg has measured 0.5, re-runs that leg or is labelled post hoc | the maintainer, with decision 4 |
 
 Fixed in the CPU gates' pre-registration, before any measurement, with no ruling needed now: the room-2 size rule's
 selection, the far-corner gap, an exterior door on room 2, and the D2 mid-row measure ("Decisions this brief asks for").
@@ -69,8 +69,8 @@ gate rests on a modelled number. The design is in the analysis ("The design", "K
 
 **Before generator code**
 - [x] **The corridor re-measure** (2026-10-29, the deposit's `corridor_remeasure/`): on the generator's own functions a
-      gap connects at every phase from 0.80 m (0.77–0.79 m at 70–90 % of phases; 1.20 m gives 4–10 cells), a drawn door
-      from 0.81 m; the replica agreed, the in-repository probe read one cell wide. Decision 2 follows.
+      gap connects at every phase from 0.80 m (0.77–0.79 m at 70–90 % of phases) and a drawn door from 0.81 m
+      (4–10 cells at 1.20 m); the replica agreed; the in-repository probe counts one cell too many. Decision 2 follows.
 - [ ] Decisions 2, 3 and 5 recorded (or labelled provisional), and the coordinator's consult on the gated structural
       extensions: a second primitive collection, the larger house grid, a new `SceneSourceCfg` field and new gym IDs.
 
@@ -94,10 +94,10 @@ gate rests on a modelled number. The design is in the analysis ("The design", "K
 episodes per size-rule arm, one per house, on training's goal draw; a failure stops at the report)
 - [ ] **Gate A, crossing support.** The 4–8 m straight-line crossing share is at least 67.9 %, the lower 95 % bound of
       the corpus's 73.2 %. The 1.5–4 m and 8–15 m shares are reported against the corpus, ungated.
-- [ ] **Gate D, the doorway.** Every drawn door width lies in the law decision 2 rules, and every open width is at
-      least its minimum; room 2 lies in room 1's free-space component with at least 100 reachable cells in at least
-      99 % of houses; the door's passage after inflation is at least 3 cells wide in every house; `bfs_failed` is 0,
-      `spawn_count_min` stays above 100, and the search iterations stay below their caps.
+- [ ] **Gate D, the doorway.** Every drawn door width lies in the law decision 2 rules, and every open width is at least
+      its minimum less the packer's 0.01 m overshoot; room 2 lies in room 1's free-space component with at least 100
+      reachable cells in at least 99 % of houses; the door's passage after inflation is at least 3 cells wide in every
+      house; `bfs_failed` is 0, `spawn_count_min` stays above 100, and the search iterations stay below their caps.
 - [ ] **Gate C, the horizon rule.** E, for decision 3, is the least of {20, 25, 30, 35, 40} s at which the house share
       of planned paths over (E − 11.87) / 1.53 m is at most the one-room share at 20 s; if none is, the gate fails.
 - [ ] **Reported, ungated:** turning, bending, turn-density p90 and PS2 split by crossing (no curvature target,
@@ -119,12 +119,12 @@ episodes per size-rule arm, one per house, on training's goal draw; a failure st
 
 **Docs and regression**
 - [ ] Dated corrections: `procroom-depth-enrichment.md` T3 (Infinigen's two-room opening is 0.80 m, not 2 m), and
-      `procroom-placement-architecture.md`'s corridor probe (one cell wide; the raster floor is 0.80 m, not 0.70 m).
+      `procroom-placement-architecture.md`'s corridor probe (one cell too many; the floor is 0.80 m, not 0.70 m).
 - [ ] If your work invalidates a fact in any referenced context module, package README,
       top-level `Readme.md`, or guide under `docs/`, update those in the same commit. See
       [`conventions.md`'s user-facing documentation maintenance section](../../context/conventions.md#user-facing-documentation-maintenance).
-- [ ] No regression: `make test-lab-pure` passes from a worktree of the branch; Kit gates are read from the JUnit
-      XML, never from a raw pytest exit code.
+- [ ] No regression: `make test-lab` passes from a worktree of the branch (its Kit suites hold the contract goldens);
+      Kit gates are read from the JUnit XML, never from a raw pytest exit code.
 
 ## Investigation pointers
 

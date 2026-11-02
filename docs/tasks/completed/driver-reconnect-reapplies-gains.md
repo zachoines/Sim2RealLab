@@ -97,7 +97,7 @@ Read at `72b9ba7`, and seen on the robot on 2026-10-20.
   their names swapped. All 25 reconnect attempts failed, the 20 after the controllers came back
   at the swapped names, and the driver stayed stopped until `base` was restarted, as this brief
   records; re-detection is filed as
-  [`driver-reconnect-redetects-by-address`](../active/reliability/driver-reconnect-redetects-by-address.md).
+  [`driver-reconnect-redetects-by-address`](driver-reconnect-redetects-by-address.md).
   The second cut kept the names: the driver re-wrote the gains, read back P 15000, I 750, D 0,
   QPPS 2796 on all four motors and reconnected with no restart. The spin turned all four wheels
   at −10 % to −14 % of 6.24 rad/s from 0.6 s to 2.35 s after the first message, against −9 % to

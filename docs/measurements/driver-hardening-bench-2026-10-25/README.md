@@ -215,7 +215,7 @@ pre-registered for step 3.
    first at the day's first power-up and at the dose test's cycle, and the front first after both
    USB-in cuts. So the first cut swapped the names `base` had detected, and the driver stayed
    stopped until `base` restarted. That is safe, but it needs a person. Filed as
-   [`driver-reconnect-redetects-by-address`](../../tasks/active/reliability/driver-reconnect-redetects-by-address.md):
+   [`driver-reconnect-redetects-by-address`](../../tasks/completed/driver-reconnect-redetects-by-address.md):
    on a failed reconnect, detect the controllers again by address. Until it ships, the restart
    stays the recovery.
 

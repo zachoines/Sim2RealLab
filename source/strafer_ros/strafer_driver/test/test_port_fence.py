@@ -536,6 +536,58 @@ class TestReconnectProbe:
         finally:
             node.destroy_node()
 
+    def test_swapped_names_recover_by_redetection(self, patched):
+        """A power cut that swaps the enumeration: the next reconnect finds each address again."""
+        bus = patched(robot(front_tty="/dev/ttyACM2", rear_tty="/dev/ttyACM1"))
+        node, refusal = build_node(auto_detect="true")
+        assert refusal is None, repr(refusal)
+        try:
+            front, rear = bus.devices["/dev/roboclaw2"], bus.devices["/dev/roboclaw1"]
+            written = dict(front.gains)
+            for claw in (front, rear):
+                claw.gains = dict(claw.saved_gains)  # power-up reloads the saved gains
+            for n, claw in (("1", front), ("2", rear)):
+                bus.devices["/dev/ttyACM" + n] = bus.devices["/dev/roboclaw" + n] = claw
+            node._in_error_state = True
+            node._last_reconnect_time = 0.0
+
+            node._timer_callback()
+
+            assert not node._in_error_state
+            assert (node._front.port, node._rear.port) == ("/dev/roboclaw1", "/dev/roboclaw2")
+            assert front.gains == rear.gains == written != front.saved_gains
+            assert not bus.touched(CAMERA_PORT)
+        finally:
+            node.destroy_node()
+
+    @pytest.mark.parametrize("after_cut", ["rear missing", "one device for both"])
+    def test_redetection_keeps_the_start_checks(self, patched, after_cut):
+        """A re-detection the start would refuse adopts nothing and writes only probes."""
+        bus = patched(robot(front_tty="/dev/ttyACM2", rear_tty="/dev/ttyACM1"))
+        node, refusal = build_node(auto_detect="true")
+        assert refusal is None, repr(refusal)
+        try:
+            front = bus.devices["/dev/roboclaw2"]
+            for path in ("/dev/ttyACM1", "/dev/roboclaw1", "/dev/ttyACM2", "/dev/roboclaw2"):
+                del bus.devices[path]
+            if after_cut == "rear missing":
+                bus.devices["/dev/ttyACM1"] = bus.devices["/dev/roboclaw1"] = front
+            else:
+                one_device_for_both(bus, "/dev/ttyACM1", "/dev/roboclaw1")
+            node._in_error_state = True
+            node._last_reconnect_time = 0.0
+            start = len(bus.writes)
+
+            node._timer_callback()
+
+            assert node._in_error_state
+            assert bus.writes[start:]
+            assert all(data[1] == CMD_READ_MAIN_BATTERY for _, data in bus.writes[start:])
+            assert (node._front.port, node._rear.port) == ("/dev/roboclaw2", "/dev/roboclaw1")
+            assert not (node._front.is_open or node._rear.is_open)
+        finally:
+            node.destroy_node()
+
 
 # ---------------------------------------------------------------------------
 # One device for both controllers

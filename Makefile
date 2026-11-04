@@ -189,7 +189,7 @@ launch-sim: ## Sim-in-the-loop in a container (consumes the DGX bridge; foxglove
 viewer: ## Foxglove viewer (foxglove_bridge :8765) on the running deploy stack (real-robot OR sim-bridge). Connect ws://<robot-ip>:8765.
 	$(FULL_COMPOSE) --profile viewer up viewer
 
-teleop: ## Keyboard drive on the running deploy stack's /cmd_vel at walking pace (needs a terminal; Ctrl-C stops and exits)
+teleop: ## Keyboard drive on the running deploy stack's /cmd_vel, starting at walking pace (needs a terminal; Ctrl-C stops and exits)
 	$(FULL_COMPOSE) --profile teleop run --rm teleop
 
 up: ## Full robot deploy: base+perception+slam+navigation+autonomy containers (needs hardware). Config: edit canonical strafer_bringup/config/env_autonomy.env, then make env-sync.

@@ -1,5 +1,8 @@
 # Drive the robot from a keyboard through the deploy stack's own /cmd_vel
 
+**Status:** Shipped 2026-11-04 in `edfec99` (Jetson).
+**PR:** https://github.com/zachoines/Sim2RealLab/pull/265
+
 **Type:** tooling
 **Owner:** Jetson (`strafer_bringup`, `deploy/`)
 **Priority:** P2. Nothing is broken, but mapping a room and returning the robot to its start between
@@ -15,10 +18,10 @@ reaches without a separate tool or a hand-written publisher.**
 
 ## Context bundle
 
-- [context/repo-topology.md](../../context/repo-topology.md)
-- [context/ownership-boundaries.md](../../context/ownership-boundaries.md)
-- [context/conventions.md](../../context/conventions.md)
-- [context/branching-and-prs.md](../../context/branching-and-prs.md)
+- [context/repo-topology.md](../context/repo-topology.md)
+- [context/ownership-boundaries.md](../context/ownership-boundaries.md)
+- [context/conventions.md](../context/conventions.md)
+- [context/branching-and-prs.md](../context/branching-and-prs.md)
 
 ## Context
 
@@ -57,30 +60,45 @@ Read at `main` `f16d18d6`, and in `strafer-cpu:humble` and `strafer-gpu:humble` 
 
 ## Acceptance criteria
 
-- [ ] **The dependency comes from rosdep.** `teleop_twist_keyboard` is an `exec_depend` of
+- [x] **The dependency comes from rosdep.** `teleop_twist_keyboard` is an `exec_depend` of
       `strafer_bringup`, so the image's existing `rosdep install --from-paths src` installs it,
       with no apt line added by hand.
-- [ ] **One command starts it on the running stack**, with a TTY, publishing `/cmd_vel`: a compose
+  - *2026-11-04: in `edfec99`; a CPU image built from it carries `ros-humble-teleop-twist-keyboard`
+    2.4.1.*
+- [x] **One command starts it on the running stack**, with a TTY, publishing `/cmd_vel`: a compose
       service in its own profile, run by a Makefile target with `docker compose run --rm`.
   - It runs on the CPU image's service anchor, so it uses the stack's own DDS environment.
   - It sets no `tty` or `stdin_open`, so the compose contract above holds.
-- [ ] **Walking pace.** `speed` and `turn` are set to a walking pace, with the values and the
+  - *2026-11-04: the `teleop` service (profile `teleop`, the CPU anchor, `restart: "no"`) and
+    `make teleop`, which runs `docker compose --profile teleop run --rm teleop`.
+    `TestComposeStopSignal` passes with it.*
+- [x] **Walking pace.** `speed` and `turn` are set to a walking pace, with the values and the
       reason stated. The PR states that these are starting values that the keys can raise, and
       what bounds them.
-- [ ] **No repeat rate.** Nothing republishes a held command, so the driver's 0.5 s watchdog stops
+  - *2026-11-04: 0.3 m/s, the speed `chassis-bringup-2026-10-19` drove the wheels at through the
+    driver, and 0.6 rad/s, the warm-up spin's rate. They are starting values that the keys raise
+    10 % per press, bounded only by the driver's 1.88 m/s and 5.03 rad/s (PR #265).*
+- [x] **No repeat rate.** Nothing republishes a held command, so the driver's 0.5 s watchdog stops
       the motors once a key is released. `source/strafer_ros/README.md`'s driver paragraph says so
       in one sentence.
-- [ ] **A contract test**, in the style of `test_perception_launch.py`:
+  - *2026-11-04: that sentence is in the driver paragraph, in `edfec99`.*
+- [x] **A contract test**, in the style of `test_perception_launch.py`:
   - it pins the service's command, its remap to `/cmd_vel` and its parameters, and the
     `exec_depend`;
   - where the package is installed, it checks that the installed node still declares the pinned
     names and no repeat parameter.
-- [ ] **The dependency's presence**, asserted in a transient container built from this branch,
+  - *2026-11-04: `test_teleop.py`: 7 passed and 3 skipped in `strafer-cpu:humble`, which predates
+    the dependency, and 10 passed in the transient image.*
+- [x] **The dependency's presence**, asserted in a transient container built from this branch,
       without touching the deployed images (a build under a host hold, with the tags restored), or
       stated as unbuilt.
-- [ ] **The PR says** that the maintainer validates it, paired, before it is used, and that it is
+  - *2026-11-04: built as `strafer-cpu:teleop-edfec99bb910` (`870f5f07cf0c`) under a host hold.
+    `:humble` was not touched, and the tag was removed afterwards.*
+- [x] **The PR says** that the maintainer validates it, paired, before it is used, and that it is
       merged with `executor-exit-cancels-active-goal` before the next image rebuild.
-- [ ] No regression: `make test-ros` passes.
+  - *2026-11-04: PR #265's Scope says both.*
+- [x] No regression: `make test-ros` passes.
+  - *2026-11-04: 996 passed, 14 skipped, 1 xfailed.*
 
 ## Out of scope
 

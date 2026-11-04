@@ -122,6 +122,8 @@ float32 elapsed_s
 
 At startup, `build_command_server()` runs parallel health checks against the planner and VLM clients with a 10 s timeout. It fails fast on **either** failure mode: a service that is reachable but reports `model_loaded=false`, or a service that is unreachable — the connection error propagates out of `build_command_server` and the executor exits before `/execute_mission` is registered. Bring the planner and VLM up first, or disable the probe with `check_vlm_health=False` (tests only).
 
+On SIGINT or SIGTERM the executor cancels the active mission before it destroys anything: it cancels the active navigation goal and publishes a zero `/cmd_vel` while the ROS context is still live. `executor/main.py` installs its own handlers in place of rclpy's, which shut the context down before the exit path runs. A crash or a SIGKILL runs no handler; the inference node then ends a policy goal itself once it sees the goal's client gone.
+
 ### Skill registry (executor-side)
 
 `DEFAULT_AVAILABLE_SKILLS` in `executor/mission_runner.py`:

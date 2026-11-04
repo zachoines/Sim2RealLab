@@ -1,5 +1,8 @@
 # Cancel the active goal when the executor exits
 
+**Status:** Shipped 2026-11-04 in `efd4e7e` (Jetson).
+**PR:** https://github.com/zachoines/Sim2RealLab/pull/264
+
 **Type:** bug (an executor exit leaves its trained-policy goal driving)
 **Owner:** Jetson (`strafer_autonomy` executor, `strafer_inference`, `deploy/`)
 **Priority:** P1 for goal-b. On the real robot this is an unattended drive: the robot keeps
@@ -15,13 +18,13 @@ after the process that sent it is gone.**
 
 ## Context bundle
 
-- [context/repo-topology.md](../../context/repo-topology.md)
-- [context/ownership-boundaries.md](../../context/ownership-boundaries.md)
-- [context/conventions.md](../../context/conventions.md)
-- [context/branching-and-prs.md](../../context/branching-and-prs.md)
-- [`inference-finished-successor-stop`](inference-finished-successor-stop.md), its reachability
+- [context/repo-topology.md](../context/repo-topology.md)
+- [context/ownership-boundaries.md](../context/ownership-boundaries.md)
+- [context/conventions.md](../context/conventions.md)
+- [context/branching-and-prs.md](../context/branching-and-prs.md)
+- [`inference-finished-successor-stop`](../active/reliability/inference-finished-successor-stop.md), its reachability
   box: where this was read, as one of the two paths that overlap goals on the node.
-- [`executor-cancel-mid-motion-cmd-vel-zero`](../../completed/executor-cancel-mid-motion-cmd-vel-zero.md):
+- [`executor-cancel-mid-motion-cmd-vel-zero`](executor-cancel-mid-motion-cmd-vel-zero.md):
   the cancel path and its zero `/cmd_vel`, which an exit never reaches.
 
 ## Context
@@ -69,12 +72,12 @@ and `strafer-gpu:humble` (revision label `9f7d20758d5b`).
   - `autonomy` sets no `stop_signal`. The same holds for every service on the shared CPU anchor,
     `base` included.
   - *2026-10-17: the stop signal is now in place.
-    [`compose-stop-signal-sigint`](../../completed/compose-stop-signal-sigint.md) sets
+    [`compose-stop-signal-sigint`](compose-stop-signal-sigint.md) sets
     `stop_signal: SIGINT` on every launch-based service, `autonomy` included, so a
     `docker compose stop` or `restart` reaches the executor as a SIGINT.*
     - *Why `_on_sigterm` never ran: launch catches no SIGTERM at the OS level, and the kernel
       drops a signal with no handler that is sent to a PID namespace's init
-      ([record](../../../measurements/compose-stop-signal-2026-10-17/README.md) §1).*
+      ([record](../../measurements/compose-stop-signal-2026-10-17/README.md) §1).*
     - *The cancel remains this brief's own fix. The executor's exit path still cancels nothing,
       and rclpy has shut its context down before `finally` runs, so the boxes below stand.*
 - **A cancel sent from `finally` would not go out either.** A SIGINT shuts rclpy's context down
@@ -91,7 +94,7 @@ and `strafer-gpu:humble` (revision label `9f7d20758d5b`).
 
 ## Acceptance criteria
 
-- [ ] **A test that the executor's exit path cancels the active goal**, failing on `main`.
+- [x] **A test that the executor's exit path cancels the active goal**, failing on `main`.
   - With a mission active, the exit path calls the runner's cancel, which cancels the active
     navigation and publishes a zero `/cmd_vel`, before the server and node are destroyed.
   - With no mission active, the exit path cancels nothing.
@@ -99,7 +102,9 @@ and `strafer-gpu:humble` (revision label `9f7d20758d5b`).
   - One seam: a module-level shutdown function in `executor/main.py` that the `finally` calls,
     tested in `tests/test_executor_main.py` with a `MagicMock` ros client, as the
     `_make_runner` helpers in `tests/test_new_skills.py` build one.
-- [ ] **The executor cancels and stops before it destroys anything, on a live context, on every
+  - *2026-11-04: `shutdown(server, runner)` and `TestShutdown`, three cases. All three fail on
+    `main`, where no `shutdown` exists ([record](../../measurements/executor-exit-restart-2026-11-04/README.md) §4).*
+- [x] **The executor cancels and stops before it destroys anything, on a live context, on every
       stop path.**
   - The cancel and the zero twist have to go out before rclpy's signal handling shuts the
     context down. For example, the executor installs its own SIGINT/SIGTERM handling, or cancels
@@ -108,19 +113,38 @@ and `strafer-gpu:humble` (revision label `9f7d20758d5b`).
     `autonomy`, so that launch takes its graceful path.
   - The PR says which stop paths it covers: `docker compose stop`, `restart`, `down`, Ctrl-C,
     and a crash (which no handler can cover).
-- [ ] **The inference node ends a goal whose client is gone (the second fence).** A
+  - *2026-11-04: rclpy is initialized without its signal handlers, and SIGINT and SIGTERM
+    raise `KeyboardInterrupt`. `command_server.spin()` bounds its wait at 0.1 s, so the handler
+    runs on the spinning thread. In the image the destroy ran with `rclpy.ok()` true 23 ms
+    after SIGINT and 28 ms after SIGTERM; on `main` it was false ([record](../../measurements/executor-exit-restart-2026-11-04/README.md) §2).*
+  - *Covered: `docker compose stop`, `restart` and `down` and a Ctrl-C, each a SIGINT to the
+    executor, and a SIGTERM. A crash or a SIGKILL runs no handler; the second fence ends the
+    goal then.*
+- [x] **The inference node ends a goal whose client is gone (the second fence).** A
       client-liveness check aborts the goal and publishes a stop, so that a crash or SIGKILL that
       no executor handler sees still ends the drive. The test is a goal whose client stops,
       ending in a stop well inside the 60 s bound.
-- [ ] **The bridge-lane check.** On the sim-bridge lane with a policy backend,
+  - *2026-11-04: the loop aborts the goal, with its stop, once the action's feedback topic has
+    lost the subscriber it had. `test_a_goal_whose_client_is_gone_ends_with_a_stop` fails on
+    `main`. After a SIGKILL the fence fires when the client's DDS lease lapses. That took
+    9.81–9.86 s with the deployed Cyclone configs, which set no lease, and 2.85 s with a 3 s
+    lease in the client's XML alone ([record](../../measurements/executor-exit-restart-2026-11-04/README.md) §3). The lease is the maintainer's choice (PR #264).*
+- [x] **The bridge-lane check.** On the sim-bridge lane with a policy backend,
       `docker compose restart autonomy` during a policy goal ends that goal (canceled, or aborted
       by the second fence), and a zero `/cmd_vel` is the last command. Record the time from the
       restart to the stop.
-- [ ] If your work invalidates a fact in any referenced context module, package README,
+  - *2026-11-04: `docker compose restart autonomy` 3.2 s into a policy goal. The node logged
+    "navigate_to_pose canceled by client.", and the first zero `/cmd_vel` came 0.382 s (wall)
+    after the restart was issued, the last command a zero ([record](../../measurements/executor-exit-restart-2026-11-04/README.md) §1).*
+- [x] If your work invalidates a fact in any referenced context module, package README,
       top-level `Readme.md`, or guide under `docs/`, update those in the same commit. See
-      [`conventions.md`'s user-facing documentation maintenance section](../../context/conventions.md#user-facing-documentation-maintenance)
+      [`conventions.md`'s user-facing documentation maintenance section](../context/conventions.md#user-facing-documentation-maintenance)
       for the surface list and trigger heuristics.
-- [ ] No regression: `make test-ros` and `make test-autonomy` pass.
+  - *2026-11-04: `source/strafer_autonomy/README.md` (the executor's stop) and
+    `source/strafer_ros/deploy/README.md` (what a stop does to a policy goal), in `efd4e7e`.*
+- [x] No regression: `make test-ros` and `make test-autonomy` pass.
+  - *2026-11-04, at `efd4e7e`: `make test-ros` 990 passed; `make test-autonomy` 604 passed,
+    with the container lane's known `isaaclab_tasks` collection error ignored, as on `main`.*
 
 ## Investigation pointers
 
@@ -137,9 +161,9 @@ and `strafer-gpu:humble` (revision label `9f7d20758d5b`).
 ## Out of scope
 
 - Two submissions racing `start_mission`:
-  [`executor-start-mission-atomic`](executor-start-mission-atomic.md).
+  [`executor-start-mission-atomic`](../active/reliability/executor-start-mission-atomic.md).
 - The stop ordering when a goal ends inside its predecessor's drain:
-  [`inference-finished-successor-stop`](inference-finished-successor-stop.md).
+  [`inference-finished-successor-stop`](../active/reliability/inference-finished-successor-stop.md).
 - `base`'s stop path. The driver gets the same SIGKILL on `docker compose stop base`, so its
   teardown, which stops the motors (`destroy_node`, called from `main`'s `finally`), never runs.
   A shared `stop_signal` would cover it, but its check needs the RoboClaws.

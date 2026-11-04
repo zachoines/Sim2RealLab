@@ -88,9 +88,20 @@ from __future__ import annotations
 
 import logging
 import os
+import signal
 import sys
 
 logger = logging.getLogger(__name__)
+
+
+def shutdown(server, runner) -> None:
+    """Cancel the active mission, which stops the robot, then destroy the command server."""
+
+    try:
+        runner.cancel_active_mission()
+    except Exception:
+        logger.exception("Canceling the active mission at exit failed.")
+    server.destroy()
 
 
 def _read_float_env(name: str, config_key: str, target: dict) -> None:
@@ -188,6 +199,7 @@ def main() -> None:
         sys.exit(1)
 
     import rclpy
+    from rclpy.signals import SignalHandlerOptions
 
     from strafer_autonomy.clients.planner_client import (
         HttpPlannerClient,
@@ -209,7 +221,9 @@ def main() -> None:
         # Forward sys.argv so `--ros-args -p use_sim_time:=true` and
         # similar overrides reach the rclpy context and propagate to the
         # nodes this executor constructs.
-        rclpy.init(args=sys.argv)
+        rclpy.init(args=sys.argv, signal_handler_options=SignalHandlerOptions.NO)
+    for signum in (signal.SIGINT, signal.SIGTERM):
+        signal.signal(signum, signal.default_int_handler)
 
     planner_client = HttpPlannerClient(
         config=HttpPlannerClientConfig(base_url=planner_url),
@@ -294,7 +308,7 @@ def main() -> None:
     except KeyboardInterrupt:
         logger.info("Shutting down autonomy executor.")
     finally:
-        server.destroy()
+        shutdown(server, runner)
         rclpy.try_shutdown()
 
 

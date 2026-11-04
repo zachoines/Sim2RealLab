@@ -182,6 +182,9 @@ _TICK_TIMER_REUSE = "timer_reuse"
 _TICK_GATED = "gated"
 _TICK_SEMANTICS = (_TICK_TIMER_REUSE, _TICK_GATED)
 
+_ACTION_NAME = "navigate_to_pose"
+_ACTION_FEEDBACK_TOPIC = f"{_ACTION_NAME}/_action/feedback"
+
 
 class InferenceNode(Node):
     """DEPTH-variant trained-policy execution node for strafer_direct."""
@@ -572,7 +575,7 @@ class InferenceNode(Node):
             self._action_server = ActionServer(
                 self,
                 NavigateToPose,
-                "navigate_to_pose",
+                _ACTION_NAME,
                 execute_callback=self._execute_callback,
                 goal_callback=self._goal_callback,
                 handle_accepted_callback=self._handle_accepted,
@@ -979,6 +982,7 @@ class InferenceNode(Node):
             # /clock-stall detector handles a frozen clock.
             mission_started = self.get_clock().now()
             feedback = NavigateToPose.Feedback()
+            client_seen = False
 
             while rclpy.ok():
                 if goal_handle.is_cancel_requested:
@@ -991,6 +995,15 @@ class InferenceNode(Node):
                 if self._superseded(goal_handle):
                     self.get_logger().info(
                         "navigate_to_pose goal preempted by a newer goal."
+                    )
+                    goal_handle.abort()
+                    return NavigateToPose.Result()
+
+                if self.count_subscribers(_ACTION_FEEDBACK_TOPIC):
+                    client_seen = True
+                elif client_seen:
+                    self.get_logger().warning(
+                        "navigate_to_pose client gone; aborting the goal."
                     )
                     goal_handle.abort()
                     return NavigateToPose.Result()

@@ -278,6 +278,10 @@ budget); the DGX↔robot A/B sessions don't need it.
   SIGINT, the services' `stop_signal`: `ros2 launch` is PID 1 and catches no
   SIGTERM. Launch passes SIGINT to each node, then sends any node still running
   SIGTERM at 5 s and SIGKILL at 10 s, whatever `stop_grace_period` says.
+  On that SIGINT the executor in `autonomy` cancels its active mission and
+  publishes a zero `/cmd_vel` before it exits. A policy goal whose client is
+  gone without a cancel, as after a crash or a SIGKILL, is aborted with a stop
+  by the inference node once DDS drops the client.
 - **New-Jetson provisioning:** flash JP6.2 → `sudo apt install docker.io` →
   `sudo bash host-setup/install-host-prereqs.sh` → `docker compose build` → mount
   the model. Everything except the host kernel/udev/sysctl and the per-device

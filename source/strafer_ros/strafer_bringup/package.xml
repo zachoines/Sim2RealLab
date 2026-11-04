@@ -22,6 +22,7 @@
        won't render Detection2DArray as image annotations, so we also
        publish this schema natively for the Image panel. -->
   <exec_depend>foxglove_msgs</exec_depend>
+  <exec_depend>teleop_twist_keyboard</exec_depend>
 
   <test_depend>python3-pytest</test_depend>
 

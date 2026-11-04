@@ -7,6 +7,7 @@ import unittest
 from unittest.mock import MagicMock, patch
 
 from strafer_autonomy.clients.ros_client import RosClientConfig, _SUPPORTED_BACKENDS
+from strafer_autonomy.executor import main as executor_main
 from strafer_autonomy.executor.main import (
     _read_bool_env,
     _read_float_env,
@@ -16,6 +17,7 @@ from strafer_autonomy.executor.mission_runner import (
     DEFAULT_AVAILABLE_SKILLS,
     MissionRunner,
     MissionRunnerConfig,
+    _MissionRuntime,
 )
 from strafer_autonomy.schemas import Pose3D, SkillCall, SkillResult
 
@@ -315,3 +317,47 @@ class TestPlanBackendValidation(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestShutdown(unittest.TestCase):
+    """The exit path cancels the active mission before it destroys the command server."""
+
+    def _runner_and_server(self, *, active: bool):
+        ros = MagicMock()
+        runner = MissionRunner(
+            planner_client=MagicMock(),
+            grounding_client=MagicMock(),
+            ros_client=ros,
+        )
+        if active:
+            runner._active_runtime = _MissionRuntime(
+                mission_id="m1",
+                request_id="m1",
+                raw_command="go to the door",
+                source="test",
+                started_at=0.0,
+            )
+        server = MagicMock()
+        calls: list[str] = []
+        ros.cancel_active_navigation.side_effect = lambda: calls.append("cancel")
+        ros.publish_zero_cmd_vel.side_effect = lambda: calls.append("zero")
+        server.destroy.side_effect = lambda: calls.append("destroy")
+        return runner, server, calls
+
+    def test_an_active_mission_is_canceled_and_stopped_before_the_destroy(self) -> None:
+        runner, server, calls = self._runner_and_server(active=True)
+        executor_main.shutdown(server, runner)
+        self.assertEqual(calls, ["cancel", "zero", "destroy"])
+        self.assertEqual(runner.get_status().state, "canceling")
+
+    def test_no_active_mission_cancels_nothing(self) -> None:
+        runner, server, calls = self._runner_and_server(active=False)
+        executor_main.shutdown(server, runner)
+        self.assertEqual(calls, ["destroy"])
+
+    def test_a_raising_cancel_still_destroys(self) -> None:
+        runner, server, calls = self._runner_and_server(active=True)
+        runner.cancel_active_mission = MagicMock(side_effect=RuntimeError("cancel failed"))
+        with self.assertLogs(executor_main.logger, level="ERROR"):
+            executor_main.shutdown(server, runner)
+        self.assertEqual(calls, ["destroy"])

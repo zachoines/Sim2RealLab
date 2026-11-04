@@ -48,6 +48,7 @@ class CommandServerConfig:
     action_name: str = DEFAULT_EXECUTE_MISSION_ACTION
     status_service_name: str = DEFAULT_STATUS_SERVICE
     feedback_period_s: float = 0.5
+    spin_wake_period_s: float = 0.1
     # Threads available to the rclpy MultiThreadedExecutor that drives
     # the action server. Must be ≥ 2: execute_callback holds one for
     # the entire mission lifetime, the other serves cancel + status.
@@ -109,6 +110,10 @@ class AutonomyCommandServer:
         execute callback held the only callback thread for the entire
         mission and ``strafer-autonomy-cli cancel`` hung indefinitely
         because the cancel-service callback never got scheduled.
+
+        The wait inside the executor is bounded by ``spin_wake_period_s``, so
+        a signal's Python handler, which runs only between bytecodes of this
+        thread, runs within that period.
         """
 
         self._ensure_ros_entities()
@@ -117,7 +122,8 @@ class AutonomyCommandServer:
         assert self._executor is not None
         self._executor.add_node(self._node)
         try:
-            self._executor.spin()
+            while self._rclpy.ok():
+                self._executor.spin_once(timeout_sec=self._config.spin_wake_period_s)
         finally:
             self._executor.remove_node(self._node)
 

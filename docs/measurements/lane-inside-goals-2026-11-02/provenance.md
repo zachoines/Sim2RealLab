@@ -11,8 +11,8 @@ captured_date: 2026-11-03 (registered 2026-11-02). IB1 ran 2026-11-02 14:14–14
 | robot | strafer-nx | not read in this deposit | Runs the deploy stack in five containers (`session/fh_up.sh`), the reach harness, stage 0 (`session/stage0_fh.sh`), the frame check (`tools/frame_check4.py`) and the recording. Hardware as read on 2026-10-10 for `goal-a-cli-video-2026-10-09`: a Jetson Orin NX 16 GB, L4T R36.4.3. |
 
 - **The link.** The direct link carried DDS and the planner and VLM calls; the sim host drove each boot over it by ssh.
-- **The robot host was held** from session `strafer-nx`'s clearance, 2026-11-02 14:08:45 UTC, to the hand-back,
-  2026-11-03 23:33 UTC. The hold was closed at 23:34 UTC (`campaign/host_hold.log`).
+- **The robot host was held** for this campaign from 2026-11-02 14:08:45 UTC, after its other work had cleared it, to
+  its release at 2026-11-03 23:33 UTC; the hold closed at 23:34 UTC (`campaign/host_hold.log`).
 - **Under the hold, before IB1:**
   - a read-only feasibility read and a QoS check, in transient containers (`campaign/viz_feasibility.txt`,
     `campaign/viz_qos_check.txt`);

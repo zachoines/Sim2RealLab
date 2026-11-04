@@ -125,6 +125,27 @@ Cyclone XML. Every run ended with one abort and a zero as the last command.
   own lease sets the latency, at the lease less about 0.15 s.
 - **As deployed** neither config sets a lease, so the fence ends a crashed executor's goal after
   about 10 s.
+- **What masks it.** The fence counts every subscriber to `navigate_to_pose/_action/feedback`, not
+  the goal's own client. So any other subscriber keeps a dead client's goal alive until it too is
+  gone: a second action client, a `ros2 topic echo` or a logger on that topic, or a Foxglove client
+  subscribed to it.
+  - **In the tree today** the executor's one client is the only subscriber: `ros_client.py`'s
+    `_strafer_direct_client`, shared by `strafer_direct` and hybrid goals. The tree's other action
+    clients are Nav2's (`navigate_to_pose`, `compute_path_to_pose`) and the `ExecuteMission`
+    client, and `cmdvel_logger.py` subscribes to no action topic.
+  - **The viewer** sets no `include_hidden`. Whether foxglove_bridge offers the hidden `_action`
+    topics is therefore its default's; its own launch file declares false.
+  - **The sim-bridge rig's mission observer**, outside the tree, does subscribe to the feedback
+    topic, so the fence is masked while it runs.
+- **The name.**
+  - The deployed node runs in the `strafer_inference` namespace (`inference.launch.py`, included
+    by `inference_policy.launch.py`). The server's `navigate_to_pose` and the count's
+    `navigate_to_pose/_action/feedback` both expand under it, to
+    `/strafer_inference/navigate_to_pose`, the name the executor's client uses.
+  - The launch remaps only `/strafer/cmd_vel`, so the deployed node counts the topic the client
+    subscribes to.
+  - The lane check exercised the cancel path. The fence itself was measured in the probe, with
+    both sides in the root namespace.
 - **The no-XML rows on both sides** come from rmw's built-in localhost configuration, which is not
   the deployed case. Why that pairing gives about twice the default was not established.
 - **A clean exit** deletes the participant at once, so the fence fires on its next 50 ms poll.
@@ -152,6 +173,8 @@ Cyclone XML. Every run ended with one abort and a zero as the last command.
   The image probes cover SIGINT and SIGTERM to the executor itself.
 - **The crash on the lane.** The fence after a SIGKILL was measured only in the probe, not on the
   lane.
+- **The fence under another subscriber.** A second subscriber to the feedback topic masks the fence
+  (§3). It was not run with one.
 - **A shorter lease's cost.** A shorter lease drops a live participant that falls silent sooner,
   for example under CPU starvation or a congested link. A dropped participant also loses its data
   connections. That is not measured here.

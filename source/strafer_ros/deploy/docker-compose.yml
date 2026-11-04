@@ -144,6 +144,12 @@ services:
     profiles: [ viewer ]
     command: ros2 launch strafer_bringup viewer.launch.py
 
+  teleop:
+    <<: *cpu-svc
+    profiles: [ teleop ]
+    restart: "no"
+    command: ros2 run teleop_twist_keyboard teleop_twist_keyboard --ros-args -r cmd_vel:=/cmd_vel -p speed:=0.3 -p turn:=0.6
+
   # --- sim-perception: support layer for the sim lane (opt-in, SIM ONLY) --------
   # `base` and `perception` carry hardware drivers the sim lane cannot run, so this
   # supplies the two nodes slam and inference still need from them. Not on the robot.

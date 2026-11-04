@@ -20,7 +20,7 @@ no shared `/dev/shm`).
 deploy/
 ├── docker/{Dockerfile.cpu, Dockerfile.gpu}   # entrypoint inlined in each
 ├── docker-compose.sim.yml     # sim-in-the-loop (nav2 backend, no GPU/hardware)
-├── docker-compose.yml         # full deploy (5 services + policy/remote/viewer/sim-bridge profiles)
+├── docker-compose.yml         # full deploy (5 services + policy/remote/viewer/teleop/sim-bridge profiles)
 ├── docker-compose.dev.yml     # live ./source bind-mount overlay
 ├── docker-compose.override.sim-bridge.yml    # sim-bridge provisioning (explicit -f only)
 ├── .env.example               # per-host compose interpolation — `cp .env.example .env`
@@ -182,6 +182,23 @@ docker compose --profile viewer up viewer      # or: make viewer
 Connect Foxglove Studio to `ws://<robot-ip>:8765` (the bridge binds `0.0.0.0`),
 or tunnel it: `ssh -L 8765:localhost:8765 <user>@<robot-ip>`. Bare-metal:
 `ros2 launch strafer_bringup viewer.launch.py` (args: `viewer_port`, `use_sim_time`).
+
+### Keyboard teleop
+`teleop_twist_keyboard` on the running stack's `/cmd_vel`, the topic the driver reads, for driving
+the robot by hand: mapping a room, or returning it to a start. It needs a terminal, so it runs
+with `docker compose run`, which gives it a TTY:
+```bash
+make teleop                                    # docker compose --profile teleop run --rm teleop
+```
+- **Keys.** `i`/`,` drive forward and back, `j`/`l` turn, `u`/`o`/`m`/`.` combine the two, Shift
+  with the same keys strafes, and any other key stops. Ctrl-C publishes a zero and exits.
+- **Pace.** It starts at walking pace, 0.3 m/s and 0.6 rad/s. `q`/`w`/`e` raise the speeds 10 % per
+  press with no bound in the node; the driver zeros the motors only above 1.88 m/s or 5.03 rad/s.
+- **Stopping.** It publishes once per key read, with no repeat of its own. A held key repeats at
+  the terminal's autorepeat, and the driver's 0.5 s watchdog stops the motors once the key is
+  released.
+- **Sharing the topic.** Nothing arbitrates `/cmd_vel`, so teleop and a running mission or Nav2
+  interleave. Drive with no mission running.
 
 ### Policy backend (GPU inference)
 The `inference` service runs `inference_policy.launch.py`, which reproduces the

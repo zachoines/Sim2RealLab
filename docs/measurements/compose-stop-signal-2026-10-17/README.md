@@ -200,7 +200,7 @@ Abridged from `probes/driver_sigint.log` (timestamps dropped):
 
 The teardown's `get_logger().info` also printed "Failed to publish log message to rosout:
 publisher's context is invalid". rclpy has already shut its context down when `finally` runs, as
-[`executor-exit-cancels-active-goal`](../../tasks/active/reliability/executor-exit-cancels-active-goal.md)
+[`executor-exit-cancels-active-goal`](../../tasks/completed/executor-exit-cancels-active-goal.md)
 records. The serial writes do not depend on that context.
 
 ## 5. Tests
@@ -233,7 +233,7 @@ records. The serial writes do not depend on that context.
   database was empty. Raising launch's timeouts for `slam` is
   [`slam-stop-save-window`](../../tasks/active/reliability/slam-stop-save-window.md).
 - **The executor's exit path.** A stop now reaches the executor, but it still cancels nothing on
-  exit: [`executor-exit-cancels-active-goal`](../../tasks/active/reliability/executor-exit-cancels-active-goal.md).
+  exit: [`executor-exit-cancels-active-goal`](../../tasks/completed/executor-exit-cancels-active-goal.md).
 - **A daemon stop or a reboot.**
   - In the source of Docker 29.1.3, the robot's version (`daemon/daemon.go`, `shutdownTimeout`
     and `shutdownContainer`), a daemon shutdown stops each container with its own stop signal and

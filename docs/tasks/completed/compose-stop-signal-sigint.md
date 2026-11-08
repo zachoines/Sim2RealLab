@@ -24,7 +24,7 @@ executor's exit path.**
 - [context/conventions.md](../context/conventions.md)
 - [context/branching-and-prs.md](../context/branching-and-prs.md)
 - [context/deploy-env-config.md](../context/deploy-env-config.md)
-- [`executor-exit-cancels-active-goal`](../active/reliability/executor-exit-cancels-active-goal.md), "A container stop
+- [`executor-exit-cancels-active-goal`](executor-exit-cancels-active-goal.md), "A container stop
   never reaches the executor's `finally`": the first probe of this path, which left why launch's
   `_on_sigterm` never ran unexplained.
 - [`chassis-driver-port-fence-2026-10-14`](../../measurements/chassis-driver-port-fence-2026-10-14/README.md)
@@ -131,7 +131,7 @@ label `9f7d20758d5b`): launch 1.0.14, ros2launch 0.19.13, Python 3.10.12. The re
       *2026-10-17:*
       - *slam's grace-period comment states launch's 10 s escalation;*
       - *a stop-semantics line in `deploy/README.md`'s Notes;*
-      - *dated notes on [`executor-exit-cancels-active-goal`](../active/reliability/executor-exit-cancels-active-goal.md),
+      - *dated notes on [`executor-exit-cancels-active-goal`](executor-exit-cancels-active-goal.md),
         [`enriched-lane-rig-stability`](../active/reliability/enriched-lane-rig-stability.md) and the port-fence
         record's §3.*
 - [x] If your work invalidates a fact in any referenced context module, package README,
@@ -153,7 +153,7 @@ label `9f7d20758d5b`): launch 1.0.14, ros2launch 0.19.13, Python 3.10.12. The re
 ## Out of scope
 
 - **The executor's cancel on exit.** A stop now reaches the executor, but its exit path still
-  cancels nothing: [`executor-exit-cancels-active-goal`](../active/reliability/executor-exit-cancels-active-goal.md).
+  cancels nothing: [`executor-exit-cancels-active-goal`](executor-exit-cancels-active-goal.md).
 - **rtabmap's save inside launch's escalation.** Launch sends rtabmap SIGTERM 5 s and SIGKILL
   10 s after the SIGINT, so slam's 180 s grace does not bound its save:
   [`slam-stop-save-window`](../active/reliability/slam-stop-save-window.md).

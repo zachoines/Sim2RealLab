@@ -125,13 +125,21 @@ still leaving its loop**, so that **a stop is the last command.**
     - `_nav_lock` guards only the handle slot (`ros_client.py`:331, 1025-1026), so the two
       missions' goals overlap on the node.
   - **The executor restarted mid-goal: yes.** Filed as
-    [`executor-exit-cancels-active-goal`](executor-exit-cancels-active-goal.md) (2026-10-16).
+    [`executor-exit-cancels-active-goal`](../../completed/executor-exit-cancels-active-goal.md) (2026-10-16).
     - The executor cancels nothing when its process ends (`executor/main.py`:292-298).
     - The node's loop has no client-liveness check, so A runs on for up to its 60 s bound
       (`inference_node.py`:983-1029), and the new executor's first policy goal supersedes it.
     - A crash alone does not restart the executor. The launch keeps `goal_projection` and runs
       the executor as a plain process with no respawn (`autonomy_nodes.launch.py`:44-63), so
       the trigger is an operator restart or recreate of `autonomy`.
+    - *2026-11-04: `executor-exit-cancels-active-goal` shipped (PR #264).*
+      - *A stop, restart or recreate of `autonomy` now cancels A before the executor exits. On the
+        sim-bridge lane, the first zero `/cmd_vel` came 0.382 s after a restart, and the node
+        logged A canceled.*
+      - *The node also aborts a goal whose client is gone, after the dead client's DDS lease
+        (about 10 s as deployed).*
+      - *So a restart no longer leaves A running. A crash leaves it running until the lease
+        lapses, and a new goal accepted in that window still overlaps it.*
   - **On either path,** B must end inside A's drain. It may be within 0.30 m on its first poll
     (`inference_node.py`:998-1004), as a cardinal translate of 0.30 m or less can be. Or it may
     be cancelled as it starts (984-989). Both paths also need a policy backend in the
@@ -179,6 +187,6 @@ still leaving its loop**, so that **a stop is the last command.**
 - The post-goal stop race itself, shipped in `inference-post-goal-stop-race`.
 - The executor paths that overlap goals, found by the reachability box:
   [`executor-start-mission-atomic`](executor-start-mission-atomic.md) and
-  [`executor-exit-cancels-active-goal`](executor-exit-cancels-active-goal.md).
+  [`executor-exit-cancels-active-goal`](../../completed/executor-exit-cancels-active-goal.md).
 - `_last_action` at a mission boundary
   ([`inference-last-action-mission-reset`](../trained-policy/inference-last-action-mission-reset.md)).

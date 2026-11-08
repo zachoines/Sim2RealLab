@@ -24,6 +24,8 @@ import numpy as np
 import pytest
 import rclpy
 from geometry_msgs.msg import PoseStamped
+from nav2_msgs.action import NavigateToPose
+from rclpy.action import ActionClient
 from rclpy.parameter import Parameter
 from rclpy.qos import ReliabilityPolicy
 from sensor_msgs.msg import Image
@@ -1156,6 +1158,41 @@ class TestGoalActiveFlag(unittest.TestCase):
             goal_handle.abort.assert_called_once()
             node._cmd_vel_pub.publish.assert_not_called()
         finally:
+            node.destroy_node()
+
+    def test_a_goal_whose_client_is_gone_ends_with_a_stop(self) -> None:
+        """A client that goes away without canceling, as on a crash or a SIGKILL,
+        ends its goal with a stop well inside the mission bound."""
+        node = self._make_node_with_policy(mission_timeout_s=POLICY_MISSION_TIMEOUT_S)
+        client_node = rclpy.create_node("goal_client", namespace=node.get_namespace())
+        goal_handle = self._make_goal_handle()
+        loop = threading.Thread(target=node._execute_callback, args=(goal_handle,))
+        try:
+            client = ActionClient(client_node, NavigateToPose, "navigate_to_pose")
+            _wait_until(
+                lambda: node.count_subscribers("navigate_to_pose/_action/feedback") == 1
+            )
+            node._cmd_vel_pub = MagicMock()
+            node._current_goal_distance = lambda goal_pose: 1.0  # type: ignore
+
+            loop.start()
+            time.sleep(0.3)
+            goal_handle.abort.assert_not_called()
+
+            client.destroy()
+            gone = time.monotonic()
+            loop.join(timeout=5.0)
+
+            self.assertFalse(loop.is_alive(), "the goal kept driving after its client went away")
+            self.assertLess(time.monotonic() - gone, 1.0)
+            goal_handle.abort.assert_called_once()
+            last = node._cmd_vel_pub.publish.call_args[0][0]
+            self.assertEqual((last.linear.x, last.linear.y, last.angular.z), (0.0, 0.0, 0.0))
+        finally:
+            goal_handle.is_cancel_requested = True
+            if loop.is_alive():
+                loop.join(timeout=2.0)
+            client_node.destroy_node()
             node.destroy_node()
 
     def test_no_policy_abort_leaves_flag_false(self) -> None:

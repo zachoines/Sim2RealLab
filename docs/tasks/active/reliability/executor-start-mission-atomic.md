@@ -101,7 +101,7 @@ Read at `6cd6fd7`. Paths are under `source/strafer_autonomy/strafer_autonomy/`; 
 
 ## Out of scope
 
-- The executor's exit path: [`executor-exit-cancels-active-goal`](executor-exit-cancels-active-goal.md).
+- The executor's exit path: [`executor-exit-cancels-active-goal`](../../completed/executor-exit-cancels-active-goal.md).
 - The ros client's single goal-handle slot, and `cancel_active_navigation` missing a goal whose
   handle is not yet stored (`clients/ros_client.py`:1025-1026, 1287-1291).
 - The stop ordering on the inference node:

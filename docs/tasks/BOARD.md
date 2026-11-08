@@ -232,6 +232,7 @@ The learned components here share one frozen text-capable backbone — see [`con
 | [`scene-contract-instance-discriminator`](parked/tooling/scene-contract-instance-discriminator.md) | P3 | parked (filed-on-trigger) | DGX |
 | [`pose-stable-sim-probe`](active/tooling/pose-stable-sim-probe.md) | P2 | active — filed by the convention-fix validation | DGX |
 | [`campaign-viz-recording`](active/tooling/campaign-viz-recording.md) | P2 | active | Jetson + DGX |
+| [`robot-keyboard-teleop`](completed/robot-keyboard-teleop.md) | P2 | **shipped 2026-11-04** ([#265](https://github.com/zachoines/Sim2RealLab/pull/265), `1938db2`). `make teleop` runs `teleop_twist_keyboard` (an `exec_depend` of `strafer_bringup`, installed by rosdep) in a `teleop` compose service on the running stack's `/cmd_vel`, through `docker compose run --rm` for its TTY. It starts at 0.3 m/s and 0.6 rad/s; the keys raise both 10 % per press, bounded only by the driver's velocity watchdog. It publishes once per key read, so the driver's 0.5 s watchdog stops the motors after a released key. A contract test pins the service and the dependency, and a transient build carried the package. The maintainer validates it paired before use, and it merges with #264 before the next image rebuild | Jetson |
 
 ### Experimental (long-horizon bets)
 

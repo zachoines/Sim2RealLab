@@ -14,7 +14,7 @@ CONDA_ROOT ?= $(HOME)/miniconda3
 CONDA_ENV ?= env_isaaclab3
 
 .PHONY: build test test-unit test-driver test-ros test-autonomy test-vlm test-dgx test-jetson test-lab test-lab-pure lint lint-fix format format-check clean kill \
-        launch launch-nav launch-autonomy launch-sim images up submit submit-deploy down clean-map \
+        launch launch-nav launch-autonomy launch-sim images up teleop submit submit-deploy down clean-map \
         env-sync env-check \
         install-tools udev serve-vlm serve-planner check-nvrtc help \
         sim-bridge sim-bridge-gui sim-harness harness-smoke
@@ -188,6 +188,9 @@ launch-sim: ## Sim-in-the-loop in a container (consumes the DGX bridge; foxglove
 
 viewer: ## Foxglove viewer (foxglove_bridge :8765) on the running deploy stack (real-robot OR sim-bridge). Connect ws://<robot-ip>:8765.
 	$(FULL_COMPOSE) --profile viewer up viewer
+
+teleop: ## Keyboard drive on the running deploy stack's /cmd_vel, starting at walking pace (needs a terminal; Ctrl-C stops and exits)
+	$(FULL_COMPOSE) --profile teleop run --rm teleop
 
 up: ## Full robot deploy: base+perception+slam+navigation+autonomy containers (needs hardware). Config: edit canonical strafer_bringup/config/env_autonomy.env, then make env-sync.
 	$(FULL_COMPOSE) up

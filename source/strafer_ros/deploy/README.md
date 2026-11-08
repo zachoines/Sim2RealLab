@@ -11,7 +11,9 @@ DDS-native containerization of the Strafer stack for the Jetson Orin NX
 | `strafer-gpu` | inference (policy) only | `nvcr.io/nvidia/l4t-jetpack:r36.4.0` | yes |
 
 DDS: **CycloneDDS**, `ROS_DOMAIN_ID=42`, the canonical tuned `cyclonedds.xml`
-(bind-mounted straight from `strafer_bringup/config`, not copied). Every service
+(bind-mounted straight from `strafer_bringup/config`, not copied). `autonomy`
+mounts its sibling `cyclonedds.autonomy.xml` at the same path instead: the same
+tuning plus a 3 s participant lease. Every service
 is `network_mode: host` (Cyclone uses UDP loopback between same-host containers —
 no shared `/dev/shm`).
 
@@ -298,7 +300,10 @@ budget); the DGX↔robot A/B sessions don't need it.
   On that SIGINT the executor in `autonomy` cancels its active mission and
   publishes a zero `/cmd_vel` before it exits. A policy goal whose client is
   gone without a cancel, as after a crash or a SIGKILL, is aborted with a stop
-  by the inference node once DDS drops the client.
+  by the inference node once DDS drops the client. For the executor that is
+  about 3 s after it dies: every process in `autonomy` carries the 3 s
+  participant lease in `cyclonedds.autonomy.xml`, and the other containers keep
+  Cyclone's 10 s default.
 - **New-Jetson provisioning:** flash JP6.2 → `sudo apt install docker.io` →
   `sudo bash host-setup/install-host-prereqs.sh` → `docker compose build` → mount
   the model. Everything except the host kernel/udev/sysctl and the per-device

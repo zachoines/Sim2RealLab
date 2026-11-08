@@ -13,7 +13,7 @@
   the Jetson. Without raising it, Cyclone requests 16 MB but keeps the tiny
   default and depth still drops. Install the checked-in drop-in beside this
   file, once per host:
-      sudo cp config/99-cyclonedds-rmem.conf /etc/sysctl.d/ && sudo sysctl --system
+      sudo cp config/99-cyclonedds-rmem.conf /etc/sysctl.d/ && sudo sysctl -p /etc/sysctl.d/99-cyclonedds-rmem.conf
   Note this is a max, not a min: a too-low kernel cap must NOT be a hard
   floor here — Cyclone treats an unmet SocketReceiveBufferSize `min` as
   fatal and refuses to create the domain, which would brick every node on
@@ -21,7 +21,9 @@
 
   Scope: applies wherever RMW_IMPLEMENTATION=rmw_cyclonedds_cpp — both the
   sim-in-the-loop and real-robot lanes, exported via CYCLONEDDS_URI in the
-  env files beside this one.
+  env files beside this one. The deploy stack's autonomy container reads
+  cyclonedds.autonomy.xml instead, this file plus a 3 s participant lease;
+  a change here goes there too.
 -->
 <CycloneDDS xmlns="https://cdds.io/config"
             xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"

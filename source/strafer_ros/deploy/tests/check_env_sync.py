@@ -28,7 +28,7 @@ below rather than left to review.
 The invariants beyond the regenerate+diff:
 
   1. DDS URI consistency: the container CYCLONEDDS_URI is identical across the
-     docker-compose{,.sim}.yml x-dds-env anchors and equals the cyclonedds.xml
+     docker-compose{,.sim}.yml x-dds-env anchors and equals every Cyclone XML's
      bind-mount target. (The one non-portable key lives only in compose.)
   2. Deploy-only keys (each lane's declared generator overlay) are present in
      that lane's mirror and absent from its canon.
@@ -139,7 +139,7 @@ def main() -> int:
             m = re.search(r"CYCLONEDDS_URI:\s*(\S+)", line)
             if m:
                 uris.add(m.group(1))
-            mounts.update(re.findall(r"cyclonedds\.xml:(/\S+?):ro", line))
+            mounts.update(re.findall(r"cyclonedds(?:\.\w+)?\.xml:(/\S+?):ro", line))
     if not uris:
         fails.append("no CYCLONEDDS_URI in the compose x-dds-env anchors (expected the container path)")
     for u in sorted(uris):
@@ -147,7 +147,7 @@ def main() -> int:
             fails.append(f"compose CYCLONEDDS_URI={u!r} != expected {CONTAINER_URI!r}")
     for mnt in sorted(mounts):
         if f"file://{mnt}" != CONTAINER_URI:
-            fails.append(f"cyclonedds.xml bind-mount target {mnt!r} != URI path in {CONTAINER_URI!r}")
+            fails.append(f"Cyclone XML bind-mount target {mnt!r} != URI path in {CONTAINER_URI!r}")
 
     # 3. each lane's declared deploy-only keys: present in mirror, absent in canon
     for name, spec in gen_env.LANES.items():

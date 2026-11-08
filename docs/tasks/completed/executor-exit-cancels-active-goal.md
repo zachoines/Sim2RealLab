@@ -129,6 +129,9 @@ and `strafer-gpu:humble` (revision label `9f7d20758d5b`).
     `main`. After a SIGKILL the fence fires when the client's DDS lease lapses. That took
     9.81–9.86 s with the deployed Cyclone configs, which set no lease, and 2.85 s with a 3 s
     lease in the client's XML alone ([record](../../measurements/executor-exit-restart-2026-11-04/README.md) §3). The lease is the maintainer's choice (PR #264).*
+  - *2026-11-08: the maintainer chose a 3 s lease in the `autonomy` container's Cyclone XML alone,
+    which [`autonomy-cyclone-lease`](autonomy-cyclone-lease.md) ships (PR #266). With it, the fence
+    ended a SIGKILLed client's goal 2.86 s after the kill.*
 - [x] **The bridge-lane check.** On the sim-bridge lane with a policy backend,
       `docker compose restart autonomy` during a policy goal ends that goal (canceled, or aborted
       by the second fence), and a zero `/cmd_vel` is the last command. Record the time from the

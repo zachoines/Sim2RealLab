@@ -79,6 +79,8 @@ a deploy-side change not filed as a brief), and the planner's direction schema
 [`planner-translate-sign-2026-10-11`](../../../measurements/planner-translate-sign-2026-10-11/README.md),
 a paired session). Both are deploy-side. Neither touches the training env.
 
+Two-room house: not in v4; see [`procroom-two-room-house`](procroom-two-room-house.md).
+
 **v3's IDs keep v3's contract.** v4 registers its own ID pair (Run), and each v4 change is set in
 v4's composition only. Two of the changes would otherwise reach v3's IDs silently:
 - the focal length is a shared constant that every policy camera reads (§1);

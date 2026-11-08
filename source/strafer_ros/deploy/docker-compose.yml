@@ -134,6 +134,8 @@ services:
     <<: *cpu-svc
     container_name: strafer_autonomy
     env_file: [ compose/autonomy.env ]
+    volumes:
+      - ../strafer_bringup/config/cyclonedds.autonomy.xml:/opt/strafer/config/cyclonedds.xml:ro
     command: ros2 launch strafer_bringup autonomy_nodes.launch.py
 
   # --- viewer: foxglove_bridge on :8765. Launches no robot nodes, so it attaches

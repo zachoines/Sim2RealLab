@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!--
+  Cyclone DDS configuration for the deploy stack's autonomy container alone:
+  the receive tuning of cyclonedds.xml beside it, plus a 3 s participant lease.
+
+  Why only here: a participant that dies without a goodbye, as in a crash or a
+  SIGKILL, leaves its peers' view of the graph when its own lease lapses. With
+  this lease the inference node sees a dead executor's action client gone, and
+  ends that client's policy goal, about 3 s after the executor dies instead of
+  after Cyclone's 10 s default. Every process in this container carries the
+  lease, goal_projection included; the other containers keep the default.
+
+  The Internal block must stay identical to cyclonedds.xml's, which explains
+  it; strafer_bringup's tests check that the two files differ only by the lease.
+-->
+<CycloneDDS xmlns="https://cdds.io/config"
+            xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+            xsi:schemaLocation="https://cdds.io/config https://raw.githubusercontent.com/eclipse-cyclonedds/cyclonedds/master/etc/cyclonedds.xsd">
+  <Domain id="any">
+    <Discovery>
+      <LeaseDuration>3 s</LeaseDuration>
+    </Discovery>
+    <Internal>
+      <SocketReceiveBufferSize max="16MB" />
+      <DefragUnreliableMaxSamples>32</DefragUnreliableMaxSamples>
+      <DefragReliableMaxSamples>32</DefragReliableMaxSamples>
+    </Internal>
+  </Domain>
+</CycloneDDS>

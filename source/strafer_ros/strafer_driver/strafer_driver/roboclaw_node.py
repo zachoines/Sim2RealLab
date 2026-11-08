@@ -14,9 +14,10 @@ Twist -- no serial I/O in the callback.
 
 Port fence: the node drives only ports that answered a RoboClaw address probe,
 at startup and on every reconnect, and detects controllers on
-``/dev/roboclaw*`` only.  If either controller is not found, or both resolve
-to one device, it logs why and exits non-zero; the address probe is all it has
-sent.  ``driver.launch.py`` shuts its launch down when the node exits.
+``/dev/roboclaw*`` only, at startup and again when a reconnect fails.  If at
+startup either controller is not found, or both resolve to one device, it logs
+why and exits non-zero; the address probe is all it has sent.
+``driver.launch.py`` shuts its launch down when the node exits.
 
 ALL constants from ``strafer_shared.constants``.
 ALL kinematics from ``strafer_shared.mecanum_kinematics``.
@@ -198,6 +199,7 @@ class RoboClawNode(Node):
         # ------------------------------------------------------------------
         self._front = RoboClawInterface(front_port, ROBOCLAW_FRONT_ADDRESS, baud_rate)
         self._rear = RoboClawInterface(rear_port, ROBOCLAW_REAR_ADDRESS, baud_rate)
+        self._auto_detect = auto_detect
 
         try:
             self._front.open()
@@ -346,6 +348,8 @@ class RoboClawNode(Node):
                 self.get_logger().warn("Attempting RoboClaw reconnect...")
                 front_ok = self._front.reconnect()
                 rear_ok = self._rear.reconnect()
+                if not (front_ok and rear_ok) and self._auto_detect:
+                    front_ok = rear_ok = self._redetect()
                 if front_ok and rear_ok:
                     # A power cycle reloads each controller's saved gains, so the
                     # driver's gains go back on, and are read back, before it drives again.
@@ -542,6 +546,39 @@ class RoboClawNode(Node):
             return False
         self.get_logger().info(f"{label} gains read back {got}")
         return True
+
+    def _redetect(self) -> bool:
+        """Find each controller by its address again, and reopen it on the path it answers on.
+
+        The names follow the enumeration order, which a power cut can swap. As at startup, a
+        missing address or both on one device adopts nothing, and both ports stay closed.
+        """
+        self._front.close()
+        self._rear.close()
+        detected = detect_roboclaws(
+            ROBOCLAW_FRONT_ADDRESS, ROBOCLAW_REAR_ADDRESS, baud_rate=self._front.baud_rate
+        )
+        front_port = detected.get(ROBOCLAW_FRONT_ADDRESS)
+        rear_port = detected.get(ROBOCLAW_REAR_ADDRESS)
+        if front_port is None or rear_port is None:
+            self.get_logger().error(
+                f"Re-detect: found {len(detected)}/2 controllers on /dev/roboclaw* "
+                f"({_describe(detected.items())})."
+            )
+            return False
+        if same_device(front_port, rear_port):
+            self.get_logger().error(
+                f"Re-detect: both addresses answered on one device "
+                f"({_describe(detected.items())})."
+            )
+            return False
+        self.get_logger().info(
+            f"Re-detect: front (0x{ROBOCLAW_FRONT_ADDRESS:02X}) -> {front_port}, "
+            f"rear (0x{ROBOCLAW_REAR_ADDRESS:02X}) -> {rear_port}"
+        )
+        self._front.port = front_port
+        self._rear.port = rear_port
+        return self._front.reconnect() and self._rear.reconnect()
 
     def _handle_serial_failure(self, msg: str) -> None:
         """Track consecutive failures and escalate to error state."""

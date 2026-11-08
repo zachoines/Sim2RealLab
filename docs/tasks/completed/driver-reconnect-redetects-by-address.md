@@ -1,5 +1,8 @@
 # Re-detect the RoboClaws by address when a reconnect fails, so a swapped enumeration recovers by itself
 
+**Status:** Shipped 2026-11-02 in `d03e68f` (Jetson).
+**PR:** https://github.com/zachoines/Sim2RealLab/pull/262
+
 **Type:** bug (after a main-power cut that swaps the controllers' enumeration order, every
 reconnect fails until `base` is restarted)
 **Owner:** Jetson (`strafer_driver`)
@@ -18,13 +21,13 @@ swapped enumeration recovers by itself, as an unswapped one already does.**
 
 ## Context bundle
 
-- [context/repo-topology.md](../../context/repo-topology.md)
-- [context/conventions.md](../../context/conventions.md)
-- [context/branching-and-prs.md](../../context/branching-and-prs.md)
-- [`driver-hardening-bench-2026-10-25`](../../../measurements/driver-hardening-bench-2026-10-25/README.md)
+- [context/repo-topology.md](../context/repo-topology.md)
+- [context/conventions.md](../context/conventions.md)
+- [context/branching-and-prs.md](../context/branching-and-prs.md)
+- [`driver-hardening-bench-2026-10-25`](../../measurements/driver-hardening-bench-2026-10-25/README.md)
   §4 and finding 4, and its deposit's `step3/`, `host/kernel_usb_events.txt` and
   `host/base_log_all.txt`.
-- [`driver-reconnect-reapplies-gains`](../../completed/driver-reconnect-reapplies-gains.md), whose
+- [`driver-reconnect-reapplies-gains`](driver-reconnect-reapplies-gains.md), whose
   reconnect this extends.
 
 ## Context
@@ -70,30 +73,30 @@ Read at `af7d798`, and seen on the robot on 2026-10-25.
     0.5 s after that is dropped: with a live publisher, its next message.
   - A message that the long tick's own executor pass already held is taken before the mark is set.
     If the re-detection clears the error state, that message then drives: the residual that
-    [`driver-stale-cmd-vel-rearm`](../../completed/driver-stale-cmd-vel-rearm.md) names.
+    [`driver-stale-cmd-vel-rearm`](driver-stale-cmd-vel-rearm.md) names.
 - **The restart stays the recovery until this ships.** `source/strafer_ros/README.md`'s driver
   paragraph says so, for a swap and for a controller replugged onto a new `ttyACM` number. A scan
   of the glob would also find a replugged controller's new name.
 
 ## Acceptance criteria
 
-- [ ] **A fake-bus test with swapped names fails on `main`.**
+- [x] **A fake-bus test with swapped names fails on `main`.**
   - Two fake controllers start on `/dev/roboclaw1` and `/dev/roboclaw2`, and the driver detects
     them.
   - A simulated main-power cut exchanges the two paths.
   - On `main` every reconnect fails and the error state holds. With the fix the next reconnect
     re-detects, maps front and rear to their new paths, re-applies and reads back the gains, and
     clears the error state.
-- [ ] **The re-detection keeps the start's checks.** A missing address, or both addresses on one
+- [x] **The re-detection keeps the start's checks.** A missing address, or both addresses on one
       device, leaves the error state set, with nothing written beyond the probes.
-- [ ] **A reconnect on the old names is unchanged.** The existing reconnect tests in
+- [x] **A reconnect on the old names is unchanged.** The existing reconnect tests in
       `test_stall_and_reconnect.py` pass as they are.
-- [ ] **`source/strafer_ros/README.md`'s driver paragraph** says that a swap recovers by
+- [x] **`source/strafer_ros/README.md`'s driver paragraph** says that a swap recovers by
       re-detection.
-- [ ] If your work invalidates a fact in any referenced context module, package README,
+- [x] If your work invalidates a fact in any referenced context module, package README,
       top-level `Readme.md`, or guide under `docs/`, update those in the same commit. See
-      [`conventions.md`'s user-facing documentation maintenance section](../../context/conventions.md#user-facing-documentation-maintenance).
-- [ ] No regression: `make test-ros` passes.
+      [`conventions.md`'s user-facing documentation maintenance section](../context/conventions.md#user-facing-documentation-maintenance).
+- [x] No regression: `make test-ros` passes.
 
 ## Investigation pointers
 

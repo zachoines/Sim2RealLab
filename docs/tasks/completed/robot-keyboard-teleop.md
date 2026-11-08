@@ -1,6 +1,6 @@
 # Drive the robot from a keyboard through the deploy stack's own /cmd_vel
 
-**Status:** Shipped 2026-11-04 in `edfec99` (Jetson).
+**Status:** Shipped 2026-11-04 in `1938db2` (Jetson).
 **PR:** https://github.com/zachoines/Sim2RealLab/pull/265
 
 **Type:** tooling
@@ -63,8 +63,8 @@ Read at `main` `f16d18d6`, and in `strafer-cpu:humble` and `strafer-gpu:humble` 
 - [x] **The dependency comes from rosdep.** `teleop_twist_keyboard` is an `exec_depend` of
       `strafer_bringup`, so the image's existing `rosdep install --from-paths src` installs it,
       with no apt line added by hand.
-  - *2026-11-04: in `edfec99`; a CPU image built from it carries `ros-humble-teleop-twist-keyboard`
-    2.4.1.*
+  - *2026-11-04: in `1938db2`; a CPU image built from `edfec99`, the same change before the rebase
+    onto `main`, carries `ros-humble-teleop-twist-keyboard` 2.4.1.*
 - [x] **One command starts it on the running stack**, with a TTY, publishing `/cmd_vel`: a compose
       service in its own profile, run by a Makefile target with `docker compose run --rm`.
   - It runs on the CPU image's service anchor, so it uses the stack's own DDS environment.
@@ -81,7 +81,7 @@ Read at `main` `f16d18d6`, and in `strafer-cpu:humble` and `strafer-gpu:humble` 
 - [x] **No repeat rate.** Nothing republishes a held command, so the driver's 0.5 s watchdog stops
       the motors once a key is released. `source/strafer_ros/README.md`'s driver paragraph says so
       in one sentence.
-  - *2026-11-04: that sentence is in the driver paragraph, in `edfec99`.*
+  - *2026-11-04: that sentence is in the driver paragraph, in `1938db2`.*
 - [x] **A contract test**, in the style of `test_perception_launch.py`:
   - it pins the service's command, its remap to `/cmd_vel` and its parameters, and the
     `exec_depend`;

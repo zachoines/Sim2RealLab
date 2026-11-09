@@ -121,8 +121,9 @@ CAMERA_OFFSET_Z = 0.25  # meters up from body_link
 # Policy depth input resolution (downsampled from the 640x360 perception
 # stream). 80x45 is 16:9, matching the real D555 / perception camera aspect.
 # Isaac Sim derives a camera's vertical FOV from its resolution aspect ratio
-# (square pixels), not from vertical_aperture, so 16:9 yields the sensor's real
-# ~56.4 deg VFOV. Both are 16:9, so deployment downsamples 640x360 -> 80x45 on
+# (square pixels), not from vertical_aperture, so 16:9 keeps the policy grid's
+# VFOV the stream's; the value follows from the focal length (56.4 deg at
+# D555_FOCAL_LENGTH_MM; the real unit measures 58.5 deg). Both are 16:9, so deployment downsamples 640x360 -> 80x45 on
 # an exact 8x integer block grid, which preserves the vertical FOV. The
 # reduction within each block is a median, not a mean -- see
 # obs_pipeline.downsample_depth.

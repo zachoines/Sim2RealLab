@@ -1,8 +1,8 @@
 """Shared Intel RealSense D555 sensor configuration.
 
-This keeps the camera mount, orientation, and intrinsics aligned across
+This keeps the camera mount, orientation, and intrinsics the same across
 the training environments and the dedicated depth-noise integration
-scene.
+scene, unless a composition overrides them.
 
 Two camera configurations coexist:
 
@@ -29,8 +29,10 @@ resolution (``PERCEPTION_WIDTH`` / ``PERCEPTION_HEIGHT``), lens specs
 (``DEPTH_CLIP_NEAR``, ``DEPTH_CLIP_FAR`` — applied in software in
 ``observations.depth_image``), and mount offset (``CAMERA_OFFSET_X/Y/Z``)
 — lives in ``strafer_shared`` so the Jetson real-robot driver and the
-Isaac Sim cameras share one authoritative specification and can never
-drift against each other. The renderer frustum clip
+Isaac Sim cameras share one specification. The lens constants are the
+datasheet's; the focal length the real unit measures (fx = fy = 321.522 px at
+640x360) is ``composed_env_cfg.V4_POLICY_FOCAL_LENGTH_MM``, which the v4
+compositions render. The renderer frustum clip
 (``D555_RENDER_FAR_CLIP_M``) is sim-only and intentionally decoupled
 from the depth-sensor limit so RGB and other render-product channels
 extend through the full scene.
@@ -38,9 +40,11 @@ What stays local to this module is sim-only: Isaac Sim USD prim-path
 strings, the Isaac Sim → ROS camera-frame quaternion, and the Isaac Sim
 ``data_types`` channel names.
 
-Both cameras share the same physical parameters, so a single physical
-D555 at deployment serves both pipelines without recalibration. They
-differ ONLY in resolution and prim path.
+Both factories build the same physical parameters at the same resolution;
+they differ only in prim path and channel set. A composition can override a
+camera's focal length on top of a factory: the v4 variants set the policy
+camera to the real unit's measured focal length (the principal point stays at
+the image centre).
 """
 
 from __future__ import annotations
@@ -126,9 +130,12 @@ def make_d555_camera_cfg(*, data_types: tuple[str, ...]) -> TiledCameraCfg:
     is the deploy field rather than a separately rendered one.
 
     640x360 and 80x45 are both 16:9, so Isaac Sim's resolution-derived
-    (square-pixel) vertical FOV is 56.4 deg either way — matching the real
-    D555. (RTX ignores the authored ``vertical_aperture``; resolution is the
-    only lever — see ``strafer_shared.constants.DEPTH_HEIGHT``.)
+    (square-pixel) vertical FOV is the same either way: 56.4 deg at this
+    focal length (fx = 335.652 px at 640x360). The real unit measures
+    fx = fy = 321.522 px (58.5 deg), which the v4 compositions render by
+    overriding the focal length. (RTX ignores the authored
+    ``vertical_aperture``; the aspect comes from the resolution — see
+    ``strafer_shared.constants.DEPTH_HEIGHT``.)
     """
 
     return TiledCameraCfg(
@@ -159,9 +166,9 @@ def make_d555_perception_camera_cfg() -> TiledCameraCfg:
 
     All physical parameters (focal length, aperture, clipping range, mount
     offset, update rate) are imported from :mod:`strafer_shared.constants`
-    and therefore identical to the policy camera's spec, which guarantees a
-    single physical D555 at deployment serves both pipelines without
-    recalibration.
+    and therefore identical to the policy camera factory's spec. A composition
+    may override either camera's focal length on top of the factory (the v4
+    variants do).
     """
 
     return TiledCameraCfg(

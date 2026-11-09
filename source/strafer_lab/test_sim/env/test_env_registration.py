@@ -74,6 +74,9 @@ EXPECTED_ENVS = [
     "Isaac-Strafer-Nav-RLDepth-Subgoal-Enriched-Real-Play-v0",
     "Isaac-Strafer-Nav-RLDepth-Subgoal-Enriched-Robust-v0",
     "Isaac-Strafer-Nav-RLDepth-Subgoal-Enriched-Robust-Play-v0",
+    # RL training — v4 (the enriched robust depth-subgoal pair with v4's changes)
+    "Isaac-Strafer-Nav-RLDepth-Subgoal-Enriched-Robust-V4-v0",
+    "Isaac-Strafer-Nav-RLDepth-Subgoal-Enriched-Robust-V4-Play-v0",
     # Capture (operator-selectable stack)
     "Isaac-Strafer-Nav-Capture-Teleop-v0",
     "Isaac-Strafer-Nav-Capture-Bridge-v0",

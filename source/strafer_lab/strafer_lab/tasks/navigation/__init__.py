@@ -28,6 +28,9 @@ against):
   and depth-subgoal variants on the ProcRoom generator enriched toward
   enclosed, Infinigen-like depth statistics. New IDs with their own frozen
   goldens so the open-top depth checkpoints keep their contract.
+- ``Isaac-Strafer-Nav-RLDepth-Subgoal-Enriched-Robust-V4-v0``: the enriched
+  robust depth-subgoal variant with v4's changes (the policy camera at the real
+  unit's measured focal length), so the enriched IDs keep their contract.
 
 Capture (operator-selectable stack via ``capture.py --sensors``; the default
 preset is shown):
@@ -107,6 +110,10 @@ _ENV_REGISTRATIONS = [
     ("Isaac-Strafer-Nav-RLDepth-Subgoal-Enriched-Real-Play-v0", "StraferNavCfg_RLDepthSubgoalEnriched_Real_PLAY", _DEPTH_RUNNER_CFG),
     ("Isaac-Strafer-Nav-RLDepth-Subgoal-Enriched-Robust-v0", "StraferNavCfg_RLDepthSubgoalEnriched_Robust", _DEPTH_RUNNER_CFG),
     ("Isaac-Strafer-Nav-RLDepth-Subgoal-Enriched-Robust-Play-v0", "StraferNavCfg_RLDepthSubgoalEnriched_Robust_PLAY", _DEPTH_RUNNER_CFG),
+    # v4: the enriched robust depth-subgoal pair with v4's changes, on new IDs
+    # so the enriched IDs keep their contract.
+    ("Isaac-Strafer-Nav-RLDepth-Subgoal-Enriched-Robust-V4-v0", "StraferNavCfg_RLDepthSubgoalEnrichedV4_Robust", _DEPTH_RUNNER_CFG),
+    ("Isaac-Strafer-Nav-RLDepth-Subgoal-Enriched-Robust-V4-Play-v0", "StraferNavCfg_RLDepthSubgoalEnrichedV4_Robust_PLAY", _DEPTH_RUNNER_CFG),
     # Capture variants (operator-selectable stack)
     ("Isaac-Strafer-Nav-Capture-Teleop-v0", "StraferNavCfg_TeleopCapture", _NOCAM_RUNNER_CFG),
     ("Isaac-Strafer-Nav-Capture-Bridge-v0", "StraferNavCfg_BridgeAutonomy", _DEPTH_RUNNER_CFG),

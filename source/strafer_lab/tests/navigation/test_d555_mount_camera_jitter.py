@@ -37,6 +37,8 @@ _ENRICHED = (
     "RLDepthSubgoalEnriched_Robust",
     "RLDepthSubgoalEnriched_Real_PLAY",
     "RLDepthSubgoalEnriched_Robust_PLAY",
+    "RLDepthSubgoalEnrichedV4_Robust",
+    "RLDepthSubgoalEnrichedV4_Robust_PLAY",
 )
 _UNENRICHED = (
     "RLDepth_Real",

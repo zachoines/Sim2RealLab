@@ -45,10 +45,12 @@ _SENSOR_CFG = SimpleNamespace(name=_SENSOR_NAME)
 # matches the d555 mount's frame-alignment quaternion.
 _LEVEL_QUAT_XYZW = (-0.5, 0.5, -0.5, 0.5)
 
-# Real d555 policy-camera geometry. The 80x45 (16:9) render has square pixels,
-# and at that aspect the square-pixel vertical FOV IS the real sensor's ~56 deg
-# — the same derivation the reward uses. (This is the whole point of the 80x45
-# resolution: RTX derives VFOV from resolution, so 16:9 gives the right FOV.)
+# The factory's policy-camera geometry (the shared constants: a 56.4 deg
+# vertical FOV; the real unit measures 58.5 deg, which only the v4 compositions
+# render). The 80x45 (16:9) render has square pixels, so the vertical FOV
+# follows from the focal length and the aspect — the same derivation the reward
+# uses. (RTX derives VFOV from the resolution's aspect, so 16:9 is what keeps
+# the policy grid's FOV the stream's.)
 _TAN_HALF_HFOV = D555_HORIZONTAL_APERTURE_MM / (2.0 * D555_FOCAL_LENGTH_MM)
 _TAN_HALF_VFOV = _TAN_HALF_HFOV * DEPTH_HEIGHT / DEPTH_WIDTH
 _CAM_HEIGHT = 0.35  # optical center above the floor, ~the robot's real mount
@@ -318,12 +320,12 @@ def test_depth_and_path_rewards_read_independent_channels():
 
 
 def test_bare_floor_reads_zero_at_real_mount_height():
-    """The load-bearing case: at the robot's real camera height/FOV the bare
-    floor is visible at ~0.5 m z-depth in the bottom rows — far inside the
-    penalty threshold. Floor-plane exclusion must make an open scene read
+    """The load-bearing case: at the robot's real camera height and the factory
+    camera's FOV the bare floor is visible at ~0.5 m z-depth in the bottom rows —
+    far inside the penalty threshold. Floor-plane exclusion must make an open scene read
     exactly zero instead of a saturated ambient penalty."""
     image = _floor_image(_level_rotation())
-    # Geometry sanity: at the real 16:9 VFOV (~56 deg, 80x45) the bottom row
+    # Geometry sanity: at the factory's 16:9 VFOV (56.4 deg, 80x45) the bottom row
     # reads the floor at ~0.67 m — still well inside the penalty threshold, the
     # sub-threshold depth that made an unmasked min saturate.
     assert 0.63 < image[-1, 0].item() < 0.70

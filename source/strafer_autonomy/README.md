@@ -124,6 +124,8 @@ At startup, `build_command_server()` runs parallel health checks against the pla
 
 On SIGINT or SIGTERM the executor cancels the active mission before it destroys anything: it cancels the active navigation goal and publishes a zero `/cmd_vel` while the ROS context is still live. `executor/main.py` installs its own handlers in place of rclpy's, which shut the context down before the exit path runs. A crash or a SIGKILL runs no handler; the inference node then ends a policy goal itself once it sees the goal's client gone.
 
+Every exit from `main()`, a handled signal, a startup health-check failure or any other exception, then stops `JetsonRosClient` before the ROS context shuts down. `close()` waits up to `spin_join_timeout_s` (2 s) for its spin thread to end, then shuts its executor down and destroys its node; a thread still running then is logged and left in place. The thread must end before the interpreter finalizes: a daemon thread woken inside rclpy's wait during finalization, by a sample on one of its subscriptions or by the context's shutdown, aborts the process with `terminate called without an active exception`. Once that teardown starts, further SIGINT and SIGTERM are ignored, so a second signal cannot interrupt it.
+
 ### Skill registry (executor-side)
 
 `DEFAULT_AVAILABLE_SKILLS` in `executor/mission_runner.py`:
@@ -336,6 +338,8 @@ python -m pytest source/strafer_autonomy/tests/ -m "not requires_ros" -v
 source ~/strafer_ws/install/setup.bash
 python -m pytest source/strafer_autonomy/tests/ -v
 ```
+
+With ROS sourced, set `PYTEST_DISABLE_PLUGIN_AUTOLOAD=1` for a directory run: ROS's `launch_testing` pytest plugin otherwise takes over collection and the run collects nothing. `tests/test_executor_exit_live.py` runs the executor as a subprocess against a stub `/health` server and a publisher on its camera and odometry topics, so it needs `strafer_msgs` built.
 
 Tests marked `requires_ros` exercise the command server, CLI, and `JetsonRosClient` against live ROS interfaces. Everything else — planner pipeline, schemas, intent parsing, plan compilation, HTTP clients, Databricks clients, semantic map — runs without a ROS install.
 

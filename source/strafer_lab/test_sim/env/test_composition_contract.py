@@ -134,6 +134,13 @@ _CONTRACT_GOLDENS = {
     "RLDepthSubgoalEnriched_Robust": "c98d18baedffd070eebbc8deef6f07510a81ea0cd66ee1dc797bfff21d471546",
     "RLDepthSubgoalEnriched_Real_PLAY": "1585a43ce225062c2a387c951d40e16ddc36e3c2da58241fd7cfa2eab7551e74",
     "RLDepthSubgoalEnriched_Robust_PLAY": "a27f086252e47caffb4d5111c3c7a0496287a2d2c39e5f8fa2ba5ca903f9d464",
+    # v4 — NEW IDs frozen at creation. Equal to the enriched robust pair's: v4's
+    # one change so far is the policy camera's focal length, which is on the
+    # scene and outside this hash (pinned in tests/navigation/
+    # test_policy_camera_intrinsics.py). A v4 change to a hashed manager moves
+    # these two and no other.
+    "RLDepthSubgoalEnrichedV4_Robust": "c98d18baedffd070eebbc8deef6f07510a81ea0cd66ee1dc797bfff21d471546",
+    "RLDepthSubgoalEnrichedV4_Robust_PLAY": "a27f086252e47caffb4d5111c3c7a0496287a2d2c39e5f8fa2ba5ca903f9d464",
 }
 
 # Frozen signature (slot name set + spawn sizes) of the pre-enrichment 44-object
@@ -184,6 +191,8 @@ _COMPOSED_RL = {
     "RLDepthSubgoalEnriched_Robust": composed.StraferNavCfg_RLDepthSubgoalEnriched_Robust,
     "RLDepthSubgoalEnriched_Real_PLAY": composed.StraferNavCfg_RLDepthSubgoalEnriched_Real_PLAY,
     "RLDepthSubgoalEnriched_Robust_PLAY": composed.StraferNavCfg_RLDepthSubgoalEnriched_Robust_PLAY,
+    "RLDepthSubgoalEnrichedV4_Robust": composed.StraferNavCfg_RLDepthSubgoalEnrichedV4_Robust,
+    "RLDepthSubgoalEnrichedV4_Robust_PLAY": composed.StraferNavCfg_RLDepthSubgoalEnrichedV4_Robust_PLAY,
 }
 
 

@@ -164,8 +164,8 @@ _NOCAM_FIELDS: tuple[ObsField, ...] = (
 )
 
 # The depth field dim is derived from the policy camera resolution so it can
-# never drift from DEPTH_WIDTH/DEPTH_HEIGHT: 80*45 = 3600 (16:9, matching the
-# real sensor's vertical FOV — see strafer_shared.constants.DEPTH_HEIGHT).
+# never drift from DEPTH_WIDTH/DEPTH_HEIGHT: 80*45 = 3600 (16:9, the sensor's
+# aspect — see strafer_shared.constants.DEPTH_HEIGHT).
 _DEPTH_FIELDS: tuple[ObsField, ...] = _NOCAM_FIELDS + (
     ObsField("depth_image", DEPTH_WIDTH * DEPTH_HEIGHT, DEPTH_SCALE),
 )

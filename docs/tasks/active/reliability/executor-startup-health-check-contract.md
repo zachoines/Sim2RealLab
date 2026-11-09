@@ -18,6 +18,7 @@ Filed off the Jetson-side audit for [`install-docs-consolidation`](../../complet
 
 - `source/strafer_autonomy/README.md` L123: "runs parallel health checks … and **logs a warning if unreachable**." L256 implies only the `model_loaded=false` case aborts.
 - Reality (verified both directions on `jetson-desktop`): an unreachable service raises `GroundingServiceUnavailable` / `PlannerServiceUnavailable` out of `build_command_server`, which is **not** wrapped in a try/except in `main.py`, so the executor **exits 1** and `/execute_mission` never registers. The code's own docstring already says *"Unreachable services propagate their original exception."* A reachable-but-`model_loaded=false` service also fails fast.
+  - *2026-11-09: the exit is 1 only with no publisher on `JetsonRosClient`'s subscribed topics. With them live, as on the robot, the same exit aborts with SIGABRT (134, launch's `-6`); see [`executor-exit-sigabrt`](executor-exit-sigabrt.md).*
 
 So: the **code is internally consistent (fail-fast on unreachable or unloaded)**; the **README overstates tolerance**. There is also no operator-facing env/launch flag to make the check advisory — only the internal `check_vlm_health=False` kwarg used by tests.
 

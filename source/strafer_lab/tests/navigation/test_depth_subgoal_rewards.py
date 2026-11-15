@@ -45,12 +45,12 @@ _SENSOR_CFG = SimpleNamespace(name=_SENSOR_NAME)
 # matches the d555 mount's frame-alignment quaternion.
 _LEVEL_QUAT_XYZW = (-0.5, 0.5, -0.5, 0.5)
 
-# The factory's policy-camera geometry (the shared constants: a 56.4 deg
-# vertical FOV; the real unit measures 58.5 deg, which only the v4 compositions
-# render). The 80x45 (16:9) render has square pixels, so the vertical FOV
-# follows from the focal length and the aspect — the same derivation the reward
-# uses. (RTX derives VFOV from the resolution's aspect, so 16:9 is what keeps
-# the policy grid's FOV the stream's.)
+# The factory's policy-camera geometry (the datasheet constants: a 56.4 deg
+# vertical FOV; the real unit measures 58.5 deg). The 80x45 (16:9) render has
+# square pixels, so the vertical FOV follows from the focal length and the
+# aspect — the same derivation the reward uses. (RTX derives VFOV from the
+# resolution's aspect, so 16:9 is what keeps the policy grid's FOV the
+# stream's.)
 _TAN_HALF_HFOV = D555_HORIZONTAL_APERTURE_MM / (2.0 * D555_FOCAL_LENGTH_MM)
 _TAN_HALF_VFOV = _TAN_HALF_HFOV * DEPTH_HEIGHT / DEPTH_WIDTH
 _CAM_HEIGHT = 0.35  # optical center above the floor, ~the robot's real mount

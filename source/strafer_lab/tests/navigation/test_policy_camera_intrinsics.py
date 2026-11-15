@@ -1,15 +1,13 @@
 # Copyright (c) 2025, Strafer Lab Project
 # SPDX-License-Identifier: BSD-3-Clause
 
-"""The policy camera's focal length, per composed variant.
+"""The focal length every composed camera renders, and the measured one.
 
-The composition goldens cannot see it: the contract serializer takes only
+The composition goldens cannot see a camera: the contract serializer takes only
 ``num_envs`` and ``env_spacing`` off the scene, so a focal-length change moves
-no hash. The v4 variants render the real unit's measured focal length
-(fx = fy = 321.522 px; the principal point stays at the image centre) by
-overriding it in their composition with ``D555_MEASURED_FOCAL_LENGTH_MM``;
-every other variant, the enriched pair v4 is composed from included, keeps the
-datasheet's ``D555_FOCAL_LENGTH_MM``.
+no hash. Every composed variant renders the datasheet's
+``D555_FOCAL_LENGTH_MM``; the real unit's measured focal length
+(fx = fy = 321.522 px at 640x360) is ``D555_MEASURED_FOCAL_LENGTH_MM``.
 """
 
 from __future__ import annotations
@@ -26,15 +24,6 @@ from strafer_shared.constants import (
     PERCEPTION_WIDTH,
 )
 
-_V4 = ("StraferNavCfg_RLDepthSubgoalEnrichedV4_Robust", "StraferNavCfg_RLDepthSubgoalEnrichedV4_Robust_PLAY")
-_V3 = ("StraferNavCfg_RLDepthSubgoalEnriched_Robust", "StraferNavCfg_RLDepthSubgoalEnriched_Robust_PLAY")
-
-
-def _policy_camera(variant):
-    from strafer_lab.tasks.navigation import composed_env_cfg as composed
-
-    return getattr(composed, variant)().scene.d555_camera
-
 
 def test_the_measured_constant_is_the_measurement():
     """The shared constants hold the measured fx and its focal length over the
@@ -47,22 +36,6 @@ def test_the_measured_constant_is_the_measurement():
     assert D555_FOCAL_LENGTH_MM == 1.93
 
 
-@pytest.mark.parametrize("variant", _V4)
-def test_v4_renders_the_measured_intrinsics(variant):
-    cam = _policy_camera(variant)
-    assert cam.spawn.focal_length == D555_MEASURED_FOCAL_LENGTH_MM, f"{variant} renders {cam.spawn.focal_length} mm"
-    fx = PERCEPTION_WIDTH * cam.spawn.focal_length / cam.spawn.horizontal_aperture
-    assert fx == pytest.approx(D555_MEASURED_FX_PX, abs=1e-6), f"{variant} renders fx = {fx} px"
-
-
-@pytest.mark.parametrize("variant", _V3)
-def test_v3_keeps_the_datasheet_constant(variant):
-    cam = _policy_camera(variant)
-    assert cam.spawn.focal_length == 1.93 == D555_FOCAL_LENGTH_MM, (
-        f"{variant} renders {cam.spawn.focal_length} mm: the v4 override reached the IDs it is composed from"
-    )
-
-
 def _scene_source_kind(variant_cls):
     """The variant's scene source, read off the class: constructing an
     Infinigen-source variant reads the machine's scene corpus."""
@@ -72,10 +45,10 @@ def _scene_source_kind(variant_cls):
     return None
 
 
-def test_no_other_variant_moves_the_focal_length():
-    """Only the v4 variants override it; the aperture is shared by all. The
-    Infinigen-source capture variants are left out (they read the scene corpus
-    at construction); they compose the same two camera factories."""
+def test_every_composed_camera_renders_the_datasheet_lens():
+    """No composition moves a camera's focal length or aperture off the
+    factories'. The Infinigen-source capture variants are left out (they read
+    the scene corpus at construction); they compose the same two factories."""
     from isaaclab.sensors import CameraCfg
 
     from strafer_lab.tasks.navigation import composed_env_cfg as composed
@@ -92,6 +65,5 @@ def test_no_other_variant_moves_the_focal_length():
                 continue
             seen += 1
             assert cam.spawn.horizontal_aperture == D555_HORIZONTAL_APERTURE_MM, f"{name}.{attr}"
-            want = D555_MEASURED_FOCAL_LENGTH_MM if (name in _V4 and attr == "d555_camera") else D555_FOCAL_LENGTH_MM
-            assert cam.spawn.focal_length == want, f"{name}.{attr} renders {cam.spawn.focal_length} mm (want {want})"
+            assert cam.spawn.focal_length == D555_FOCAL_LENGTH_MM, f"{name}.{attr} renders {cam.spawn.focal_length} mm"
     assert seen > 15, "the camera sweep collapsed"

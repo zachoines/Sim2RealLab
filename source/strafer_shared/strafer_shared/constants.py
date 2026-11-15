@@ -163,9 +163,8 @@ D555_HORIZONTAL_APERTURE_MM = 3.68
 
 # The real unit's measured focal length: fx = fy = 321.522 px at 640x360, as a
 # focal length over the datasheet aperture above (321.522 * 3.68 / 640 mm). The
-# datasheet focal length renders fx = 335.652 px and stays the default every
-# camera factory builds from; a composition that renders the measured camera
-# sets this one on top.
+# datasheet focal length renders fx = 335.652 px and is what every camera
+# factory builds from.
 D555_MEASURED_FX_PX = 321.522
 D555_MEASURED_FOCAL_LENGTH_MM = D555_MEASURED_FX_PX * D555_HORIZONTAL_APERTURE_MM / PERCEPTION_WIDTH
 

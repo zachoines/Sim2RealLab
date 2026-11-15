@@ -7,8 +7,8 @@ Isaac Sim derives a camera's vertical FOV from its resolution aspect ratio
 (square pixels), not from vertical_aperture. Deployment block-reduces the
 perception stream onto the policy grid, so train/deploy vertical-FOV parity needs
 the two cameras' aspect ratios to match (this assert); the focal length sets the
-FOV they scale, and tests/navigation/test_policy_camera_intrinsics.py pins it per
-variant.
+FOV they scale, and tests/navigation/test_policy_camera_intrinsics.py pins it for
+every composed variant.
 """
 
 from __future__ import annotations
@@ -58,8 +58,6 @@ _POLICY_CAMERA_VARIANTS = (
     "StraferNavCfg_RLDepthSubgoalEnriched_Robust",
     "StraferNavCfg_RLDepthSubgoalEnriched_Real_PLAY",
     "StraferNavCfg_RLDepthSubgoalEnriched_Robust_PLAY",
-    "StraferNavCfg_RLDepthSubgoalEnrichedV4_Robust",
-    "StraferNavCfg_RLDepthSubgoalEnrichedV4_Robust_PLAY",
 )
 
 

@@ -36,7 +36,8 @@ class _FakeExecutor:
 
 
 def _client(*, block: threading.Event | None = None, join_timeout_s: float = 1.0, start: bool = True):
-    client = JetsonRosClient.__new__(JetsonRosClient)
+    """Create a JetsonRosClient without starting rclpy."""
+    client = object.__new__(JetsonRosClient)
     executor = _FakeExecutor(client, block=block)
     client._config = RosClientConfig(spin_wake_period_s=0.01, spin_join_timeout_s=join_timeout_s)
     client._executor = executor

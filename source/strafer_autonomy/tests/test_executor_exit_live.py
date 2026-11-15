@@ -1,10 +1,12 @@
-"""The executor's real exit, run as a subprocess while its camera and odometry topics carry traffic.
+"""Runs the executor's real exit as a subprocess, with rclpy and its real ROS client, under traffic.
 
-A daemon spin thread woken inside rclpy's wait during interpreter finalization aborts the
-process with ``terminate called without an active exception``. A sample on the ROS client's
-subscriptions, or the context's shutdown, wakes it, and the startup-failure exit aborts only
-while samples flow, so every case waits until the colour-image publisher counts this
-executor's subscription.
+``test_executor_main.py`` and ``test_ros_client_close.py`` never run the client's constructor or
+rclpy, so they cannot see a daemon thread woken inside rclpy's wait during interpreter finalization
+abort the process with ``terminate called without an active exception``.
+
+A sample on the ROS client's subscriptions, or the context's shutdown, wakes such a thread, and the
+startup-failure exit aborts only while samples flow, so every case waits until the colour-image
+publisher counts this executor's subscription.
 """
 
 from __future__ import annotations
@@ -12,18 +14,21 @@ from __future__ import annotations
 import http.server
 import json
 import os
+import random
 import re
 import signal
 import subprocess
 import sys
 import threading
 import time
-import uuid
 from pathlib import Path
 
 import pytest
 
 pytestmark = pytest.mark.requires_ros
+
+DEPLOYED_DOMAIN_ID = 42
+NON_DEFAULT_SAFE_DOMAIN_IDS = range(1, 102)
 
 ABORT_LINE = "terminate called without an active exception"
 READY_LINE = "Autonomy executor ready"
@@ -126,7 +131,12 @@ class _Output:
 
 
 def _counts(out: _Output, *, after: int = 0) -> list[int]:
-    return [int(m.group(1)) for line in out.lines[after:] if (m := COUNT_LINE.match(line.strip()))]
+    counts = []
+    for line in out.lines[after:]:
+        match = COUNT_LINE.match(line.strip())
+        if match:
+            counts.append(int(match.group(1)))
+    return counts
 
 
 def _wait_for_count_above(out: _Output, base: int, timeout_s: float, *, after: int) -> bool:
@@ -153,11 +163,11 @@ def ros_env():
     import strafer_autonomy
 
     package_root = str(Path(strafer_autonomy.__file__).resolve().parents[1])
-    domain = uuid.uuid4().int % 100 + 1
+    domain = random.choice([d for d in NON_DEFAULT_SAFE_DOMAIN_IDS if d != DEPLOYED_DOMAIN_ID])
     env = dict(os.environ)
     env.pop("CYCLONEDDS_URI", None)
     env.update({
-        "ROS_DOMAIN_ID": str(domain if domain != 42 else 43),
+        "ROS_DOMAIN_ID": str(domain),
         "ROS_LOCALHOST_ONLY": "1",
         "RMW_IMPLEMENTATION": "rmw_cyclonedds_cpp",
         "PYTHONUNBUFFERED": "1",

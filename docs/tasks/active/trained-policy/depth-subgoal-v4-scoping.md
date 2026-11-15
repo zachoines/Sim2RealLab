@@ -68,7 +68,7 @@ trains on v3's distribution, and every difference between v4 and v3 is a row of 
 |---|---|---|---|---|
 | 1 | Policy camera at fx = fy = 321.522 px (VFOV 58.48°), from 335.652 px (56.41°) | [`vfov-gap-v3-2026-10-03`](../../../measurements/vfov-gap-v3-2026-10-03/README.md), its verdict as registered; `depth-noise-real-structure` item 7 | decided | **enters**, on v4's IDs only; the bridge's camera is decided at the go (§1) |
 | 2 | `num_rerenders_on_reset` (each environment's first episode starts on a pre-reset frame) | [`episode-start-stale-depth`](episode-start-stale-depth.md), its Price and Decision boxes | open: the boxes have not run | **what that brief's Decision box decides**, run before the launch |
-| 3 | Speed envelope: per-episode randomisation of the command envelope, unobserved | [`policy-time-to-goal-baseline-2026-10-11`](../../../measurements/policy-time-to-goal-baseline-2026-10-11/README.md) §9; [`lane-term-speedcap-ab-2026-10-14`](../../../measurements/lane-term-speedcap-ab-2026-10-14/README.md) | carried on the training-env doubling (§9 of the time-to-goal record, computed after its rule); the speed-cap A/B on the lane (2026-10-14) reads the cap as not the lane's main term (§3); the pilot picks the form | **enters**, in the form the pilot picks |
+| 3 | Speed envelope: per-episode randomisation of the command envelope, unobserved | [`policy-time-to-goal-baseline-2026-10-11`](../../../measurements/policy-time-to-goal-baseline-2026-10-11/README.md) §9; [`lane-term-speedcap-ab-2026-10-14`](../../../measurements/lane-term-speedcap-ab-2026-10-14/README.md) | decided on 2026-11-15 by the pilot's pre-stated rule (§3): form (b) | **enters** as (b): one scale s drawn from U[0.255, 1.0] per environment at each reset, on both caps, unobserved |
 | 4 | Noise structure, `depth-noise-real-structure` items 1–6 and 8 | [`real-d555-depth-texture-2026-09-26`](../../../measurements/real-d555-depth-texture-2026-09-26/README.md) | item 1 decided (no change); items 2–6 and 8 open, gated on a capture not yet taken | **no change**, unless that brief decides before the go (§4) |
 | 5 | The objective's time and speed terms | [`policy-time-to-goal-objective`](policy-time-to-goal-objective.md) | a variant gated on the lane term; the scene-axis measurement on the lane (2026-10-14) is void, so the term is still unidentified | **not a v4 default** (§5) |
 
@@ -228,6 +228,29 @@ v4's composition only. Two of the changes would otherwise reach v3's IDs silentl
     observed 7.21 % against 3.18 %, and about 2.5 % if the cap has no effect.
   - A share comparison between equal true rates passes about 52 % of the time.
   - So the pilot is a direction read that picks a form. v4's acceptance is the test.
+
+  **The pilot's outcome (2026-11-15).** Form (b), recorded as `v4-envelope-pilot-2026-11-15` (Artifacts
+  repository).
+  - **The reads.** E stopped short in 0 of 518 band entries uncapped and 0 of 506 capped, with the
+    capped bound T(L) = 4.5967 + 1.4534 L s. K stopped short in 0 of 481 and 1 of 499, with
+    T(L) = 6.4443 + 1.3666 L s.
+  - **The (c) clause** compares 0 with 0 and was read as not met: with no capped stop-short there is
+    nothing for the cap to double. Form (c) is not proposed.
+  - **The second clause gives (b).** E's capped share is at most K's (0 of 506 against 1 of 499), and
+    E's capped T(L) is at most K's at 2 m (7.503 s against 9.177 s) and at 6 m (13.317 s against
+    14.644 s). With the shares at 0 and 1, E's faster capped bound decided it.
+  - **No completion cost against K.** Under the cap, E's completions, sustained-collision ends and
+    off-path ends do not differ from K's (489 against 487, 77 against 78, 10 against 11, of 576
+    episodes each).
+  - **Its limits.**
+    - Both arms lost v3's stop-short. v3 on the same tree and day stopped short in 12 of 529 uncapped and
+      31 of 523 capped, so the stop-short's absence is not the envelope's.
+    - Both complete fewer capped episodes than v3 that day: 489 and 487 against 518, of 576.
+    - Same-seed launches resample: four same-seed evaluations of v3's checkpoint, uncapped, gave 10 to 17
+      stop-shorts in about 535 band entries.
+    - The arms differ by more than the envelope. E draws from the global generator at construction and at
+      each reset and K does not, so their rooms, goals and noise differ from the first reset.
+    - As above, the pilot is a direction read that picks a form. v4's acceptance is the test.
 - **The floor and the time-out** (this brief's arithmetic, not measured). At 0.4 m/s a 6 m path takes
   15 s of the 20 s episode before any approach, and run 1's longest path (7.24 m) 18.1 s. The floor
   may push episodes into the time-out, which the learner bootstraps. The pilot's completion share
@@ -303,8 +326,9 @@ produced it. Every evaluation of v4 pins the envelope as §3 says.
 
 - [ ] **The table above is complete when the go is given.** Rows 2 and 4 state what their briefs
       decided, and the bridge's camera (§1) is decided.
-- [ ] **The pilot** runs, and its rule picks (a) or (b), or sends (c) to the maintainer. It is
+- [x] **The pilot** runs, and its rule picks (a) or (b), or sends (c) to the maintainer. It is
       recorded with its evaluations.
+      *2026-11-15: its rule picked (b) (§3, `v4-envelope-pilot-2026-11-15`).*
 - [ ] **The run** completes 1000 iterations at 96 environments, seed 42, through
       `tools/kit_boot_watchdog.sh`, with every attempt line kept and no NaN in the losses.
       Per-iteration collection and learning times are recorded against v3's 95.25 s.

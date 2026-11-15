@@ -7,8 +7,9 @@ The composition goldens cannot see it: the contract serializer takes only
 ``num_envs`` and ``env_spacing`` off the scene, so a focal-length change moves
 no hash. The v4 variants render the real unit's measured focal length
 (fx = fy = 321.522 px; the principal point stays at the image centre) by
-overriding it in their composition; every other variant,
-the enriched pair v4 is composed from included, keeps the shared constant.
+overriding it in their composition with ``D555_MEASURED_FOCAL_LENGTH_MM``;
+every other variant, the enriched pair v4 is composed from included, keeps the
+datasheet's ``D555_FOCAL_LENGTH_MM``.
 """
 
 from __future__ import annotations
@@ -20,6 +21,8 @@ import pytest
 from strafer_shared.constants import (
     D555_FOCAL_LENGTH_MM,
     D555_HORIZONTAL_APERTURE_MM,
+    D555_MEASURED_FOCAL_LENGTH_MM,
+    D555_MEASURED_FX_PX,
     PERCEPTION_WIDTH,
 )
 
@@ -33,16 +36,27 @@ def _policy_camera(variant):
     return getattr(composed, variant)().scene.d555_camera
 
 
+def test_the_measured_constant_is_the_measurement():
+    """The shared constants hold the measured fx and its focal length over the
+    datasheet aperture; the datasheet focal length is unchanged."""
+    assert D555_MEASURED_FX_PX == 321.522
+    assert D555_MEASURED_FOCAL_LENGTH_MM == 1.8487515
+    assert PERCEPTION_WIDTH * D555_MEASURED_FOCAL_LENGTH_MM / D555_HORIZONTAL_APERTURE_MM == pytest.approx(
+        D555_MEASURED_FX_PX, abs=1e-9
+    )
+    assert D555_FOCAL_LENGTH_MM == 1.93
+
+
 @pytest.mark.parametrize("variant", _V4)
 def test_v4_renders_the_measured_intrinsics(variant):
     cam = _policy_camera(variant)
-    assert cam.spawn.focal_length == 1.8487515, f"{variant} renders {cam.spawn.focal_length} mm"
+    assert cam.spawn.focal_length == D555_MEASURED_FOCAL_LENGTH_MM, f"{variant} renders {cam.spawn.focal_length} mm"
     fx = PERCEPTION_WIDTH * cam.spawn.focal_length / cam.spawn.horizontal_aperture
-    assert fx == pytest.approx(321.522, abs=1e-6), f"{variant} renders fx = {fx} px"
+    assert fx == pytest.approx(D555_MEASURED_FX_PX, abs=1e-6), f"{variant} renders fx = {fx} px"
 
 
 @pytest.mark.parametrize("variant", _V3)
-def test_v3_keeps_the_shared_constant(variant):
+def test_v3_keeps_the_datasheet_constant(variant):
     cam = _policy_camera(variant)
     assert cam.spawn.focal_length == 1.93 == D555_FOCAL_LENGTH_MM, (
         f"{variant} renders {cam.spawn.focal_length} mm: the v4 override reached the IDs it is composed from"
@@ -78,6 +92,6 @@ def test_no_other_variant_moves_the_focal_length():
                 continue
             seen += 1
             assert cam.spawn.horizontal_aperture == D555_HORIZONTAL_APERTURE_MM, f"{name}.{attr}"
-            want = 1.8487515 if (name in _V4 and attr == "d555_camera") else D555_FOCAL_LENGTH_MM
+            want = D555_MEASURED_FOCAL_LENGTH_MM if (name in _V4 and attr == "d555_camera") else D555_FOCAL_LENGTH_MM
             assert cam.spawn.focal_length == want, f"{name}.{attr} renders {cam.spawn.focal_length} mm (want {want})"
     assert seen > 15, "the camera sweep collapsed"

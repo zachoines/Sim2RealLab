@@ -30,12 +30,12 @@ resolution (``PERCEPTION_WIDTH`` / ``PERCEPTION_HEIGHT``), lens specs
 ``observations.depth_image``), and mount offset (``CAMERA_OFFSET_X/Y/Z``)
 — lives in ``strafer_shared`` so the Jetson real-robot driver and the
 Isaac Sim cameras share one specification. The lens constants are the
-datasheet's; the focal length the real unit measures (fx = fy = 321.522 px at
-640x360) is ``composed_env_cfg.V4_POLICY_FOCAL_LENGTH_MM``, which the v4
-compositions render. The renderer frustum clip
-(``D555_RENDER_FAR_CLIP_M``) is sim-only and intentionally decoupled
-from the depth-sensor limit so RGB and other render-product channels
-extend through the full scene.
+datasheet's; the real unit's measured focal length (fx = fy = 321.522 px at
+640x360) sits beside them as ``D555_MEASURED_FX_PX`` /
+``D555_MEASURED_FOCAL_LENGTH_MM``, which the v4 compositions render. The
+renderer frustum clip (``D555_RENDER_FAR_CLIP_M``) is sim-only and
+intentionally decoupled from the depth-sensor limit so RGB and other
+render-product channels extend through the full scene.
 What stays local to this module is sim-only: Isaac Sim USD prim-path
 strings, the Isaac Sim → ROS camera-frame quaternion, and the Isaac Sim
 ``data_types`` channel names.

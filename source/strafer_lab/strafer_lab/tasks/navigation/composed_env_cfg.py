@@ -44,6 +44,8 @@ from __future__ import annotations
 
 from isaaclab.utils.configclass import configclass
 
+from strafer_shared.constants import D555_MEASURED_FOCAL_LENGTH_MM
+
 from . import strafer_env_cfg as base
 
 # Re-used building blocks (observation / action / event / command / reward /
@@ -806,14 +808,10 @@ class StraferNavCfg_RLDepthSubgoalEnriched_Robust_PLAY(StraferNavCfg_RLDepthSubg
 # v4 depth-subgoal variants (new IDs). The enriched robust depth-subgoal
 # composition with each v4 change set here only, so the enriched IDs keep their
 # contract: the policy camera at the real unit's measured focal length (the
-# principal point stays at the image centre, as Isaac Lab places it). The shared
-# focal-length constant stays as it is, because every policy scene builds its
-# camera from it.
+# principal point stays at the image centre, as Isaac Lab places it). The
+# datasheet focal length stays the camera factories' default, because every
+# policy scene builds its camera from it.
 # ---------------------------------------------------------------------------
-
-# The real unit's fx = fy = 321.522 px at 640x360, as a focal length over the
-# shared horizontal aperture: 321.522 * 3.68 / 640 mm.
-V4_POLICY_FOCAL_LENGTH_MM = 1.8487515
 
 
 @configclass
@@ -825,7 +823,7 @@ class StraferNavCfg_RLDepthSubgoalEnrichedV4_Robust(StraferNavCfg_RLDepthSubgoal
         super().__post_init__()
         # Outside the hashed contract (it takes only num_envs and env_spacing
         # off the scene); pinned by the intrinsics test instead.
-        self.scene.d555_camera.spawn.focal_length = V4_POLICY_FOCAL_LENGTH_MM
+        self.scene.d555_camera.spawn.focal_length = D555_MEASURED_FOCAL_LENGTH_MM
 
 
 @configclass

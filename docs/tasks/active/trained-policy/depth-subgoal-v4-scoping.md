@@ -308,7 +308,8 @@ v4's composition only. Two of the changes would otherwise reach v3's IDs silentl
 | iterations | 1000 (`num_steps_per_env` 48, learning rate 3e-4 fixed, γ 0.99, as v3) |
 | expected wall clock | about 26.5 h at v3's measured 95.25 s per iteration; the intrinsics and the envelope are not priced |
 | launch | `tools/kit_boot_watchdog.sh` around `train_strafer_navigation.py --env <v4 ID> --num_envs 96 --seed 42 --headless --max_iterations 1000`, as v3's deposited `launch_cmd.sh` |
-| comparison | v3 (`model_999.pt`; exported ONNX sha256 `c866bfd5…`), on v3's IDs, evaluated in the same sessions with the same evaluations |
+| candidate | v4's final checkpoint, `model_999.pt` (iteration 999), as v3's was; `model_800.pt` and `model_900.pt` are evaluated once each in the training-env designs of the bound and stop-short clauses, beside it |
+| comparison | v3 (`model_999.pt`; exported ONNX sha256 `c866bfd5…`), on v3's IDs, evaluated in the same session as v4 with the same evaluations, two launches each, counts pooled |
 
 - **New IDs, not an in-place change.** `tasks/navigation/__init__.py` registered the enriched
   variants as new IDs with new goldens "so the open-top depth checkpoints keep their contract". v4
@@ -321,8 +322,22 @@ v4's composition only. Two of the changes would otherwise reach v3's IDs silentl
 
 ## Acceptance criteria
 
-Pre-registered here, before the run. Each comparison names its v3 figure and the design that
-produced it. Every evaluation of v4 pins the envelope as §3 says.
+Pre-registered here, before the run. Every evaluation of v4 pins the envelope as §3 says.
+
+- **The v3 comparator is measured in the same session.** Each clause that compares v4 with v3
+  compares it with v3's `model_999.pt` evaluated in the same session, in the design the clause
+  names, two launches each for v3 and v4, counts pooled over the two. The October record's figures
+  stay below as what that record read, not as thresholds. They are not a like-for-like reference: on
+  2026-11-15 the same checkpoint on the same tree read 12 of 529 uncapped and 31 of 523 under the
+  cap, where the record read 17 of 535 and 37 of 513, with a capped bound of 8.7835 + 1.4827 L s
+  against 11.87 + 1.53 L, and two same-seed launches of it completed 517 and 532 of 576
+  (`v4-envelope-pilot-2026-11-15`).
+- **The candidate is fixed in advance:** v4's final checkpoint, iteration 999, as v3's was. v4's
+  checkpoints at iterations 800 and 900 are evaluated once each in the training-env designs of the
+  bound and stop-short clauses and reported beside it; a single launch is the noisier read. If
+  either, read against v3's pooled figure, lands on the other side of one of those two clauses from
+  the final checkpoint, the acceptance goes to the maintainer with all three. No checkpoint is
+  swapped in. Every other clause is read on the final checkpoint only.
 
 - [ ] **The table above is complete when the go is given.** Rows 2 and 4 state what their briefs
       decided, and the bridge's camera (§1) is decided.
@@ -343,24 +358,26 @@ produced it. Every evaluation of v4 pins the envelope as §3 says.
     descriptively beside v4.
   - Power: if v4 reaches each goal with v3's 4-in-6 rate, it passes about 68 % of the time. A miss
     is a reading to examine, not by itself a regression.
-- [ ] **The deploy-cap bound is no worse than v3's.** v3 reads T(L) = 11.87 + 1.53 L s, covering 501
-      of 506 completions (the record's run 3: seed 42, 576 episodes, the node's caps on the
-      executed twist, 60 s episode cap). v4 is read with the same evaluation and Reading 4. "No
-      worse" means T_v4(L) ≤ T_v3(L) at every L in [2, 6] m, on the point fits.
+- [ ] **The deploy-cap bound is no worse than v3's same-session bound.** Both are read in the
+      record's run-3 design (seed 42, 576 episodes, the node's caps on the executed twist, 60 s
+      episode cap) with Reading 4, on the completions of the two launches pooled. "No worse" means
+      T_v4(L) ≤ T_v3(L) at every L in [2, 6] m, on the point fits. The record read
+      T(L) = 11.87 + 1.53 L s for v3, covering 501 of 506 completions.
   - The bound covers completions only, so the completion and collision shares are reported beside
     it, with v3's.
   - No power is stated for this clause; it has no distributional model.
-- [ ] **The training-env pre-crossing stop-short share is no higher than v3's**, per band entry,
-      each read in its comparator's design:
-  - uncapped: ≤ 3.18 % (run 1: 17 of 535; dwell termination on, 20 s);
-  - under the deploy cap: ≤ 4.00 % (the capped open-dwell run: 7 of 175; dwell termination off,
-    40 s, rows 0–599).
+- [ ] **The training-env pre-crossing stop-short share is no higher than v3's same-session
+      share**, per band entry, pooled over the two launches, in each design:
+  - uncapped: run 1's design (dwell termination on, 20 s), where the record read 3.18 % (17 of 535);
+  - under the deploy cap: the capped open-dwell design (dwell termination off, 40 s, rows 0–599),
+    where the record read 4.00 % (7 of 175).
 
-  Power: if v4's true rates equal v3's observed ones, the clauses pass about 56 % and 60 % of the
-  time. A threshold set at the comparator's own observed rate passes about half the time when the
-  true rates are equal, so these are direction reads, and the record says so beside the outcome.
-  The like-for-like capped run with the dwell on is run 3, at 7.21 % (37 of 513); it is reported
-  beside them.
+  Power (exact binomial at two launches of the record's design sizes, about 1070 and 350 band
+  entries per arm; a tie passes): if v4's true rates equal v3's, the clauses pass about 52 % and
+  54 % of the time; if v4's are twice v3's, they fail 99.97 % and 98.5 % of the time. A pass is a
+  direction read, and the record says so beside the outcome. The like-for-like capped design with
+  the dwell on is run 3's, where the record read 7.21 % (37 of 513) and v3 read 31 of 523 on
+  2026-11-15. Its shares come from the bound's runs and are reported beside the two clauses.
 - [ ] **The lane's like-for-like stop-short rate is measured and reported** for v4 and the
       same-session v3 arm: per band entry, quiet before the first 0.30 m crossing, on the G-sim
       reaches. v3's lane figure is 7 of 10 (`policy-time-to-goal-baseline-2026-10-11` §9).

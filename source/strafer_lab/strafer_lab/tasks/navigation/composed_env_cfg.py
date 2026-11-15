@@ -6,10 +6,7 @@ orthogonal axes it actually varies on — **sensor stack**, **scene source**,
 populated cell of that matrix. A consumer asks for the combination it needs
 (e.g. "RGB only, Infinigen, realistic") and the composition root materializes
 the matching observation / action / event / scene managers from the shared
-building blocks defined in :mod:`strafer_env_cfg`. A variant may set a scene
-field the axes do not carry (the v4 camera's focal length) after the
-composition runs; such a field is outside the hashed contract and is pinned by
-its own test.
+building blocks defined in :mod:`strafer_env_cfg`.
 
 Four axis configurations drive the composition:
 
@@ -43,8 +40,6 @@ observation tensor.
 from __future__ import annotations
 
 from isaaclab.utils.configclass import configclass
-
-from strafer_shared.constants import D555_MEASURED_FOCAL_LENGTH_MM
 
 from . import strafer_env_cfg as base
 
@@ -800,35 +795,6 @@ class StraferNavCfg_RLDepthSubgoalEnriched_Robust(_ComposedStraferNavEnvCfg):
 @configclass
 class StraferNavCfg_RLDepthSubgoalEnriched_Robust_PLAY(StraferNavCfg_RLDepthSubgoalEnriched_Robust):
     """Play/eval preset for enriched RL depth subgoal tracking (robust)."""
-
-    play_num_envs = base._PROCROOM_DEPTH_PLAY_NUM_ENVS
-
-
-# ---------------------------------------------------------------------------
-# v4 depth-subgoal variants (new IDs). The enriched robust depth-subgoal
-# composition with each v4 change set here only, so the enriched IDs keep their
-# contract: the policy camera at the real unit's measured focal length (the
-# principal point stays at the image centre, as Isaac Lab places it). The
-# datasheet focal length stays the camera factories' default, because every
-# policy scene builds its camera from it.
-# ---------------------------------------------------------------------------
-
-
-@configclass
-class StraferNavCfg_RLDepthSubgoalEnrichedV4_Robust(StraferNavCfg_RLDepthSubgoalEnriched_Robust):
-    """v4 depth-camera subgoal training: the enriched robust composition with
-    the policy camera at the real unit's measured focal length."""
-
-    def __post_init__(self):
-        super().__post_init__()
-        # Outside the hashed contract (it takes only num_envs and env_spacing
-        # off the scene); pinned by the intrinsics test instead.
-        self.scene.d555_camera.spawn.focal_length = D555_MEASURED_FOCAL_LENGTH_MM
-
-
-@configclass
-class StraferNavCfg_RLDepthSubgoalEnrichedV4_Robust_PLAY(StraferNavCfg_RLDepthSubgoalEnrichedV4_Robust):
-    """Play/eval and export preset for v4 depth subgoal tracking."""
 
     play_num_envs = base._PROCROOM_DEPTH_PLAY_NUM_ENVS
 

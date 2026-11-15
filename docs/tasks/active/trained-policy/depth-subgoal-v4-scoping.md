@@ -66,7 +66,7 @@ trains on v3's distribution, and every difference between v4 and v3 is a row of 
 
 | # | Change | Source | Status | In v4 |
 |---|---|---|---|---|
-| 1 | Policy camera at fx = fy = 321.522 px (VFOV 58.48°), from 335.652 px (56.41°) | [`vfov-gap-v3-2026-10-03`](../../../measurements/vfov-gap-v3-2026-10-03/README.md), its verdict as registered; `depth-noise-real-structure` item 7 | decided | **enters**, on v4's IDs only; the bridge's camera is decided at the go (§1) |
+| 1 | Policy camera at fx = fy = 321.522 px (VFOV 58.48°), from 335.652 px (56.41°) | [`vfov-gap-v3-2026-10-03`](../../../measurements/vfov-gap-v3-2026-10-03/README.md), its verdict as registered; `depth-noise-real-structure` item 7 | decided | **enters**, in place; the bridge's camera is decided at the go (§1) |
 | 2 | `num_rerenders_on_reset` (each environment's first episode starts on a pre-reset frame) | [`episode-start-stale-depth`](episode-start-stale-depth.md), its Price and Decision boxes | open: the boxes have not run | **what that brief's Decision box decides**, run before the launch |
 | 3 | Speed envelope: per-episode randomisation of the command envelope, unobserved | [`policy-time-to-goal-baseline-2026-10-11`](../../../measurements/policy-time-to-goal-baseline-2026-10-11/README.md) §9; [`lane-term-speedcap-ab-2026-10-14`](../../../measurements/lane-term-speedcap-ab-2026-10-14/README.md) | decided on 2026-11-15 by the pilot's pre-stated rule (§3): form (b) | **enters** as (b): one scale s drawn from U[0.255, 1.0] per environment at each reset, on both caps, unobserved |
 | 4 | Noise structure, `depth-noise-real-structure` items 1–6 and 8 | [`real-d555-depth-texture-2026-09-26`](../../../measurements/real-d555-depth-texture-2026-09-26/README.md) | item 1 decided (no change); items 2–6 and 8 open, gated on a capture not yet taken | **no change**, unless that brief decides before the go (§4) |
@@ -81,12 +81,16 @@ a paired session). Both are deploy-side. Neither touches the training env.
 
 Two-room house: not in v4; see [`procroom-two-room-house`](procroom-two-room-house.md).
 
-**v3's IDs keep v3's contract.** v4 registers its own ID pair (Run), and each v4 change is set in
-v4's composition only. Two of the changes would otherwise reach v3's IDs silently:
+**v4's changes are made in place** ([`env-composition-contract`](../../context/env-composition-contract.md#changing-a-variant),
+"Changing a variant"). A new ID pair was proposed in #268 and withdrawn in review. Two of the
+changes reach more than the depth-subgoal composition:
 - the focal length is a shared constant that every policy camera reads (§1);
 - the robust action cfg is shared by every robust variant (`ActionsCfg_Robust`, through
   `get_action_config_params` in `sim_real_cfg.py`), so an envelope range set in the robust training
-  contract would change v3's ID too (§3).
+  contract reaches every robust variant (§3).
+
+v3's environment is the tree before the change set, named in v4's record; v3 trained at `615fc14`,
+contract `faf86756…`.
 
 ### 1. Intrinsics
 
@@ -101,22 +105,22 @@ v4's composition only. Two of the changes would otherwise reach v3's IDs silentl
     metrics, only off-path divergence moves past its standard error (1.1 / 1.2).
   - By its registered rule the gap matters, and it is small (`vfov-gap-v3-2026-10-03`). v3 is not
     changed.
-- **The change.** v4's composition sets the policy camera's focal length to 321.522 × 3.68 / 640 =
-  1.8487515 mm, as the VFOV record's arm B did through `scene.d555_camera.spawn.focal_length`.
-  - The constant itself does not change. Both camera factories in `d555_cfg.py` read it, and every
-    policy scene builds from them, v3's IDs included.
+- **The change.** The policy camera factory builds from `D555_MEASURED_FOCAL_LENGTH_MM`
+  (321.522 × 3.68 / 640 = 1.8487515 mm, in `strafer_shared/constants.py` since #268), the focal length
+  the VFOV record's arm B rendered through `scene.d555_camera.spawn.focal_length`.
   - The composition contract takes only `num_envs` and `env_spacing` off the scene, so no golden
     would notice.
-  - The change therefore carries two assertions on composed variants: v4's at 1.8487515 mm, and v3's
-    at 1.93 mm. #222's pin on the camera factory's resolution (`source/strafer_lab/tests/contracts/test_depth_deploy_reduction.py`)
-    is the precedent for a field the golden misses.
+  - `tests/navigation/test_policy_camera_intrinsics.py` pins what every composed camera renders, and
+    the change edits that pin in the same commit. #222's pin on the camera factory's resolution
+    (`source/strafer_lab/tests/contracts/test_depth_deploy_reduction.py`) is the precedent for a
+    field the golden misses.
 - **Isaac Lab forces the principal point to the image centre.** `camera.py` sets `c_x = width/2` and
   `c_y = height/2`, and the spawner ignores aperture offsets. The real (318.44, 180.32) stays
   unmatched, as in every training so far.
 - **Decided at the go: the sim bridge's camera.** The bridge publishes from the perception camera
   (`d555_camera_perception`), built from the same constant, so it renders 335.652 px.
-  - **Measured intrinsics on the bridge** (the perception camera's focal length overridden in the
-    bridge's composition): the lane renders what the real camera delivers and what v4 trained on.
+  - **Measured intrinsics on the bridge** (the perception camera factory builds from the measured
+    constant too): the lane renders what the real camera delivers and what v4 trained on.
     The same-session v3 arm (Acceptance) then runs at the real intrinsics, as the VFOV record's arm
     B did in training. **Recommended.**
   - **Bridge unchanged:** v4 runs the G-sim gate on a focal length 4.39 % longer than its training
@@ -128,7 +132,8 @@ v4's composition only. Two of the changes would otherwise reach v3's IDs silentl
   `source/strafer_lab/tests/navigation/test_depth_subgoal_rewards.py` (:52-65),
   `source/strafer_lab/tests/navigation/test_depth_noise_resolution_sensitivity.py` (:80). Docstrings:
   `d555_cfg.py`:41-43 ("differ ONLY in resolution and prim path") and :128-131 ("56.4 deg … matching
-  the real D555"); `source/strafer_lab/tests/navigation/test_depth_subgoal_rewards.py`:48-51 (a comment).
+  the real D555"); `source/strafer_lab/tests/navigation/test_depth_subgoal_rewards.py`:48-51 (a comment)
+  (the three corrected in #268).
 
 ### 2. The stale first frame
 
@@ -143,7 +148,7 @@ v4's composition only. Two of the changes would otherwise reach v3's IDs silentl
   before v4's launch, and v4 sets `num_rerenders_on_reset` as the Decision box decides. If v4 is
   changed to enable a camera-reading reward, the field is decided with that change, because every
   episode would then start stale.
-- **No golden hashes the field.** If it is set, it carries an assertion on v4's composed variant.
+- **No golden hashes the field.** If it is set, it carries an assertion over every composed variant.
 
 ### 3. Speed envelope
 
@@ -195,12 +200,11 @@ v4's composition only. Two of the changes would otherwise reach v3's IDs silentl
   - `last_action` is the raw action (`mdp/observations.py`), so it stays unclamped, as on the node.
   - The clamp broadcasts a per-environment tensor, but its annotations say `float` and its parity
     test is scalar. A per-environment cap needs its own test.
-  - The range field lives on the action cfg, defaults to off, and is set only in v4's composition. A
-    new field must actually reach the action term: `motor_time_constant_range` is declared on the
-    actuator cfg (`sim_real_cfg.py`:125, set at :549 and :626) and is absent from
+  - The range field lives on the action cfg, defaults to off, and is set in the robust tier's action
+    parameters. A new field must actually reach the action term: `motor_time_constant_range` is
+    declared on the actuator cfg (`sim_real_cfg.py`:125, set at :549 and :626) and is absent from
     `get_action_config_params` and `MecanumWheelActionCfg`, so it is inert. Do not repeat that.
-- **Every evaluation pins s.** The time-to-goal eval runs on the training ID, not PLAY, so on v4's
-  ID:
+- **Every evaluation pins s.** The time-to-goal eval runs on the training ID, not PLAY:
   - the uncapped design (run 1's) pins s = 1.0;
   - the capped design (run 3's, and the capped open-dwell run's) pins s = 0.5, or s = 1.0 with the
     deposited `install_deploy_cap`. A drawn s below 0.5 would clamp tighter than the node does.
@@ -301,21 +305,19 @@ v4's composition only. Two of the changes would otherwise reach v3's IDs silentl
 
 | item | value |
 |---|---|
-| task | a new ID pair registered beside v3's (below), composed from `Isaac-Strafer-Nav-RLDepth-Subgoal-Enriched-Robust-v0` plus the changes above |
+| task | the robust depth-subgoal training ID (`Isaac-Strafer-Nav-RLDepth-Subgoal-Enriched-Robust-v0` today), from the change set's commit on |
 | start | from scratch |
 | environments | 96 |
 | seed | 42 |
 | iterations | 1000 (`num_steps_per_env` 48, learning rate 3e-4 fixed, γ 0.99, as v3) |
 | expected wall clock | about 26.5 h at v3's measured 95.25 s per iteration; the intrinsics and the envelope are not priced |
-| launch | `tools/kit_boot_watchdog.sh` around `train_strafer_navigation.py --env <v4 ID> --num_envs 96 --seed 42 --headless --max_iterations 1000`, as v3's deposited `launch_cmd.sh` |
+| launch | `tools/kit_boot_watchdog.sh` around `train_strafer_navigation.py --env <the training ID> --num_envs 96 --seed 42 --headless --max_iterations 1000`, as v3's deposited `launch_cmd.sh` |
 | candidate | v4's final checkpoint, `model_999.pt` (iteration 999), as v3's was; `model_800.pt` and `model_900.pt` are evaluated once each in the training-env designs of the bound and stop-short clauses, beside it |
-| comparison | v3 (`model_999.pt`; exported ONNX sha256 `c866bfd5…`), on v3's IDs, evaluated in the same session as v4 with the same evaluations, two launches each, counts pooled |
+| comparison | v3 (`model_999.pt`; exported ONNX sha256 `c866bfd5…`), in v3's environment (the tree before the change set, or the current tree with the three fields at v3's values, each read back from the built env; the record states which), evaluated in the same session as v4 with the same evaluations, two launches each, counts pooled |
 
-- **New IDs, not an in-place change.** `tasks/navigation/__init__.py` registered the enriched
-  variants as new IDs with new goldens "so the open-top depth checkpoints keep their contract". v4
-  does the same, so v3's IDs keep v3's contract and the v3-against-v4 evaluations need no worktree
-  of an older commit.
-- **Golden effects.** v4's IDs get new goldens. If the envelope's range field is added to
+- **In place, not new IDs.** An ID names its axes; the commit and the contract hash identify the
+  environment ([`env-composition-contract`](../../context/env-composition-contract.md#changing-a-variant)).
+- **Golden effects.** No golden is added. If the envelope's range field is added to
   `MecanumWheelActionCfg`, every contract golden that hashes `actions` moves by its presence.
   Attribute every moved golden by diffing preimages by field name. The policy-layout goldens must
   not move: v4's observation contract is v3's, `obs_dim` 3619.
@@ -347,9 +349,9 @@ Pre-registered here, before the run. Every evaluation of v4 pins the envelope as
 - [ ] **The run** completes 1000 iterations at 96 environments, seed 42, through
       `tools/kit_boot_watchdog.sh`, with every attempt line kept and no NaN in the losses.
       Per-iteration collection and learning times are recorded against v3's 95.25 s.
-- [ ] **The export** has `obs_dim` 3619, `action_dim` 3 and `is_recurrent`, exported with v4's new
-      PLAY ID passed by `--env` (the `DEPTH_SUBGOAL` default is a non-enriched ID), and a one-episode
-      play reaches an action.
+- [ ] **The export** has `obs_dim` 3619, `action_dim` 3 and `is_recurrent`, exported with the training
+      composition's PLAY ID passed by `--env` (the `DEPTH_SUBGOAL` default is a non-enriched ID), and a
+      one-episode play reaches an action.
 - [ ] **G-sim, on the same lane and goals as v3's gate:** ≥ 4 of 6 within 0.30 m. The goals are G1,
       R1, L1, R2, L2 and R3 from start (0.075, −0.035, 130°), through `gate_mission.py`, 60 s
       bound, as in `goal-a-rig-gate-v3-2026-09-25`.

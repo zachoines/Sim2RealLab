@@ -1095,6 +1095,9 @@ generator** — its obstacles are its secondary path-enforcement — until the
 work deliberately re-authors that relationship. This is a forward trigger,
 not this session's work.
 
+*2026-11-15: whether this trigger is met, and the retirement's form, are decided in
+[`env-id-consolidation`](env-id-consolidation.md).*
+
 ## Investigation pointers
 
 - [`proc_room.py`](../../../../source/strafer_lab/strafer_lab/tasks/navigation/mdp/proc_room.py)

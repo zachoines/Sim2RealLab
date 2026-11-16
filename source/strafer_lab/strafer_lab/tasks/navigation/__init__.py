@@ -24,9 +24,9 @@ against):
 - ``Isaac-Strafer-Nav-RLDepth-Subgoal-Robust-v0``: depth-policy obs, ProcRoom,
   robust DR, rolling-subgoal path tracking
 
-On ProcRoom, the depth IDs compose the enclosed room (enclosure + a ceiling,
-enriched toward Infinigen-like depth statistics) and the NoCam IDs the open-top
-room.
+ProcRoom is a fast, low-memory, fairly coarse generator that adds room-like depth
+characteristics to training. On ProcRoom, the depth IDs compose the enclosed room
+(tall walls and furniture, a ceiling) and the NoCam IDs the open-top room.
 
 Capture (operator-selectable stack via ``capture.py --sensors``; the default
 preset is shown):

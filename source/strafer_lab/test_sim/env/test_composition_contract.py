@@ -124,16 +124,14 @@ _CONTRACT_GOLDENS = {
     "RLDepthSubgoal_Robust_PLAY": "a27f086252e47caffb4d5111c3c7a0496287a2d2c39e5f8fa2ba5ca903f9d464",
 }
 
-# Frozen signature (slot name set + spawn sizes) of the pre-enrichment 44-object
+# Frozen signature (slot name set + spawn sizes) of the open-top room's 44-object
 # palette. The composition hash cannot see the rigid-object palette (it is on the
 # scene, not a hashed manager), so this pins the NOCAM promise: NOCAM keeps this
-# exact palette, and the enriched palette adds no NEW slot (only taller walls).
+# exact palette, and the enclosed room's palette adds no NEW slot (only taller walls).
 _PALETTE_GOLDEN = "cf3499bf212a50c571b1bda4980fbbf16c7ad743dc40c5e88b7b528de3d41832"
 
-# The depth observation a checkpoint consumes — captured identical across the
-# (now dropped) plane / Infinigen / ProcRoom depth variants, which justified
-# dropping them: any depth checkpoint stays valid regardless of which produced it.
-# This walks both observation groups, so a privileged-group change moves it; the
+# The depth observation a checkpoint consumes: any depth checkpoint stays valid
+# whichever depth variant produced it. This walks both observation groups, so a privileged-group change moves it; the
 # policy half is pinned separately by the layout golden below.
 _DEPTH_OBS_GOLDEN = "ba68b61eda5400552706061710dee1404ba2aa779a6c93241ef562f082a82533"
 
@@ -416,7 +414,7 @@ def test_the_capture_variants_record_the_true_referent(factory):
 
 
 # =====================================================================
-# Depth-enrichment: NOCAM palette pinned, enrichment is depth-only + obs-neutral
+# The enclosed room: NOCAM's palette pinned; the room is depth-only and obs-neutral
 # =====================================================================
 
 
@@ -426,8 +424,8 @@ def _palette_sig(collection_cfg):
     The composition hash covers the manager cfgs + scene scalars, NOT the
     rigid-object palette, so a palette change slips past every contract golden.
     This is the explicit pin for the invariant that the open-top variants (the
-    camera-free NOCAM profile) keep the exact pre-enrichment palette, and no
-    enriched palette adds a new slot.
+    camera-free NOCAM profile) keep the open-top room's exact palette, and the
+    enclosed room's palette adds no new slot.
     """
     sig = {}
     for name, cfg in sorted(collection_cfg.rigid_objects.items()):
@@ -443,9 +441,9 @@ def _palette_sig(collection_cfg):
 
 def test_open_top_variants_keep_pre_enrichment_palette_and_no_ceiling():
     """Every open-top variant — NOCAM and NOCAM_SUBGOAL, the camera-free
-    profile — keeps the exact pre-enrichment palette and has no ceiling entity.
+    profile — keeps the open-top room's exact palette and has no ceiling entity.
 
-    Enrichment must not leak into the camera-free path: a ``_select_scene``
+    The enclosed room must not leak into the camera-free path: a ``_select_scene``
     regression handing it the enclosed (2.7 m wall + ceiling) scene would pass
     every contract golden (the hash excludes the scene) and is caught here. The
     other direction is ``test_the_depth_profile_composes_the_enclosed_room``."""
@@ -453,10 +451,10 @@ def test_open_top_variants_keep_pre_enrichment_palette_and_no_ceiling():
         scene = _COMPOSED_RL[name]().scene
         got = _hash(_palette_sig(scene.room_primitives))
         assert got == _PALETTE_GOLDEN, (
-            f"{name} palette diverged from the frozen pre-enrichment palette"
+            f"{name} palette diverged from the frozen open-top palette"
         )
         assert not hasattr(scene, "ceiling"), (
-            f"{name} is an open-top variant but got an enriched (ceiling) scene"
+            f"{name} is an open-top variant but got the enclosed (ceiling) scene"
         )
 
 
@@ -480,7 +478,7 @@ def test_open_top_variants_drive_the_generator_at_its_defaults():
 
 
 def test_enriched_palette_adds_no_new_slot():
-    """The enriched depth palette has the SAME slot-name set as pre-enrichment —
+    """The enclosed room's palette has the SAME slot-name set as the open-top one —
     only the walls and the tall-furniture/clutter slots grow taller. No new
     collection slot is ever added (the ceiling is a standalone entity outside the
     collection), so nothing new can be active on NOCAM."""
@@ -509,7 +507,7 @@ def test_enriched_palette_adds_no_new_slot():
     }
     assert changed == expected
     # Geometry half of the palette/pose lockstep (the generator poses these at
-    # height/2, pinned in the CPU enrichment suite).
+    # height/2, pinned in the CPU suite of the enclosed room's generator).
     assert enr_sig["furn_shelf_0"]["size"][2] == _ENRICH_TALL_OBJECT_HEIGHTS["shelf"]
     assert enr_sig["furn_cabinet_0"]["size"][2] == _ENRICH_TALL_OBJECT_HEIGHTS["cabinet"]
     assert enr_sig["clutter_tall_cyl_0"]["height"] == _ENRICH_TALL_OBJECT_HEIGHTS["tall_cyl"]
@@ -538,7 +536,7 @@ def test_the_room_never_reaches_the_observation():
 def test_the_depth_profile_composes_the_enclosed_room():
     """On the procroom source the sensor profile alone selects the room: a
     stack carrying the policy depth camera gets the enclosed scene (with its
-    ceiling) and the enriched events, the camera-free one the open-top scene and
+    ceiling) and the enclosed room's events, the camera-free one the open-top scene and
     the base events, at every tier. The scene and the events must agree, and the
     two event blocks must differ, so the enclosure cannot silently no-op."""
     rows = [(name, _COMPOSED_RL[name]()) for name in sorted(_COMPOSED_RL)]

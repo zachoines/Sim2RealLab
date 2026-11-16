@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""Measure whether the enriched rooms' ceiling is one-way. (Kit/GPU)
+"""Measure whether the enclosed rooms' ceiling is one-way. (Kit/GPU)
 
-The enriched ceiling is a single open quad whose one normal faces down, drawn
+The enclosed room's ceiling is a single open quad whose one normal faces down, drawn
 one-sided by RTX back-face culling: the robot's camera underneath must see a
 closed ceiling, an overhead camera above it must see straight through. Both
 halves are renderer-build-specific — RTX reads a *custom* ``singleSided``
@@ -71,7 +71,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--face-culling", choices=["on", "off"], default="on",
         help="the global RTX back-face-culling switch (default on, as the "
-             "enriched cfgs ship it)",
+             "enclosed room's cfgs ship it)",
     )
     parser.add_argument(
         "--ceiling_z", type=float, default=2.5,

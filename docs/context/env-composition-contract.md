@@ -25,12 +25,13 @@ standard manager cfgs from them.
   being the same image. Drives which camera prims render **and** which image
   observation terms the policy gets. An empty tuple is camera-free.
 - **`SceneSourceCfg(kind=...)`** — `plane` / `infinigen` / `procroom` / `none`.
-  The seam that makes a foreign USD a parameter, not a subclass. On
-  `procroom` the sensor profile selects the room: a stack carrying the policy
-  depth camera (profile `depth` / `full`) composes the enclosed, Infinigen-like
-  ProcRoom (enclosing walls, a ceiling, the enriched events), and the
-  camera-free profile the open-top room, so NOCAM is untouched by the
-  enclosure.
+  The seam that makes a foreign USD a parameter, not a subclass. `procroom` is
+  a fast, low-memory, fairly coarse generator that adds room-like depth
+  characteristics to training. On it the sensor profile selects the room: a
+  stack carrying the policy depth camera (profile `depth` / `full`) composes the
+  enclosed room (tall walls and furniture, a ceiling, the enclosed room's
+  events), and the camera-free profile the open-top room, so NOCAM is untouched
+  by the enclosure.
 - **`RealismCfg(level=..., localization_drift=...)`** — `ideal` / `real` /
   `robust` DR + noise tier. `localization_drift` opts a variant out of the
   tier's referent-frame drift; it is off for the capture and bridge variants,

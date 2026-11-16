@@ -17,6 +17,7 @@ No Kit, no GPU. Run with the pure-Python lab tests.
 from __future__ import annotations
 
 import hashlib
+import math
 from types import SimpleNamespace
 
 import torch
@@ -114,6 +115,14 @@ def _custom_sequences(**columns):
     )
 
 
+def _column_r_min():
+    """The column phase's least radius for the default column slots, as the generator resolves it."""
+    m, p = _proc_room, _proc_room.PlacementCfg()
+    return p.column_seed_clearance + max(
+        math.hypot(m.OBJECT_SIZES[s, 0].item(), m.OBJECT_SIZES[s, 1].item()) / 2.0 for s in p.column_slots
+    )
+
+
 def _no_difficulty():
     return dict(max_internal_walls=1, max_furniture=6, max_clutter=10)
 
@@ -156,6 +165,16 @@ CASES = {
         (20315534, 20323453), 8, _ALL8, 7, _zero_origins,
         lambda: {**_enriched()(), "placement": _custom_sequences(
             column_radius_max=_proc_room.BFS_SEED_CLEARANCE + 0.05)}, True,
+    ),
+    # Either side of the column phase's exit, by 0.01 m: just below it the phase exits before any column; just above
+    # it places columns in a 0.01 m band.
+    "column-exit-just-below-sink": (
+        (20355129, 20363048), 8, _ALL8, 7, _zero_origins,
+        lambda: {**_enriched()(), "placement": _custom_sequences(column_radius_max=_column_r_min() - 0.01)}, True,
+    ),
+    "column-exit-just-above-sink": (
+        (20370967, 20378886), 8, _ALL8, 7, _zero_origins,
+        lambda: {**_enriched()(), "placement": _custom_sequences(column_radius_max=_column_r_min() + 0.01)}, True,
     ),
     "robot-pool-fallback": (
         (20315534, 20323453, 20331372), 8, _ALL8, 7, _zero_origins, _enriched(robot_spawn_inflation_cells=40),
@@ -248,6 +267,10 @@ _SWEEP_GOLDEN = {
     "custom-sequences-s20307615": "b851d5bc927e880d82ef39a4df08a9a1d5efad8c7c2470971704d69503938611",
     "column-early-exit-sink-s20315534": "7c9611487a8dd1bb67c17f26a87865f6fd8783ca8fd8acd3910b17ba6d3b6861",
     "column-early-exit-sink-s20323453": "f02d0f0dbf982522f203617e6c1eb20d77027890e166a11d7e124571eb959e1e",
+    "column-exit-just-below-sink-s20355129": "a23095fd63e7ad0c5d937a877902d65ab3c4763c84aebc4ec3f6ba02445a865a",
+    "column-exit-just-below-sink-s20363048": "0a588b95efb7e017fdca5938f2e698561b047b849e0f08124abf7771e1524512",
+    "column-exit-just-above-sink-s20370967": "751d6801b9b3e641807192f06cd9d0503b99ea42fd2c7a6754500215896402cb",
+    "column-exit-just-above-sink-s20378886": "f225b4af99194a75920770901243f07393ca095af1a2e34e81a80bbe2c45b6bd",
     "robot-pool-fallback-s20315534": "2d3bbaa71ce8cf9cc9a12071c6b5628d55c8d8aff225fba116e5d4a8deefd460",
     "robot-pool-fallback-s20323453": "127aaa629ca3efb8fe0d2939c163d5f20b2dda6574d58887fb04f42da001a469",
     "robot-pool-fallback-s20331372": "3c491c06fb133a8233a8d926a429eb1032eb4661570f9c76956f74d949273052",
@@ -279,6 +302,10 @@ def test_each_case_reaches_its_branch():
     early = _sinks("column-early-exit-sink")
     assert sum(s["column_phase_fired"] for s in early) > 0
     assert sum(s["placed_columns"] for s in early) == 0
+    below = _sinks("column-exit-just-below-sink")
+    assert sum(s["column_phase_fired"] for s in below) > 0 and sum(s["placed_columns"] for s in below) == 0
+    above = _sinks("column-exit-just-above-sink")
+    assert sum(s["column_phase_fired"] for s in above) > 0 and sum(s["placed_columns"] for s in above) > 0
     assert sum(s["column_phase_fired"] for s in _sinks("custom-sequences")) > 0
     assert sum(s["placed_columns"] for s in _sinks("custom-sequences")) > 0
 

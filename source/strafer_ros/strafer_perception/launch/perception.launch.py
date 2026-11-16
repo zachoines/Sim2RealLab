@@ -20,7 +20,7 @@ Published topics (matching the sim-to-real perception contract):
 
 NOTE: the IMU, and the D555's per-frame metadata (advancing stamps, one message
 per frame, aligned depth), need the host kernel modules in
-docs/D555_IMU_KERNEL_FIX.md; the compose service gives this container the IIO
+docs/guides/D555_IMU_KERNEL_FIX.md; the compose service gives this container the IIO
 device access the IMU needs.
 """
 

@@ -1624,7 +1624,7 @@ slot for advisory LLM hops we can promote later.
   loop ([`nav2-far-goal-staging`](tasks/completed/nav2-far-goal-staging.md)).
 - Both briefs co-design a single `world_state` schema. Whichever
   lands first defines the wire shape in
-  [`source/strafer_autonomy/strafer_autonomy/schemas/`](../source/strafer_autonomy/strafer_autonomy/schemas/);
+  [`source/strafer_autonomy/strafer_autonomy/schemas/`](../../source/strafer_autonomy/strafer_autonomy/schemas/);
   the second one consumes it. The Jetson executor populates the
   full block (pose + costmap from ROS clients, room block from
   the Jetson-resident `SemanticMapManager` per §4.1 and

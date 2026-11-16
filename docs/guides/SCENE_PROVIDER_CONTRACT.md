@@ -1,11 +1,11 @@
 # Scene-provider contract
 
 The teleop harness is **scene-source-agnostic at runtime**. The
-capture driver ([`teleop_capture.py`](../source/strafer_lab/scripts/teleop_capture.py)),
+capture driver ([`teleop_capture.py`](../../source/strafer_lab/scripts/teleop_capture.py)),
 the mission picker
-([`teleop_mission_picker.py`](../source/strafer_lab/strafer_lab/tools/teleop_mission_picker.py)),
+([`teleop_mission_picker.py`](../../source/strafer_lab/strafer_lab/tools/teleop_mission_picker.py)),
 and the dataset writer
-([`lerobot_writer.py`](../source/strafer_lab/strafer_lab/tools/lerobot_writer.py))
+([`lerobot_writer.py`](../../source/strafer_lab/strafer_lab/tools/lerobot_writer.py))
 never import Infinigen. They consume the per-scene metadata embedded in
 the scene USD's `customData` plus the combined `scenes_metadata.json`
 manifest. Any source that produces those artifacts in the shape
@@ -14,17 +14,17 @@ documented here is consumed with **no code changes**.
 **The per-scene metadata travels inside the USD.** The labeled
 `objects[]` / `rooms[]` payload (§b) lives on the scene USD's root-prim
 `customData` (key `strafer_scene_metadata`), read by the single `pxr`
-touch-point [`scene_metadata_reader.load`](../source/strafer_lab/strafer_lab/tools/scene_metadata_reader.py).
+touch-point [`scene_metadata_reader.load`](../../source/strafer_lab/strafer_lab/tools/scene_metadata_reader.py).
 There is no `scene_metadata.json` sidecar — the bytes ship with the
 geometry, so a USD can never be paired with a stale or missing sidecar,
 and the reader **hard-errors** on a USD that carries no embedded payload.
 
 This is the single source of truth for that shape. Infinigen is one
 provider — its build-time scripts
-([`prep_room_usds.py`](../source/strafer_lab/scripts/prep_room_usds.py),
-[`extract_scene_metadata.py`](../source/strafer_lab/scripts/extract_scene_metadata.py),
-[`generate_scenes_metadata.py`](../source/strafer_lab/scripts/generate_scenes_metadata.py),
-[`postprocess_scene_usd.py`](../source/strafer_lab/scripts/postprocess_scene_usd.py))
+([`prep_room_usds.py`](../../source/strafer_lab/scripts/prep_room_usds.py),
+[`extract_scene_metadata.py`](../../source/strafer_lab/scripts/extract_scene_metadata.py),
+[`generate_scenes_metadata.py`](../../source/strafer_lab/scripts/generate_scenes_metadata.py),
+[`postprocess_scene_usd.py`](../../source/strafer_lab/scripts/postprocess_scene_usd.py))
 produce conformant artifacts. A second source (a downloaded scene
 pack, a hand-authored map, a ProcTHOR / Habitat / Cosmos export)
 needs its own metadata authoring but reuses everything downstream.
@@ -33,7 +33,7 @@ needs its own metadata authoring but reuses everything downstream.
 `SceneSourceAdapter` base class and no Python plugin system. You do
 not subclass anything or register anything. You write files. The
 contract is enforced by a round-trip test
-([`test_scene_provider_contract.py`](../source/strafer_lab/tests/harness/test_scene_provider_contract.py)),
+([`test_scene_provider_contract.py`](../../source/strafer_lab/tests/harness/test_scene_provider_contract.py)),
 not by static typing.
 
 ---
@@ -91,7 +91,7 @@ and they must all match:
 The runtime discovers a scene by listing `*.usdc` files at the scenes
 root, then filtering to stems present as keys in
 `scenes_metadata.json`
-([`strafer_env_cfg._get_scene_usd_paths`](../source/strafer_lab/strafer_lab/tasks/navigation/strafer_env_cfg.py)).
+([`strafer_env_cfg._get_scene_usd_paths`](../../source/strafer_lab/strafer_lab/tasks/navigation/strafer_env_cfg.py)).
 A scene whose stem is missing from the manifest is invisible to the
 runtime, even if its USDC (with embedded metadata) exists.
 
@@ -103,9 +103,9 @@ points at
 `<scene>/export/export_scene.blend/export_scene.usdc`. Tools resolve
 *which* USD to read — `--scene <scene>` → `<scene>.usdc`, or a
 `--scene-usd` override — via
-[`scene_paths.resolve_scene_usd_path`](../source/strafer_lab/strafer_lab/tools/scene_paths.py),
+[`scene_paths.resolve_scene_usd_path`](../../source/strafer_lab/strafer_lab/tools/scene_paths.py),
 then read the embedded metadata from that USD's `customData` via
-[`scene_metadata_reader.load`](../source/strafer_lab/strafer_lab/tools/scene_metadata_reader.py).
+[`scene_metadata_reader.load`](../../source/strafer_lab/strafer_lab/tools/scene_metadata_reader.py).
 Nothing crawls the filesystem for a sibling JSON.
 
 ---
@@ -158,15 +158,15 @@ degrades gracefully to its empty / null default.
 ## b-conn. `connectivity[]` entry — the verified room graph
 
 Authored by
-[`validate_scene_connectivity.py`](../source/strafer_lab/scripts/validate_scene_connectivity.py)
+[`validate_scene_connectivity.py`](../../source/strafer_lab/scripts/validate_scene_connectivity.py)
 (Kit-bound), **harness / grading ground-truth only** — the live autonomy
 stack must never read it (its runtime counterpart is the
 observation-derived room state in `strafer_autonomy.semantic_map`). The
 graph records, for each candidate room pair, whether the *navigable area*
 (robot-radius-inflated occupancy) actually permits passage — verified with
 the project's one shared grid planner
-([`path_planner.plan_path`](../source/strafer_lab/strafer_lab/tasks/navigation/path_planner/),
-see [`path-planning-architecture`](tasks/context/path-planning-architecture.md)),
+([`path_planner.plan_path`](../../source/strafer_lab/strafer_lab/tasks/navigation/path_planner/),
+see [`path-planning-architecture`](../context/path-planning-architecture.md)),
 not merely asserted from `room_adjacency`.
 
 Each entry is one **undirected** room pair, `from_idx` < `to_idx`:
@@ -655,16 +655,16 @@ def prep_scene(acme_scene, scene_name: str) -> None:
 
 ## Related
 
-- [`docs/INFINIGEN_SCENE_PIPELINE.md`](INFINIGEN_SCENE_PIPELINE.md) — the
+- [`docs/guides/INFINIGEN_SCENE_PIPELINE.md`](INFINIGEN_SCENE_PIPELINE.md) — the
   Infinigen-specific build pipeline (scripts, env, `--rooms`/`--quality`
   commands) that produces artifacts conforming to this contract.
-- [`docs/HARNESS_DATA_CAPTURE.md`](HARNESS_DATA_CAPTURE.md) — operator
+- [`docs/guides/HARNESS_DATA_CAPTURE.md`](HARNESS_DATA_CAPTURE.md) — operator
   workflow for capturing against a conformant scene.
 - [`scene-metadata-in-usd`](tasks/completed/scene-metadata-in-usd.md)
   — moved the per-scene payload into USD `customData` (clean break, no
   sidecar fallback); same artifact contract, different storage backend.
   The single reader is
-  [`scene_metadata_reader.load`](../source/strafer_lab/strafer_lab/tools/scene_metadata_reader.py).
+  [`scene_metadata_reader.load`](../../source/strafer_lab/strafer_lab/tools/scene_metadata_reader.py).
 - [`mission-text-enrichment`](tasks/parked/harness/mission-text-enrichment.md)
   — the first consumer of the `descriptors` namespace + populated
   `rooms[]` reserved here.

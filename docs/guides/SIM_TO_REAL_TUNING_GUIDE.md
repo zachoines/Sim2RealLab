@@ -76,7 +76,7 @@ The policy was trained with all three layers active (under the `Realistic` and `
 
 ### What Isaac Sim does
 
-The robot's `DCMotorCfg` in [strafer.py](source/strafer_lab/strafer_lab/assets/strafer.py) defines:
+The robot's `DCMotorCfg` in [strafer.py](../../source/strafer_lab/strafer_lab/assets/strafer.py) defines:
 
 ```python
 DCMotorCfg(
@@ -144,9 +144,9 @@ Use `source/strafer_ros/tune_pid.py` to re-run characterization and adjust if ne
 
 ## 3. Layer 2: Motor Dynamics Filter
 
-The sim-to-real processing pipeline in [actions.py:327-348](source/strafer_lab/strafer_lab/tasks/navigation/mdp/actions.py#L327-L348) applies three stages before the velocity target reaches PhysX. These model real-world imperfections that exist naturally in hardware.
+The sim-to-real processing pipeline in [actions.py:327-348](../../source/strafer_lab/strafer_lab/tasks/navigation/mdp/actions.py#L327-L348) applies three stages before the velocity target reaches PhysX. These model real-world imperfections that exist naturally in hardware.
 
-(Upstream of these three stages, `process_actions` applies an L1 body-frame velocity clamp on `(vx, vy)` to match the deployment-time command shaping the Jetson inference node performs before publishing `/cmd_vel`. That clamp is deterministic — not a DR knob — and preserves the commanded heading on diagonal motions where the per-wheel motor cap would otherwise force per-axis saturation. See [`strafer_shared.mecanum_kinematics.l1_clamp_twist`](source/strafer_shared/strafer_shared/mecanum_kinematics.py).)
+(Upstream of these three stages, `process_actions` applies an L1 body-frame velocity clamp on `(vx, vy)` to match the deployment-time command shaping the Jetson inference node performs before publishing `/cmd_vel`. That clamp is deterministic — not a DR knob — and preserves the commanded heading on diagonal motions where the per-wheel motor cap would otherwise force per-axis saturation. See [`strafer_shared.mecanum_kinematics.l1_clamp_twist`](../../source/strafer_shared/strafer_shared/mecanum_kinematics.py).)
 
 ### 2a. Command Delay
 
@@ -236,7 +236,7 @@ This is the **most critical parameter** for sim-to-real transfer. It determines 
 
 ## 4. Layer 3: Sensor Noise Models
 
-Each sensor in simulation has a noise model based on real hardware datasheets. The policy was trained to be robust to these noise levels. All sensor noise configs are in [sim_real_cfg.py](source/strafer_lab/strafer_lab/tasks/navigation/sim_real_cfg.py).
+Each sensor in simulation has a noise model based on real hardware datasheets. The policy was trained to be robust to these noise levels. All sensor noise configs are in [sim_real_cfg.py](../../source/strafer_lab/strafer_lab/tasks/navigation/sim_real_cfg.py).
 
 ### IMU (BMI055 in RealSense D555)
 
@@ -330,7 +330,7 @@ Different sensors have different processing pipelines:
 | Depth camera | 1 step (~33ms), drawn per episode over 0-2 steps | Stereo matching + USB transfer |
 | RGB camera | 1 step (~33ms) | Image processing + USB transfer |
 
-These are modeled as per-sensor observation delays on `TimingCfg` in [sim_real_cfg.py](source/strafer_lab/strafer_lab/tasks/navigation/sim_real_cfg.py). The values match typical RealSense D555 behavior and generally don't need tuning.
+These are modeled as per-sensor observation delays on `TimingCfg` in [sim_real_cfg.py](../../source/strafer_lab/strafer_lab/tasks/navigation/sim_real_cfg.py). The values match typical RealSense D555 behavior and generally don't need tuning.
 
 The depth camera carries a second, separate axis: the frame sometimes fails to
 advance at all, and the policy re-reads the previous one. Unlike a delay, these
@@ -473,12 +473,12 @@ Use this checklist before deploying a trained policy on hardware.
 
 | File | Relevant Content |
 |------|-----------------|
-| [sim_real_cfg.py](source/strafer_lab/strafer_lab/tasks/navigation/sim_real_cfg.py) | All noise/timing/actuator presets (Ideal, Realistic, Robust) |
-| [strafer.py](source/strafer_lab/strafer_lab/assets/strafer.py) | DCMotorCfg: stiffness, damping, torque-speed curve |
-| [actions.py](source/strafer_lab/strafer_lab/tasks/navigation/mdp/actions.py) | Motor dynamics filter, command delay, slew rate (L309-326) |
-| [constants.py](source/strafer_shared/strafer_shared/constants.py) | All robot physical constants, PID gains, normalization scales |
-| [policy_interface.py](source/strafer_shared/strafer_shared/policy_interface.py) | Observation assembly, action interpretation |
-| [tune_pid.py](source/strafer_ros/tune_pid.py) | Interactive PID characterization and step-response sweep |
+| [sim_real_cfg.py](../../source/strafer_lab/strafer_lab/tasks/navigation/sim_real_cfg.py) | All noise/timing/actuator presets (Ideal, Realistic, Robust) |
+| [strafer.py](../../source/strafer_lab/strafer_lab/assets/strafer.py) | DCMotorCfg: stiffness, damping, torque-speed curve |
+| [actions.py](../../source/strafer_lab/strafer_lab/tasks/navigation/mdp/actions.py) | Motor dynamics filter, command delay, slew rate (L309-326) |
+| [constants.py](../../source/strafer_shared/strafer_shared/constants.py) | All robot physical constants, PID gains, normalization scales |
+| [policy_interface.py](../../source/strafer_shared/strafer_shared/policy_interface.py) | Observation assembly, action interpretation |
+| [tune_pid.py](../../source/strafer_ros/tune_pid.py) | Interactive PID characterization and step-response sweep |
 
 ### Sim-to-Real Contract Presets Summary
 

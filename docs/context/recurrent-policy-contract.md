@@ -2,13 +2,13 @@
 
 The Strafer DEPTH policy is recurrent (rsl_rl PPO actor with `rnn_type="gru"`,
 `rnn_hidden_dim=128`, `rnn_num_layers=1` per
-[`STRAFER_PPO_DEPTH_RUNNER_CFG`](../../../source/strafer_lab/strafer_lab/tasks/navigation/agents/rsl_rl_ppo_cfg.py)).
+[`STRAFER_PPO_DEPTH_RUNNER_CFG`](../../source/strafer_lab/strafer_lab/tasks/navigation/agents/rsl_rl_ppo_cfg.py)).
 Hidden state is owned at three places along the train → export → inference
 chain (rsl_rl trainer; the export wrappers in
-[`depth_rnn_model.py`](../../../source/strafer_lab/strafer_lab/tasks/navigation/agents/depth_rnn_model.py)
-and [`source/strafer_lab/scripts/export_policy.py`](../../../source/strafer_lab/scripts/export_policy.py); the
+[`depth_rnn_model.py`](../../source/strafer_lab/strafer_lab/tasks/navigation/agents/depth_rnn_model.py)
+and [`source/strafer_lab/scripts/export_policy.py`](../../source/strafer_lab/scripts/export_policy.py); the
 inference-side loader in
-[`strafer_shared.policy_interface`](../../../source/strafer_shared/strafer_shared/policy_interface.py)).
+[`strafer_shared.policy_interface`](../../source/strafer_shared/strafer_shared/policy_interface.py)).
 This module pins the seam-level contract so each layer can be edited
 without re-deriving what the other two assume.
 
@@ -88,7 +88,7 @@ actions **iff** `reset()` is called between them.
 Without an intervening `reset()`, the hidden state has evolved by
 construction and the two actions differ — that's the recurrent-model
 definition, not a bug. Determinism probes
-([`source/strafer_lab/scripts/export_policy.py`](../../../source/strafer_lab/scripts/export_policy.py)'s
+([`source/strafer_lab/scripts/export_policy.py`](../../source/strafer_lab/scripts/export_policy.py)'s
 `_verify_torchscript_determinism` is the canonical example) must
 condition on this. "Byte-identical between consecutive calls" is the
 wrong assertion for a recurrent artifact and would force the scripted
@@ -150,16 +150,16 @@ other, or one path emitting a different activation than the trained
 graph).
 
 The integration test that pins this is
-[`source/strafer_lab/tests/contracts/test_recurrent_contract_e2e.py`](../../../source/strafer_lab/tests/contracts/test_recurrent_contract_e2e.py).
+[`source/strafer_lab/tests/contracts/test_recurrent_contract_e2e.py`](../../source/strafer_lab/tests/contracts/test_recurrent_contract_e2e.py).
 
 ## What this module is NOT
 
 - **Not the implementation.** The producer side is
-  [`source/strafer_lab/scripts/export_policy.py`](../../../source/strafer_lab/scripts/export_policy.py) +
-  [`depth_rnn_model.py`](../../../source/strafer_lab/strafer_lab/tasks/navigation/agents/depth_rnn_model.py)
+  [`source/strafer_lab/scripts/export_policy.py`](../../source/strafer_lab/scripts/export_policy.py) +
+  [`depth_rnn_model.py`](../../source/strafer_lab/strafer_lab/tasks/navigation/agents/depth_rnn_model.py)
   (TorchScript) and the same export script + ONNX wrappers
   (`_OnnxDepthGRUModel`). The consumer side is
-  [`policy_interface.load_policy`](../../../source/strafer_shared/strafer_shared/policy_interface.py).
+  [`policy_interface.load_policy`](../../source/strafer_shared/strafer_shared/policy_interface.py).
   The caller side is the Jetson inference node (out of tree until
   `inference-package` ships).
 - **Not the model architecture.** Width, depth, RNN choice are runner-

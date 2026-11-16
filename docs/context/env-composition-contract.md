@@ -4,13 +4,13 @@ Strafer navigation environments are **composed over four orthogonal axes** —
 sensor stack × scene source × realism × objective — not hand-written one class
 per matrix cell. A new variant is a composition, not a subclass. The
 authoritative in-code statement is the
-[`composed_env_cfg.py`](../../../source/strafer_lab/strafer_lab/tasks/navigation/composed_env_cfg.py)
+[`composed_env_cfg.py`](../../source/strafer_lab/strafer_lab/tasks/navigation/composed_env_cfg.py)
 module docstring; the registration table is
-[`tasks/navigation/__init__.py`](../../../source/strafer_lab/strafer_lab/tasks/navigation/__init__.py).
+[`tasks/navigation/__init__.py`](../../source/strafer_lab/strafer_lab/tasks/navigation/__init__.py).
 The shared MDP building blocks the composition selects among (per-realism
 observation / action / event cfgs, scene cfgs, commands / rewards /
 terminations / curriculum) live in
-[`strafer_env_cfg.py`](../../../source/strafer_lab/strafer_lab/tasks/navigation/strafer_env_cfg.py).
+[`strafer_env_cfg.py`](../../source/strafer_lab/strafer_lab/tasks/navigation/strafer_env_cfg.py).
 
 ## The four axes
 
@@ -61,7 +61,7 @@ The runner cfg pairs with the observation profile: a depth-image obs uses the
 CNN depth runner, a proprioceptive obs the MLP runner. Old per-cell gym IDs
 (`-Real-v0`, `-Real-Depth-v0`, `-Real-ProcRoom-Depth-v0`, `-InfinigenPerception-Play-v0`, …)
 are retired — the old→new table is in
-[`docs/INTEGRATION_SIM_IN_THE_LOOP.md`](../../INTEGRATION_SIM_IN_THE_LOOP.md).
+[`docs/guides/INTEGRATION_SIM_IN_THE_LOOP.md`](../guides/INTEGRATION_SIM_IN_THE_LOOP.md).
 
 ## The two invariants
 
@@ -70,7 +70,7 @@ are retired — the old→new table is in
    config a checkpoint trained against — a subtly different tensor breaks the
    DEPTH inference package and any checkpoint silently. The guard is the
    frozen-golden-hash gate in
-   [`test_sim/env/test_composition_contract.py`](../../../source/strafer_lab/test_sim/env/test_composition_contract.py);
+   [`test_sim/env/test_composition_contract.py`](../../source/strafer_lab/test_sim/env/test_composition_contract.py);
    the depth observation a checkpoint consumes is also pinned by
    [`recurrent-policy-contract.md`](recurrent-policy-contract.md). A camera's
    rendered channels are excluded from the gate — a depth-only obs never reads
@@ -81,10 +81,10 @@ are retired — the old→new table is in
    `_prune_scene_cameras` and a check in the same contract test.
 2. **The capture sensor stack and the writer schema are one parameter.**
    `cameras_required` drives both the rendered cameras and
-   [`lerobot_writer.build_features`](../../../source/strafer_lab/strafer_lab/tools/lerobot_writer.py)
+   [`lerobot_writer.build_features`](../../source/strafer_lab/strafer_lab/tools/lerobot_writer.py)
    — absent modalities produce **no columns** (never zero-filled), and
    `add_frame` validates each frame against the declared stack.
-   [`capture.py --sensors`](../../../source/strafer_lab/scripts/capture.py) (preset or token list)
+   [`capture.py --sensors`](../../source/strafer_lab/scripts/capture.py) (preset or token list)
    resolves to that tuple and applies it to `env_cfg.sensors` before
    `gym.make`, so the env renders exactly what the writer records.
 

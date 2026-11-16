@@ -15,7 +15,7 @@ CLI::
 
     python -m strafer_lab.tools.detections_overlay \\
         --dataset data/sim_in_the_loop/<scene>_<run> \\
-        --output  docs/artifacts/<name>.mp4
+        --output  docs/media/<name>.mp4
 """
 
 from __future__ import annotations

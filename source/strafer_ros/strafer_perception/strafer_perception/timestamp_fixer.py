@@ -2,7 +2,7 @@
 
 A pure relay: every message is republished unchanged, stamp included. With the D555's
 per-frame metadata reaching librealsense (the uvcvideo D4XX entry in
-docs/D555_IMU_KERNEL_FIX.md), its stamps are on global time, within a frame of host
+docs/guides/D555_IMU_KERNEL_FIX.md), its stamps are on global time, within a frame of host
 time, and a frame's image and camera_info share one stamp, so depth_to_pointcloud's
 exact sync pairs them and RTAB-Map's approximate sync matches them with odometry. On
 the sim lanes the stamps are the bridge's /clock.

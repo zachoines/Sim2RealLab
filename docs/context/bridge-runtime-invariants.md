@@ -5,9 +5,9 @@ it must hold. The bridge is the DGX side of the architecture — it
 makes Isaac Sim look like a real D555 + mecanum chassis to the
 Jetson stack.
 
-Source code: [`source/strafer_lab/scripts/run_sim_in_the_loop.py`](../../../source/strafer_lab/scripts/run_sim_in_the_loop.py)
-+ [`source/strafer_lab/strafer_lab/bridge/`](../../../source/strafer_lab/strafer_lab/bridge/)
-+ [`source/strafer_lab/strafer_lab/sim_in_the_loop/`](../../../source/strafer_lab/strafer_lab/sim_in_the_loop/).
+Source code: [`source/strafer_lab/scripts/run_sim_in_the_loop.py`](../../source/strafer_lab/scripts/run_sim_in_the_loop.py)
++ [`source/strafer_lab/strafer_lab/bridge/`](../../source/strafer_lab/strafer_lab/bridge/)
++ [`source/strafer_lab/strafer_lab/sim_in_the_loop/`](../../source/strafer_lab/strafer_lab/sim_in_the_loop/).
 Re-run the `--profile` harness on the bridge mainloop (see
 [Phase-level profiler](#phase-level-profiler---profile) below) to
 re-derive per-phase wall-time attribution if you suspect a regression.
@@ -40,10 +40,10 @@ paths divide by `MAX_LINEAR_VEL` / `MAX_ANGULAR_VEL` and clamp to
 `[-1, 1]` before writing into the action tensor:
 
 - `--mode bridge` mainloop: see
-  [`run_sim_in_the_loop.py`](../../../source/strafer_lab/scripts/run_sim_in_the_loop.py)
+  [`run_sim_in_the_loop.py`](../../source/strafer_lab/scripts/run_sim_in_the_loop.py)
   near the `_clamp_unit(...)` call sites.
 - `--mode harness` adapter:
-  [`runtime_env._build_action`](../../../source/strafer_lab/strafer_lab/sim_in_the_loop/runtime_env.py).
+  [`runtime_env._build_action`](../../source/strafer_lab/strafer_lab/sim_in_the_loop/runtime_env.py).
 
 If you add a new code path that writes `/cmd_vel` into the action
 tensor, **mirror this normalization**. Skipping it amplifies every
@@ -86,7 +86,7 @@ this stack) is a fact of the bridge, not an axis to tune away.
 
 Bridge enforcement: the perception camera prim itself is spawned at
 `PERCEPTION_WIDTH × PERCEPTION_HEIGHT` by the `TiledCameraCfg` in
-[`d555_cfg.py`](../../../source/strafer_lab/strafer_lab/tasks/navigation/d555_cfg.py)
+[`d555_cfg.py`](../../source/strafer_lab/strafer_lab/tasks/navigation/d555_cfg.py)
 (`make_d555_perception_camera_cfg`), so the GPU render product the
 async camera publisher reads from is already at the right resolution.
 `StraferCameraAsyncPublisher` reuses the same `PERCEPTION_WIDTH` /
@@ -105,7 +105,7 @@ The D555 camera's `PinholeCameraCfg.clipping_range` uses
 **generous renderer frustum**, decoupled from the depth-sensor
 saturation model. The 6 m sensor-saturation limit
 (`DEPTH_CLIP_FAR=6.0`) is applied in software in
-[`mdp/observations.py:depth_image`](../../../source/strafer_lab/strafer_lab/tasks/navigation/mdp/observations.py)
+[`mdp/observations.py:depth_image`](../../source/strafer_lab/strafer_lab/tasks/navigation/mdp/observations.py)
 via `torch.clamp`, not at the renderer. Wiring the sensor limit
 into the frustum (as the original code did) blackens RGB beyond
 6 m too. Don't conflate the two.
@@ -119,7 +119,7 @@ parity at the real saturation point cap depth on their end.
 
 | Make target | Visibility | When to use |
 |-------------|------------|-------------|
-| `make sim-bridge` | Headless (no editor viewport) | **Daily-driver for missions.** Saves ~85 ms/loop vs `--viz kit` on a DISPLAY-attached host (~2 ms/loop on a no-DISPLAY DGX, where the editor viewport collapses to a no-op). Visual debugging via the Jetson-side `foxglove_bridge` (`bringup_sim_in_the_loop.launch.py` `viewer:=true`, default), connected through an SSH tunnel from the operator's workstation; see [INTEGRATION_SIM_IN_THE_LOOP.md Stage 3.5](../../INTEGRATION_SIM_IN_THE_LOOP.md). |
+| `make sim-bridge` | Headless (no editor viewport) | **Daily-driver for missions.** Saves ~85 ms/loop vs `--viz kit` on a DISPLAY-attached host (~2 ms/loop on a no-DISPLAY DGX, where the editor viewport collapses to a no-op). Visual debugging via the Jetson-side `foxglove_bridge` (`bringup_sim_in_the_loop.launch.py` `viewer:=true`, default), connected through an SSH tunnel from the operator's workstation; see [INTEGRATION_SIM_IN_THE_LOOP.md Stage 3.5](../guides/INTEGRATION_SIM_IN_THE_LOOP.md). |
 | `make sim-bridge-gui` | Headed, Kit editor viewport | Visual debugging only. The bridge mainloop sets `env.render_enabled = False` so `KitVisualizer.step`'s `app.update()` is short-circuited; the explicit `simulation_app.update()` after each `env.step()` is the sole Kit pump per loop, refreshing the viewport, firing `OnPlaybackTick`, and driving the camera-publish OmniGraph in one pass. |
 
 Default decimation in bridge: **`decimation=1`** (matches
@@ -144,20 +144,20 @@ and `rotate_in_place` compute their primary deadline as
 `clock.now() + Duration(seconds=timeout)`. To stop a *frozen* `/clock`
 (crashed / paused bridge) from wedging the executor, each wait also
 runs a sim-time stall detector (`_ClockStallDetector` in
-[`ros_client.py`](../../../source/strafer_autonomy/strafer_autonomy/clients/ros_client.py)):
+[`ros_client.py`](../../source/strafer_autonomy/strafer_autonomy/clients/ros_client.py)):
 it bails only if `/clock` fails to advance for
 `clock_stall_bail_wall_s` (`STRAFER_CLOCK_STALL_BAIL_WALL_S`, default
 15 s; `0` disables) of wall time — tolerating a slow-but-live clock at
 sub-unity RTF, never firing on real hardware where `/clock` tracks
 wall. Mirrors the loop in
-[`donut_warmup.py`](../../../source/strafer_ros/strafer_bringup/strafer_bringup/donut_warmup.py).
+[`donut_warmup.py`](../../source/strafer_ros/strafer_bringup/strafer_bringup/donut_warmup.py).
 
 Nav2's own internal deadlines (`controller_frequency`,
 `*_tolerance`, `cycle_frequency`, `movement_time_allowance`,
 `failure_tolerance`, …) tick on each server's node clock, so they
 follow `/clock` once `use_sim_time` is true. The per-server
 `use_sim_time: false` lines in
-[`nav2_params.yaml`](../../../source/strafer_ros/strafer_navigation/config/nav2_params.yaml)
+[`nav2_params.yaml`](../../source/strafer_ros/strafer_navigation/config/nav2_params.yaml)
 are required scaffolding, not a bug: `RewrittenYaml` only rewrites keys
 that already exist, and the launch arg (`use_sim_time:=true`) flips them
 to true at runtime. Don't delete them or hardcode them `true`.
@@ -216,9 +216,9 @@ with the `_ClockStallDetector`, confirmed the Nav2 `use_sim_time`
 flow-through), and `executor-policy-nav-budget` (policy-backend goals
 get the node's own bound plus a margin).
 Live in
-[`source/strafer_autonomy/strafer_autonomy/clients/ros_client.py`](../../../source/strafer_autonomy/strafer_autonomy/clients/ros_client.py)
+[`source/strafer_autonomy/strafer_autonomy/clients/ros_client.py`](../../source/strafer_autonomy/strafer_autonomy/clients/ros_client.py)
 and
-[`source/strafer_autonomy/strafer_autonomy/executor/mission_runner.py`](../../../source/strafer_autonomy/strafer_autonomy/executor/mission_runner.py).
+[`source/strafer_autonomy/strafer_autonomy/executor/mission_runner.py`](../../source/strafer_autonomy/strafer_autonomy/executor/mission_runner.py).
 
 ## Phase-level profiler (`--profile`)
 
@@ -259,7 +259,7 @@ report camera-worker p50/p99 alongside the bridge mainloop phases.
 These are baked at scene-generation time, not at bridge launch:
 
 - **Infinigen floor mesh colliders are stripped** — see
-  [`scripts/postprocess_scene_usd.py`](../../../source/strafer_lab/scripts/postprocess_scene_usd.py).
+  [`scripts/postprocess_scene_usd.py`](../../source/strafer_lab/scripts/postprocess_scene_usd.py).
   Robot collision is delegated to the `/World/ground/terrain` plane
   raised to floor height by the env's
   `lift_ground_plane_to_floor` startup event. If you re-bake an

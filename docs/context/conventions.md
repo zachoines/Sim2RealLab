@@ -48,7 +48,7 @@ specific bug, or behavior that would surprise a reader.
 - Brief / task / PR / commit references — covered by
   [`#no-transient-documentation-references-in-code`](#no-transient-documentation-references-in-code).
 - Broad architectural explanations — those belong in a context
-  module under `docs/tasks/context/` or the relevant design doc.
+  module under `docs/context/` or the relevant design doc.
 - Restatement of what the code does. Identifier names already do that.
 - Speculation about future work (`could later be extended to ...`).
 - Diff-relative phrasing (`now runs concurrently`, `no longer gated`,
@@ -336,7 +336,7 @@ If your work invalidates a fact in any referenced context module,
 update that module in the same commit.
 ```
 
-That covers `docs/tasks/context/`. It does **not** cover the rest of
+That covers `docs/context/`. It does **not** cover the rest of
 the repo's user-facing surfaces, and those drift fastest when a brief
 ships behavior the surfaces previously described as missing,
 deferred, or shaped differently. The contract here extends the
@@ -347,13 +347,13 @@ and update any that your change invalidates — in the same PR.**
 
 | Surface | What to check |
 |---|---|
-| Top-level [`Readme.md`](../../../Readme.md) | "What ships today", "Repository structure" (`Scripts/` listing), "Run", "Deferred / known limitations". |
-| [`source/strafer_lab/README.md`](../../../source/strafer_lab/README.md) | "Scripts and tools inventory", "Contracts", "Testing", "Deferred / known limitations". |
-| [`source/strafer_ros/README.md`](../../../source/strafer_ros/README.md) | Package list, launch / config surface, topic / action contracts. |
-| [`source/strafer_autonomy/README.md`](../../../source/strafer_autonomy/README.md) | Skill table, planner endpoints, executor commands. |
-| [`source/strafer_vlm/README.md`](../../../source/strafer_vlm/README.md) | Endpoint table, env-var / config surface. |
-| [`docs/example_commands_cheatsheet.md`](../../example_commands_cheatsheet.md) | Operator one-liners — copy-paste fidelity matters. |
-| [`docs/sim_bridge_autonomy_cheatsheet.md`](../../sim_bridge_autonomy_cheatsheet.md) | Sim-bridge lane runbook: commands paste as they are; every other item is a gotcha of at most three lines that links its long form once. |
+| Top-level [`Readme.md`](../../Readme.md) | "What ships today", "Repository structure" (`Scripts/` listing), "Run", "Deferred / known limitations". |
+| [`source/strafer_lab/README.md`](../../source/strafer_lab/README.md) | "Scripts and tools inventory", "Contracts", "Testing", "Deferred / known limitations". |
+| [`source/strafer_ros/README.md`](../../source/strafer_ros/README.md) | Package list, launch / config surface, topic / action contracts. |
+| [`source/strafer_autonomy/README.md`](../../source/strafer_autonomy/README.md) | Skill table, planner endpoints, executor commands. |
+| [`source/strafer_vlm/README.md`](../../source/strafer_vlm/README.md) | Endpoint table, env-var / config surface. |
+| [`docs/guides/example_commands_cheatsheet.md`](../guides/example_commands_cheatsheet.md) | Operator one-liners — copy-paste fidelity matters. |
+| [`docs/guides/sim_bridge_autonomy_cheatsheet.md`](../guides/sim_bridge_autonomy_cheatsheet.md) | Sim-bridge lane runbook: commands paste as they are; every other item is a gotcha of at most three lines that links its long form once. |
 | [`docs/tasks/DEFERRED_WORK.md`](../DEFERRED_WORK.md) | Items you just shipped must be **deleted from this file** in the same commit, per its own maintenance contract at the bottom of the file. |
 
 **Interim docs are exempt from this sweep.** A top-level `docs/*.md` whose

@@ -17,7 +17,7 @@ lines, each linking its long form once. Mechanism, history and measurements live
        --mode bridge --headless --enable_cameras \
        --task Isaac-Strafer-Nav-Capture-Bridge-ProcRoom-Enriched-v0
    ```
-   [`kit_boot_watchdog.sh`](../tools/kit_boot_watchdog.sh) relaunches a Kit boot that stops early
+   [`kit_boot_watchdog.sh`](../../tools/kit_boot_watchdog.sh) relaunches a Kit boot that stops early
    and stays stopped (Isaac Sim 6.0.1), printing one accounting line per attempt, and never touches
    a bridge once its boot is under way. `make sim-bridge` is wrapped too but passes no `--task`.
 
@@ -76,7 +76,7 @@ docker logs strafer_slam 2>&1 | grep -A1 'loadDataFromDb()' | grep -c repair   #
 
 Details: [`enriched-lane-rig-stability`](tasks/active/reliability/enriched-lane-rig-stability.md)
 mode 1 (the `addLink()` abort, the slam `stop_grace_period`); scene keying in the deploy
-[README](../source/strafer_ros/deploy/README.md#slam-the-map-is-keyed-to-the-scene).
+[README](../../source/strafer_ros/deploy/README.md#slam-the-map-is-keyed-to-the-scene).
 
 ## Send a natural-language command
 
@@ -89,13 +89,13 @@ make submit-deploy CMD="go to the chair"
 - **Watch it:** `docker logs -f strafer_autonomy` (VLM grounding, goal projection, navigation)
 - **View it:** Foxglove Studio → `ws://localhost:8765`
   (tunnel from a workstation: `ssh -L 8765:localhost:8765 zachoines@192.168.50.161`;
-  [viewer](../source/strafer_ros/deploy/README.md#viewer-foxglove))
+  [viewer](../../source/strafer_ros/deploy/README.md#viewer-foxglove))
 
 ## Good to know
 
 - **Applying any config change: never `docker compose restart`.** It reuses the old container
   env and applies nothing. Recreate with `up -d --force-recreate <service>` and the stack's
-  `-f`/`--profile` flags, then verify ([deploy README](../source/strafer_ros/deploy/README.md)):
+  `-f`/`--profile` flags, then verify ([deploy README](../../source/strafer_ros/deploy/README.md)):
   ```bash
   docker exec strafer_inference printenv STRAFER_INFERENCE_MODEL_PATH
   docker exec strafer_inference sh -c 'md5sum "$STRAFER_INFERENCE_MODEL_PATH"'
@@ -119,19 +119,19 @@ make submit-deploy CMD="go to the chair"
   ```
   It force-recreates `inference` on the stack's own `-f` chain, then exits non-zero unless the
   container shows the requested model and anchoring and a loaded policy. Its
-  [header](../source/strafer_ros/deploy/tools/configure_inference.sh) lists the checks.
+  [header](../../source/strafer_ros/deploy/tools/configure_inference.sh) lists the checks.
 - **Model swap by hand:** set `STRAFER_INFERENCE_MODEL_PATH` (unset: `/models/policy.onnx`) in the
   shell or `deploy/.env`, not a tracked compose file, then recreate `inference`. A later untracked
-  overlay can shadow it ([README](../source/strafer_ros/deploy/README.md#one-key-one-home)).
+  overlay can shadow it ([README](../../source/strafer_ros/deploy/README.md#one-key-one-home)).
 - **Once the tool has run, recreating `inference` by hand silently reverts the anchoring.** The
   documented `-f` chain lacks the tool's `docker-compose.override.anchor.yml`, so the image's
   baked config returns, and the model comes from the shell or `deploy/.env` again. Re-run the tool.
 - **Check what is running:** `docker logs strafer_inference 2>&1 | head -1` prints the image's
   `revision=<commit>`. `revision=unknown` means no build stamp, and a failed build silently keeps
-  the old code under the tag ([deploy README](../source/strafer_ros/deploy/README.md)).
+  the old code under the tag ([deploy README](../../source/strafer_ros/deploy/README.md)).
 - **Where the policy config comes from:** canon `strafer_bringup/config/env_sim_bridge.env`, which
   reaches `inference` only; edit it, `make env-sync`, force-recreate. Not `compose/sim.env`: that is
-  the standalone sim lane's. See [`deploy-env-config`](tasks/context/deploy-env-config.md#lanes).
+  the standalone sim lane's. See [`deploy-env-config`](../context/deploy-env-config.md#lanes).
 - The executor's hybrid backend, sim time and DGX URLs come only from the **untracked**
   `docker-compose.override.autonomy-local.yml` in the deploy dir; without sim time its
   [goal budget][budget] runs on wall time. Expect `hybrid_nav2_strafer`, `true`:
@@ -139,7 +139,7 @@ make submit-deploy CMD="go to the chair"
   docker exec strafer_autonomy printenv STRAFER_NAV_BACKEND STRAFER_USE_SIM_TIME
   ```
 - **If the VLM cannot find the named object**, the go-to plan's
-  [`scan_for_target`](../source/strafer_autonomy/README.md) checks six headings 60° apart, then
+  [`scan_for_target`](../../source/strafer_autonomy/README.md) checks six headings 60° apart, then
   fails with `target_not_found_after_scan`. Pick something clearly visible.
 - **How a policy goal ends** (`error_code` from `make submit-deploy`): success within 0.30 m;
   `navigation_failed`, the node aborted at its [60 s sim bound][budget], ~8 min wall (first grep);
@@ -151,7 +151,7 @@ make submit-deploy CMD="go to the chair"
 - **If the robot parks within ~0.2 m of an obstacle** (its own costmap cell inscribed, ≥ 253),
   `GridBased` refuses its own pose as a planning start. Each lane then retries on
   `GridBasedRelaxed`, a degraded mode that logs.
-- **Hybrid lane** ([guards](../source/strafer_ros/strafer_inference/config/subgoal_generator.yaml)):
+- **Hybrid lane** ([guards](../../source/strafer_ros/strafer_inference/config/subgoal_generator.yaml)):
   the subgoal generator switches planner itself. In `docker logs strafer_inference` the usual
   sequence is just these two:
   ```
@@ -190,4 +190,4 @@ make submit-deploy CMD="go to the chair"
      "{pose: {header: {frame_id: map}, pose: {position: {x: -1.0, y: 0.3}, orientation: {w: 1.0}}}}"'
   ```
 
-[budget]: tasks/context/bridge-runtime-invariants.md#sim-time-aware-navigation-timeout-jetson-side
+[budget]: ../context/bridge-runtime-invariants.md#sim-time-aware-navigation-timeout-jetson-side

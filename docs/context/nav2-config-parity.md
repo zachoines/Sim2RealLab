@@ -2,7 +2,7 @@
 
 The Nav2 configuration is **byte-identical on every lane by
 construction**. Sim-in-the-loop and real-robot bringup load the same
-[`nav2_params.yaml`](../../../source/strafer_ros/strafer_navigation/config/nav2_params.yaml)
+[`nav2_params.yaml`](../../source/strafer_ros/strafer_navigation/config/nav2_params.yaml)
 and receive the same launch-time overrides. There is no sim-vs-real
 branch in the launch file and no environment knob that scales Nav2's
 velocity caps.
@@ -11,7 +11,7 @@ velocity caps.
 
 ## What `_patch_params` does
 
-[`navigation.launch.py`](../../../source/strafer_ros/strafer_navigation/launch/navigation.launch.py)'s
+[`navigation.launch.py`](../../source/strafer_ros/strafer_navigation/launch/navigation.launch.py)'s
 `_patch_params` layers only **physical constants** on top of the YAML:
 
 | Injected at launch | Source |
@@ -63,11 +63,11 @@ sim-to-real fidelity requirement for every backend, not only `nav2`.
 
 ## Pointers
 
-- Launch-time injection: [`navigation.launch.py`](../../../source/strafer_ros/strafer_navigation/launch/navigation.launch.py) `_patch_params`.
-- The shared config: [`nav2_params.yaml`](../../../source/strafer_ros/strafer_navigation/config/nav2_params.yaml).
-- Both-lanes-identical pin: [`test_nav_config.py`](../../../source/strafer_ros/strafer_navigation/test/test_nav_config.py) — `TestPatchByteIdentical` (single golden fixture = the shipped config) + `TestConstantsInjection`.
+- Launch-time injection: [`navigation.launch.py`](../../source/strafer_ros/strafer_navigation/launch/navigation.launch.py) `_patch_params`.
+- The shared config: [`nav2_params.yaml`](../../source/strafer_ros/strafer_navigation/config/nav2_params.yaml).
+- Both-lanes-identical pin: [`test_nav_config.py`](../../source/strafer_ros/strafer_navigation/test/test_nav_config.py) — `TestPatchByteIdentical` (single golden fixture = the shipped config) + `TestConstantsInjection`.
 - Trained-policy velocity clamp (same indoor cap): `strafer_inference/inference_node.py` `_DEFAULT_VEL_CAP_*`.
-- MPPI sweep capture harness for the sim-first step: [`scripts/tune_capture.py`](../../../source/strafer_ros/strafer_navigation/scripts/tune_capture.py).
+- MPPI sweep capture harness for the sim-first step: [`scripts/tune_capture.py`](../../source/strafer_ros/strafer_navigation/scripts/tune_capture.py).
 
 ## Maintenance contract
 

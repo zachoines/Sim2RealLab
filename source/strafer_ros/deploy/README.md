@@ -34,7 +34,7 @@ deploy/
 ```
 
 The sim-bridge lane's operator runbook is
-[`docs/sim_bridge_autonomy_cheatsheet.md`](../../../docs/sim_bridge_autonomy_cheatsheet.md).
+[`docs/guides/sim_bridge_autonomy_cheatsheet.md`](../../../docs/guides/sim_bridge_autonomy_cheatsheet.md).
 
 ## Applying a config change — `restart` does NOT do it
 
@@ -69,7 +69,7 @@ within ~1 s of subscribing), and reloading **bind-mounted source** under
 
 The agent-facing statement of this rule — the lane table, the compose behaviours
 it rests on, and the full invariant list — is
-[`docs/tasks/context/deploy-env-config.md`](../../../docs/tasks/context/deploy-env-config.md).
+[`docs/context/deploy-env-config.md`](../../../docs/context/deploy-env-config.md).
 What follows is the operator's half.
 
 > **Every key lives in exactly one home.** Either a generated `env_file`

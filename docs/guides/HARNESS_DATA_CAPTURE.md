@@ -21,7 +21,7 @@ procedure.
 ## One-time env setup
 
 Bring up the Isaac Lab conda env per
-[`source/strafer_lab/README.md` → Install (Linux / DGX Spark)](../source/strafer_lab/README.md#install)
+[`source/strafer_lab/README.md` → Install (Linux / DGX Spark)](../../source/strafer_lab/README.md#install)
 — that recipe installs Isaac Sim 6, Isaac Lab, **and** the `--no-deps`
 `lerobot` layering the harness writer needs (with the rationale for why
 `lerobot` is installed `--no-deps`). Confirm the env is capture-ready:
@@ -468,7 +468,7 @@ acceptance bar — run after the
 [Infinigen scene-corpus brief](tasks/active/harness/infinigen-scene-corpus.md)
 generates richer scenes. Same command pattern; raise `--max-episodes`
 and `--max-steps-per-episode`, and commit a summary under
-`docs/artifacts/teleop_acceptance/<run_id>/`.
+`docs/media/teleop_acceptance/<run_id>/`.
 
 ---
 

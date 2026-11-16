@@ -43,7 +43,7 @@ make test-driver     # strafer_driver unit tests (same routing)
 `objects[]` / `rooms[]` into the USD's `customData` and applies the
 `UsdSemantics` detection labels, so one command yields a capture-ready *and*
 detections-ready scene. Only the combined manifest (step 2, spawn-point
-discovery) remains separate. Full contract: `docs/SCENE_PROVIDER_CONTRACT.md`.
+discovery) remains separate. Full contract: `docs/guides/SCENE_PROVIDER_CONTRACT.md`.
 ```bash
 source env_setup.sh
 # 1) Geometry + embedded metadata + detection labels, in one command.
@@ -395,7 +395,7 @@ make kill           # Jetson — clear stale ros2 / nav2 / executor / foxglove_b
 # Harness data capture (`source/strafer_lab/scripts/capture.py`)
 
 Moved to its own guide — see
-[`docs/HARNESS_DATA_CAPTURE.md`](HARNESS_DATA_CAPTURE.md). The guide
+[`docs/guides/HARNESS_DATA_CAPTURE.md`](HARNESS_DATA_CAPTURE.md). The guide
 covers `env_isaaclab3` lerobot setup, the Infinigen scene-corpus
 clean-slate regen procedure, mission-queue generation, validation +
 production capture commands, the operator button mapping, optional flags,

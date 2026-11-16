@@ -39,7 +39,7 @@ task that invalidated a fact — keep reading.
   a brief. Context describes the *intended invariants*; tasks
   describe the *current deviations from them*.
 - **Operator-facing procedures**. The cheatsheet at
-  [`docs/example_commands_cheatsheet.md`](../../example_commands_cheatsheet.md)
+  [`docs/guides/example_commands_cheatsheet.md`](../guides/example_commands_cheatsheet.md)
   is the home for "commands operators copy-paste."
 - **Anything time-bound.** No "as of 2026-04-27" preambles.
   Modules describe present state; if the present state changes, the
@@ -64,7 +64,7 @@ names, and which host is on WiFi this month are not.
 readers.** An active brief holds live state that work is being
 planned against; a completed brief holds the dated record of what was
 measured and when; the
-[sim-bridge cheatsheet](../../sim_bridge_autonomy_cheatsheet.md) holds
+[sim-bridge cheatsheet](../guides/sim_bridge_autonomy_cheatsheet.md) holds
 the operational facts someone needs at the keyboard, as commands and
 gotchas of at most three lines that link their long form. A module is
 the most durable level and therefore the wrong one by default.
@@ -78,7 +78,7 @@ agents pull up before starting work; they need to be skimmable in a
 minute or two. If a module is past 150 lines, one of these is true:
 
 - It's documentation, not context. Move it (e.g., to
-  `docs/SIM_TO_REAL_TUNING_GUIDE.md`-style long-form docs) and link
+  `docs/guides/SIM_TO_REAL_TUNING_GUIDE.md`-style long-form docs) and link
   to it from the slimmer module.
 - It bundles two distinct topics. Split it.
 - It includes exposition that should be a link to source. Replace
@@ -225,7 +225,7 @@ accurate.
 
 The operator → planner → executor → grounding → goal projection →
 Nav2 → bridge → Isaac Sim arrow chain is documented in
-[`docs/SYSTEM_FLOW_DIAGRAMS.md`](../../SYSTEM_FLOW_DIAGRAMS.md); no
+[`docs/guides/SYSTEM_FLOW_DIAGRAMS.md`](../guides/SYSTEM_FLOW_DIAGRAMS.md); no
 separate context module duplicates it.
 
 ---

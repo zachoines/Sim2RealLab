@@ -27,9 +27,9 @@ in order:
 
 1. `scan_for_target` — six grounding calls per rotation (one per
    45° heading), 1.5–4 s per call from
-   [`strafer_vlm/README.md`](../source/strafer_vlm/README.md#deferred--known-limitations);
+   [`strafer_vlm/README.md`](../../source/strafer_vlm/README.md#deferred--known-limitations);
    call site
-   [`mission_runner.py:570-720`](../source/strafer_autonomy/strafer_autonomy/executor/mission_runner.py#L570-L720).
+   [`mission_runner.py:570-720`](../../source/strafer_autonomy/strafer_autonomy/executor/mission_runner.py#L570-L720).
    Worst-case rotation cost ≈ 18–24 s before the robot has a target
    bbox.
 2. Goal projection on the Jetson — sub-second.
@@ -39,7 +39,7 @@ in order:
    the minute range.
 4. `verify_arrival` — one CLIP image embedding + one ChromaDB
    top-k query at the goal pose
-   ([`mission_runner.py:1302-1411`](../source/strafer_autonomy/strafer_autonomy/executor/mission_runner.py#L1302-L1411)).
+   ([`mission_runner.py:1302-1411`](../../source/strafer_autonomy/strafer_autonomy/executor/mission_runner.py#L1302-L1411)).
 
 The verification gap is the open interval between step 3's start
 and step 4's arrival check. On a representative mission this is
@@ -49,29 +49,29 @@ costmap collisions can interrupt — no semantic check is performed.
 ### 1.2 What the CLIP + semantic-map code actually does
 
 Files audited in
-[`source/strafer_autonomy/strafer_autonomy/semantic_map/`](../source/strafer_autonomy/strafer_autonomy/semantic_map/):
+[`source/strafer_autonomy/strafer_autonomy/semantic_map/`](../../source/strafer_autonomy/strafer_autonomy/semantic_map/):
 
 | File | Role | Notes |
 |---|---|---|
-| [`clip_encoder.py`](../source/strafer_autonomy/strafer_autonomy/semantic_map/clip_encoder.py) | OpenCLIP ViT-B/32 ONNX wrapper. Takes RGB uint8 → 512-dim L2-normalized vector. Loads `clip_visual.onnx` + `clip_text.onnx` (or fallback `clip_vit_b32.onnx`) from `~/.strafer/models`. Disabled-state fallback returns zero-vectors, which downstream paths short-circuit on. | Image preprocess: shorter-side resize to 224, center-crop to 224×224, ImageNet mean/std. **`d555_camera_perception` publishes 640×360**, so the resize-then-center-crop drops ~87 px from each side — about 27% of the horizontal field of view never reaches CLIP. |
-| [`manager.py`](../source/strafer_autonomy/strafer_autonomy/semantic_map/manager.py) | `SemanticMapManager`: NetworkX `DiGraph` for spatial relations + ChromaDB collection (`semantic_map_embeddings`, cosine, HNSW) for embedding ANN. `add_observation()` writes a `SemanticNode` with the CLIP vector; `query_by_embedding()` and `query_by_text()` are the retrieval surfaces. | Persistence: `~/.strafer/semantic_map/{graph.json, chroma/}`. Pruning is TTL-based (1 h / 6 h / 24 h tiers by observation count). |
-| [`background_mapper.py`](../source/strafer_autonomy/strafer_autonomy/semantic_map/background_mapper.py) | Movement-gated daemon thread. Every `poll_interval_s=2.0` it asks the ROS client for a pose; if the pose has moved ≥ `min_translation_m=0.5` m or rotated ≥ `min_rotation_deg=30°`, captures the camera frame and writes an observation. Optionally calls `TransitMonitor.check()` and sets a divergence flag the runner polls. | Default capture rate is therefore **at most 0.5 Hz**, gated by motion. |
-| [`transit_monitor.py`](../source/strafer_autonomy/strafer_autonomy/semantic_map/transit_monitor.py) | The "is the robot drifting toward the wrong region?" decision. Pulls top-3 from ChromaDB; counts how many fall within `goal_radius_m=3.0` of the goal. Aborts after 3 consecutive captures with `near_goal == 0`. | History buffer is per-leg, never persisted. The decision rule is **purely ranking** — no fixed cosine threshold — by design (see §1.4 in [`STRAFER_AUTONOMY_NEXT.md`](STRAFER_AUTONOMY_NEXT.md)). |
-| [`models.py`](../source/strafer_autonomy/strafer_autonomy/semantic_map/models.py) | `Pose2D`, `SemanticNode`, `SemanticEdge`, `DetectedObjectEntry`. Pure data classes; not part of the runtime path. | |
+| [`clip_encoder.py`](../../source/strafer_autonomy/strafer_autonomy/semantic_map/clip_encoder.py) | OpenCLIP ViT-B/32 ONNX wrapper. Takes RGB uint8 → 512-dim L2-normalized vector. Loads `clip_visual.onnx` + `clip_text.onnx` (or fallback `clip_vit_b32.onnx`) from `~/.strafer/models`. Disabled-state fallback returns zero-vectors, which downstream paths short-circuit on. | Image preprocess: shorter-side resize to 224, center-crop to 224×224, ImageNet mean/std. **`d555_camera_perception` publishes 640×360**, so the resize-then-center-crop drops ~87 px from each side — about 27% of the horizontal field of view never reaches CLIP. |
+| [`manager.py`](../../source/strafer_autonomy/strafer_autonomy/semantic_map/manager.py) | `SemanticMapManager`: NetworkX `DiGraph` for spatial relations + ChromaDB collection (`semantic_map_embeddings`, cosine, HNSW) for embedding ANN. `add_observation()` writes a `SemanticNode` with the CLIP vector; `query_by_embedding()` and `query_by_text()` are the retrieval surfaces. | Persistence: `~/.strafer/semantic_map/{graph.json, chroma/}`. Pruning is TTL-based (1 h / 6 h / 24 h tiers by observation count). |
+| [`background_mapper.py`](../../source/strafer_autonomy/strafer_autonomy/semantic_map/background_mapper.py) | Movement-gated daemon thread. Every `poll_interval_s=2.0` it asks the ROS client for a pose; if the pose has moved ≥ `min_translation_m=0.5` m or rotated ≥ `min_rotation_deg=30°`, captures the camera frame and writes an observation. Optionally calls `TransitMonitor.check()` and sets a divergence flag the runner polls. | Default capture rate is therefore **at most 0.5 Hz**, gated by motion. |
+| [`transit_monitor.py`](../../source/strafer_autonomy/strafer_autonomy/semantic_map/transit_monitor.py) | The "is the robot drifting toward the wrong region?" decision. Pulls top-3 from ChromaDB; counts how many fall within `goal_radius_m=3.0` of the goal. Aborts after 3 consecutive captures with `near_goal == 0`. | History buffer is per-leg, never persisted. The decision rule is **purely ranking** — no fixed cosine threshold — by design (see §1.4 in [`STRAFER_AUTONOMY_NEXT.md`](STRAFER_AUTONOMY_NEXT.md)). |
+| [`models.py`](../../source/strafer_autonomy/strafer_autonomy/semantic_map/models.py) | `Pose2D`, `SemanticNode`, `SemanticEdge`, `DetectedObjectEntry`. Pure data classes; not part of the runtime path. | |
 
 CLIP-touching skills inside the executor:
 
 | Skill | Site | What CLIP does |
 |---|---|---|
-| `verify_arrival` | [`mission_runner.py:1302-1411`](../source/strafer_autonomy/strafer_autonomy/executor/mission_runner.py#L1302-L1411) | Encodes the arrival-pose frame, top-k = 5 ANN, counts how many of the top-k sit within `goal_radius_m = 3.0` m of the goal. ≥ `majority = 3` ⇒ verified. |
-| `scan_for_target` (`_store_scan_observation`) | [`mission_runner.py:1938-1980`](../source/strafer_autonomy/strafer_autonomy/executor/mission_runner.py#L1938) | Encodes each scan-rotation frame and writes it to the map. This is the **primary embedding population path** during normal operation. |
-| `scan_for_target` (`_try_query_before_scan`) | [`mission_runner.py:1850-1936`](../source/strafer_autonomy/strafer_autonomy/executor/mission_runner.py#L1850-L1936) | Skips a 6-call grounding rotation if the label was observed within `max_map_age_s = 300` s **and** the current view's top-1 ANN match is within 2 m of the prior label observation. CLIP top-1 is the gating signal. |
-| `query_environment` | [`mission_runner.py:1593-1610`](../source/strafer_autonomy/strafer_autonomy/executor/mission_runner.py#L1593) | Free-text environment queries via `query_by_text` (CLIP text encoder → ANN). |
-| Transit-divergence cancel | [`mission_runner.py:868-940`](../source/strafer_autonomy/strafer_autonomy/executor/mission_runner.py#L868-L940) | Polls `BackgroundMapper.divergence_detected()` while Nav2 runs; cancels the goal if set. |
+| `verify_arrival` | [`mission_runner.py:1302-1411`](../../source/strafer_autonomy/strafer_autonomy/executor/mission_runner.py#L1302-L1411) | Encodes the arrival-pose frame, top-k = 5 ANN, counts how many of the top-k sit within `goal_radius_m = 3.0` m of the goal. ≥ `majority = 3` ⇒ verified. |
+| `scan_for_target` (`_store_scan_observation`) | [`mission_runner.py:1938-1980`](../../source/strafer_autonomy/strafer_autonomy/executor/mission_runner.py#L1938) | Encodes each scan-rotation frame and writes it to the map. This is the **primary embedding population path** during normal operation. |
+| `scan_for_target` (`_try_query_before_scan`) | [`mission_runner.py:1850-1936`](../../source/strafer_autonomy/strafer_autonomy/executor/mission_runner.py#L1850-L1936) | Skips a 6-call grounding rotation if the label was observed within `max_map_age_s = 300` s **and** the current view's top-1 ANN match is within 2 m of the prior label observation. CLIP top-1 is the gating signal. |
+| `query_environment` | [`mission_runner.py:1593-1610`](../../source/strafer_autonomy/strafer_autonomy/executor/mission_runner.py#L1593) | Free-text environment queries via `query_by_text` (CLIP text encoder → ANN). |
+| Transit-divergence cancel | [`mission_runner.py:868-940`](../../source/strafer_autonomy/strafer_autonomy/executor/mission_runner.py#L868-L940) | Polls `BackgroundMapper.divergence_detected()` while Nav2 runs; cancels the goal if set. |
 
 ### 1.3 Critical finding: the production executor does not wire any of this in
 
-[`strafer_autonomy/executor/main.py:146-151`](../source/strafer_autonomy/strafer_autonomy/executor/main.py#L146-L151)
+[`strafer_autonomy/executor/main.py:146-151`](../../source/strafer_autonomy/strafer_autonomy/executor/main.py#L146-L151)
 calls
 
 ```python
@@ -84,21 +84,21 @@ server, runner = build_command_server(
 ```
 
 No `semantic_map=`, no `background_mapper=`. The
-[`build_command_server` signature](../source/strafer_autonomy/strafer_autonomy/executor/command_server.py#L246-L256)
+[`build_command_server` signature](../../source/strafer_autonomy/strafer_autonomy/executor/command_server.py#L246-L256)
 defaults both to `None`, and `MissionRunner` short-circuits every
 CLIP-touching skill on `None`:
 
 - `verify_arrival` returns `succeeded` with `verified=False, reason=semantic_map_disabled`
-  ([`mission_runner.py:1306-1312`](../source/strafer_autonomy/strafer_autonomy/executor/mission_runner.py#L1306-L1312)).
+  ([`mission_runner.py:1306-1312`](../../source/strafer_autonomy/strafer_autonomy/executor/mission_runner.py#L1306-L1312)).
 - `_activate_transit_monitor` returns `None`, falling through to the
   pre-monitor blocking-call branch
-  ([`mission_runner.py:1287-1300`](../source/strafer_autonomy/strafer_autonomy/executor/mission_runner.py#L1287-L1300)).
+  ([`mission_runner.py:1287-1300`](../../source/strafer_autonomy/strafer_autonomy/executor/mission_runner.py#L1287-L1300)).
 - `_try_query_before_scan` returns `None`
-  ([`mission_runner.py:1858-1859`](../source/strafer_autonomy/strafer_autonomy/executor/mission_runner.py#L1858)),
+  ([`mission_runner.py:1858-1859`](../../source/strafer_autonomy/strafer_autonomy/executor/mission_runner.py#L1858)),
   forcing a full 6-rotation scan every mission.
 - `_store_scan_observation` and `_log_arrival_failure` no-op
-  ([`mission_runner.py:1948`](../source/strafer_autonomy/strafer_autonomy/executor/mission_runner.py#L1948),
-  [`1421`](../source/strafer_autonomy/strafer_autonomy/executor/mission_runner.py#L1421)).
+  ([`mission_runner.py:1948`](../../source/strafer_autonomy/strafer_autonomy/executor/mission_runner.py#L1948),
+  [`1421`](../../source/strafer_autonomy/strafer_autonomy/executor/mission_runner.py#L1421)).
 
 Grep confirms no other call site instantiates `SemanticMapManager`,
 `BackgroundMapper`, or `TransitMonitor` outside tests:
@@ -110,7 +110,7 @@ $ grep -rn "SemanticMapManager(\|BackgroundMapper(\|TransitMonitor(" source/ \
 ```
 
 The
-[`strafer_autonomy/README.md`](../source/strafer_autonomy/README.md#L137)
+[`strafer_autonomy/README.md`](../../source/strafer_autonomy/README.md#L137)
 "Skill table" and
 [`STRAFER_AUTONOMY_NEXT.md`](STRAFER_AUTONOMY_NEXT.md) §0.1 / §0.6
 both describe `verify_arrival` and the transit monitor as live
@@ -126,7 +126,7 @@ useful?" measurement needs the wiring step before it can run.
 
 The CLIP encoder consumed by the runtime is the OpenCLIP ViT-B/32
 exported by
-[`source/strafer_lab/scripts/retired/finetune_clip.py`](../source/strafer_lab/scripts/retired/finetune_clip.py),
+[`source/strafer_lab/scripts/retired/finetune_clip.py`](../../source/strafer_lab/scripts/retired/finetune_clip.py),
 which performs symmetric InfoNCE contrastive training on
 `(image, description)` pairs.
 
@@ -153,22 +153,22 @@ description pipeline produced — see §1.5.
 End-to-end path:
 
 1. **Scene gen.**
-   [`prep_room_usds.py`](../source/strafer_lab/scripts/prep_room_usds.py)
+   [`prep_room_usds.py`](../../source/strafer_lab/scripts/prep_room_usds.py)
    wraps Infinigen scene generation; output lives under
    `Assets/generated/scenes/<scene_name>/`.
 
 2. **Per-scene metadata.**
-   [`extract_scene_metadata.py`](../source/strafer_lab/scripts/extract_scene_metadata.py)
+   [`extract_scene_metadata.py`](../../source/strafer_lab/scripts/extract_scene_metadata.py)
    walks the USD, emits `scene_metadata.json` with `objects[]`
    (label + bbox), `rooms[]`, `floor_top_z`. This is the closed-set
    label vocabulary CLIP and the VLM negative-mining draw from.
 
 3. **Combined metadata.**
-   [`generate_scenes_metadata.py`](../source/strafer_lab/scripts/generate_scenes_metadata.py)
+   [`generate_scenes_metadata.py`](../../source/strafer_lab/scripts/generate_scenes_metadata.py)
    merges per-scene JSONs into `Assets/generated/scenes/scenes_metadata.json`.
 
 4. **Harness capture.**
-   [`run_sim_in_the_loop.py --mode harness`](../source/strafer_lab/scripts/run_sim_in_the_loop.py)
+   [`run_sim_in_the_loop.py --mode harness`](../../source/strafer_lab/scripts/run_sim_in_the_loop.py)
    walks the `objects[]` list, dispatches one mission per target
    to the Jetson executor over the `execute_mission` action, and
    captures `frames.jsonl` + `frame_*.jpg` per episode under
@@ -181,7 +181,7 @@ End-to-end path:
    actually reach the target?"**
 
 5. **Description generation.**
-   [`generate_descriptions.py`](../source/strafer_lab/scripts/retired/generate_descriptions.py)
+   [`generate_descriptions.py`](../../source/strafer_lab/scripts/retired/generate_descriptions.py)
    runs Stage-1 spatial facts (programmatic, via
    `SpatialDescriptionBuilder`) + Stage-2 VLM descriptions (a 7B
    Qwen2.5-VL loaded standalone — intentionally separate from the
@@ -192,7 +192,7 @@ End-to-end path:
    `data/descriptions/<episode>/descriptions.jsonl`.
 
 6. **Dataset assembly.**
-   [`tools/retired/dataset_export.py:export_clip_csv`](../source/strafer_lab/strafer_lab/tools/retired/dataset_export.py#L166)
+   [`tools/retired/dataset_export.py:export_clip_csv`](../../source/strafer_lab/strafer_lab/tools/retired/dataset_export.py#L166)
    walks the descriptions, emits `data/clip_descriptions/clip_descriptions.csv`
    with `(image_path, description)` rows. ProcRoom (primitive-shape)
    frames are **excluded** by design — they don't transfer to real
@@ -224,7 +224,7 @@ this without new infra. (The labels are weak — see §2.5.)
 | Infinigen scene gen | `env_infinigen` conda env, Python 3.11. Scenes baked to `Assets/generated/scenes/`. |
 | Isaac Sim + bridge + harness | `env_isaaclab3` conda env, Python 3.12. Bridge perf reference: ~8 Hz headless w/ cameras (`bridge-runtime-invariants.md`). |
 | `strafer_vlm` 3B Qwen2.5-VL service | DGX:8100. Latency budget per
-[`strafer_vlm/README.md`](../source/strafer_vlm/README.md): 2–3 s `/ground` single-object, 1.5–4 s multi-object. |
+[`strafer_vlm/README.md`](../../source/strafer_vlm/README.md): 2–3 s `/ground` single-object, 1.5–4 s multi-object. |
 | MLflow tracking | optional, gated by `--mlflow-experiment`. |
 | `strafer_lab` CLIP fine-tune | `finetune_clip.py`, OpenCLIP ViT-B/32, ONNX export. |
 | ChromaDB / NetworkX runtime | Jetson-side, in-process, persisted under `~/.strafer/semantic_map/`. |
@@ -274,7 +274,7 @@ the v1 stack's multi-room work ships. This means:
 ([`source/strafer_lab/test_sim/sensors/test_d555_perception_cfg.py:50`](../source/strafer_lab/test_sim/sensors/test_d555_perception_cfg.py#L50)).
 `clip_encoder._preprocess_image` shorter-side-resizes to 224 and
 center-crops to 224×224
-([`clip_encoder.py:25-47`](../source/strafer_autonomy/strafer_autonomy/semantic_map/clip_encoder.py#L25-L47)).
+([`clip_encoder.py:25-47`](../../source/strafer_autonomy/strafer_autonomy/semantic_map/clip_encoder.py#L25-L47)).
 The path is `640×360 → 398×224 → 224×224`. Two effects:
 
 - **~27% of horizontal FoV is dropped per frame.** Anything
@@ -313,7 +313,7 @@ case 3.
 wrong for case 2 in a different way:**
 
 - For **case 1 (room-grain)**: the open-vocab InfoNCE in
-  [`finetune_clip.py`](../source/strafer_lab/scripts/retired/finetune_clip.py)
+  [`finetune_clip.py`](../../source/strafer_lab/scripts/retired/finetune_clip.py)
   trains image-vs-random-text-label similarity. There is no signal
   pushing two different views of the same room together unless their
   VLM-emitted captions happen to overlap in the in-batch contrast. A
@@ -343,7 +343,7 @@ still wrong.
 
 ### 2.4 Structural: the `TransitMonitor`'s decision rule has known cold-start, sparse-map, and dead-locale failure modes
 
-From [`transit_monitor.py:60-98`](../source/strafer_autonomy/strafer_autonomy/semantic_map/transit_monitor.py#L60-L98):
+From [`transit_monitor.py:60-98`](../../source/strafer_autonomy/strafer_autonomy/semantic_map/transit_monitor.py#L60-L98):
 
 | Failure mode | Trigger in code | Behavior |
 |---|---|---|
@@ -387,7 +387,7 @@ picked, off by one room) is invisible to the lower tier."* Current
 mitigations:
 
 - `min_grounding_confidence` rejects sub-threshold detections
-  ([`mission_runner.py:597-635`](../source/strafer_autonomy/strafer_autonomy/executor/mission_runner.py#L597-L635)).
+  ([`mission_runner.py:597-635`](../../source/strafer_autonomy/strafer_autonomy/executor/mission_runner.py#L597-L635)).
 - `verify_arrival` catches it at the goal pose — *if* the semantic
   map is wired (§1.3 says it isn't), AND if the failure is
   case-1 (wrong-room) per §2.3. Case-2 (wrong-instance,
@@ -775,7 +775,7 @@ cost is *latency budget* and *Jetson↔DGX bandwidth*. A 2–3 s
 2.5 s/call that's 1.2 MB and 15 s of cumulative VLM time
 *overlapped* with nav (the executor can issue the calls async).
 The bottleneck is the VLM's single-loaded-model serial queue (per
-[`strafer_vlm/README.md`](../source/strafer_vlm/README.md#L33-L36)),
+[`strafer_vlm/README.md`](../../source/strafer_vlm/README.md#L33-L36)),
 which would be congested by mid-mission re-grounding plus
 `scan_for_target` plus `verify_arrival` plus the planner's
 `/plan_with_grounding` agentic calls.
@@ -1140,7 +1140,7 @@ missions covering ≥ 3 distinct Infinigen scenes:
       ≥ 30 s long (proves the polling is alive).
 - [ ] A measurement script (lives in
       `Scripts/eval_transit_monitor.py` per the conventions in
-      [`source/strafer_lab/README.md`](../source/strafer_lab/README.md))
+      [`source/strafer_lab/README.md`](../../source/strafer_lab/README.md))
       labels each mission as `on_course` / `wrong_room` /
       `wrong_instance` / `ambiguous` (the `--root-cause-pass`
       mode), computes the per-case metrics above, and writes a
@@ -1207,7 +1207,7 @@ here as a prerequisite for the case-3 framing in §2.3:
 ## Cross-references
 
 - Current-round design master:
-  [`docs/STRAFER_AUTONOMY_NEXT.md`](STRAFER_AUTONOMY_NEXT.md), §0.1
+  [`docs/guides/STRAFER_AUTONOMY_NEXT.md`](STRAFER_AUTONOMY_NEXT.md), §0.1
   (verify_arrival), §0.6 (transit monitoring via BackgroundMapper),
   §1.4 (unified CLIP embedding strategy), §1.10.1 (formerly
   multi-room deferral; lifted by
@@ -1215,12 +1215,12 @@ here as a prerequisite for the case-3 framing in §2.3:
   multi-room is the MVP default going forward) for the original
   limitation).
 - System flow Flow 6 (real-robot execution) in
-  [`docs/SYSTEM_FLOW_DIAGRAMS.md`](SYSTEM_FLOW_DIAGRAMS.md). The
+  [`docs/guides/SYSTEM_FLOW_DIAGRAMS.md`](SYSTEM_FLOW_DIAGRAMS.md). The
   verification gap lives inside Flow 6's `navigate_to_pose` skill.
 - VLM grounding cost numbers: "Deferred / known limitations" of
-  [`source/strafer_vlm/README.md`](../source/strafer_vlm/README.md#deferred--known-limitations).
+  [`source/strafer_vlm/README.md`](../../source/strafer_vlm/README.md#deferred--known-limitations).
 - Bridge perf reference numbers:
-  [`docs/tasks/context/bridge-runtime-invariants.md`](tasks/context/bridge-runtime-invariants.md#phase-level-profiler---profile).
+  [`docs/context/bridge-runtime-invariants.md`](../context/bridge-runtime-invariants.md#phase-level-profiler---profile).
 - Downstream briefs:
   [`clip-mid-mission-validator-evaluation.md`](tasks/active/clip-validation/validator-evaluation.md)
   and

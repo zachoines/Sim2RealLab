@@ -117,7 +117,7 @@ flowchart TB
 
 **Notes.** The 7B model loaded by `generate_descriptions.py` is
 intentionally distinct from the 3B model that
-[`strafer_vlm`](../source/strafer_vlm/README.md) serves on port 8100;
+[`strafer_vlm`](../../source/strafer_vlm/README.md) serves on port 8100;
 feeding the fine-tune target's own outputs back as training data causes
 collapse. ProcRoom frames are excluded by `prepare_vlm_finetune_data.py`
 (they do not transfer to real rooms). The adapter produced here is
@@ -137,7 +137,7 @@ distribution change).
 
 **Produces**: two ONNX files — `clip_visual.onnx` and `clip_text.onnx` —
 loaded by the Jetson-side `CLIPEncoder` in
-[`strafer_autonomy.semantic_map`](../source/strafer_autonomy/strafer_autonomy/semantic_map/clip_encoder.py)
+[`strafer_autonomy.semantic_map`](../../source/strafer_autonomy/strafer_autonomy/semantic_map/clip_encoder.py)
 at executor startup. Same upstream perception data as Flow 1, different
 export format.
 
@@ -607,7 +607,7 @@ cases where the robot "arrived" somewhere that does not look like the
 goal area. The semantic-map kwargs that back `verify_arrival` are not
 yet wired into `executor/main.py` today, so the step currently
 short-circuits on `semantic_map_disabled`; see
-[`docs/MISSION_VALIDATION_ARCHITECTURE.md`](MISSION_VALIDATION_ARCHITECTURE.md)
+[`docs/guides/MISSION_VALIDATION_ARCHITECTURE.md`](MISSION_VALIDATION_ARCHITECTURE.md)
 for the audit + the staged plan to graduate it. The flow also powers
 the `/plan_with_grounding` optimization, which lets the planner
 pre-ground the target via a co-located VLM call and save one LAN image

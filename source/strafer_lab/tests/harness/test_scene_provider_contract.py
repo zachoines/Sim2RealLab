@@ -1,7 +1,7 @@
 """Round-trip + extension-tolerance tests for the scene-provider contract.
 
 Locks in the artifact contract documented in
-``docs/SCENE_PROVIDER_CONTRACT.md``: a conformant metadata dict flows
+``docs/guides/SCENE_PROVIDER_CONTRACT.md``: a conformant metadata dict flows
 through the mission picker and the LeRobot writer. A future refactor that
 accidentally tightens the field requirements breaks a test here rather
 than a downstream second-source author.

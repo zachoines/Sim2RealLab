@@ -17,10 +17,10 @@ entry-point scripts](repo-topology.md#key-entry-point-scripts).
 
 | Package | Inventory |
 |---|---|
-| `strafer_lab` | [README → Scripts and tools](../../../source/strafer_lab/README.md) |
-| `strafer_autonomy` | [README → Skill registry / Client protocols / CLI](../../../source/strafer_autonomy/README.md) |
-| `strafer_vlm` | [README → HTTP endpoints / Operator CLI tools](../../../source/strafer_vlm/README.md) |
-| `strafer_ros` | [README → launch / hardware-validation scripts](../../../source/strafer_ros/README.md) |
+| `strafer_lab` | [README → Scripts and tools](../../source/strafer_lab/README.md) |
+| `strafer_autonomy` | [README → Skill registry / Client protocols / CLI](../../source/strafer_autonomy/README.md) |
+| `strafer_vlm` | [README → HTTP endpoints / Operator CLI tools](../../source/strafer_vlm/README.md) |
+| `strafer_ros` | [README → launch / hardware-validation scripts](../../source/strafer_ros/README.md) |
 | `strafer_shared` | [README → shared constants](../../../source/strafer_shared/README.md) |
 
 ## `strafer_lab/strafer_lab/tools/` (imported)

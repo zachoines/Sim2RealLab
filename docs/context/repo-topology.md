@@ -70,11 +70,11 @@ role.
 **Recreate** (each recipe is documented once — link, don't duplicate):
 
 - the Isaac Lab env — Isaac Sim 6 + tagged Isaac Lab build:
-  [`source/strafer_lab/README.md` → Install (DGX Spark)](../../../source/strafer_lab/README.md#install).
+  [`source/strafer_lab/README.md` → Install (DGX Spark)](../../source/strafer_lab/README.md#install).
   That is the recipe a host builds from scratch, and the only Isaac Lab recipe
   maintained here.
 - `.venv_vlm` — venv + CUDA-torch + NVRTC-swap bootstrap:
-  [`Readme.md` → Install (DGX Spark)](../../../Readme.md#dgx-spark-grace--blackwell-aarch64-ubuntu).
+  [`Readme.md` → Install (DGX Spark)](../../Readme.md#dgx-spark-grace--blackwell-aarch64-ubuntu).
 - `env_infinigen` — aarch64 `bpy` wheel + Infinigen: the `README.md` in the
   sibling `~/Workspace/blender-build/` directory (machine-specific, outside
   this repo).
@@ -143,7 +143,7 @@ Ownership boundaries are spelled out in
 The operator-facing one-liners (training, smoke, demo collection,
 fine-tunes, headed inference, full-stack autonomy bringup, sim
 bridge + DDS bench) live in
-[`docs/example_commands_cheatsheet.md`](../../example_commands_cheatsheet.md).
+[`docs/guides/example_commands_cheatsheet.md`](../guides/example_commands_cheatsheet.md).
 That file is the canonical place for "exactly which command to run."
 This module describes the **shape** of the system; the cheatsheet
 tells operators **how to invoke** it.

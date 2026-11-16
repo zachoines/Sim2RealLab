@@ -25,14 +25,14 @@ earlier ones work.
 
 ## Related docs
 
-- [`docs/example_commands_cheatsheet.md`](example_commands_cheatsheet.md)
+- [`docs/guides/example_commands_cheatsheet.md`](example_commands_cheatsheet.md)
   is the canonical place for the operator one-liners. Where this
   runbook references a command, prefer the cheatsheet's exact form.
-- [`docs/SYSTEM_FLOW_DIAGRAMS.md`](SYSTEM_FLOW_DIAGRAMS.md) Flow 5
+- [`docs/guides/SYSTEM_FLOW_DIAGRAMS.md`](SYSTEM_FLOW_DIAGRAMS.md) Flow 5
   (sim-in-the-loop) and Flow 6 (real-robot execution) — the bridge
   exercises Flow 5's outer shell; the manual-mission stage exercises
   Flow 6's control path with simulated sensors.
-- [`docs/tasks/context/bridge-runtime-invariants.md`](tasks/context/bridge-runtime-invariants.md)
+- [`docs/context/bridge-runtime-invariants.md`](../context/bridge-runtime-invariants.md)
   — cmd_vel normalization, telemetry/camera split, headless vs
   `--viz kit`, the `--profile` harness, scene-side prerequisites,
   and the headline per-phase wall-time numbers. **Read this before
@@ -86,7 +86,7 @@ checkpoint consumes is unchanged, so existing DEPTH checkpoints stay valid.
 
 **Out of scope (explicitly deferred)**
 - Real-robot execution on hardware — see
-  [`docs/SYSTEM_FLOW_DIAGRAMS.md`](SYSTEM_FLOW_DIAGRAMS.md) Flow 6.
+  [`docs/guides/SYSTEM_FLOW_DIAGRAMS.md`](SYSTEM_FLOW_DIAGRAMS.md) Flow 6.
   Real-robot bringup uses `autonomy.launch.py` / `base.launch.py`,
   which this runbook does not exercise.
 - IMU-driven SLAM — the Isaac Sim ROS 2 bridge has no
@@ -97,7 +97,7 @@ checkpoint consumes is unchanged, so existing DEPTH checkpoints stay valid.
 
 ## Host topology
 
-See [`docs/tasks/context/repo-topology.md`](tasks/context/repo-topology.md)
+See [`docs/context/repo-topology.md`](../context/repo-topology.md)
 for hostnames, IPs, repo paths, conda envs, ROS distro, and
 DDS/domain settings. The runbook assumes:
 
@@ -232,7 +232,7 @@ Use `make sim-bridge-gui` (adds `--viz kit`, drops `--headless`)
 **only** when you need to watch the editor viewport for visual
 debugging — the editor viewport adds ~85 ms / loop on a
 DISPLAY-attached host (see the headless-vs-`--viz kit` table in
-[`bridge-runtime-invariants.md`](tasks/context/bridge-runtime-invariants.md#headless-vs---viz-kit-defaults)).
+[`bridge-runtime-invariants.md`](../context/bridge-runtime-invariants.md#headless-vs---viz-kit-defaults)).
 For visual debugging while running headless, use the Jetson-side
 Foxglove viewer in Stage 3.5 instead of `--viz kit`.
 
@@ -322,7 +322,7 @@ $ISAACLAB -p source/strafer_lab/scripts/run_sim_in_the_loop.py \
 per-tick `sim.step` / `sim.render` and the camera-worker phases
 `camera :: GPU→CPU readback` / `camera :: rclpy publish`. Compare to
 the per-phase reference numbers in
-[`bridge-runtime-invariants.md`](tasks/context/bridge-runtime-invariants.md#phase-level-profiler---profile)
+[`bridge-runtime-invariants.md`](../context/bridge-runtime-invariants.md#phase-level-profiler---profile)
 to see which phase regressed.
 
 ---
@@ -532,7 +532,7 @@ feedback: state=executing  step_id=step_01  skill=translate
 `/cmd_vel` arrives in physical units (m/s, rad/s); both bridge paths
 divide by `MAX_LINEAR_VEL` / `MAX_ANGULAR_VEL` (from
 `strafer_shared.constants`) before writing to the action tensor (see
-[`docs/tasks/context/bridge-runtime-invariants.md`](tasks/context/bridge-runtime-invariants.md#cmd_vel-normalization-contract-both-paths)).
+[`docs/context/bridge-runtime-invariants.md`](../context/bridge-runtime-invariants.md#cmd_vel-normalization-contract-both-paths)).
 A Nav2 `cmd_vel` of `linear.x = 0.5 m/s` should produce a body
 linear velocity of ~0.5 m/s in sim, **not** the 0.78 m/s a missing
 normalization step would yield (the unnormalized action saturates
@@ -560,7 +560,7 @@ published `/cmd_vel.linear.x` within ~10 % at steady state. A
 ~1.57× discrepancy (e.g. 0.5 m/s commanded, ~0.78 m/s body) means
 the normalization step regressed in one of the bridge paths — start
 at
-[`bridge-runtime-invariants.md`](tasks/context/bridge-runtime-invariants.md#cmd_vel-normalization-contract-both-paths)
+[`bridge-runtime-invariants.md`](../context/bridge-runtime-invariants.md#cmd_vel-normalization-contract-both-paths)
 and walk both code sites it names.
 
 **Go/no-go**: the simulated robot visibly translates / rotates in
@@ -593,7 +593,7 @@ scene has a door the VLM can see at mission start.
 | Mission sticks in `state=planning` | Planner timeout or parse error | Check the Jetson's `HttpPlannerClient` logs and the DGX planner's stdout. Common cause: planner returning malformed JSON. Retry with simpler wording. |
 | `scan_for_target` always returns `not_found` | VLM's frame sampling is wrong, or grounding threshold too strict | Inspect the `/describe` output from the VLM on a known frame — does it mention the target at all? |
 | Nav2 plans but `/cmd_vel` never fires | Controller crashed or costmap empty | Inspect Nav2 logs; ensure `/scan` was healthy at the time Nav2 initialised its costmap. |
-| Robot moves at ~1.57× the commanded speed (e.g. `cmd_vel.linear.x=0.5` → body ~0.78 m/s) | cmd_vel normalization regressed in one of the bridge paths | See [`bridge-runtime-invariants.md`](tasks/context/bridge-runtime-invariants.md#cmd_vel-normalization-contract-both-paths). Both `_run_bridge_mode` (mainloop) and `runtime_env._build_action` (harness) must `_clamp_unit` after dividing by `MAX_LINEAR_VEL` / `MAX_ANGULAR_VEL`. |
+| Robot moves at ~1.57× the commanded speed (e.g. `cmd_vel.linear.x=0.5` → body ~0.78 m/s) | cmd_vel normalization regressed in one of the bridge paths | See [`bridge-runtime-invariants.md`](../context/bridge-runtime-invariants.md#cmd_vel-normalization-contract-both-paths). Both `_run_bridge_mode` (mainloop) and `runtime_env._build_action` (harness) must `_clamp_unit` after dividing by `MAX_LINEAR_VEL` / `MAX_ANGULAR_VEL`. |
 | Mission times out at exactly the wall-clock 90 s mark while sim RTF is low | `STRAFER_NAVIGATION_TIMEOUT_S` not picked up in the executor's shell | Confirm the Jetson sourced `env_sim_in_the_loop.env` (it bumps the value to handle slow-RTF sim runs). The executor's nav timeout is sim-time-aware and respects `use_sim_time`, so the budget is in `/clock` advance, not wall clock. |
 | Robot moves the wrong direction | Mecanum wheel-axis signs mismatched between sim and real (should be identical by contract) | Compare `strafer_shared.constants.WHEEL_AXIS_SIGNS` (sim) with the real robot's RoboClaw wiring — a mismatch is a contract break, not a sim-in-the-loop bug. |
 
@@ -781,7 +781,7 @@ The numbers should equal what `[teleop_capture]` printed at end of
 session.
 
 **Acceptance run artifact** — commit a small summary under
-`docs/artifacts/teleop_acceptance/<run_id>/` (operator handle, gamepad
+`docs/media/teleop_acceptance/<run_id>/` (operator handle, gamepad
 model, repo SHA, scene seeds, episode counts by outcome). Datasets
 themselves live under `data/` and are git-ignored.
 
@@ -890,7 +890,7 @@ records non-NaN contrastive loss decreasing across epochs.
 | Symptom | Most likely cause | What to check |
 |---|---|---|
 | `extract_scene_metadata.py --from-usd` reports `0 objects` | Prim names lack a parseable factory class | Re-export the scene via `prep_room_usds.py` if prim names lack semantic info; the prim-name parser keys off the `XxxFactory_<id>__spawn_asset_<n>_` pattern. |
-| Bridge harness frames have `frame_*.jpg` at 1280×720, not 640×360 | `IsaacCreateRenderProduct` resolution not pinned | See [`bridge-runtime-invariants.md`](tasks/context/bridge-runtime-invariants.md#camera-resolutions-sim-mirrors-real) — the `inputs:width` / `inputs:height` must be set explicitly on the render product node. |
+| Bridge harness frames have `frame_*.jpg` at 1280×720, not 640×360 | `IsaacCreateRenderProduct` resolution not pinned | See [`bridge-runtime-invariants.md`](../context/bridge-runtime-invariants.md#camera-resolutions-sim-mirrors-real) — the `inputs:width` / `inputs:height` must be set explicitly on the render product node. |
 | `prepare_vlm_finetune_data.py` complains about missing labels | `scene_metadata.json` and `frames.jsonl` disagree on label set | Re-run `extract_scene_metadata.py` then `generate_scenes_metadata.py` to refresh both per-scene + combined metadata. |
 | `finetune_clip.py` MLflow loss = NaN immediately | Inputs unnormalized or empty positive pairs | Inspect `clip_pairs.csv` — must have ≥ 32 unique (image, text) pairs per epoch. |
 

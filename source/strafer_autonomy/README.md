@@ -139,7 +139,7 @@ Every exit from `main()`, a handled signal, a startup health-check failure or an
 | `describe_scene` | VLM free-text description | `HttpGroundingClient.describe_scene()` |
 | `project_detection_to_goal_pose` | 2D bbox → map-frame goal pose | Local `/strafer/project_detection_to_goal_pose` service |
 | `navigate_to_pose` | Drive to goal via selectable local backend | `nav2` (default); `strafer_direct` + `hybrid_nav2_strafer` (dispatch shipped — route to the `strafer_inference` action server, with per-mission fallback to `nav2` when it is unavailable) |
-| `verify_arrival` | CLIP top-k ranking against semantic map at arrival pose. Returns `semantic_map_disabled` when the executor is launched without `semantic_map=` / `background_mapper=` (the default in `executor/main.py` today; see [`docs/MISSION_VALIDATION_ARCHITECTURE.md`](../../docs/MISSION_VALIDATION_ARCHITECTURE.md)). | `SemanticMapManager` + `CLIPEncoder` |
+| `verify_arrival` | CLIP top-k ranking against semantic map at arrival pose. Returns `semantic_map_disabled` when the executor is launched without `semantic_map=` / `background_mapper=` (the default in `executor/main.py` today; see [`docs/guides/MISSION_VALIDATION_ARCHITECTURE.md`](../../docs/guides/MISSION_VALIDATION_ARCHITECTURE.md)). | `SemanticMapManager` + `CLIPEncoder` |
 | `rotate_by_degrees` | Relative yaw rotation | `JetsonRosClient.rotate_in_place()` |
 | `orient_to_direction` | Absolute cardinal heading | `JetsonRosClient.rotate_in_place()` with yaw delta |
 | `query_environment` | Semantic-map lookup with no motion | `SemanticMapManager.query_*` |
@@ -318,7 +318,7 @@ The Jetson never imports `mlflow` — only `strafer_autonomy.clients.databricks_
 
 **Deterministic plan compilation.** The LLM picks an intent and (for target-bearing intents) fills in labels; `plan_compiler.py` is the sole source of skill ordering, timeouts, retry limits, and argument defaults. Plans are bounded and testable. For a `translate`, the compiler passes the LLM's `translation_xy` (+x forward, +y left) through unchanged. On a command that names both axes the LLM can return a component with the wrong sign, most often the lateral one.
 
-**`verify_arrival` is always appended after navigation.** Every compiler that ends in `navigate_to_pose` emits a `verify_arrival` step. The skill runs a CLIP top-k ranking against the semantic map — ranking-based, not threshold-based: if ≥3 of the top-5 neighbors are within `goal_radius_m=3.0` of the goal, verified. Threshold-based checks were rejected because they drift with CLIP model variant and environment. The semantic-map kwargs that back the skill are not yet wired into `executor/main.py`'s `build_command_server` call, so in production the skill returns `verified=False, reason=semantic_map_disabled` until that wiring lands. See [`docs/MISSION_VALIDATION_ARCHITECTURE.md`](../../docs/MISSION_VALIDATION_ARCHITECTURE.md) for the audit and the staged plan to graduate it.
+**`verify_arrival` is always appended after navigation.** Every compiler that ends in `navigate_to_pose` emits a `verify_arrival` step. The skill runs a CLIP top-k ranking against the semantic map — ranking-based, not threshold-based: if ≥3 of the top-5 neighbors are within `goal_radius_m=3.0` of the goal, verified. Threshold-based checks were rejected because they drift with CLIP model variant and environment. The semantic-map kwargs that back the skill are not yet wired into `executor/main.py`'s `build_command_server` call, so in production the skill returns `verified=False, reason=semantic_map_disabled` until that wiring lands. See [`docs/guides/MISSION_VALIDATION_ARCHITECTURE.md`](../../docs/guides/MISSION_VALIDATION_ARCHITECTURE.md) for the audit and the staged plan to graduate it.
 
 **Images never leave the executor as Python objects.** `HttpGroundingClient` JPEG-encodes and base64-encodes before sending over LAN. Databricks clients do the same. Protocol implementations are drop-in replaceable.
 
@@ -377,7 +377,7 @@ Tracked in [`docs/tasks/DEFERRED_WORK.md`](../../docs/tasks/DEFERRED_WORK.md). I
 
 - [`source/strafer_vlm/README.md`](../strafer_vlm/README.md) — grounding / description / multi-object detection service.
 - [`source/strafer_ros/README.md`](../strafer_ros/README.md) — Jetson runtime, sensors, TF, Nav2, goal projection.
-- [`docs/STRAFER_AUTONOMY_NEXT.md`](../../docs/STRAFER_AUTONOMY_NEXT.md) — design rationale for current features (verify_arrival, `/plan_with_grounding`, semantic map).
-- [`docs/SYSTEM_FLOW_DIAGRAMS.md`](../../docs/SYSTEM_FLOW_DIAGRAMS.md) — end-to-end runtime flows spanning this package + siblings.
+- [`docs/guides/STRAFER_AUTONOMY_NEXT.md`](../../docs/guides/STRAFER_AUTONOMY_NEXT.md) — design rationale for current features (verify_arrival, `/plan_with_grounding`, semantic map).
+- [`docs/guides/SYSTEM_FLOW_DIAGRAMS.md`](../../docs/guides/SYSTEM_FLOW_DIAGRAMS.md) — end-to-end runtime flows spanning this package + siblings.
 - [`docs/tasks/DEFERRED_WORK.md`](../../docs/tasks/DEFERRED_WORK.md) — open items that will roll into the next design round.
-- [`docs/INTEGRATION_SIM_IN_THE_LOOP.md`](../../docs/INTEGRATION_SIM_IN_THE_LOOP.md) — cross-host integration runbook.
+- [`docs/guides/INTEGRATION_SIM_IN_THE_LOOP.md`](../../docs/guides/INTEGRATION_SIM_IN_THE_LOOP.md) — cross-host integration runbook.

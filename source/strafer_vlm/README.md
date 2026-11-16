@@ -92,7 +92,7 @@ Image paths are resolved relative to the JSONL file's directory. Prompts without
 
 On the DGX, the VLM + planner services live in the `.venv_vlm` venv (kept
 on a faster-moving torch than Isaac Sim's — see
-[`repo-topology.md` → Python environments (DGX)](../../docs/tasks/context/repo-topology.md#python-environments-dgx)).
+[`repo-topology.md` → Python environments (DGX)](../../docs/context/repo-topology.md#python-environments-dgx)).
 Create and activate it via the bootstrap in
 [`Readme.md` → Install (DGX Spark)](../../Readme.md#dgx-spark-grace--blackwell-aarch64-ubuntu),
 then install this package into it with the extras below.
@@ -176,7 +176,7 @@ Invoke-RestMethod -Uri http://localhost:8100/ground -Method Post -Body $body -Co
 ```bash
 # Single-image smoke test (no service running):
 python source/strafer_vlm/scripts/test_qwen25vl_grounding.py \
-    --image docs/artifacts/strafer_top.jpeg \
+    --image docs/media/strafer_top.jpeg \
     --prompt "the robot chassis"
 
 # Live camera/video grounding with runtime console prompts:
@@ -256,7 +256,7 @@ Tracked in [`docs/tasks/DEFERRED_WORK.md`](../../docs/tasks/DEFERRED_WORK.md). I
 
 - [`source/strafer_autonomy/README.md`](../strafer_autonomy/README.md) — executor-side `HttpGroundingClient`, schemas, `/plan_with_grounding` agentic endpoint.
 - [`source/strafer_lab/README.md`](../strafer_lab/README.md) — fine-tune dataset prep pipeline (description generation, SFT data prep).
-- [`docs/STRAFER_AUTONOMY_NEXT.md`](../../docs/STRAFER_AUTONOMY_NEXT.md) — design rationale for the `/detect_objects` endpoint and semantic-map integration.
+- [`docs/guides/STRAFER_AUTONOMY_NEXT.md`](../../docs/guides/STRAFER_AUTONOMY_NEXT.md) — design rationale for the `/detect_objects` endpoint and semantic-map integration.
 - [`Readme.md`](../../Readme.md) — top-level setup (NVRTC fix, conda envs, test commands).
-- [`docs/INTEGRATION_SIM_IN_THE_LOOP.md`](../../docs/INTEGRATION_SIM_IN_THE_LOOP.md) — cross-host integration runbook (where the VLM service is consumed by the executor).
+- [`docs/guides/INTEGRATION_SIM_IN_THE_LOOP.md`](../../docs/guides/INTEGRATION_SIM_IN_THE_LOOP.md) — cross-host integration runbook (where the VLM service is consumed by the executor).
 - [`docs/tasks/DEFERRED_WORK.md`](../../docs/tasks/DEFERRED_WORK.md) — open items.

@@ -41,7 +41,7 @@ Complete wiring reference for connecting 4x GoBilda 5203 motors to 2x RoboClaw S
 
 ### Simulation-to-Physical Mapping
 
-From [strafer_env_cfg.py:183](source/strafer_lab/strafer_lab/tasks/navigation/strafer_env_cfg.py#L183) and [observations.py:42](source/strafer_lab/strafer_lab/tasks/navigation/mdp/observations.py#L42):
+From [strafer_env_cfg.py:183](../../source/strafer_lab/strafer_lab/tasks/navigation/strafer_env_cfg.py#L183) and [observations.py:42](../../source/strafer_lab/strafer_lab/tasks/navigation/mdp/observations.py#L42):
 
 | Position | Joint Name | Kinematic Index | RoboClaw | Channel | Axis Sign |
 |----------|-----------|----------------|----------|---------|-----------|
@@ -287,7 +287,7 @@ Both RoboClaws ship at address 0x80 (128). One must be changed to 0x81 (129) usi
 
 ## 6. Direction Verification
 
-After all wiring is complete, verify that motor directions match the simulation. The `wheel_axis_signs = [-1, 1, -1, 1]` from [strafer_env_cfg.py](source/strafer_lab/strafer_lab/tasks/navigation/strafer_env_cfg.py) means:
+After all wiring is complete, verify that motor directions match the simulation. The `wheel_axis_signs = [-1, 1, -1, 1]` from [strafer_env_cfg.py](../../source/strafer_lab/strafer_lab/tasks/navigation/strafer_env_cfg.py) means:
 
 - A **positive velocity command** through `strafer_shared.mecanum_kinematics` should drive FR and RR wheels **forward**
 - A **positive velocity command** should drive FL and RL wheels in the **opposite shaft direction** (the sign inversion handles this)

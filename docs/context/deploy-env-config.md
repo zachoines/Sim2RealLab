@@ -29,14 +29,14 @@ container environment and applies nothing.
 
 ## Lanes
 
-One canon file per lane; [`gen_env.py`](../../../source/strafer_ros/deploy/tests/gen_env.py)'s
+One canon file per lane; [`gen_env.py`](../../source/strafer_ros/deploy/tests/gen_env.py)'s
 `LANES` table generates the mirrors and is the list of them.
 
 | Canon | Generated mirror | Lane |
 |---|---|---|
-| [`env_autonomy.env`](../../../source/strafer_ros/strafer_bringup/config/env_autonomy.env) | `compose/autonomy.env` | real-robot autonomy + inference |
-| [`env_sim_in_the_loop.env`](../../../source/strafer_ros/strafer_bringup/config/env_sim_in_the_loop.env) | `compose/sim.env` | standalone sim lane (`docker-compose.sim.yml`) |
-| [`env_sim_bridge.env`](../../../source/strafer_ros/strafer_bringup/config/env_sim_bridge.env) | `compose/sim_bridge.env` | sim-bridge lane (`docker-compose.override.sim-bridge.yml`) |
+| [`env_autonomy.env`](../../source/strafer_ros/strafer_bringup/config/env_autonomy.env) | `compose/autonomy.env` | real-robot autonomy + inference |
+| [`env_sim_in_the_loop.env`](../../source/strafer_ros/strafer_bringup/config/env_sim_in_the_loop.env) | `compose/sim.env` | standalone sim lane (`docker-compose.sim.yml`) |
+| [`env_sim_bridge.env`](../../source/strafer_ros/strafer_bringup/config/env_sim_bridge.env) | `compose/sim_bridge.env` | sim-bridge lane (`docker-compose.override.sim-bridge.yml`) |
 
 A lane file **layers over** a base one rather than replacing it: an overlay's
 `env_file` appends to the base list, and the last file wins for a duplicate key.
@@ -84,7 +84,7 @@ same failure shape as a shadow, which is why it is checked in the same place.
 
 ## What enforces this
 
-[`check_env_sync.py`](../../../source/strafer_ros/deploy/tests/check_env_sync.py),
+[`check_env_sync.py`](../../source/strafer_ros/deploy/tests/check_env_sync.py),
 run by `make env-check` inside both host test umbrellas. Its docstring carries
 the measured behaviours above so the invariant travels with its rationale.
 
@@ -117,6 +117,6 @@ docker exec <container> printenv <KEY>                 # actual
 ```
 
 Operator-facing procedure lives in
-[`deploy/README.md`](../../../source/strafer_ros/deploy/README.md); the
+[`deploy/README.md`](../../source/strafer_ros/deploy/README.md); the
 sim-bridge lane's runbook is
-[`docs/sim_bridge_autonomy_cheatsheet.md`](../../sim_bridge_autonomy_cheatsheet.md).
+[`docs/guides/sim_bridge_autonomy_cheatsheet.md`](../guides/sim_bridge_autonomy_cheatsheet.md).

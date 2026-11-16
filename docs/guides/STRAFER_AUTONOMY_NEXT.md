@@ -1,6 +1,6 @@
 # Strafer Autonomy — Next Phase
 
-> **INTERIM — not maintained.** A `phase_13`-era next-phase plan that predates the `docs/tasks/` epic structure. The live roadmap is the multi-room epic — see `autonomy-stack` and `BOARD.md`. Do **not** update this file in implementation PRs. Exempt from the docs-maintenance sweep (see `tasks/context/conventions.md`).
+> **INTERIM — not maintained.** A `phase_13`-era next-phase plan that predates the epic structure of the work queue. The live roadmap is the multi-room epic in the task repository. Do **not** update this file in implementation PRs. Exempt from the docs-maintenance sweep (see `docs/context/conventions.md`).
 
 This document captures the next round of improvements to the autonomy system.
 It is written from the working baseline established in `phase_13`:

@@ -269,17 +269,15 @@ this.
 
 ---
 
-## d. Extensibility — making the contract survive future briefs
+## d. Extensibility — making the contract survive future consumers
 
 The contract is designed to absorb new consumers without re-shipping.
-[`scene-metadata-in-usd`](tasks/completed/scene-metadata-in-usd.md)
-already plugged in — it moved the per-scene payload from a sidecar into
-USD `customData` (storage backend only; the `objects[]` / `rooms[]`
-schema is unchanged) and added the additive
-`strafer_scene_metadata_version` storage key.
-[`mission-text-enrichment`](tasks/parked/harness/mission-text-enrichment.md)
-(parked) is the next consumer on paper. The rules below were written so
-it plugs in cleanly.
+One change has already plugged in this way: the per-scene payload moved
+from a sidecar into USD `customData` (storage backend only; the
+`objects[]` / `rooms[]` schema is unchanged), with the additive
+`strafer_scene_metadata_version` storage key. Mission-text enrichment is
+the next consumer on paper, and the rules below were written so it plugs
+in cleanly.
 
 ### Consumer obligations — the scene-source-agnostic boundary
 
@@ -305,14 +303,13 @@ stay source-agnostic so a non-Infinigen producer can plug in:
   in an Infinigen-specific home (`scripts/infinigen/`, `infinigen_extensions/`),
   never next to the agnostic readers in `tools/`.
 
-**Known soft coupling (tracked):** the picker's *primary* de-dup key is the
+**Known soft coupling:** the picker's *primary* de-dup key is the
 Infinigen `__spawn_asset_<N>_` token in `prim_path` (because `instance_id` is the
 factory-class id — sibling instances share it, see the `objects[]` table). This
 degrades gracefully — the `(label, instance_id, prim_path)` fallback keeps any
 source with unique prim paths working — but it is a consumer reaching for an
 Infinigen convention as its fast path. The clean fix is a source-agnostic
-per-physical-instance discriminator; tracked by
-[`scene-contract-instance-discriminator`](tasks/parked/tooling/scene-contract-instance-discriminator.md).
+per-physical-instance discriminator, which the contract does not carry yet.
 
 ### Additive-fields policy
 
@@ -360,10 +357,9 @@ namespace adds a row to the table in §d-last, in its own PR.
 
 `rooms[]` is part of the schema but **optional**, and is empty (`[]`)
 for every scene produced by USD-only extraction today (USD geometry
-alone cannot recover the constraint solver's room polygons —
-populating it is
-[`infinigen-scene-corpus`](tasks/active/harness/infinigen-scene-corpus.md)'s
-scope, not this brief's). Each entry, when present:
+alone cannot recover the constraint solver's room polygons; populating
+it is the scene generator's job, not the contract's). Each entry, when
+present:
 
 | Field | Type | Units | Semantics |
 |---|---|---|---|
@@ -660,11 +656,8 @@ def prep_scene(acme_scene, scene_name: str) -> None:
   commands) that produces artifacts conforming to this contract.
 - [`docs/guides/HARNESS_DATA_CAPTURE.md`](HARNESS_DATA_CAPTURE.md) — operator
   workflow for capturing against a conformant scene.
-- [`scene-metadata-in-usd`](tasks/completed/scene-metadata-in-usd.md)
-  — moved the per-scene payload into USD `customData` (clean break, no
-  sidecar fallback); same artifact contract, different storage backend.
-  The single reader is
-  [`scene_metadata_reader.load`](../../source/strafer_lab/strafer_lab/tools/scene_metadata_reader.py).
-- [`mission-text-enrichment`](tasks/parked/harness/mission-text-enrichment.md)
-  — the first consumer of the `descriptors` namespace + populated
-  `rooms[]` reserved here.
+- [`scene_metadata_reader.load`](../../source/strafer_lab/strafer_lab/tools/scene_metadata_reader.py)
+  — the single reader. The per-scene payload lives in USD `customData`
+  (no sidecar fallback); same artifact contract, different storage backend.
+- Mission-text enrichment (not built) — the first consumer of the
+  `descriptors` namespace and the populated `rooms[]` reserved here.

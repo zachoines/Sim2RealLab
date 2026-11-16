@@ -1,7 +1,8 @@
 # Sim-bridge autonomy stack — spin-up + natural-language testing (strafer-nx)
 
 This file holds commands that paste as they are, and descriptions or gotchas of at most three
-lines, each linking its long form once. Mechanism, history and measurements live in those docs.
+lines. Mechanism lives in the package READMEs it links; history and measurements are not kept
+in this repository.
 
 ## Prereqs — on the DGX (`dgx-spark`, 192.168.50.196), 3 terminals
 
@@ -23,8 +24,7 @@ lines, each linking its long form once. Mechanism, history and measurements live
 
    Confirm the cadence print: `frame_skip=3 (derived, derived 3)` / `publish 30.00 Hz sim`.
 
-   **Do not add `--decimation 4 --render-interval 4`:** depth starves to ~0.3 Hz sim; see
-   [`enriched-lane-rig-stability`](tasks/active/reliability/enriched-lane-rig-stability.md) mode 4.
+   **Do not add `--decimation 4 --render-interval 4`:** depth starves to ~0.3 Hz sim.
 
    **Match the task to the policy's training scene.** The depth-subgoal work was validated on
    `ProcRoom-Enriched-v0` (enclosed rooms, tall furniture, mid-room columns); plain `ProcRoom-v0`
@@ -74,8 +74,7 @@ docker logs strafer_slam 2>&1 | grep -A1 'loadDataFromDb()' | grep -c repair   #
 #    token (1b; the old db is kept for forensics) and re-seed by re-running steps 1-3.
 ```
 
-Details: [`enriched-lane-rig-stability`](tasks/active/reliability/enriched-lane-rig-stability.md)
-mode 1 (the `addLink()` abort, the slam `stop_grace_period`); scene keying in the deploy
+Details: scene keying and the `addLink()` abort are in the deploy
 [README](../../source/strafer_ros/deploy/README.md#slam-the-map-is-keyed-to-the-scene).
 
 ## Send a natural-language command
@@ -101,8 +100,7 @@ make submit-deploy CMD="go to the chair"
   docker exec strafer_inference sh -c 'md5sum "$STRAFER_INFERENCE_MODEL_PATH"'
   ```
 - **Pre-flight: confirm BOTH hosts are wired before spending rig time.** On WiFi the sim
-  host's uplink cannot carry the camera streams and the policy gets no usable depth
-  ([link budget](tasks/active/reliability/sim-bridge-link-transport-capacity.md)).
+  host's uplink cannot carry the camera streams and the policy gets no usable depth.
   ```bash
   ssh zachoines@192.168.50.196 'ip -brief addr | grep -v "^lo "'   # the sim host: a wired NIC must be UP
   # then, once the stack is up, the number that actually matters:
@@ -161,7 +159,7 @@ make submit-deploy CMD="go to the chair"
 - `Planner starvation:` appears only if `GridBasedRelaxed` fails too. It starts the hold, which
   republishes the last valid subgoal for `starvation_hold_s` of policy time so the policy can
   drive clear. `Starvation hold exhausted` means it stayed wedged: strafe it free (below).
-- **Nav2 lane** ([design](tasks/completed/nav2-lane-inflated-start-recovery.md)):
+- **Nav2 lane**:
   `start_cell_planner_selector` lets the BT's plan step retry on `GridBasedRelaxed` only while
   the robot's own cell is inscribed. `docker logs strafer_navigation` shows both:
   ```
@@ -169,8 +167,7 @@ make submit-deploy CMD="go to the chair"
   'GridBasedRelaxed' produced this goal's path: the nav2 lane is planning from a start the primary planner refuses.
   ```
 - **Neither escape plans from deep in the halo:** `GridBasedRelaxed` clears only the robot's own
-  cell and needs a free neighbour
-  ([measured limit](tasks/completed/nav2-lane-inflated-start-recovery.md#found-while-verifying)).
+  cell and needs a free neighbour.
 - **Probe plannability** before trusting a measurement run. `SUCCEEDED` is fine; `ABORTED` /
   *"Starting point in lethal space"* is still wedged: free it with a manual holonomic strafe on
   `/cmd_vel` (Nav2's `/backup` refuses for the same reason).

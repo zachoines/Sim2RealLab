@@ -15,7 +15,7 @@ human wrote it.
 
 The commit body **may** reference:
 
-- Task brief filenames in `docs/tasks/` (`bridge-render-product-resolution.md`).
+- Task brief names (`<brief-slug>`; the branch already carries one).
 - Sibling commit hashes for context (`fixes a regression from b6e46e9`).
 - Issue or PR identifiers if external trackers exist.
 
@@ -85,9 +85,9 @@ because they're tied to the code immediately below them.
   re-introduce if not warned. Same content density, fraction of
   the prose.
 - **Scope.** These rules govern shipped **source / config / test**
-  content. `docs/tasks/` briefs and `BOARD.md` are themselves transient
-  docs — PR links, task history, and rig-incident narratives belong
-  there, not in code.
+  content. Briefs and the board, in the task repository, are themselves
+  transient docs — PR links, task history, and rig-incident narratives
+  belong there, not in code.
 
 This is the project-wide rule; section
 [`#no-transient-documentation-references-in-code`](#no-transient-documentation-references-in-code)
@@ -129,9 +129,9 @@ written will not.
 - For schemas / output formats produced by other scripts, name
   **the script** (`extract_scene_metadata.py`), not the task that
   created it.
-- Commit messages and task briefs in `docs/tasks/` **may**
-  reference task IDs and commit hashes — those live in git and in
-  the brief queue, not in source files.
+- Commit messages and task briefs **may** reference task IDs and
+  commit hashes — those live in git and in the task repository, not
+  in source files.
 
 Sweep before every commit:
 
@@ -257,18 +257,20 @@ convention by reading the existing layout.
 
 ## Closed task brief lifecycle
 
-When a brief in `docs/tasks/` ships, **move it into
-`docs/tasks/completed/` and stamp it inside the shipping PR, before
-merge** — never as a follow-up afterward. The exact sequence is
-[`docs/tasks/README.md`'s "Shipping a brief: order of operations"](../README.md#shipping-a-brief-order-of-operations);
-this section is the cross-cutting summary, that section is canonical.
+Briefs live in the task repository
+([`tasks-and-evidence.md`](tasks-and-evidence.md)). When a brief ships,
+**a pull request there stamps it and moves it to `completed/<YYYY>/`,
+opened before the PR here merges and merged after it** — never as a
+follow-up afterward. The exact sequence is the task repository
+README's "Shipping a brief: order of operations"; this section is the
+cross-cutting summary, that section is canonical.
 
-Stamp the top of the moved brief with:
+The stamp at the top of the moved brief:
 
 ```
 **Status:** Shipped <YYYY-MM-DD> in `<ship-commit>` (<host>).
 **PR:** <github-pr-url>
-**Follow-ups:** [`<follow-up.md>`](../active/<epic>/<follow-up.md>) — short hook.
+**Follow-ups:** [`<follow-up.md>`](../../active/<epic>/<follow-up.md>) — short hook.
 ```
 
 `<ship-commit>` is the **work commit on the branch** (the one that
@@ -282,10 +284,6 @@ only for briefs whose work pre-dates that convention. Historical
 entries that carry a merge SHA, or none, are fine — don't churn them
 for format consistency.
 
-Update `docs/tasks/README.md`'s Examples section if it linked the
-brief at the top level — the link should now point at
-`completed/<brief>.md`.
-
 Do **not** delete the brief outright. Git history records what
 changed; the brief records what we set out to do, the acceptance
 criteria we held the change to, and which follow-ups it spawned —
@@ -295,35 +293,34 @@ those are different artifacts and both are useful.
 
 ## Task board structure
 
-Active and parked briefs live under epic subdirs. `completed/` and
-`context/` stay flat. Full layout, naming rules, and the un-park
-workflow are documented in
-[`docs/tasks/README.md`'s `## Directory layout`](../README.md#directory-layout).
+The board and the briefs live in the task repository
+([`tasks-and-evidence.md`](tasks-and-evidence.md)). Its README is
+canonical for the layout, the naming rules and the un-park workflow;
+this section is the summary the rest of this repository relies on.
 
-**The fixed epic set.** The nine epics in use today are
-`multi-room`, `trained-policy`, `harness`, `clip-validation`,
-`sim-performance`, `reliability`, `tooling`, `experimental`,
-`investigations`. This is a **fixed small set**, not free-form
-tagging. Adding a tenth epic — or splitting / merging an existing
-one — is itself a convention change: file a brief that amends the
-layout in [`README.md`](../README.md), gets reviewed like any
-other PR, and ships with the rename commits inside it. Do **not**
-invent a `misc/` bucket; the urge to do so is the signal that the
-brief might belong somewhere else, or that a new epic is genuinely
-needed.
+**Active and parked briefs live under epic subdirectories.** The epic
+set is **fixed and small**, not free-form tagging; the task repository's
+README lists it. Adding an epic — or splitting / merging an existing
+one — is itself a convention change: a brief there amends the layout,
+is reviewed like any other PR, and ships with the rename commits inside
+it. Do **not** invent a `misc/` bucket; the urge to do so is the signal
+that the brief might belong somewhere else, or that a new epic is
+genuinely needed.
 
 **Un-parking is a `git mv`.** A brief in `parked/<epic>/` becomes
 pickable by `git mv parked/<epic>/<brief>.md
-active/<epic>/<brief>.md` in the PR that picks it up, plus a
-[`BOARD.md`](../BOARD.md) row update in the same commit. No
-frontmatter status field, no separate ceremony — the path is the
-state.
+active/<epic>/<brief>.md` in the task-repository pull request that
+picks it up, with its board row in the same commit. No frontmatter
+status field, no separate ceremony — the path is the state.
+
+**A board row is one line.** The narrative goes to the brief or to the
+measurement record.
 
 **Branch naming is unchanged.** Per
 [`branching-and-prs.md`](branching-and-prs.md), branches are
 `task/<basename>`. The epic subdir does **not** leak into the
-branch name. `active/harness/mission-generator.md` → branch
-`task/mission-generator`.
+branch name: `active/<epic>/<brief-slug>.md` → branch
+`task/<brief-slug>`.
 
 ---
 
@@ -347,23 +344,23 @@ and update any that your change invalidates — in the same PR.**
 
 | Surface | What to check |
 |---|---|
-| Top-level [`Readme.md`](../../Readme.md) | "What ships today", "Repository structure" (`Scripts/` listing), "Run", "Deferred / known limitations". |
-| [`source/strafer_lab/README.md`](../../source/strafer_lab/README.md) | "Scripts and tools inventory", "Contracts", "Testing", "Deferred / known limitations". |
+| Top-level [`Readme.md`](../../Readme.md) | "What ships today", "Repository structure" (`Scripts/` listing), "Run". |
+| [`source/strafer_lab/README.md`](../../source/strafer_lab/README.md) | "Scripts and tools inventory", "Contracts", "Testing". |
 | [`source/strafer_ros/README.md`](../../source/strafer_ros/README.md) | Package list, launch / config surface, topic / action contracts. |
 | [`source/strafer_autonomy/README.md`](../../source/strafer_autonomy/README.md) | Skill table, planner endpoints, executor commands. |
 | [`source/strafer_vlm/README.md`](../../source/strafer_vlm/README.md) | Endpoint table, env-var / config surface. |
 | [`docs/guides/example_commands_cheatsheet.md`](../guides/example_commands_cheatsheet.md) | Operator one-liners — copy-paste fidelity matters. |
-| [`docs/guides/sim_bridge_autonomy_cheatsheet.md`](../guides/sim_bridge_autonomy_cheatsheet.md) | Sim-bridge lane runbook: commands paste as they are; every other item is a gotcha of at most three lines that links its long form once. |
-| [`docs/tasks/DEFERRED_WORK.md`](../DEFERRED_WORK.md) | Items you just shipped must be **deleted from this file** in the same commit, per its own maintenance contract at the bottom of the file. |
+| [`docs/guides/sim_bridge_autonomy_cheatsheet.md`](../guides/sim_bridge_autonomy_cheatsheet.md) | Sim-bridge lane runbook: commands paste as they are; every other item is a gotcha of at most three lines. |
 
-**Interim docs are exempt from this sweep.** A top-level `docs/*.md` whose
+The deferred-work list lives in the task repository. An item a change
+ships is deleted from it in the pull request there that ships the brief.
+
+**Interim docs are exempt from this sweep.** A guide under `docs/guides/` whose
 first lines carry an `> **INTERIM**` banner is historical / superseded — do
 **not** update it here or in any implementation PR; update the successor the
 banner names. Currently interim (banner-stamped): `INTEGRATION_SIM_IN_THE_LOOP.md`,
 `SYSTEM_FLOW_DIAGRAMS.md`, `MISSION_VALIDATION_ARCHITECTURE.md`,
-`STRAFER_AUTONOMY_NEXT.md`, `SIM_TO_REAL_TUNING_GUIDE.md`. Their physical
-relocation to `docs/archived/` is tracked by
-[`archive-interim-architecture-docs`](../active/tooling/archive-interim-architecture-docs.md).
+`STRAFER_AUTONOMY_NEXT.md`, `SIM_TO_REAL_TUNING_GUIDE.md`.
 
 ### Trigger heuristics — your change probably invalidates user-facing docs if it:
 
@@ -375,9 +372,9 @@ relocation to `docs/archived/` is tracked by
   embed these).
 - Adds, renames, or removes a public function / class / contract
   named in a "What ships today" or "Contracts" listing.
-- Ships something previously listed under "Deferred / known
-  limitations" or in `DEFERRED_WORK.md` — those entries must move
-  or be deleted.
+- Ships something listed in the task repository's deferred-work
+  list — the entry is deleted there, in the pull request that ships
+  the brief.
 - Changes test layout, testing entry points, or how to run the
   suite (the `Testing` section in package READMEs commits to a
   specific path / runner).
@@ -406,10 +403,10 @@ New briefs should use the broader template line:
 ```markdown
 - [ ] If your work invalidates a fact in any referenced context
       module, package README, top-level `Readme.md`, or guide under
-      `docs/`, update those in the same commit. See
-      [`conventions.md`'s user-facing documentation maintenance
-      section](../context/conventions.md#user-facing-documentation-maintenance)
-      for the surface list and trigger heuristics.
+      `docs/`, update those in the same commit. See the "User-facing
+      documentation maintenance" section of
+      `Sim2RealLab: docs/context/conventions.md` for the surface list
+      and trigger heuristics.
 ```
 
 Existing briefs authored under the narrower text are not invalidated

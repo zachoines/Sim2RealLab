@@ -1,12 +1,10 @@
 # Path-planning architecture — one shared grid planner, many consumers
 
-The spine every brief that plans a collision-free path through scene
-geometry references instead of writing its own A*. It records the
-**settled** decision (operator + orchestrator, 2026-06-17, off the
-[`harness-architecture`](../active/harness/harness-architecture.md) Tier 2
-review) that the project has **one** path-planning core, and that new
-consumers adapt their scene representation onto it rather than growing a
-second or third planner.
+The spine every piece of work that plans a collision-free path through
+scene geometry references instead of writing its own A*. It records the
+**settled** decision that the project has **one** path-planning core,
+and that new consumers adapt their scene representation onto it rather
+than growing a second or third planner.
 
 ---
 
@@ -114,9 +112,8 @@ If a brief finds itself implementing A* / BFS / RRT, that is the signal
 it has drifted from this decision — stop and reuse `path_planner`. The
 only sanctioned reasons to touch the core itself are a measured planner
 deficiency (and then it is an architecture change reviewed like any
-other) or the parked
-[`batched-gpu-path-planner`](../parked/trained-policy/batched-gpu-path-planner.md)
-unification, which is the one in-flight planner-core evolution.
+other) or a batched GPU unification of the planner, which is the one
+planned planner-core evolution.
 
 `perturb_waypoints` is training-only. Demonstration, oracle, and
 hard-negative paths must be clean (un-perturbed) — perturbation exists to

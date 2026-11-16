@@ -586,11 +586,8 @@ python -m pytest source/strafer_autonomy/tests/test_scene_labels.py \
 
 ## Deferred / known limitations
 
-Tracked in [`docs/DEFERRED_WORK.md`](../../docs/DEFERRED_WORK.md). Items currently open:
-
-- **Electronics masses in the USD** — RoboClaws, Jetson, buck converter, D555 camera meshes + masses are TODO in `source/strafer_lab/scripts/asset_authoring/setup_physics.py`. Without them, the simulated chassis inertia underestimates the real robot.
-- **`strafer_inference` Jetson package** — the deployment target for trained policies does not exist yet; see [`strafer_ros`](../strafer_ros/README.md) for the interface side.
-- **Goal position noise during final pre-deployment training** — for VLM-sourced goals, retrain with `goal_position_noise_std: 0.2-0.3 m` in `commands.py` to match Qwen2.5-VL-3B localization error; without this, the policy oscillates at deployment.
+Open and deferred items are tracked in the task repository's deferred-work list
+([`tasks-and-evidence.md`](../../docs/context/tasks-and-evidence.md)).
 
 ## References
 
@@ -600,4 +597,3 @@ Tracked in [`docs/DEFERRED_WORK.md`](../../docs/DEFERRED_WORK.md). Items current
 - [`source/strafer_vlm/README.md`](../strafer_vlm/README.md) — grounding service + LoRA fine-tuning tooling consuming datasets from this pipeline.
 - [`docs/guides/SIM_TO_REAL_TUNING_GUIDE.md`](../../docs/guides/SIM_TO_REAL_TUNING_GUIDE.md) — deep-dive actuator / sensor alignment procedure pairing sim presets with hardware measurements.
 - [`docs/guides/INTEGRATION_SIM_IN_THE_LOOP.md`](../../docs/guides/INTEGRATION_SIM_IN_THE_LOOP.md) — cross-host bridge runbook (Stage 2 covers `make sim-bridge` smoke-test gating this package).
-- [`docs/tasks/DEFERRED_WORK.md`](../../docs/tasks/DEFERRED_WORK.md) — open items.

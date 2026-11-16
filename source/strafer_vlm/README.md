@@ -246,11 +246,8 @@ Tests marked `@pytest.mark.gpu` require a CUDA device and loaded model. Everythi
 
 ## Deferred / known limitations
 
-Tracked in [`docs/tasks/DEFERRED_WORK.md`](../../docs/tasks/DEFERRED_WORK.md). Items currently open:
-
-- No containerization / deployment automation — services run directly in a venv.
-- Postman collection covers `/health` and `/ground` only; `/describe` and `/detect_objects` are missing.
-- Grounding latency ~2-3 s per image, ~1.5-4 s for multi-object. `scan_for_target` runs 6 grounding calls per rotation (~18 s) before navigation; latency budget is acceptable for MVP but adds up.
+Open and deferred items are tracked in the task repository's deferred-work list
+([`tasks-and-evidence.md`](../../docs/context/tasks-and-evidence.md)).
 
 ## References
 
@@ -259,4 +256,3 @@ Tracked in [`docs/tasks/DEFERRED_WORK.md`](../../docs/tasks/DEFERRED_WORK.md). I
 - [`docs/guides/STRAFER_AUTONOMY_NEXT.md`](../../docs/guides/STRAFER_AUTONOMY_NEXT.md) — design rationale for the `/detect_objects` endpoint and semantic-map integration.
 - [`Readme.md`](../../Readme.md) — top-level setup (NVRTC fix, conda envs, test commands).
 - [`docs/guides/INTEGRATION_SIM_IN_THE_LOOP.md`](../../docs/guides/INTEGRATION_SIM_IN_THE_LOOP.md) — cross-host integration runbook (where the VLM service is consumed by the executor).
-- [`docs/tasks/DEFERRED_WORK.md`](../../docs/tasks/DEFERRED_WORK.md) — open items.

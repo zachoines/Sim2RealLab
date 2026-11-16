@@ -145,16 +145,23 @@ Sim2RealLab/
 │   ├── strafer_vlm/                  # VLM service + inference runtime + training tooling
 │   └── SImToRealLab.postman_collection.json
 └── docs/
-    ├── STRAFER_AUTONOMY_NEXT.md         # current-round design master (ground truth for intent)
-    ├── SYSTEM_FLOW_DIAGRAMS.md          # cross-package runtime flow reference
-    ├── SIM_TO_REAL_TUNING_GUIDE.md      # deep-dive actuator + sensor alignment
-    ├── WIRING_GUIDE.md                  # motor + encoder + RoboClaw + Jetson wiring
-    ├── D555_IMU_KERNEL_FIX.md           # Tegra kernel modules for the D555: IMU and per-frame metadata
-    ├── INTEGRATION_SIM_IN_THE_LOOP.md    # cross-host bridge runbook (DGX + Jetson)
-    ├── example_commands_cheatsheet.md   # one-liners operators copy-paste during ops
-    ├── tasks/                           # one-shot Jira-style task briefs for follow-on work
-    └── artifacts/, reference/           # images, videos, product inserts
+    ├── guides/
+    │   ├── STRAFER_AUTONOMY_NEXT.md         # current-round design master (ground truth for intent)
+    │   ├── SYSTEM_FLOW_DIAGRAMS.md          # cross-package runtime flow reference
+    │   ├── SIM_TO_REAL_TUNING_GUIDE.md      # deep-dive actuator + sensor alignment
+    │   ├── WIRING_GUIDE.md                  # motor + encoder + RoboClaw + Jetson wiring
+    │   ├── D555_IMU_KERNEL_FIX.md           # Tegra kernel modules for the D555: IMU and per-frame metadata
+    │   ├── INTEGRATION_SIM_IN_THE_LOOP.md   # cross-host bridge runbook (DGX + Jetson)
+    │   └── example_commands_cheatsheet.md   # one-liners operators copy-paste during ops
+    ├── context/                         # stable facts about the system, read before working on it
+    └── media/, reference/               # images, videos, product inserts
 ```
+
+This repository holds code and user-facing documentation. The work queue —
+briefs, the board and the deferred-work list — lives in `Sim2RealLab-Tasks`, and
+measurement records live beside their evidence in `Sim2RealLab-Artifacts`.
+How the three repositories divide the work and refer to one another is in
+[`docs/context/tasks-and-evidence.md`](docs/context/tasks-and-evidence.md).
 
 ## Contracts
 
@@ -399,13 +406,8 @@ End-to-end validation: [`docs/guides/INTEGRATION_SIM_IN_THE_LOOP.md`](docs/guide
 
 ## Deferred / known limitations
 
-Tracked in [`docs/tasks/DEFERRED_WORK.md`](docs/tasks/DEFERRED_WORK.md). Items currently open:
-
-- **Electronics masses in the USD** — RoboClaws, Jetson, buck converter, D555 meshes + masses are TODO in `source/strafer_lab/scripts/asset_authoring/setup_physics.py`; current chassis inertia underestimates real.
-- **`orient_relative_to_target` skill + action** — drafted but commented out; reinstate when behavior is needed.
-- **`rotate_in_place` PID tuning** on real hardware — open-loop `cmd_vel` with odom feedback; may need tolerance adjustment.
-
-Deferred items roll into the next design round (continuation of `STRAFER_AUTONOMY_NEXT.md`).
+Open and deferred items are tracked in the task repository's deferred-work list
+([`docs/context/tasks-and-evidence.md`](docs/context/tasks-and-evidence.md)).
 
 ## References
 
@@ -421,8 +423,7 @@ Cross-package docs:
 - [`docs/guides/STRAFER_AUTONOMY_NEXT.md`](docs/guides/STRAFER_AUTONOMY_NEXT.md) — current-round design master
 - [`docs/guides/SYSTEM_FLOW_DIAGRAMS.md`](docs/guides/SYSTEM_FLOW_DIAGRAMS.md) — end-to-end runtime flows with file-level hyperlinks
 - [`docs/guides/INTEGRATION_SIM_IN_THE_LOOP.md`](docs/guides/INTEGRATION_SIM_IN_THE_LOOP.md) — cross-host bridge runbook
-- [`docs/tasks/DEFERRED_WORK.md`](docs/tasks/DEFERRED_WORK.md) — open items queued for the next round
-- [`docs/tasks/`](docs/tasks/) — Jira-style work-brief queue + context modules
+- [`docs/context/`](docs/context/) — context modules: stable facts about the system, conventions, branching and PRs
 - [`docs/guides/SIM_TO_REAL_TUNING_GUIDE.md`](docs/guides/SIM_TO_REAL_TUNING_GUIDE.md) — actuator / sensor alignment
 - [`docs/guides/WIRING_GUIDE.md`](docs/guides/WIRING_GUIDE.md) — hardware wiring reference
 - [`docs/guides/D555_IMU_KERNEL_FIX.md`](docs/guides/D555_IMU_KERNEL_FIX.md) — Tegra kernel module build for the D555: HID-sensor modules (IMU) and a `uvcvideo` with the D555 metadata entry

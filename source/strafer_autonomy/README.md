@@ -367,11 +367,8 @@ turns a skip into a collection error and takes the whole module down with it.
 
 ## Deferred / known limitations
 
-Tracked in [`docs/tasks/DEFERRED_WORK.md`](../../docs/tasks/DEFERRED_WORK.md). Items currently open:
-
-- `orient_relative_to_target` skill — handler is drafted but commented out of `DEFAULT_AVAILABLE_SKILLS`. Reinstate when the behavior is needed.
-- RL execution backends for `navigate_to_pose` — `strafer_direct` (pure-RL) and `hybrid_nav2_strafer` (Nav2 global planner + RL local control) dispatch is implemented; both route to the `strafer_inference` action server and fall back to `nav2` per-mission when it is unavailable. Default remains `nav2`. Operator-driven sim validation is tracked in the `strafer-direct-sim-validation` / `strafer-hybrid-sim-validation` briefs.
-- `rotate_in_place` PID tuning on real hardware — open-loop `cmd_vel` with odom feedback; may need tolerance adjustment.
+Open and deferred items are tracked in the task repository's deferred-work list
+([`tasks-and-evidence.md`](../../docs/context/tasks-and-evidence.md)).
 
 ## References
 
@@ -379,5 +376,4 @@ Tracked in [`docs/tasks/DEFERRED_WORK.md`](../../docs/tasks/DEFERRED_WORK.md). I
 - [`source/strafer_ros/README.md`](../strafer_ros/README.md) — Jetson runtime, sensors, TF, Nav2, goal projection.
 - [`docs/guides/STRAFER_AUTONOMY_NEXT.md`](../../docs/guides/STRAFER_AUTONOMY_NEXT.md) — design rationale for current features (verify_arrival, `/plan_with_grounding`, semantic map).
 - [`docs/guides/SYSTEM_FLOW_DIAGRAMS.md`](../../docs/guides/SYSTEM_FLOW_DIAGRAMS.md) — end-to-end runtime flows spanning this package + siblings.
-- [`docs/tasks/DEFERRED_WORK.md`](../../docs/tasks/DEFERRED_WORK.md) — open items that will roll into the next design round.
 - [`docs/guides/INTEGRATION_SIM_IN_THE_LOOP.md`](../../docs/guides/INTEGRATION_SIM_IN_THE_LOOP.md) — cross-host integration runbook.

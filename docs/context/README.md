@@ -1,7 +1,8 @@
 # `context/` — reusable agent-onboarding modules
 
 This directory holds **stable facts about the system as it is now**,
-factored out of the per-task briefs in `docs/tasks/`. The goal is to
+factored out of the per-task briefs, which live in the task repository
+([`tasks-and-evidence.md`](tasks-and-evidence.md)). The goal is to
 let task briefs stay focused on the task itself rather than re-state
 the same preamble every time.
 
@@ -9,8 +10,8 @@ If you're picking up a task, the brief's `## Context bundle` section
 will list the modules to read first. Read those before starting; they
 cover the things the brief assumes you already know.
 
-If you're authoring a new task, see
-[`docs/tasks/README.md`](../README.md) for how to compose context.
+If you're authoring a new task, the task repository's README says how
+to compose context.
 
 If you're updating a context module — typically as part of landing a
 task that invalidated a fact — keep reading.
@@ -35,9 +36,9 @@ task that invalidated a fact — keep reading.
   Git tracks that.
 - **Speculation or future-state** ("we plan to refactor this into
   Z"). Goes in a task brief, not in context.
-- **Currently open bugs or in-flight work**. Goes in `docs/tasks/` as
-  a brief. Context describes the *intended invariants*; tasks
-  describe the *current deviations from them*.
+- **Currently open bugs or in-flight work**. Goes in the task
+  repository as a brief. Context describes the *intended invariants*;
+  tasks describe the *current deviations from them*.
 - **Operator-facing procedures**. The cheatsheet at
   [`docs/guides/example_commands_cheatsheet.md`](../guides/example_commands_cheatsheet.md)
   is the home for "commands operators copy-paste."
@@ -53,21 +54,22 @@ task that invalidated a fact — keep reading.
 
 **The rule for a constraint whose value moves.** A module may state
 that the constraint *exists* — that is a durable fact about the
-system's shape — and then point at the brief that owns its current
-value. It must not carry the value. "The sim-bridge camera stream
-crosses a bandwidth-constrained link between the sim host and the
-robot host; the measured budget and current topology are owned by
-`<brief>`" is a module sentence. The Mbit/s figure, the interface
-names, and which host is on WiFi this month are not.
+system's shape — and say that its current value is kept with the work
+that measures it, outside this repository. It must not carry the value,
+and it names no brief. "The sim-bridge camera stream crosses a
+bandwidth-constrained link between the sim host and the robot host;
+the measured budget and current topology are not kept here" is a
+module sentence. The Mbit/s figure, the interface names, and which
+host is on WiFi this month are not.
 
 **Put rig state at the least durable level that still serves its
 readers.** An active brief holds live state that work is being
-planned against; a completed brief holds the dated record of what was
-measured and when; the
+planned against; a measurement record holds the dated account of what
+was measured and when; the
 [sim-bridge cheatsheet](../guides/sim_bridge_autonomy_cheatsheet.md) holds
 the operational facts someone needs at the keyboard, as commands and
-gotchas of at most three lines that link their long form. A module is
-the most durable level and therefore the wrong one by default.
+gotchas of at most three lines. A module is the most durable level and
+therefore the wrong one by default.
 
 ---
 
@@ -88,14 +90,16 @@ minute or two. If a module is past 150 lines, one of these is true:
 
 ## How tasks reference modules
 
-Task briefs include a small section near the top:
+Task briefs include a small section near the top. A brief lives in
+another repository, so it names a module by its path here and does not
+link it:
 
 ```markdown
 ## Context bundle
 
-Read these before starting:
-- [context/repo-topology.md](repo-topology.md)
-- [context/bridge-runtime-invariants.md](bridge-runtime-invariants.md)
+Read these before starting (main repository):
+- `Sim2RealLab: docs/context/repo-topology.md`
+- `Sim2RealLab: docs/context/bridge-runtime-invariants.md`
 ```
 
 That replaces what used to be 50 lines of duplicated preamble. The
@@ -126,9 +130,7 @@ In practice:
    context module. That's fine; that's the point.
 
 A secondary safety net: when the operator stages a fresh integration
-round (currently tracked as
-[`docs/tasks/active/integration-prompts-refresh.md`](../completed/integration-prompts-refresh.md)),
-that audit task should re-read context modules end-to-end and flag
+round, that audit should re-read context modules end-to-end and flag
 anything stale.
 
 ---
@@ -164,9 +166,9 @@ accurate.
   brief that pulls either, and merging would land both under the
   ceiling.
 - **Retire** when the system has changed enough that the module
-  no longer describes anything real. Delete it, and audit
-  remaining briefs for now-dangling links (use grep:
-  `grep -rn 'context/<retired-name>.md' docs/tasks/`).
+  no longer describes anything real. Delete it, fix what links it in
+  this tree (`grep -rn '<retired-name>.md' docs/ source/ Readme.md`),
+  and say so in the pull request so the briefs that name it can follow.
 
 ---
 
@@ -188,18 +190,10 @@ accurate.
   branch = one PR; naming, branch-off point (always `main`), per-task
   workflow, PR composition rules incl. the PR register (title/body are
   the public merge record), merge style.
-- [`planner-request-schema.md`](planner-request-schema.md) —
-  canonical `world_state` block (Jetson-populated, DGX-consumed)
-  including `target_known_poses` and per-room `observed_objects`
-  for compile-time target-room inference; `MissionIntent`
-  extension shape shared across the multi-room briefs;
-  planner-stays-intent-classifier architecture commitment.
-  Includes a wiring-status table marking which pieces are shipped
-  vs. owned by an unshipped brief.
-- [`multi-room-architecture.md`](multi-room-architecture.md) — index
-  of how the multi-room epic's briefs layer (v1 → v2 → v3 escape
-  valves), the orthogonal sub-symbolic / backbone tracks, and the
-  planner-side consumers of the room-state API.
+- [`tasks-and-evidence.md`](tasks-and-evidence.md) — where briefs, the
+  board and measurement records live (two other repositories), the
+  rule that this tree names none of them, and the `## References`
+  block of a PR body as the only cross-reference.
 - [`env-composition-contract.md`](env-composition-contract.md) — the
   3-axis (sensor stack × scene source × realism) navigation env-cfg
   composition, the composed gym-ID scheme (RL fixed-stack vs

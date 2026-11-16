@@ -126,7 +126,7 @@ map ← odom ← base_link ← {chassis, wheel_*, d555_link}
 - `wheel_axis_signs = [-1, 1, -1, 1]` for `[FL, FR, RL, RR]` is applied inside `strafer_shared.mecanum_kinematics`. **Do not** re-apply sign inversion inside this package.
 - RoboClaw PID values (`P=15000`, `I=750`, `D=0`, `QPPS=2657`) live in `strafer_shared.constants` and are auto-written to RAM, and read back, on every `roboclaw_node` startup and after every reconnect; `diagnose_roboclaw.py --set-gains --write-nvm` saves the same values to each controller's flash.
 - udev rules in [`99-strafer.rules`](99-strafer.rules) create a `/dev/roboclaw<N>` symlink for each RoboClaw (`<N>` is its ttyACM number, so with the camera at `ttyACM0` the pair may be 1 and 2) and grant IIO permissions for the D555 IMU stack.
-- **Before powering the robot** (evidence: [`jetson-untether`](../../docs/tasks/active/reliability/jetson-untether.md)):
+- **Before powering the robot**:
   - **Plug the D555 in after the Jetson has booted.** Attached at power-on, it enumerates without a
     driver (no `/dev/video*`) until it is unplugged and plugged back in.
   - **The driver needs both RoboClaws at `/dev/roboclaw*` (`make udev`).** Detection probes only
@@ -326,12 +326,8 @@ End-to-end smoke checks with real hardware run through the validation scripts in
 
 ## Deferred / known limitations
 
-Tracked in [`docs/tasks/DEFERRED_WORK.md`](../../docs/tasks/DEFERRED_WORK.md). Items currently open:
-
-- **`orient_relative_to_target` action** — `strafer_msgs/action/OrientRelativeToTarget.action` is defined in the design docs but not shipped. Executor-side handler is drafted but commented out.
-- **`rotate_in_place` PID on real hardware** — `JetsonRosClient.rotate_in_place()` uses open-loop `cmd_vel` with odom yaw feedback; tolerance tuning on hardware is pending.
-- **Redundant static TF in `perception.launch.py`** — duplicates the URDF's `base_link → d555_link` transform and should be removed.
-- **`MissionStatus.msg` topic** — optional topic-based status for dashboards; not yet added to `strafer_msgs`.
+Open and deferred items are tracked in the task repository's deferred-work list
+([`tasks-and-evidence.md`](../../docs/context/tasks-and-evidence.md)).
 
 ## References
 
@@ -342,4 +338,3 @@ Tracked in [`docs/tasks/DEFERRED_WORK.md`](../../docs/tasks/DEFERRED_WORK.md). I
 - [`docs/guides/D555_IMU_KERNEL_FIX.md`](../../docs/guides/D555_IMU_KERNEL_FIX.md) — Tegra-kernel module build for the D555: HID-sensor modules (IMU) and a `uvcvideo` with the D555 metadata entry (advancing stamps, raw-depth repeats down from 50 % to 0.17 %, aligned depth).
 - [`docs/guides/SIM_TO_REAL_TUNING_GUIDE.md`](../../docs/guides/SIM_TO_REAL_TUNING_GUIDE.md) — actuator / sensor alignment procedure pairing this package with `strafer_lab`.
 - [`docs/guides/INTEGRATION_SIM_IN_THE_LOOP.md`](../../docs/guides/INTEGRATION_SIM_IN_THE_LOOP.md) — cross-host bringup runbook (Stage 3 covers `bringup_sim_in_the_loop.launch.py` consuming the DGX bridge).
-- [`docs/tasks/DEFERRED_WORK.md`](../../docs/tasks/DEFERRED_WORK.md) — open items.

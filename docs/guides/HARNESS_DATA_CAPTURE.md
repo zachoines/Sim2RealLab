@@ -1,8 +1,7 @@
 # Harness data capture
 
 End-to-end setup + run guide for `source/strafer_lab/scripts/capture.py` — the unified
-harness data-capture entry point per
-[`harness-architecture.md`](tasks/active/harness/harness-architecture.md).
+harness data-capture entry point.
 One CLI, two flags (`--driver` × `--mission-source`), one LeRobot v3
 dataset per scene under `data/sim_in_the_loop/<scene_name>/`.
 
@@ -58,12 +57,10 @@ runtime. See [`SCENE_PROVIDER_CONTRACT.md`](SCENE_PROVIDER_CONTRACT.md)
 for the general interface — the field-by-field schemas, the postprocess
 CLI override surface, and the adapter-writer's checklist for bringing in
 a second source (downloaded packs, hand-authored maps, ProcTHOR /
-Habitat / Cosmos exports). The contract accommodates the next consumer,
-[`mission-text-enrichment`](tasks/parked/harness/mission-text-enrichment.md)
-(reserves the `objects[].descriptors` namespace + a populated `rooms[]`
-block), without re-shipping; the
-[`scene-metadata-in-usd`](tasks/completed/scene-metadata-in-usd.md) move
-to `customData` is the same contract with a different storage backend.
+Habitat / Cosmos exports). The contract reserves the `objects[].descriptors`
+namespace and a populated `rooms[]` block for mission-text enrichment, so
+that consumer needs no re-shipping; storing the payload in USD `customData`
+is the same contract with a different storage backend.
 
 ### Clean-slate scene regeneration
 
@@ -146,8 +143,7 @@ the picker shows `rooms=0` for these scenes right after this step. Room
 semantics (which hard-negative button chord maps to "wrong_room") still
 work; the operator commits to the failure mode at capture time. For full
 room polygons, run from a Blender stage or extract from the in-process
-Infinigen `State`. Tracked in
-[`docs/tasks/active/harness/infinigen-scene-corpus.md`](tasks/active/harness/infinigen-scene-corpus.md).
+Infinigen `State`.
 
 The connectivity step below back-fills a *rectangular* `rooms[]` (one
 axis-aligned footprint per floor mesh, with `room_type` + `story`) when
@@ -268,8 +264,7 @@ egocentric mode — no separate follow-cam render pass. Stick-up moves
 the robot forward in whatever direction it's facing, regardless of
 world frame.
 
-### Button mapping (per
-[`harness-architecture.md` §Episode-end button mapping](tasks/active/harness/harness-architecture.md#episode-end-button-mapping-teleop-only))
+### Button mapping
 
 | Button | `outcome` | Kept? |
 |---|---|---|
@@ -462,13 +457,10 @@ xdg-open /tmp/capture_smoke_frame.png   # must NOT show [REC] / step / distance 
 
 ## Production capture (≥ 30 episodes, multi-scene)
 
-Per the
-[harness architecture brief's](tasks/active/harness/harness-architecture.md)
-acceptance bar — run after the
-[Infinigen scene-corpus brief](tasks/active/harness/infinigen-scene-corpus.md)
-generates richer scenes. Same command pattern; raise `--max-episodes`
-and `--max-steps-per-episode`, and commit a summary under
-`docs/media/teleop_acceptance/<run_id>/`.
+Run once the scene corpus holds richer scenes. Same command pattern; raise
+`--max-episodes` and `--max-steps-per-episode`. The run's summary is a
+measurement record and goes to the evidence repository
+([`tasks-and-evidence.md`](../context/tasks-and-evidence.md)).
 
 ---
 

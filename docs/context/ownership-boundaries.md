@@ -51,7 +51,8 @@ ad-hoc edits create sim-to-real drift.
 ## Off-limits, regardless of lane
 
 - `docs/archive/` — does not exist; don't recreate it. Shipped task
-  briefs move to `docs/tasks/completed/`, they are not archived.
+  briefs move to `completed/` in the task repository, they are not
+  archived.
 - Raw Infinigen-generated USDC files under `Assets/generated/scenes/`
   — outputs of `prep_room_usds.py`, not source. Treat as build
   artifacts.
@@ -80,7 +81,7 @@ its host, its lane, and the specific task at hand. After the brief is
 read, the agent is expected to operate independently within the lane
 until the task is shipped. **Don't broaden scope mid-session** — if
 new work is discovered that needs another lane, write a follow-up
-task brief in `docs/tasks/` for the appropriate owner and call it
+task brief in the task repository for the appropriate owner and call it
 out in your end-of-session summary.
 
 ## When the boundary itself needs to move

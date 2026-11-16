@@ -21,12 +21,10 @@ two hosts, and that link is a design constraint rather than a detail.** DDS
 data on it is carried **unicast per subscribing process**, so a camera topic's
 wire cost multiplies with the number of remote subscribers instead of being
 shared — adding a remote subscriber to a camera topic spends real budget. The
-measured budget and the current transport topology are owned by
-[`sim-bridge-link-transport-capacity`](../active/reliability/sim-bridge-link-transport-capacity.md);
-the dated measurement record is
-[`depth-receiver-host-capacity`](../completed/depth-receiver-host-capacity.md).
-Consult the brief for the figure before sizing anything against it — the value
-moves, which is why it does not live here.
+measured budget and the current transport topology are kept with the work that
+measures them, in the task repository. Find the current figure there before
+sizing anything against it — the value moves, which is why it does not live
+here.
 
 ## Repository
 

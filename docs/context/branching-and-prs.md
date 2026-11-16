@@ -10,15 +10,14 @@ Branch name is the brief's filename (basename, minus the `.md`),
 prefixed with `task/`. The epic subdirectory does **not** leak into
 the branch name:
 
-| Brief | Branch |
+| Brief (in the task repository) | Branch |
 |---|---|
-| [`docs/tasks/active/harness/mission-generator.md`](../active/harness/mission-generator.md) | `task/mission-generator` |
-| [`docs/tasks/active/multi-room/autonomy-stack.md`](../active/multi-room/autonomy-stack.md) | `task/autonomy-stack` |
-| [`docs/tasks/completed/task-board-epic-structure.md`](../completed/task-board-epic-structure.md) | `task/task-board-epic-structure` |
-| [`docs/tasks/completed/branch-per-task-convention.md`](../completed/branch-per-task-convention.md) | `task/branch-per-task-convention` |
+| `active/<epic>/<brief-slug>.md` | `task/<brief-slug>` |
+| `parked/<epic>/<brief-slug>.md`, once picked up | `task/<brief-slug>` |
 
 The brief's frontmatter carries the predetermined name on a `**Branch:**`
-line so a fresh agent doesn't have to guess.
+line so a fresh agent doesn't have to guess. The brief's own housekeeping
+rides a branch of the same name in the task repository.
 
 ## Branch-off point
 
@@ -41,12 +40,14 @@ defeats the point of small, independently-mergable PRs.
 7. After review, **merge with a merge commit** (not squash, not rebase).
    The granular history per change is what makes blame, bisect, and
    revert work the way you'd expect.
-8. Move the brief into `docs/tasks/completed/` **inside this PR, before
-   merge** — not as a follow-up afterward. Stamp it (using the branch's
-   work commit as `<ship-commit>`) per [`conventions.md`'s closed-brief
-   lifecycle](conventions.md#closed-task-brief-lifecycle); the full
-   sequence is [`docs/tasks/README.md`'s "Shipping a brief: order of
-   operations"](../README.md#shipping-a-brief-order-of-operations).
+8. Ship the brief in the task repository, **in a pull request opened
+   there before this PR merges** — not as a follow-up afterward. It
+   stamps the brief (using this branch's work commit as `<ship-commit>`),
+   moves it to `completed/<YYYY>/` and updates its board rows; each of
+   the two bodies names the other. The summary is [`conventions.md`'s
+   closed-brief lifecycle](conventions.md#closed-task-brief-lifecycle);
+   the full sequence is the task repository README's "Shipping a brief:
+   order of operations".
 
 ## PR composition
 
@@ -67,8 +68,8 @@ brief's dated narrative, never on the PR.
 **Title.** States what merging changes, imperative mood, ≤ ~70 chars,
 with the load-bearing mechanism or consequence when it fits. When the
 brief's title already does this, mirror it; when the brief title names
-an activity, the PR title names the tree change instead (a findings PR
-*records*; a brief-only PR *files*). Models from this repo:
+an activity, the PR title names the tree change instead. Models from
+this repo:
 
 - "Drive inference off depth arrival to hold the 30 Hz cadence"
 - "Take the depth block median so far-clip straddling can't invent depths"
@@ -78,19 +79,33 @@ Not titles: process verbs (escalate, adjudicate, re-validate, hand
 back), verdicts with no change named ("X stands permanently"),
 epic/arm tokens, dates.
 
-**Body.** Four sections, all present (a one-line section is fine):
+**Body.** Five sections, all present (a one-line section is fine):
 
 - `## Summary` — the defect or gap, the change, the mechanism. Present
   tense, third person, self-contained.
-- `## Evidence` — suites with counts, measurements with the setup that
-  produced them, gates run. A checklist is welcome (`## Test plan`
-  remains an accepted name for code PRs). Measurement dates are fine;
-  work sessions are not characters in the story.
+- `## Evidence` — suites with counts and gates run; a measurement's
+  result in one paragraph, with the rule it was read by. A checklist is
+  welcome (`## Test plan` remains an accepted name for code PRs).
+  Measurement dates are fine; work sessions are not characters in the
+  story. Digests and other repositories' commits stay in References.
 - `## Scope` — what is deliberately untouched, defaults changed,
   rollback lever, known residuals.
-- `## Docs` — the brief lifecycle line (stamped + moved + BOARD) and
-  any follow-up briefs filed, by name. One line each; no board
-  choreography.
+- `## Docs` — the guides and context modules the change touched
+  (`docs/guides/`, `docs/context/`, `Readme.md`). One line each.
+- `## References` — the only cross-repository links, one line per item
+  in a fixed shape; a line kind that does not apply is left out:
+
+  ```
+  Tasks: <brief-name> — Sim2RealLab-Tasks PR #<n>
+  Record: Sim2RealLab-Artifacts@<commit> <record-dir>/
+  ```
+
+  `Tasks:` names each brief the PR ships or files, with the
+  task-repository pull request that carries its stamp, move and board
+  row. `Record:` names each measurement record the PR rests on or
+  produced, at the evidence-repository commit that holds it. Nothing
+  else in the body links across repositories
+  ([`tasks-and-evidence.md`](tasks-and-evidence.md)).
 
 **Register rules** (title, body, commits, and review comments alike):
 
@@ -102,10 +117,10 @@ epic/arm tokens, dates.
   dispatch, ruling, handback, session report, pre-registration
   scoring, arm/cell labels.
 - No paths outside the repo (home directories, scratchpads,
-  machine-local reports). Evidence a PR relies on is in the repo — in
-  the brief or findings doc it links — or reproduced in the body.
-  Where artifacts live on a machine, the brief records it; the PR
-  cites the brief.
+  machine-local reports). Evidence a PR relies on is a record in the
+  evidence repository, cited in References, or is reproduced in the
+  body. Where files live on a machine, the record's provenance says
+  so; the PR cites the record.
 - No tribunal register: "the ruling is", "the question is closed",
   "measured not assumed", "attack lines that failed". State the fact
   and its evidence; confidence is carried by the evidence, not by
@@ -123,8 +138,9 @@ The skeleton lives at
 
 ## What does NOT use this convention
 
-- **`docs/archive/` / `docs/tasks/completed/`** — historical record,
-  never edited in flight.
+- **Briefs, the board and measurement records.** They live in other
+  repositories and follow those repositories' rules
+  ([`tasks-and-evidence.md`](tasks-and-evidence.md)).
 - **Single-commit emergency hotfixes that need to land in <1 hour.**
   The convention is for planned work. A hotfix that bypasses brief
   authoring still goes through a PR off `main`, just without the brief.

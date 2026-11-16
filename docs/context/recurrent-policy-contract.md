@@ -160,8 +160,8 @@ The integration test that pins this is
   (TorchScript) and the same export script + ONNX wrappers
   (`_OnnxDepthGRUModel`). The consumer side is
   [`policy_interface.load_policy`](../../source/strafer_shared/strafer_shared/policy_interface.py).
-  The caller side is the Jetson inference node (out of tree until
-  `inference-package` ships).
+  The caller side is the Jetson inference node
+  ([`strafer_inference`](../../source/strafer_ros/strafer_inference/)).
 - **Not the model architecture.** Width, depth, RNN choice are runner-
   config concerns; this contract holds across LSTM/GRU and across any
   `(num_layers, hidden_dim)` choice.

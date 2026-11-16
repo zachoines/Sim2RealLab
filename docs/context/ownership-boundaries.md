@@ -50,9 +50,9 @@ ad-hoc edits create sim-to-real drift.
 
 ## Off-limits, regardless of lane
 
-- `docs/archive/` — does not exist; don't recreate it. Shipped task
-  briefs move to `completed/` in the task repository, they are not
-  archived.
+- `docs/archived/` — frozen documents under an INTERIM banner, kept for
+  reference; never edited. Shipped task briefs are not archived here:
+  they move to `completed/` in the task repository.
 - Raw Infinigen-generated USDC files under `Assets/generated/scenes/`
   — outputs of `prep_room_usds.py`, not source. Treat as build
   artifacts.

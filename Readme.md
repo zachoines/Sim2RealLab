@@ -146,22 +146,27 @@ Sim2RealLab/
 │   └── SImToRealLab.postman_collection.json
 └── docs/
     ├── guides/
-    │   ├── STRAFER_AUTONOMY_NEXT.md         # current-round design master (ground truth for intent)
     │   ├── SYSTEM_FLOW_DIAGRAMS.md          # cross-package runtime flow reference
     │   ├── SIM_TO_REAL_TUNING_GUIDE.md      # deep-dive actuator + sensor alignment
     │   ├── WIRING_GUIDE.md                  # motor + encoder + RoboClaw + Jetson wiring
     │   ├── D555_IMU_KERNEL_FIX.md           # Tegra kernel modules for the D555: IMU and per-frame metadata
-    │   ├── INTEGRATION_SIM_IN_THE_LOOP.md   # cross-host bridge runbook (DGX + Jetson)
     │   └── example_commands_cheatsheet.md   # one-liners operators copy-paste during ops
     ├── context/                         # stable facts about the system, read before working on it
+    ├── archived/                        # frozen documents kept for reference, not maintained
     └── media/, reference/               # images, videos, product inserts
 ```
 
 This repository holds code and user-facing documentation. The work queue —
 briefs, the board and the deferred-work list — lives in `Sim2RealLab-Tasks`, and
 measurement records live beside their evidence in `Sim2RealLab-Artifacts`.
-How the three repositories divide the work and refer to one another is in
-[`docs/context/tasks-and-evidence.md`](docs/context/tasks-and-evidence.md).
+Outside the documents under an INTERIM banner, which are frozen, nothing in this
+tree names a brief or a record; a pull request's `## References` block is the only
+cross-reference ([`docs/context/tasks-and-evidence.md`](docs/context/tasks-and-evidence.md)).
+`make docs-check` fails on a line naming the former in-tree homes of briefs and
+records, the board's or the deferred-work list's file, or a dated directory name;
+given clones of the two other repositories
+(`make docs-check TASKS_CLONE=<path> ARTIFACTS_CLONE=<path>`) it checks brief and
+record names too.
 
 ## Contracts
 
@@ -364,8 +369,8 @@ isaaclab -p source/strafer_lab/scripts/run_sim_in_the_loop.py \
     --output data/sim_in_the_loop/kitchen_01
 ```
 
-End-to-end runbook + troubleshooting:
-[`docs/guides/INTEGRATION_SIM_IN_THE_LOOP.md`](docs/guides/INTEGRATION_SIM_IN_THE_LOOP.md).
+End-to-end runbook + troubleshooting, as written for the bridge bring-up (archived, not maintained):
+[`docs/archived/INTEGRATION_SIM_IN_THE_LOOP.md`](docs/archived/INTEGRATION_SIM_IN_THE_LOOP.md).
 Operator one-liners (full sim-in-the-loop recipe with shell-by-shell
 commands across DGX / Jetson / operator workstation):
 [`docs/guides/example_commands_cheatsheet.md`](docs/guides/example_commands_cheatsheet.md).
@@ -402,7 +407,7 @@ Individual suites: `make test-autonomy` (planner/executor, host-agnostic), `make
 
 The autonomy + VLM suites run 800+ tests without any service running; planner endpoint tests use an `autouse` fixture that points `PLANNER_MODEL` / `GROUNDING_MODEL` at `/nonexistent` to prevent model download during tests.
 
-End-to-end validation: [`docs/guides/INTEGRATION_SIM_IN_THE_LOOP.md`](docs/guides/INTEGRATION_SIM_IN_THE_LOOP.md) is the gating cross-host runbook after every DGX rebuild.
+End-to-end validation: [`docs/archived/INTEGRATION_SIM_IN_THE_LOOP.md`](docs/archived/INTEGRATION_SIM_IN_THE_LOOP.md) is the cross-host runbook the bridge was brought up with (archived, not maintained); the commands in use are in [`docs/guides/example_commands_cheatsheet.md`](docs/guides/example_commands_cheatsheet.md).
 
 ## Deferred / known limitations
 
@@ -420,9 +425,9 @@ Package deep dives:
 
 Cross-package docs:
 
-- [`docs/guides/STRAFER_AUTONOMY_NEXT.md`](docs/guides/STRAFER_AUTONOMY_NEXT.md) — current-round design master
+- [`docs/archived/STRAFER_AUTONOMY_NEXT.md`](docs/archived/STRAFER_AUTONOMY_NEXT.md) — the design plan of an earlier round (archived, not maintained)
 - [`docs/guides/SYSTEM_FLOW_DIAGRAMS.md`](docs/guides/SYSTEM_FLOW_DIAGRAMS.md) — end-to-end runtime flows with file-level hyperlinks
-- [`docs/guides/INTEGRATION_SIM_IN_THE_LOOP.md`](docs/guides/INTEGRATION_SIM_IN_THE_LOOP.md) — cross-host bridge runbook
+- [`docs/archived/INTEGRATION_SIM_IN_THE_LOOP.md`](docs/archived/INTEGRATION_SIM_IN_THE_LOOP.md) — cross-host bridge runbook (archived, not maintained)
 - [`docs/context/`](docs/context/) — context modules: stable facts about the system, conventions, branching and PRs
 - [`docs/guides/SIM_TO_REAL_TUNING_GUIDE.md`](docs/guides/SIM_TO_REAL_TUNING_GUIDE.md) — actuator / sensor alignment
 - [`docs/guides/WIRING_GUIDE.md`](docs/guides/WIRING_GUIDE.md) — hardware wiring reference

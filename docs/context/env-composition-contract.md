@@ -61,7 +61,7 @@ The runner cfg pairs with the observation profile: a depth-image obs uses the
 CNN depth runner, a proprioceptive obs the MLP runner. Old per-cell gym IDs
 (`-Real-v0`, `-Real-Depth-v0`, `-Real-ProcRoom-Depth-v0`, `-InfinigenPerception-Play-v0`, …)
 are retired — the old→new table is in
-[`docs/guides/INTEGRATION_SIM_IN_THE_LOOP.md`](../guides/INTEGRATION_SIM_IN_THE_LOOP.md).
+[`docs/archived/INTEGRATION_SIM_IN_THE_LOOP.md`](../archived/INTEGRATION_SIM_IN_THE_LOOP.md).
 
 ## The two invariants
 

@@ -2,8 +2,7 @@
 
 Detections are stored as **columns** in a strafer LeRobot dataset
 (``observation.detections.{bbox,label_id,valid,occlusion}``), not painted
-into the camera video — see the Detections section of
-``harness-architecture``. This tool is the post-hoc visualization layer:
+into the camera video. This tool is the post-hoc visualization layer:
 it decodes a camera video and draws the recorded boxes + class labels on
 top, writing an annotated MP4. It is pure read-side — works on **any**
 strafer capture regardless of how the detections were produced.

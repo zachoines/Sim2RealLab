@@ -56,7 +56,7 @@ Files audited in
 | [`clip_encoder.py`](../../source/strafer_autonomy/strafer_autonomy/semantic_map/clip_encoder.py) | OpenCLIP ViT-B/32 ONNX wrapper. Takes RGB uint8 → 512-dim L2-normalized vector. Loads `clip_visual.onnx` + `clip_text.onnx` (or fallback `clip_vit_b32.onnx`) from `~/.strafer/models`. Disabled-state fallback returns zero-vectors, which downstream paths short-circuit on. | Image preprocess: shorter-side resize to 224, center-crop to 224×224, ImageNet mean/std. **`d555_camera_perception` publishes 640×360**, so the resize-then-center-crop drops ~87 px from each side — about 27% of the horizontal field of view never reaches CLIP. |
 | [`manager.py`](../../source/strafer_autonomy/strafer_autonomy/semantic_map/manager.py) | `SemanticMapManager`: NetworkX `DiGraph` for spatial relations + ChromaDB collection (`semantic_map_embeddings`, cosine, HNSW) for embedding ANN. `add_observation()` writes a `SemanticNode` with the CLIP vector; `query_by_embedding()` and `query_by_text()` are the retrieval surfaces. | Persistence: `~/.strafer/semantic_map/{graph.json, chroma/}`. Pruning is TTL-based (1 h / 6 h / 24 h tiers by observation count). |
 | [`background_mapper.py`](../../source/strafer_autonomy/strafer_autonomy/semantic_map/background_mapper.py) | Movement-gated daemon thread. Every `poll_interval_s=2.0` it asks the ROS client for a pose; if the pose has moved ≥ `min_translation_m=0.5` m or rotated ≥ `min_rotation_deg=30°`, captures the camera frame and writes an observation. Optionally calls `TransitMonitor.check()` and sets a divergence flag the runner polls. | Default capture rate is therefore **at most 0.5 Hz**, gated by motion. |
-| [`transit_monitor.py`](../../source/strafer_autonomy/strafer_autonomy/semantic_map/transit_monitor.py) | The "is the robot drifting toward the wrong region?" decision. Pulls top-3 from ChromaDB; counts how many fall within `goal_radius_m=3.0` of the goal. Aborts after 3 consecutive captures with `near_goal == 0`. | History buffer is per-leg, never persisted. The decision rule is **purely ranking** — no fixed cosine threshold — by design (see §1.4 in [`STRAFER_AUTONOMY_NEXT.md`](STRAFER_AUTONOMY_NEXT.md)). |
+| [`transit_monitor.py`](../../source/strafer_autonomy/strafer_autonomy/semantic_map/transit_monitor.py) | The "is the robot drifting toward the wrong region?" decision. Pulls top-3 from ChromaDB; counts how many fall within `goal_radius_m=3.0` of the goal. Aborts after 3 consecutive captures with `near_goal == 0`. | History buffer is per-leg, never persisted. The decision rule is **purely ranking** — no fixed cosine threshold — by design (see §1.4 in [`STRAFER_AUTONOMY_NEXT.md`](../archived/STRAFER_AUTONOMY_NEXT.md)). |
 | [`models.py`](../../source/strafer_autonomy/strafer_autonomy/semantic_map/models.py) | `Pose2D`, `SemanticNode`, `SemanticEdge`, `DetectedObjectEntry`. Pure data classes; not part of the runtime path. | |
 
 CLIP-touching skills inside the executor:
@@ -112,7 +112,7 @@ $ grep -rn "SemanticMapManager(\|BackgroundMapper(\|TransitMonitor(" source/ \
 The
 [`strafer_autonomy/README.md`](../../source/strafer_autonomy/README.md#L137)
 "Skill table" and
-[`STRAFER_AUTONOMY_NEXT.md`](STRAFER_AUTONOMY_NEXT.md) §0.1 / §0.6
+[`STRAFER_AUTONOMY_NEXT.md`](../archived/STRAFER_AUTONOMY_NEXT.md) §0.1 / §0.6
 both describe `verify_arrival` and the transit monitor as live
 features — that documentation is **out of step with the code**. This
 investigation's PR includes the README fix.
@@ -355,7 +355,7 @@ From [`transit_monitor.py:60-98`](../../source/strafer_autonomy/strafer_autonomy
 
 The first two are fundamental ("memory-based methods can't validate
 against unseen places," called out in
-[`STRAFER_AUTONOMY_NEXT.md` §0.6](STRAFER_AUTONOMY_NEXT.md)). The
+[`STRAFER_AUTONOMY_NEXT.md` §0.6](../archived/STRAFER_AUTONOMY_NEXT.md)). The
 third and fourth need either a slip-detection heuristic or
 embedding-only spatial gating. The fifth is a deployment hazard —
 the production executor's silent zero-embedding path (§1.3) hides
@@ -449,7 +449,7 @@ Each option named in the brief, sized against the Jetson Orin Nano
 target (8 GB unified memory; ~67 INT8 TOPS; the bridge already
 runs Nav2 + RTAB-Map + executor + a TRT-EP CLIP path that needs
 ~150–200 ms per encode at FP16 per
-[`STRAFER_AUTONOMY_NEXT.md` §0.6](STRAFER_AUTONOMY_NEXT.md#0.6)).
+[`STRAFER_AUTONOMY_NEXT.md` §0.6](../archived/STRAFER_AUTONOMY_NEXT.md#0.6)).
 
 ### 3.1 Better CLIP usage
 
@@ -1207,7 +1207,7 @@ here as a prerequisite for the case-3 framing in §2.3:
 ## Cross-references
 
 - Current-round design master:
-  [`docs/guides/STRAFER_AUTONOMY_NEXT.md`](STRAFER_AUTONOMY_NEXT.md), §0.1
+  [`docs/archived/STRAFER_AUTONOMY_NEXT.md`](../archived/STRAFER_AUTONOMY_NEXT.md), §0.1
   (verify_arrival), §0.6 (transit monitoring via BackgroundMapper),
   §1.4 (unified CLIP embedding strategy), §1.10.1 (formerly
   multi-room deferral; lifted by

@@ -138,7 +138,7 @@ Each entry describes one labeled object. Field-by-field:
 
 | Field | Req? | Type | Units | Semantic guarantee |
 |---|---|---|---|---|
-| `label` | **required** | string | — | Canonical object category, lowercase (`"chair"`, `"bottle"`, `"bowl"`). The picker normalizes with `strip().lower()` and renders `mission_text = "go to the {label}"`. An empty / missing label drops the entry. Coarse by design — many physical instances share one label (the disambiguation problem `mission-text-enrichment` addresses). |
+| `label` | **required** | string | — | Canonical object category, lowercase (`"chair"`, `"bottle"`, `"bowl"`). The picker normalizes with `strip().lower()` and renders `mission_text = "go to the {label}"`. An empty / missing label drops the entry. Coarse by design — many physical instances share one label (the disambiguation problem mission-text enrichment addresses). |
 | `instance_id` | **required** | int | — | A numeric identifier. **Not guaranteed unique per object.** For Infinigen it is the factory-class ID embedded in the prim name, so sibling instances of one factory share it; plain / architecture prims use `-1`. The picker's de-dup key is the `__spawn_asset_<N>_` token in `prim_path`, falling back to the tuple `(label, instance_id, prim_path)` when that token is absent. Stamped on episodes as `target_object_id = str(instance_id)`. Deterministic for a given seed; **not stable across scene seeds.** |
 | `position_3d` | **required** | `[x, y, z]` float | meters | Object center in the **world frame** (XYZ). **`[0, 0, 0]` is the sentinel for *no valid position*.** The extractor's `_drop_origin_records` helper drops any entry within `1e-3` m of the origin at author time (Infinigen seeds un-placed creature prims and bbox-fallback rows there). Downstream consumers may assume every surviving entry has a valid, non-origin position. An entry shorter than 3 elements is dropped by the picker. |
 | `prim_path` | recommended | string \| null | — | Absolute USD prim path, e.g. `/World/ChairFactory_991132__spawn_asset_0_`. Used for (1) picker de-dup via the `__spawn_asset_<N>_` token and (2) USD prim labelling. `null` is tolerated (de-dup falls back to the `(label, instance_id, prim_path)` tuple), but a source that omits it loses per-physical-instance de-dup. |
@@ -182,8 +182,8 @@ Each entry is one **undirected** room pair, `from_idx` < `to_idx`:
 
 **Door-open guarantee.** The mecanum strafer has no manipulator and can't
 open doors, so `validate_scene_connectivity.py` drops *every* door's collider
-before generating the occupancy (the brief's "doors assumed open at scene-gen
-time"). To keep the **visual matched to the physics** — a demo camera must not
+before generating the occupancy (doors are assumed open at scene-generation
+time). To keep the **visual matched to the physics** — a demo camera must not
 film the robot driving through a shut-looking door — it also hides the door
 *leaf* (the swinging panel) so the doorway reads as an open passage; the frame
 casing stays. Both (collider drop + leaf hide) are persisted, so the runtime
@@ -216,7 +216,7 @@ scene, not in `customData`. The small connectivity *graph* is authored truth
 and rides in `customData`; the large occupancy *grid* deliberately does not,
 for two reasons: (a) it is a several-hundred-thousand-cell array that would
 base64-bloat the `customData` JSON string and every read of it, and (b) the
-planner-side consumers (`scene_connectivity`, the mission-generator adapter)
+planner-side consumers (`scene_connectivity`, the mission generator's adapter)
 are numpy-only / `pxr`-free, and embedding the grid in the USD would force
 `pxr` onto all of them. The grid's one downside as a sidecar — staleness — is
 covered by the USD-identity tie: `occupancy.json` records the grid→world
@@ -281,7 +281,7 @@ in cleanly.
 
 ### Consumer obligations — the scene-source-agnostic boundary
 
-A consumer of this contract (the picker, `mission-generator`, the harness
+A consumer of this contract (the picker, the mission generator, the harness
 writer, the Tier-3 scripted / captioner / coverage drivers, validators) **MUST**
 stay source-agnostic so a non-Infinigen producer can plug in:
 
@@ -325,12 +325,12 @@ unknown fields must not leak into the writer's episode parquet.
 
 ### Reserved extension namespaces
 
-A namespace is "reserved" when a brief has declared intent to emit it
-and consumers agree on its shape in advance, so the producer and
-consumer can land in either order.
+A namespace is "reserved" when a planned producer has declared intent
+to emit it and consumers agree on its shape in advance, so the producer
+and consumer can land in either order.
 
-**`objects[].descriptors`** — reserved by `mission-text-enrichment`
-(parked). A per-object sub-dict of physical descriptors the
+**`objects[].descriptors`** — reserved for mission-text enrichment
+(not built). A per-object sub-dict of physical descriptors the
 disambiguator will bind referring expressions to. Expected shape when
 emitted:
 
@@ -343,14 +343,14 @@ emitted:
 | `descriptors.size_bucket` | string | `small` \| `medium` \| `large` |
 
 **This reserves the name; it does not implement the fields.** No
-producer emits `descriptors` today, and this brief does not add one.
+producer emits `descriptors` today.
 The contract's promise is narrow: *if a source emits
 `descriptors.color_name`, the future disambiguator will use it.*
-Actually producing the fields is `mission-text-enrichment`'s v2 scope.
+Producing the fields is the enrichment producer's job.
 
 This is the **only** reserved namespace. Bias is toward *not*
 over-reserving — a name reserved with no consumer is just clutter that
-future authors have to reason around. A future brief that needs a new
+future authors have to reason around. A change that needs a new
 namespace adds a row to the table in §d-last, in its own PR.
 
 ### `rooms[]` as a first-class but optional artifact
@@ -363,18 +363,18 @@ present:
 
 | Field | Type | Units | Semantics |
 |---|---|---|---|
-| `footprint_xy` | array of `[x, y]` float | meters | The room's floor polygon as an ordered vertex ring (the duplicated closing vertex is dropped). The parked briefs refer to this informally as the room "polygon" — same artifact, the on-disk key is `footprint_xy`. |
+| `footprint_xy` | array of `[x, y]` float | meters | The room's floor polygon as an ordered vertex ring (the duplicated closing vertex is dropped). Informally the room "polygon" — same artifact, the on-disk key is `footprint_xy`. |
 | `room_type` | string | — | e.g. `"kitchen"`, `"bathroom"`. Resolved by the picker for display via `objects[].room_idx`. |
 | `area_m2` | float | m² | Floor area. |
 | `story` | int | — | Floor/storey index (0 = ground). |
 
 The room adjacency graph lives at the **top-level** `room_adjacency`
-edge list (the parked briefs call this the "room_graph"), not inside
+edge list (informally the "room_graph"), not inside
 each `rooms[]` entry.
 
 **Absence-handling contract.** Consumers MUST handle `rooms == []`
 without crashing — fall back to single-room semantics. Concretely: the
-picker shows no `room_type` suffix; the `mission-text-enrichment`
+picker shows no `room_type` suffix; the mission-text
 disambiguator's room-scoping qualifier **degrades to a no-op** (it
 contributes nothing and the waterfall proceeds to the next qualifier).
 A consumer that requires rooms to function is non-conformant.
@@ -404,14 +404,14 @@ ignore it. It exists so a future change to *how* the payload is embedded
 
 ### Known future extensions
 
-Briefs that have reserved a namespace or field set. A future brief
+Planned producers that have reserved a namespace or field set. A change
 that reserves something appends a row here in its own PR — this is the
 ledger that prevents the "we forgot about future X" failure mode.
 
-| Brief | Namespace / fields | Default when absent |
+| Planned producer | Namespace / fields | Default when absent |
 |---|---|---|
-| `mission-text-enrichment` v2 | `objects[].descriptors.*` (`color_name`, `color_hsv`, `material`, `material_subclass`, `size_bucket`) | Disambiguator falls back to spatial + conjunctive language only |
-| `mission-text-enrichment` v1 | `rooms[]` populated | Disambiguator skips the room-scoping qualifier (no-op) |
+| Mission-text enrichment, descriptors | `objects[].descriptors.*` (`color_name`, `color_hsv`, `material`, `material_subclass`, `size_bucket`) | Disambiguator falls back to spatial + conjunctive language only |
+| Mission-text enrichment, rooms | `rooms[]` populated | Disambiguator skips the room-scoping qualifier (no-op) |
 
 ---
 

@@ -10,7 +10,7 @@ that set and must agree on it:
 - ``extract_scene_metadata`` excludes those same classes from the
   ``UsdSemantics`` detection labels it applies (structure dominates
   every frame and would evict furniture from the truncated detections
-  column — see the Detections section of ``harness-architecture``).
+  column).
 
 Defining the set in one place keeps the regex and the label denylist
 from drifting.

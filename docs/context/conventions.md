@@ -139,6 +139,19 @@ Sweep before every commit:
 rg -n "Task \d+|Phase [A-D]?\d|phase_15|Section \d+\.\d+|post-Task" path/to/changed/files
 ```
 
+`make docs-check`, run by both test umbrellas, checks the part of this
+rule a pattern can see, in every tracked text file but the checker itself
+and documents under an INTERIM banner. On its own it fails on a line
+that names the former in-tree home of the briefs or of the records, the
+board's file name, the deferred-work list's name, or a dated directory
+name (a `-YYYY-MM-DD` suffix). It checks brief and record names only when
+clones of the two other repositories are given, a clone of
+`Sim2RealLab-Tasks` and one of `Sim2RealLab-Artifacts`:
+`make docs-check TASKS_CLONE=<path> ARTIFACTS_CLONE=<path>` (the
+checker's `--tasks` and `--records`). Pull-request numbers are listed by
+its `--list` and never fail it. The general rule is
+[`tasks-and-evidence.md`](tasks-and-evidence.md).
+
 ---
 
 ## Workspace environment names
@@ -355,12 +368,13 @@ and update any that your change invalidates — in the same PR.**
 The deferred-work list lives in the task repository. An item a change
 ships is deleted from it in the pull request there that ships the brief.
 
-**Interim docs are exempt from this sweep.** A guide under `docs/guides/` whose
-first lines carry an `> **INTERIM**` banner is historical / superseded — do
-**not** update it here or in any implementation PR; update the successor the
-banner names. Currently interim (banner-stamped): `INTEGRATION_SIM_IN_THE_LOOP.md`,
-`SYSTEM_FLOW_DIAGRAMS.md`, `MISSION_VALIDATION_ARCHITECTURE.md`,
-`STRAFER_AUTONOMY_NEXT.md`, `SIM_TO_REAL_TUNING_GUIDE.md`.
+**Interim docs are exempt from this sweep.** A document whose first lines
+carry an `> **INTERIM**` banner is historical / superseded — do **not**
+update it here or in any implementation PR; update the successor the
+banner names. Under `docs/archived/` (frozen, kept for reference):
+`INTEGRATION_SIM_IN_THE_LOOP.md`, `STRAFER_AUTONOMY_NEXT.md`. Still among
+the guides: `SYSTEM_FLOW_DIAGRAMS.md`, `MISSION_VALIDATION_ARCHITECTURE.md`,
+`SIM_TO_REAL_TUNING_GUIDE.md`.
 
 ### Trigger heuristics — your change probably invalidates user-facing docs if it:
 

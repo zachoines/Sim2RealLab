@@ -69,6 +69,12 @@ entry-point scripts](repo-topology.md#key-entry-point-scripts).
 
 ## Repo-root `tools/` (run directly)
 
+- `check_transient_refs.py` — fails when a tracked file names the former
+  in-tree home of a brief or a record, the board's or the deferred-work
+  list's file, or a dated directory name; with `--tasks <clone>` and
+  `--records <clone>`, also a brief's or a record's name. `make docs-check`
+  runs it (`TASKS_CLONE=` and `ARTIFACTS_CLONE=` pass the clones); `--list`
+  prints every hit by file class.
 - `run_ros_tests.sh` — robot-stack suites, natively or in `strafer-cpu:humble`.
 - `kit_boot_watchdog.sh` — wraps one Kit-booting command and relaunches it if
   the boot stops early and stays stopped; prints one accounting line per attempt. Used by the `sim-bridge*` / `sim-harness` / `harness-smoke` Make

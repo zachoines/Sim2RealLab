@@ -163,7 +163,7 @@ callable injected by the runtime. They never read Infinigen
 | `known_rooms()` | `list[RoomEntry]` | Clusters of semantic-map nodes labeled via CLIP zero-shot. Each `RoomEntry` carries `label`, `member_node_ids`, `centroid_xy`, `confidence`, and `observed_objects` (deduplicated detected-object labels). Same-label clusters are merged in v1. |
 | `current_room(pose)` | `RoomEntry \| None` | Room containing the nearest captured node within ~3 m; `None` if the map is empty or no node is close enough. |
 | `connectivity()` | `list[tuple[str, str]]` | Pessimistic pairs of room labels proven reachable from each other. An edge appears iff the proximity graph already connects them OR the injected Nav2 hook returns `True` for their centroids. |
-| `room_anchor(label)` | `Pose2D \| None` | Most recent captured node tagged `label`; used by the autonomy-stack compiler as the cross-room transit destination. |
+| `room_anchor(label)` | `Pose2D \| None` | Most recent captured node tagged `label`; used by the plan compiler as the cross-room transit destination. |
 | `query_room_by_text(text, n_results=5)` | `list[tuple[RoomEntry, float]]` | Open-vocab room ranking: encodes `text` via the CLIP text tower and scores each known room by cosine similarity against its mean-pooled member-embedding centroid. Bypasses the fixed seven-class prompt set. Returns `[]` when the encoder is disabled; raises `NotImplementedError` on a vision-only backbone. |
 
 Per-node room labels are stamped onto `SemanticNode.metadata` as
@@ -374,6 +374,6 @@ Open and deferred items are tracked in the task repository's deferred-work list
 
 - [`source/strafer_vlm/README.md`](../strafer_vlm/README.md) — grounding / description / multi-object detection service.
 - [`source/strafer_ros/README.md`](../strafer_ros/README.md) — Jetson runtime, sensors, TF, Nav2, goal projection.
-- [`docs/guides/STRAFER_AUTONOMY_NEXT.md`](../../docs/guides/STRAFER_AUTONOMY_NEXT.md) — design rationale for current features (verify_arrival, `/plan_with_grounding`, semantic map).
+- [`docs/archived/STRAFER_AUTONOMY_NEXT.md`](../../docs/archived/STRAFER_AUTONOMY_NEXT.md) — design rationale for verify_arrival, `/plan_with_grounding` and the semantic map (archived, not maintained).
 - [`docs/guides/SYSTEM_FLOW_DIAGRAMS.md`](../../docs/guides/SYSTEM_FLOW_DIAGRAMS.md) — end-to-end runtime flows spanning this package + siblings.
-- [`docs/guides/INTEGRATION_SIM_IN_THE_LOOP.md`](../../docs/guides/INTEGRATION_SIM_IN_THE_LOOP.md) — cross-host integration runbook.
+- [`docs/archived/INTEGRATION_SIM_IN_THE_LOOP.md`](../../docs/archived/INTEGRATION_SIM_IN_THE_LOOP.md) — cross-host integration runbook (archived, not maintained).

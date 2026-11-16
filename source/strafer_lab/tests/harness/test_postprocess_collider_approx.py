@@ -110,8 +110,7 @@ class TestMigrationFromNone:
     colliders that were previously baked with ``none``.
 
     Without this behavior, scenes baked under the old default stay broken
-    even after the script's default flips — exactly the failure mode the
-    operator hit on 2026-05-28.
+    even after the script's default flips.
     """
 
     def test_rerun_rewrites_old_none_to_convex_hull(self, tmp_path):

@@ -12,7 +12,7 @@ in the scene-gen pipeline and produces two artifacts:
    is a regenerable derived intermediate (not authored metadata): ``occupancy
    .json`` records the grid→world mapping plus the source-USD identity so a
    stale grid is detectable. It is the **shared occupancy seam** the other
-   Infinigen path-planning consumers (mission-generator oracle,
+   Infinigen path-planning consumers (the mission generator's oracle,
    grounding-negative trajectory checks) load instead of re-rasterizing — see
    :mod:`strafer_lab.tools.scene_connectivity` and
    ``docs/context/path-planning-architecture.md``.

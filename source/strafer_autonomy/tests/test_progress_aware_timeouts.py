@@ -1,6 +1,6 @@
 """Progress-aware motion timeouts (executor side) + Nav2 stall watchdog.
 
-Covers the behavior introduced by ``progress-aware-nav-timeouts``:
+Covers:
 
 - ``compute_motion_budget_s`` (pure function): formula, ceiling cap,
   setup-overhead floor.

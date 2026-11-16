@@ -119,7 +119,7 @@ parity at the real saturation point cap depth on their end.
 
 | Make target | Visibility | When to use |
 |-------------|------------|-------------|
-| `make sim-bridge` | Headless (no editor viewport) | **Daily-driver for missions.** Saves ~85 ms/loop vs `--viz kit` on a DISPLAY-attached host (~2 ms/loop on a no-DISPLAY DGX, where the editor viewport collapses to a no-op). Visual debugging via the Jetson-side `foxglove_bridge` (`bringup_sim_in_the_loop.launch.py` `viewer:=true`, default), connected through an SSH tunnel from the operator's workstation; see [INTEGRATION_SIM_IN_THE_LOOP.md Stage 3.5](../guides/INTEGRATION_SIM_IN_THE_LOOP.md). |
+| `make sim-bridge` | Headless (no editor viewport) | **Daily-driver for missions.** Saves ~85 ms/loop vs `--viz kit` on a DISPLAY-attached host (~2 ms/loop on a no-DISPLAY DGX, where the editor viewport collapses to a no-op). Visual debugging via the Jetson-side `foxglove_bridge` (`bringup_sim_in_the_loop.launch.py` `viewer:=true`, default), connected through an SSH tunnel from the operator's workstation; see [INTEGRATION_SIM_IN_THE_LOOP.md Stage 3.5](../archived/INTEGRATION_SIM_IN_THE_LOOP.md). |
 | `make sim-bridge-gui` | Headed, Kit editor viewport | Visual debugging only. The bridge mainloop sets `env.render_enabled = False` so `KitVisualizer.step`'s `app.update()` is short-circuited; the explicit `simulation_app.update()` after each `env.step()` is the sole Kit pump per loop, refreshing the viewport, firing `OnPlaybackTick`, and driving the camera-publish OmniGraph in one pass. |
 
 Default decimation in bridge: **`decimation=1`** (matches
@@ -207,15 +207,12 @@ Per-step budgets are derived in the executor:
   step uses `STRAFER_NAVIGATION_TIMEOUT_S` as the single deadline,
   no stall watchdog. Bisection escape hatch only.
 
-Sources: commit `f60456e` (sim-clock deadline for `navigate_to_pose`),
-the `progress-aware-nav-timeouts` brief (per-step budgets + watchdog),
-`rotate-in-place-sim-clock-deadline` (sim-clock deadline for
-`rotate_in_place`, completing the convention), and
-`nav-deadline-sim-time-audit` (replaced the `2 * timeout` wall caps
-with the `_ClockStallDetector`, confirmed the Nav2 `use_sim_time`
-flow-through), and `executor-policy-nav-budget` (policy-backend goals
-get the node's own bound plus a margin).
-Live in
+The pieces: a sim-clock deadline for `navigate_to_pose` and for
+`rotate_in_place`, per-step budgets with a stall watchdog, the
+`_ClockStallDetector` in place of `2 * timeout` wall caps (Nav2's
+`use_sim_time` flows through), and, for policy-backend goals, the
+node's own bound plus a margin.
+They live in
 [`source/strafer_autonomy/strafer_autonomy/clients/ros_client.py`](../../source/strafer_autonomy/strafer_autonomy/clients/ros_client.py)
 and
 [`source/strafer_autonomy/strafer_autonomy/executor/mission_runner.py`](../../source/strafer_autonomy/strafer_autonomy/executor/mission_runner.py).

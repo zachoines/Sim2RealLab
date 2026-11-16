@@ -167,7 +167,7 @@ def set_camera_view(
     no call site in this repo ever passed it.
 
     Two behavioural differences from the deprecated helper, both measured rather than
-    inferred (see the compatibility smoke in this record's evidence deposit):
+    inferred:
 
     * The deprecated helper **authors** ``omni:kit:centerOfInterest`` on the camera prim
       when it is absent, seeding it to ``(0, 0, -10)``. The replacement only reads that

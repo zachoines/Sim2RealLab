@@ -27,3 +27,16 @@ def test_camera_profiles_rerender_once_after_a_reset():
         seen[want].append(name)
     assert len(seen[1]) >= 8 and len(seen[0]) >= 6, seen
     assert "StraferNavCfg_RLDepthSubgoal_Robust" in seen[1] and "StraferNavCfg_RLNoCam" in seen[0]
+
+
+def test_a_recomposition_to_a_camera_free_stack_sets_zero():
+    """The value follows the stack on a re-composition: the ProcRoom bridge re-composed with a perception-only stack
+    (as capture.py --sensors does) re-renders 0 times, where its registered stack re-renders once."""
+    from strafer_lab.tasks.navigation import composed_env_cfg as composed
+
+    cfg = composed.StraferNavCfg_BridgeAutonomy_ProcRoom()
+    assert cfg.num_rerenders_on_reset == 1
+    cfg.sensors = composed.SensorStackCfg(cameras_required=("rgb_full", "depth_full"))
+    cfg.__post_init__()
+    assert cfg.sensors.obs_profile() == "nocam"
+    assert cfg.num_rerenders_on_reset == 0

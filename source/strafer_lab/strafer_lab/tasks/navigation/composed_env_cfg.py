@@ -570,6 +570,10 @@ class _ComposedStraferNavEnvCfg(base._BaseStraferNavEnvCfg):
         # rendered before it. Outside the hashed contract; pinned by its own test.
         if profile in ("depth", "full"):
             self.num_rerenders_on_reset = 1
+        else:
+            # Set on every composition, so re-composing a stack to camera-free
+            # (capture.py --sensors) does not keep a camera stack's re-render.
+            self.num_rerenders_on_reset = 0
 
         # --- Per-source structural setup ---
         if kind == "infinigen":

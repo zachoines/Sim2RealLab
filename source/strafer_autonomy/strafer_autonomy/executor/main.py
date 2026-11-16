@@ -240,10 +240,6 @@ def main() -> None:
         "clock_stall_bail_wall_s",
         ros_config_kwargs,
     )
-    ros_client = JetsonRosClient(
-        config=RosClientConfig(**ros_config_kwargs) if ros_config_kwargs else None,
-    )
-
     mission_config_kwargs: dict = {}
     _read_float_env(
         "STRAFER_NAVIGATION_TIMEOUT_S",
@@ -295,21 +291,31 @@ def main() -> None:
     logger.info("Planner service: %s", planner_url)
     logger.info("VLM service:     %s", vlm_url)
 
-    server, runner = build_command_server(
-        planner_client=planner_client,
-        grounding_client=grounding_client,
-        ros_client=ros_client,
-        runner_config=runner_config,
+    ros_client = JetsonRosClient(
+        config=RosClientConfig(**ros_config_kwargs) if ros_config_kwargs else None,
     )
-
-    logger.info("Autonomy executor ready — spinning.")
     try:
-        server.spin()
-    except KeyboardInterrupt:
-        logger.info("Shutting down autonomy executor.")
+        server, runner = build_command_server(
+            planner_client=planner_client,
+            grounding_client=grounding_client,
+            ros_client=ros_client,
+            runner_config=runner_config,
+        )
+
+        logger.info("Autonomy executor ready — spinning.")
+        try:
+            server.spin()
+        except KeyboardInterrupt:
+            logger.info("Shutting down autonomy executor.")
+        finally:
+            shutdown(server, runner)
     finally:
-        shutdown(server, runner)
-        rclpy.try_shutdown()
+        try:
+            for signum in (signal.SIGINT, signal.SIGTERM):
+                signal.signal(signum, signal.SIG_IGN)
+        finally:
+            ros_client.close()
+            rclpy.try_shutdown()
 
 
 if __name__ == "__main__":

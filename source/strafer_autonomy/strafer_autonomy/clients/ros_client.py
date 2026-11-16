@@ -133,6 +133,8 @@ class RosClientConfig:
     default_rotate_speed_rad_s: float = 0.5
     default_rotate_timeout_s: float = 15.0
     clock_stall_bail_wall_s: float = 15.0
+    spin_wake_period_s: float = 0.1
+    spin_join_timeout_s: float = 2.0
 
 
 class _ProgressTracker:
@@ -300,10 +302,11 @@ class JetsonRosClient:
 
     def __init__(self, config: RosClientConfig | None = None) -> None:
         import rclpy
-        from rclpy.executors import SingleThreadedExecutor
+        from rclpy.executors import ExternalShutdownException, SingleThreadedExecutor
         from rclpy.node import Node
 
         self._config = config or RosClientConfig()
+        self._spin_exits_on: tuple[type[BaseException], ...] = (ExternalShutdownException,)
 
         if not rclpy.ok():
             rclpy.init()
@@ -341,13 +344,68 @@ class JetsonRosClient:
         self._setup_subscriptions()
         self._setup_publishers()
 
+        self._start()
+
+    def _start(self) -> None:
+        try:
+            self._start_spin_thread()
+            self._node.get_logger().info("JetsonRosClient ready.")
+        except BaseException:
+            if hasattr(self, "_spin_thread"):
+                self.close()
+            raise
+
+    def _start_spin_thread(self) -> None:
+        self._spin_stop = threading.Event()
+        self._closed = False
         self._spin_thread = threading.Thread(
-            target=self._executor.spin,
+            target=self._spin,
             daemon=True,
             name="ros-client-spin",
         )
         self._spin_thread.start()
-        self._node.get_logger().info("JetsonRosClient ready.")
+
+    def _spin(self) -> None:
+        """Run the client's executor until :meth:`close` asks it to stop, or until a context shutdown wakes its wait.
+
+        Each wait is bounded by ``spin_wake_period_s``, so the loop sees the
+        stop request within that period plus one callback.
+        """
+
+        while not self._spin_stop.is_set():
+            try:
+                self._executor.spin_once(timeout_sec=self._config.spin_wake_period_s)
+            except self._spin_exits_on:
+                return
+
+    def close(self) -> None:
+        """Stop the spin thread, then shut down the executor and destroy the node.
+
+        The thread must end before the interpreter finalizes: a daemon thread
+        that wakes inside rclpy's wait during finalization aborts the process.
+        The executor is shut down only once the thread has ended, because
+        shutting it down tears down the guard conditions its waits use. The
+        join waits up to ``spin_join_timeout_s``; a thread still running then
+        is logged and left with its executor and node. Calling it again does
+        nothing.
+        """
+
+        if self._closed:
+            return
+        self._closed = True
+        self._spin_stop.set()
+        try:
+            self._spin_thread.join(timeout=self._config.spin_join_timeout_s)
+        except RuntimeError:
+            pass
+        if self._spin_thread.is_alive():
+            logger.warning(
+                "ros-client-spin did not stop within %.1f s; leaving its executor and node in place.",
+                self._config.spin_join_timeout_s,
+            )
+            return
+        self._executor.shutdown()
+        self._node.destroy_node()
 
     @property
     def config(self) -> RosClientConfig:

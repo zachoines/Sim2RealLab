@@ -3,6 +3,9 @@
 from __future__ import annotations
 
 import os
+import signal
+import sys
+import types
 import unittest
 from unittest.mock import MagicMock, patch
 
@@ -361,3 +364,83 @@ class TestShutdown(unittest.TestCase):
         with self.assertLogs(executor_main.logger, level="ERROR"):
             executor_main.shutdown(server, runner)
         self.assertEqual(calls, ["destroy"])
+
+
+class TestMainExitPath(unittest.TestCase):
+    """Every exit from ``main()`` stops the ROS client, then shuts the context down."""
+
+    def _run_main(self, *, spin=None, build_error=None, interrupt_on_ignore=False):
+        calls: list[str] = []
+        interrupted: list[bool] = []
+        fake_rclpy = types.ModuleType("rclpy")
+        fake_rclpy.ok = lambda: True
+        fake_rclpy.init = MagicMock()
+        fake_rclpy.try_shutdown = lambda: calls.append("try_shutdown")
+        fake_signals = types.ModuleType("rclpy.signals")
+        fake_signals.SignalHandlerOptions = types.SimpleNamespace(NO=object())
+        fake_rclpy.signals = fake_signals
+
+        ros_client = MagicMock()
+        ros_client.close.side_effect = lambda: calls.append("close")
+        server = MagicMock()
+        server.spin.side_effect = spin
+        runner = MagicMock()
+
+        def build(**_kwargs):
+            calls.append("build")
+            if build_error is not None:
+                raise build_error
+            return server, runner
+
+        def record_signal(signum, handler):
+            if handler is signal.SIG_IGN:
+                calls.append(f"ignore:{signal.Signals(signum).name}")
+                if interrupt_on_ignore and not interrupted:
+                    interrupted.append(True)
+                    raise KeyboardInterrupt
+            elif handler is signal.default_int_handler:
+                calls.append(f"interrupt:{signal.Signals(signum).name}")
+
+        env = {"VLM_URL": "http://127.0.0.1:9", "PLANNER_URL": "http://127.0.0.1:9"}
+        with patch.dict(sys.modules, {"rclpy": fake_rclpy, "rclpy.signals": fake_signals}), \
+                patch.dict(os.environ, env, clear=False), \
+                patch("signal.signal", side_effect=record_signal), \
+                patch("strafer_autonomy.clients.ros_client.JetsonRosClient", return_value=ros_client), \
+                patch("strafer_autonomy.executor.command_server.build_command_server", side_effect=build), \
+                patch.object(executor_main, "shutdown", side_effect=lambda s, r: calls.append("shutdown")):
+            try:
+                executor_main.main()
+            except BaseException as exc:
+                return calls, exc
+        return calls, None
+
+    def test_a_handled_signal_stops_the_client_after_the_shutdown(self) -> None:
+        calls, raised = self._run_main(spin=KeyboardInterrupt)
+        self.assertIsNone(raised)
+        self.assertEqual(
+            calls,
+            ["interrupt:SIGINT", "interrupt:SIGTERM", "build", "shutdown", "ignore:SIGINT", "ignore:SIGTERM", "close", "try_shutdown"],
+        )
+
+    def test_a_startup_failure_stops_the_client_and_raises_its_error(self) -> None:
+        error = RuntimeError("VLM health check failed")
+        calls, raised = self._run_main(build_error=error)
+        self.assertIs(raised, error)
+        self.assertEqual(
+            calls,
+            ["interrupt:SIGINT", "interrupt:SIGTERM", "build", "ignore:SIGINT", "ignore:SIGTERM", "close", "try_shutdown"],
+        )
+
+    def test_an_exception_from_spin_stops_the_client_and_raises_it(self) -> None:
+        error = RuntimeError("spin failed")
+        calls, raised = self._run_main(spin=error)
+        self.assertIs(raised, error)
+        self.assertEqual(
+            calls,
+            ["interrupt:SIGINT", "interrupt:SIGTERM", "build", "shutdown", "ignore:SIGINT", "ignore:SIGTERM", "close", "try_shutdown"],
+        )
+
+    def test_an_interrupt_while_ignoring_signals_still_stops_the_client(self) -> None:
+        calls, raised = self._run_main(spin=KeyboardInterrupt, interrupt_on_ignore=True)
+        self.assertIsInstance(raised, KeyboardInterrupt)
+        self.assertEqual(calls[-4:], ["shutdown", "ignore:SIGINT", "close", "try_shutdown"])

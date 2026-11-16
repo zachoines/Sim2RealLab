@@ -175,4 +175,9 @@ def test_the_loader_requests_the_pinned_code(hub, tmp_path, monkeypatch):
     monkeypatch.setattr(sys, "path", list(sys.path))
     for name in [m for m in sys.modules if m == "defm" or m.startswith("defm.")]:
         monkeypatch.delitem(sys.modules, name)
-    assert _REAL_GET_DEFM_PREPROCESS()() == "pinned"
+    try:
+        assert _REAL_GET_DEFM_PREPROCESS()() == "pinned"
+    finally:
+        # The stand-in package must not outlive the test; monkeypatch puts back any real one it removed.
+        for name in [m for m in sys.modules if m == "defm" or m.startswith("defm.")]:
+            sys.modules.pop(name)

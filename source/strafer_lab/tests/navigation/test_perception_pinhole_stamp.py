@@ -19,7 +19,6 @@ from pxr import Usd, UsdGeom
 
 from strafer_lab.tasks.navigation.d555_cfg import make_d555_perception_camera_cfg
 from strafer_lab.tasks.navigation.mdp.events import stamp_d555_perception_opencv_pinhole
-from strafer_shared.constants import D555_MEASURED_FOCAL_LENGTH_MM, D555_MEASURED_FX_PX
 
 _ATTR = "d555_camera_perception"
 _PREFIX = "omni:lensdistortion:opencvPinhole:"
@@ -48,16 +47,18 @@ def _stamped(prim):
 
 
 def test_the_default_is_the_camera_cfgs_lens():
-    """A camera whose cfg carries a focal length no constant default holds is
-    stamped at that focal length, on every env's prim."""
+    """A camera whose cfg carries a focal length no shared constant holds (2.0 mm)
+    is stamped at that focal length, on every env's prim, so the stamp reads the
+    cfg and not a constant."""
     cam = make_d555_perception_camera_cfg()
-    cam.spawn.focal_length = D555_MEASURED_FOCAL_LENGTH_MM
+    cam.spawn.focal_length = 2.0
     env, prims = _env(cam)
     stamp_d555_perception_opencv_pinhole(env, None)
+    want = cam.width * 2.0 / cam.spawn.horizontal_aperture
     for prim in prims:
         got = _stamped(prim)
-        assert got["fx"] == pytest.approx(D555_MEASURED_FX_PX, rel=1e-6)
-        assert got["fy"] == pytest.approx(D555_MEASURED_FX_PX, rel=1e-6)
+        assert got["fx"] == pytest.approx(want, rel=1e-6)
+        assert got["fy"] == pytest.approx(want, rel=1e-6)
         assert (got["cx"], got["cy"]) == (cam.width / 2.0, cam.height / 2.0)
         assert got["size"] == (cam.width, cam.height)
 

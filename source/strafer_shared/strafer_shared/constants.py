@@ -122,8 +122,9 @@ CAMERA_OFFSET_Z = 0.25  # meters up from body_link
 # stream). 80x45 is 16:9, matching the real D555 / perception camera aspect.
 # Isaac Sim derives a camera's vertical FOV from its resolution aspect ratio
 # (square pixels), not from vertical_aperture, so 16:9 keeps the policy grid's
-# VFOV the stream's; the value follows from the focal length (56.4 deg at
-# D555_FOCAL_LENGTH_MM; the real unit measures 58.5 deg). Both are 16:9, so deployment downsamples 640x360 -> 80x45 on
+# VFOV the stream's; the value follows from the focal length (58.5 deg at
+# D555_MEASURED_FOCAL_LENGTH_MM, which the camera factories build from; 56.4 deg
+# at the datasheet's D555_FOCAL_LENGTH_MM). Both are 16:9, so deployment downsamples 640x360 -> 80x45 on
 # an exact 8x integer block grid, which preserves the vertical FOV. The
 # reduction within each block is a median, not a mean -- see
 # obs_pipeline.downsample_depth.
@@ -162,9 +163,9 @@ D555_FOCAL_LENGTH_MM = 1.93
 D555_HORIZONTAL_APERTURE_MM = 3.68
 
 # The real unit's measured focal length: fx = fy = 321.522 px at 640x360, as a
-# focal length over the datasheet aperture above (321.522 * 3.68 / 640 mm). The
-# datasheet focal length renders fx = 335.652 px and is what every camera
-# factory builds from.
+# focal length over the datasheet aperture above (321.522 * 3.68 / 640 mm). Both
+# camera factories build from it; the datasheet focal length gives fx =
+# 335.652 px.
 D555_MEASURED_FX_PX = 321.522
 D555_MEASURED_FOCAL_LENGTH_MM = D555_MEASURED_FX_PX * D555_HORIZONTAL_APERTURE_MM / PERCEPTION_WIDTH
 

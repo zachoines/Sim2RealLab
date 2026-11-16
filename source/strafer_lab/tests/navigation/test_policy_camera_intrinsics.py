@@ -5,9 +5,9 @@
 
 The composition goldens cannot see a camera: the contract serializer takes only
 ``num_envs`` and ``env_spacing`` off the scene, so a focal-length change moves
-no hash. Every composed variant renders the datasheet's
-``D555_FOCAL_LENGTH_MM``; the real unit's measured focal length
-(fx = fy = 321.522 px at 640x360) is ``D555_MEASURED_FOCAL_LENGTH_MM``.
+no hash. Every composed camera renders the real unit's measured focal length,
+``D555_MEASURED_FOCAL_LENGTH_MM`` (fx = fy = 321.522 px at 640x360), over the
+datasheet aperture; the datasheet focal length stays as ``D555_FOCAL_LENGTH_MM``.
 """
 
 from __future__ import annotations
@@ -45,7 +45,7 @@ def _scene_source_kind(variant_cls):
     return None
 
 
-def test_every_composed_camera_renders_the_datasheet_lens():
+def test_every_composed_camera_renders_the_measured_lens():
     """No composition moves a camera's focal length or aperture off the
     factories'. The Infinigen-source capture variants are left out (they read
     the scene corpus at construction); they compose the same two factories."""
@@ -65,5 +65,5 @@ def test_every_composed_camera_renders_the_datasheet_lens():
                 continue
             seen += 1
             assert cam.spawn.horizontal_aperture == D555_HORIZONTAL_APERTURE_MM, f"{name}.{attr}"
-            assert cam.spawn.focal_length == D555_FOCAL_LENGTH_MM, f"{name}.{attr} renders {cam.spawn.focal_length} mm"
+            assert cam.spawn.focal_length == D555_MEASURED_FOCAL_LENGTH_MM, f"{name}.{attr} renders {cam.spawn.focal_length} mm"
     assert seen > 8, "the camera sweep collapsed"

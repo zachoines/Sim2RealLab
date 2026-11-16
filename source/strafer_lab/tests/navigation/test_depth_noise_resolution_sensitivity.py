@@ -31,9 +31,13 @@ from strafer_shared.constants import (
     DEPTH_CLIP_FAR,               # 6.0 m — depth normalization / sensor max range
     DEPTH_HEIGHT,                 # 45 — the policy-camera height
     DEPTH_WIDTH,                  # 80
-    D555_FOCAL_LENGTH_MM,         # 1.93 mm  (pinhole focal length)
-    D555_HORIZONTAL_APERTURE_MM,  # 3.68 mm  (horizontal aperture)
 )
+
+from strafer_lab.tasks.navigation.d555_cfg import make_d555_camera_cfg
+
+# The policy camera factory's lens (the measured focal length over the 3.68 mm
+# datasheet aperture).
+_LENS = make_d555_camera_cfg(data_types=("distance_to_image_plane",)).spawn
 
 # ---------------------------------------------------------------------------
 # Derivation inputs (documented sources; not fitted).
@@ -77,7 +81,7 @@ FRESH_RATIO = 1.000413
 # ---------------------------------------------------------------------------
 def _vertical_fov_deg(height: int, width: int) -> float:
     """Isaac Sim derives VFOV from the resolution aspect ratio (square pixels)."""
-    h_fov = 2.0 * np.arctan(D555_HORIZONTAL_APERTURE_MM / (2.0 * D555_FOCAL_LENGTH_MM))
+    h_fov = 2.0 * np.arctan(_LENS.horizontal_aperture / (2.0 * _LENS.focal_length))
     v_fov = 2.0 * np.arctan(np.tan(h_fov / 2.0) / (width / height))
     return float(np.degrees(v_fov))
 
@@ -133,12 +137,12 @@ def test_expected_variance_is_resolution_invariant():
 def test_vertical_fov_follows_resolution_aspect():
     """VFOV (the geometry axis that moves with resolution) differs by aspect.
 
-    56.4 deg at 80x45 (16:9), 71.1 deg at 80x60 (4:3) — the resolution-derived
+    58.5 deg at 80x45 (16:9), 73.5 deg at 80x60 (4:3) — the resolution-derived
     vertical FOV that shifts the wall-pixel count and the fixed-seed realization
     while leaving the expected variance untouched.
     """
-    assert _vertical_fov_deg(*GRID_16_9) == pytest.approx(56.41, abs=0.05)
-    assert _vertical_fov_deg(*GRID_4_3) == pytest.approx(71.13, abs=0.05)
+    assert _vertical_fov_deg(*GRID_16_9) == pytest.approx(58.48, abs=0.05)
+    assert _vertical_fov_deg(*GRID_4_3) == pytest.approx(73.48, abs=0.05)
     assert _vertical_fov_deg(*GRID_4_3) > _vertical_fov_deg(*GRID_16_9)
 
 

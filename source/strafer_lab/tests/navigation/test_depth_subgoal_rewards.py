@@ -25,14 +25,13 @@ from types import SimpleNamespace
 import torch
 import warp as wp
 
+from strafer_lab.tasks.navigation.d555_cfg import make_d555_camera_cfg
 from strafer_lab.tasks.navigation.mdp.rewards import (
     depth_obstacle_proximity_penalty,
     path_along_track_progress,
     path_cross_track_error,
 )
 from strafer_shared.constants import (
-    D555_FOCAL_LENGTH_MM,
-    D555_HORIZONTAL_APERTURE_MM,
     DEPTH_HEIGHT,
     DEPTH_WIDTH,
 )
@@ -45,13 +44,14 @@ _SENSOR_CFG = SimpleNamespace(name=_SENSOR_NAME)
 # matches the d555 mount's frame-alignment quaternion.
 _LEVEL_QUAT_XYZW = (-0.5, 0.5, -0.5, 0.5)
 
-# The factory's policy-camera geometry (the datasheet constants: a 56.4 deg
-# vertical FOV; the real unit measures 58.5 deg). The 80x45 (16:9) render has
+# The factory's policy-camera geometry (the measured focal length: a 58.5 deg
+# vertical FOV at 80x45). The 80x45 (16:9) render has
 # square pixels, so the vertical FOV follows from the focal length and the
 # aspect — the same derivation the reward uses. (RTX derives VFOV from the
 # resolution's aspect, so 16:9 is what keeps the policy grid's FOV the
 # stream's.)
-_TAN_HALF_HFOV = D555_HORIZONTAL_APERTURE_MM / (2.0 * D555_FOCAL_LENGTH_MM)
+_LENS = make_d555_camera_cfg(data_types=("distance_to_image_plane",)).spawn
+_TAN_HALF_HFOV = _LENS.horizontal_aperture / (2.0 * _LENS.focal_length)
 _TAN_HALF_VFOV = _TAN_HALF_HFOV * DEPTH_HEIGHT / DEPTH_WIDTH
 _CAM_HEIGHT = 0.35  # optical center above the floor, ~the robot's real mount
 _FAR = 6.0  # max_depth: the "nothing in range" reading
@@ -63,8 +63,8 @@ def _make_env(depth, *, cam_pos, quat_xyzw):
     sensor = SimpleNamespace(
         cfg=SimpleNamespace(
             spawn=SimpleNamespace(
-                focal_length=D555_FOCAL_LENGTH_MM,
-                horizontal_aperture=D555_HORIZONTAL_APERTURE_MM,
+                focal_length=_LENS.focal_length,
+                horizontal_aperture=_LENS.horizontal_aperture,
             )
         ),
         data=SimpleNamespace(
@@ -325,8 +325,8 @@ def test_bare_floor_reads_zero_at_real_mount_height():
     far inside the penalty threshold. Floor-plane exclusion must make an open scene read
     exactly zero instead of a saturated ambient penalty."""
     image = _floor_image(_level_rotation())
-    # Geometry sanity: at the factory's 16:9 VFOV (56.4 deg, 80x45) the bottom row
-    # reads the floor at ~0.67 m — still well inside the penalty threshold, the
+    # Geometry sanity: at the factory's 16:9 VFOV (58.5 deg, 80x45) the bottom row
+    # reads the floor at ~0.64 m — still well inside the penalty threshold, the
     # sub-threshold depth that made an unmasked min saturate.
     assert 0.63 < image[-1, 0].item() < 0.70
     out = depth_obstacle_proximity_penalty(_floor_scene_env(image), _SENSOR_CFG)

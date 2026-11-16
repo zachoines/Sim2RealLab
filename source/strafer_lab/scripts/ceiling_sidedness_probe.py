@@ -150,10 +150,11 @@ def main() -> None:
     from isaaclab_tasks.utils import parse_env_cfg
 
     import strafer_lab.tasks  # noqa: F401 — triggers gym.register
-    from strafer_lab.tasks.navigation.d555_cfg import (
-        D555_FOCAL_LENGTH_MM,
-        D555_HORIZONTAL_APERTURE_MM,
-    )
+    from strafer_lab.tasks.navigation.d555_cfg import make_d555_camera_cfg
+
+    # The overhead camera takes the D555 factory's lens, so it renders what the
+    # factory does.
+    d555_lens = make_d555_camera_cfg(data_types=("rgb",)).spawn
 
     def overhead_camera_cfg(alt: float) -> TiledCameraCfg:
         """Nadir camera above each env origin, RGB and depth in one grab."""
@@ -164,8 +165,8 @@ def main() -> None:
             width=320,
             data_types=["rgb", "distance_to_image_plane"],
             spawn=sim_utils.PinholeCameraCfg(
-                focal_length=D555_FOCAL_LENGTH_MM,
-                horizontal_aperture=D555_HORIZONTAL_APERTURE_MM,
+                focal_length=d555_lens.focal_length,
+                horizontal_aperture=d555_lens.horizontal_aperture,
                 clipping_range=(0.01, 100.0),
             ),
             offset=TiledCameraCfg.OffsetCfg(

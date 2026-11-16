@@ -190,10 +190,10 @@ class StraferCameraAsyncPublisher:
         Reused from :mod:`strafer_lab.bridge.config` so the OmniGraph and
         the Python path agree on names without a second source of truth.
     focal_length_mm / horizontal_aperture_mm:
-        Pinhole intrinsics used to derive ``fx``/``fy`` for ``CameraInfo``.
-        Match the values stamped on the camera prim by
-        ``stamp_d555_perception_opencv_pinhole`` so the published
-        ``CameraInfo`` is bit-identical to the prior OmniGraph output.
+        Pinhole intrinsics used to derive ``fx``/``fy`` for ``CameraInfo``:
+        the ones the perception camera renders at. The runner reads them off
+        the camera's ``cfg.spawn``, so a variant's focal-length override
+        reaches ``CameraInfo``.
     frame_skip:
         Number of bridge ticks dropped between publishes. ``0`` publishes
         every tick; ``3`` publishes every 4th tick. The runner derives the

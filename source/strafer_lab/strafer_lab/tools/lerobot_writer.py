@@ -101,8 +101,8 @@ _POLICY_RES = (DEPTH_HEIGHT, DEPTH_WIDTH)  # (H, W) = (45, 80)
 
 # h264 (libx264 / yuv420p) requires EVEN frame dimensions. The policy camera is
 # 80x45 (16:9) — an odd height — dictated by the depth OBSERVATION contract
-# (DEPTH_HEIGHT; Isaac Sim derives VFOV from resolution, so 16:9 gives the real
-# sensor's vertical FOV). Depth rides as a 16UC1 PNG sidecar (no even-dim
+# (DEPTH_HEIGHT; Isaac Sim derives VFOV from the resolution's aspect, so 16:9 is
+# the sensor's). Depth rides as a 16UC1 PNG sidecar (no even-dim
 # constraint, stays exactly 80x45), but the OPTIONAL rgb-policy DEBUG video must
 # be bottom-padded one row to an even height to encode. This asymmetry (video
 # 80x46 vs depth 80x45) touches only the debug video column, never the obs the

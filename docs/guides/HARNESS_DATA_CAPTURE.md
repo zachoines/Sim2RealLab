@@ -307,7 +307,7 @@ The bridge driver records the same LeRobot v3 schema while the
 **Jetson autonomy stack** drives over `/cmd_vel` — same Nav2 /
 RTAB-Map / executor that runs against the real D555. Prerequisites:
 the sim-in-the-loop bringup is healthy end-to-end
-([`INTEGRATION_SIM_IN_THE_LOOP.md`](INTEGRATION_SIM_IN_THE_LOOP.md)
+([`INTEGRATION_SIM_IN_THE_LOOP.md`](../archived/INTEGRATION_SIM_IN_THE_LOOP.md)
 Stages 1–4: DDS discovery, Jetson `bringup_sim_in_the_loop.launch.py`,
 the executor, and the VLM/planner services).
 

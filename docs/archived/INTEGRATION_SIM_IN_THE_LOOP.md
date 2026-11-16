@@ -1,6 +1,6 @@
 # Sim-in-the-loop integration runbook
 
-> **INTERIM — not maintained.** This runbook served the Isaac-ROS bridge bring-up and is kept for historical context. Operator commands live in [`example_commands_cheatsheet.md`](example_commands_cheatsheet.md); the capture path is [`HARNESS_DATA_CAPTURE.md`](HARNESS_DATA_CAPTURE.md). Do **not** update this file in implementation PRs — fix the successor instead. Exempt from the docs-maintenance sweep (see `docs/context/conventions.md`).
+> **INTERIM — not maintained.** This runbook served the Isaac-ROS bridge bring-up and is kept for historical context. Operator commands live in [`example_commands_cheatsheet.md`](../guides/example_commands_cheatsheet.md); the capture path is [`HARNESS_DATA_CAPTURE.md`](../guides/HARNESS_DATA_CAPTURE.md). Do **not** update this file in implementation PRs — fix the successor instead. Exempt from the docs-maintenance sweep (see `docs/context/conventions.md`).
 
 End-to-end test of the DGX Spark ↔ Jetson Orin Nano pipeline using
 Isaac Sim in place of the real robot. Success criterion: an operator
@@ -25,10 +25,10 @@ earlier ones work.
 
 ## Related docs
 
-- [`docs/guides/example_commands_cheatsheet.md`](example_commands_cheatsheet.md)
+- [`docs/guides/example_commands_cheatsheet.md`](../guides/example_commands_cheatsheet.md)
   is the canonical place for the operator one-liners. Where this
   runbook references a command, prefer the cheatsheet's exact form.
-- [`docs/guides/SYSTEM_FLOW_DIAGRAMS.md`](SYSTEM_FLOW_DIAGRAMS.md) Flow 5
+- [`docs/guides/SYSTEM_FLOW_DIAGRAMS.md`](../guides/SYSTEM_FLOW_DIAGRAMS.md) Flow 5
   (sim-in-the-loop) and Flow 6 (real-robot execution) — the bridge
   exercises Flow 5's outer shell; the manual-mission stage exercises
   Flow 6's control path with simulated sensors.
@@ -86,7 +86,7 @@ checkpoint consumes is unchanged, so existing DEPTH checkpoints stay valid.
 
 **Out of scope (explicitly deferred)**
 - Real-robot execution on hardware — see
-  [`docs/guides/SYSTEM_FLOW_DIAGRAMS.md`](SYSTEM_FLOW_DIAGRAMS.md) Flow 6.
+  [`docs/guides/SYSTEM_FLOW_DIAGRAMS.md`](../guides/SYSTEM_FLOW_DIAGRAMS.md) Flow 6.
   Real-robot bringup uses `autonomy.launch.py` / `base.launch.py`,
   which this runbook does not exercise.
 - IMU-driven SLAM — the Isaac Sim ROS 2 bridge has no

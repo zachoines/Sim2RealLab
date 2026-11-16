@@ -596,4 +596,4 @@ Open and deferred items are tracked in the task repository's deferred-work list
 - [`source/strafer_autonomy/README.md`](../strafer_autonomy/README.md) — Jetson executor that sim-in-the-loop drives.
 - [`source/strafer_vlm/README.md`](../strafer_vlm/README.md) — grounding service + LoRA fine-tuning tooling consuming datasets from this pipeline.
 - [`docs/guides/SIM_TO_REAL_TUNING_GUIDE.md`](../../docs/guides/SIM_TO_REAL_TUNING_GUIDE.md) — deep-dive actuator / sensor alignment procedure pairing sim presets with hardware measurements.
-- [`docs/guides/INTEGRATION_SIM_IN_THE_LOOP.md`](../../docs/guides/INTEGRATION_SIM_IN_THE_LOOP.md) — cross-host bridge runbook (Stage 2 covers `make sim-bridge` smoke-test gating this package).
+- [`docs/archived/INTEGRATION_SIM_IN_THE_LOOP.md`](../../docs/archived/INTEGRATION_SIM_IN_THE_LOOP.md) — cross-host bridge runbook (archived, not maintained; Stage 2 covers the `make sim-bridge` smoke test).

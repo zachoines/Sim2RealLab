@@ -9,7 +9,7 @@ passes through, cross-host boundaries, and the artifact the flow
 produces. Nodes link into the source so GitHub renders them clickable.
 
 This document describes **what the system does today**, not the design
-rationale (see [`STRAFER_AUTONOMY_NEXT.md`](STRAFER_AUTONOMY_NEXT.md))
+rationale (see [`STRAFER_AUTONOMY_NEXT.md`](../archived/STRAFER_AUTONOMY_NEXT.md))
 and not the test plan (a future `INTEGRATION_*.md` on the cycle).
 
 ## Index

@@ -355,12 +355,13 @@ and update any that your change invalidates — in the same PR.**
 The deferred-work list lives in the task repository. An item a change
 ships is deleted from it in the pull request there that ships the brief.
 
-**Interim docs are exempt from this sweep.** A guide under `docs/guides/` whose
-first lines carry an `> **INTERIM**` banner is historical / superseded — do
-**not** update it here or in any implementation PR; update the successor the
-banner names. Currently interim (banner-stamped): `INTEGRATION_SIM_IN_THE_LOOP.md`,
-`SYSTEM_FLOW_DIAGRAMS.md`, `MISSION_VALIDATION_ARCHITECTURE.md`,
-`STRAFER_AUTONOMY_NEXT.md`, `SIM_TO_REAL_TUNING_GUIDE.md`.
+**Interim docs are exempt from this sweep.** A document whose first lines
+carry an `> **INTERIM**` banner is historical / superseded — do **not**
+update it here or in any implementation PR; update the successor the
+banner names. Under `docs/archived/` (frozen, kept for reference):
+`INTEGRATION_SIM_IN_THE_LOOP.md`, `STRAFER_AUTONOMY_NEXT.md`. Still among
+the guides: `SYSTEM_FLOW_DIAGRAMS.md`, `MISSION_VALIDATION_ARCHITECTURE.md`,
+`SIM_TO_REAL_TUNING_GUIDE.md`.
 
 ### Trigger heuristics — your change probably invalidates user-facing docs if it:
 

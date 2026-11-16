@@ -226,7 +226,7 @@ VLM_URL=http://192.168.50.196:8100 PLANNER_URL=http://192.168.50.196:8200 \
 make launch-sim
 # foxglove_bridge comes up on :8765 by default; SSH-tunnel from the
 # operator's workstation and connect Foxglove Studio to ws://localhost:8765
-# (full walkthrough: docs/guides/INTEGRATION_SIM_IN_THE_LOOP.md Stage 3.5).
+# (full walkthrough: docs/archived/INTEGRATION_SIM_IN_THE_LOOP.md Stage 3.5).
 # Disable the visualizer with `viewer:=false` if the dep isn't installed.
 ```
 
@@ -337,4 +337,4 @@ Open and deferred items are tracked in the task repository's deferred-work list
 - [`docs/guides/WIRING_GUIDE.md`](../../docs/guides/WIRING_GUIDE.md) — motor + encoder + RoboClaw + Jetson wiring, pinouts, address configuration.
 - [`docs/guides/D555_IMU_KERNEL_FIX.md`](../../docs/guides/D555_IMU_KERNEL_FIX.md) — Tegra-kernel module build for the D555: HID-sensor modules (IMU) and a `uvcvideo` with the D555 metadata entry (advancing stamps, raw-depth repeats down from 50 % to 0.17 %, aligned depth).
 - [`docs/guides/SIM_TO_REAL_TUNING_GUIDE.md`](../../docs/guides/SIM_TO_REAL_TUNING_GUIDE.md) — actuator / sensor alignment procedure pairing this package with `strafer_lab`.
-- [`docs/guides/INTEGRATION_SIM_IN_THE_LOOP.md`](../../docs/guides/INTEGRATION_SIM_IN_THE_LOOP.md) — cross-host bringup runbook (Stage 3 covers `bringup_sim_in_the_loop.launch.py` consuming the DGX bridge).
+- [`docs/archived/INTEGRATION_SIM_IN_THE_LOOP.md`](../../docs/archived/INTEGRATION_SIM_IN_THE_LOOP.md) — cross-host bringup runbook (archived, not maintained; Stage 3 covers `bringup_sim_in_the_loop.launch.py` consuming the DGX bridge).

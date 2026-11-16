@@ -33,7 +33,7 @@ A ``foxglove_bridge`` node is brought up on TCP 8765 by default so an
 operator on a remote workstation can SSH-tunnel back and inspect the
 robot's camera, depth, TF, and map state in Foxglove Studio. Disable
 with ``viewer:=false``. End-to-end setup walkthrough lives in
-``docs/guides/INTEGRATION_SIM_IN_THE_LOOP.md``.
+``docs/archived/INTEGRATION_SIM_IN_THE_LOOP.md``.
 """
 
 import logging

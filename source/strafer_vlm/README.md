@@ -253,6 +253,6 @@ Open and deferred items are tracked in the task repository's deferred-work list
 
 - [`source/strafer_autonomy/README.md`](../strafer_autonomy/README.md) — executor-side `HttpGroundingClient`, schemas, `/plan_with_grounding` agentic endpoint.
 - [`source/strafer_lab/README.md`](../strafer_lab/README.md) — fine-tune dataset prep pipeline (description generation, SFT data prep).
-- [`docs/guides/STRAFER_AUTONOMY_NEXT.md`](../../docs/guides/STRAFER_AUTONOMY_NEXT.md) — design rationale for the `/detect_objects` endpoint and semantic-map integration.
+- [`docs/archived/STRAFER_AUTONOMY_NEXT.md`](../../docs/archived/STRAFER_AUTONOMY_NEXT.md) — design rationale for the `/detect_objects` endpoint and semantic-map integration (archived, not maintained).
 - [`Readme.md`](../../Readme.md) — top-level setup (NVRTC fix, conda envs, test commands).
-- [`docs/guides/INTEGRATION_SIM_IN_THE_LOOP.md`](../../docs/guides/INTEGRATION_SIM_IN_THE_LOOP.md) — cross-host integration runbook (where the VLM service is consumed by the executor).
+- [`docs/archived/INTEGRATION_SIM_IN_THE_LOOP.md`](../../docs/archived/INTEGRATION_SIM_IN_THE_LOOP.md) — cross-host integration runbook (archived, not maintained; where the VLM service is consumed by the executor).

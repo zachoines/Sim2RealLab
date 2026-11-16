@@ -374,6 +374,6 @@ Open and deferred items are tracked in the task repository's deferred-work list
 
 - [`source/strafer_vlm/README.md`](../strafer_vlm/README.md) — grounding / description / multi-object detection service.
 - [`source/strafer_ros/README.md`](../strafer_ros/README.md) — Jetson runtime, sensors, TF, Nav2, goal projection.
-- [`docs/guides/STRAFER_AUTONOMY_NEXT.md`](../../docs/guides/STRAFER_AUTONOMY_NEXT.md) — design rationale for current features (verify_arrival, `/plan_with_grounding`, semantic map).
+- [`docs/archived/STRAFER_AUTONOMY_NEXT.md`](../../docs/archived/STRAFER_AUTONOMY_NEXT.md) — design rationale for verify_arrival, `/plan_with_grounding` and the semantic map (archived, not maintained).
 - [`docs/guides/SYSTEM_FLOW_DIAGRAMS.md`](../../docs/guides/SYSTEM_FLOW_DIAGRAMS.md) — end-to-end runtime flows spanning this package + siblings.
-- [`docs/guides/INTEGRATION_SIM_IN_THE_LOOP.md`](../../docs/guides/INTEGRATION_SIM_IN_THE_LOOP.md) — cross-host integration runbook.
+- [`docs/archived/INTEGRATION_SIM_IN_THE_LOOP.md`](../../docs/archived/INTEGRATION_SIM_IN_THE_LOOP.md) — cross-host integration runbook (archived, not maintained).

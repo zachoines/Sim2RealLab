@@ -141,6 +141,7 @@ The skeleton lives at
 - **Briefs, the board and measurement records.** They live in other
   repositories and follow those repositories' rules
   ([`tasks-and-evidence.md`](tasks-and-evidence.md)).
+- **`docs/archived/`** — historical record, never edited in flight.
 - **Single-commit emergency hotfixes that need to land in <1 hour.**
   The convention is for planned work. A hotfix that bypasses brief
   authoring still goes through a PR off `main`, just without the brief.

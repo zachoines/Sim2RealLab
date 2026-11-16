@@ -16,7 +16,7 @@ compose file already grants.
 
 ## Platforms
 
-| | first applied (IMU only) | strafer-nx, 2026-10-04 (IMU + metadata) |
+| | first applied (IMU only) | strafer-nx (IMU + metadata) |
 |---|---|---|
 | Board | Jetson Orin NX | Jetson Orin NX 16 GB (Seeed image) |
 | L4T | R36.5.0 | R36.4.3 |
@@ -24,9 +24,6 @@ compose file already grants.
 | Module sources | Ubuntu `linux-source-5.15.0` tarball | the kernel's own tree: GitLab `nvidia/nv-tegra/3rdparty/canonical/linux-jammy`, tag `jetson_36.4.3` |
 | librealsense | 2.56.4 (deb) | 2.58.4 (deb, kernel V4L2/IIO backend), realsense-ros 4.58.4, in `strafer-cpu:humble` |
 | Camera | D555, USB PID `0B56`, FW 7.56.19918.835 | same, on USB 3.2 |
-
-The record for the second column is
-[`d555-stream-integrity-2026-10-04`](measurements/d555-stream-integrity-2026-10-04/README.md).
 
 ## The problems
 
@@ -236,7 +233,7 @@ Read back on the deployed launch, over windows of at least 60 s:
 
 | check | expected |
 |---|---|
-| `meta_fmt_probe.py` from the record's deposit (`tools/`; QUERYCAP and ENUM_FMT on each `/dev/video*`, no root) | metadata nodes offer `['UVCH', 'D4XX']` |
+| `VIDIOC_QUERYCAP` and `VIDIOC_ENUM_FMT` on each `/dev/video*` (no root) | metadata nodes offer `['UVCH', 'D4XX']` |
 | `/sys/bus/hid/devices/*:8086:0B56.*/driver` | `hid-sensor-hub` |
 | `cat /sys/bus/iio/devices/iio:device*/name` | `accel_3d`, `gyro_3d` |
 | perception log | `Starting Sensor: Motion Module`; no `No HID info provided`; `timestamp_fixer`: `TimestampFixer ready (passthrough)`, then `First frame relayed unchanged: stamp=…` |
@@ -247,9 +244,6 @@ Read back on the deployed launch, over windows of at least 60 s:
 | `strafer_inference` cadence line | `imu` absent from `stale_sources` |
 | `depth_to_pointcloud` (in `slam`) | no "do not appear to be synchronized" warnings; `/d555/aligned_depth_to_color/points` publishing. This needs `timestamp_fixer` to pass stamps through; an image whose perception log reads `TimestampFixer ready (restamp)` re-stamps and must be rebuilt. `/scan` also needs `base_link`, which `base` publishes |
 | `systemctl is-enabled iio-sensor-proxy` | `masked` |
-
-The record's probes and figures are in
-[`d555-stream-integrity-2026-10-04`](measurements/d555-stream-integrity-2026-10-04/README.md).
 
 ## IMU stream profiles
 

@@ -194,10 +194,8 @@ runnable scripts under `scripts/`, importable modules under
 `v3.0.0-beta2.patch1`, paired with a clone of Isaac Lab at that tag. `.env` names
 the pair (`CONDA_ENV`, `ISAACLAB`); everything below refers to it by role.
 
-Why each step is the way it is — the ordering hazards, what a rebuild does and
-does not reproduce — is in
-[`isaac-lab-upgrade-pra-2026-08-26`](../../docs/measurements/isaac-lab-upgrade-pra-2026-08-26/README.md).
-Read that if a step surprises you; otherwise run these in order.
+The order of the steps is part of the recipe, and each step's comment names the
+hazard it avoids. Run them in order.
 
 **Prereqs** (audited on `gx10-d1d8`):
 
@@ -330,9 +328,8 @@ printing the other two. Do not "fix" it.
 **Reproducing this exact set.** The commands above pin about fifteen packages;
 the rest are whatever the resolver returns on the day.
 [`constraints-isaac-lab.txt`](constraints-isaac-lab.txt) holds
-the resolved versions of the environment
-[`isaac-lab-upgrade-stage3-2026-08-23`](../../docs/measurements/isaac-lab-upgrade-stage3-2026-08-23/README.md)
-validated. Three rules make it work, and none of them is optional:
+the resolved versions of the environment this stack was validated in. Three
+rules make it work, and none of them is optional:
 
 ```bash
 export PIP_CONSTRAINT=$PWD/source/strafer_lab/constraints-isaac-lab.txt
@@ -372,8 +369,7 @@ This was run: the recipe above, with these three rules, built from an empty cond
 env into **300 distributions with all 282 pinned versions identical** to the
 environment the constraints came from — the only difference being the two
 editable lines, which carry the working-tree revision rather than an environment
-fact. The logs are in
-[`isaac-lab-upgrade-pra-2026-08-26`](../../docs/measurements/isaac-lab-upgrade-pra-2026-08-26/README.md).
+fact.
 
 **DGX Spark limitations** (Isaac Sim aarch64 build): no SkillGen, no OpenXR, no
 JAX-GPU, no Livestream — none affect `strafer_lab`. `nvidia-smi` reports VRAM as

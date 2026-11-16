@@ -81,6 +81,26 @@ def test_a_pinned_half_scale_is_the_deploy_cap():
     assert torch.allclose(_body(term)[:, 2].abs(), torch.full((N,), 2.0933), atol=5e-4)
 
 
+def test_the_envelope_tightens_only_the_cap():
+    """Below the cap the command passes unscaled: at s = 0.5, a command of 0.3 of the full envelope on one budget runs
+    at 0.3 of the full envelope, not 0.15 (which a scale on the command instead of the cap would give)."""
+    term = _term((0.5, 0.5))
+    term.process_actions(torch.tensor([[0.3, 0.0, 0.0]]).repeat(N, 1))
+    assert torch.allclose(_body(term)[:, 0], torch.full((N,), 0.3 * term._max_linear_vel), atol=1e-4)
+    term.process_actions(torch.tensor([[0.0, 0.0, 0.3]]).repeat(N, 1))
+    assert torch.allclose(_body(term)[:, 2], torch.full((N,), 0.3 * term._max_angular_vel), atol=1e-4)
+
+
+def test_the_envelope_off_draws_nothing():
+    """Off, the term draws no scale at construction or at a reset: torch's global RNG state is unchanged, so a variant
+    without the envelope keeps its random stream."""
+    state = torch.random.get_rng_state()
+    term = _term(None)
+    term.reset(torch.tensor([0, 3, 7]))
+    term.reset(None)
+    assert torch.equal(torch.random.get_rng_state(), state)
+
+
 def test_off_and_unit_scale_leave_the_clamp_as_it_was():
     torch.manual_seed(0)
     a = torch.rand(N, 3) * 2 - 1

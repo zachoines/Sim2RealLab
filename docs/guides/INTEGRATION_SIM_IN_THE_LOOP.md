@@ -91,7 +91,7 @@ checkpoint consumes is unchanged, so existing DEPTH checkpoints stay valid.
   which this runbook does not exercise.
 - IMU-driven SLAM — the Isaac Sim ROS 2 bridge has no
   `ROS2PublishImu` node, so RTAB-Map runs visual-only. See
-  [`docs/tasks/DEFERRED_WORK.md`](tasks/DEFERRED_WORK.md).
+  `docs/tasks/DEFERRED_WORK.md`.
 
 ---
 
@@ -721,7 +721,7 @@ operator's screen, not into the Isaac Sim render product, so the
 surface; capture still works and the console HUD remains.
 
 **Button mapping** (from
-[`harness-architecture.md` §Episode-end button mapping](tasks/active/harness/harness-architecture.md#episode-end-button-mapping-teleop-only))
+`harness-architecture.md` §Episode-end button mapping)
 
 | Button | `outcome` | `outcome_category` | `hard_negative_category` | Kept? |
 |---|---|---|---|---|
@@ -745,7 +745,7 @@ with `--target-label-filter chair table`. Ctrl-D at the picker quits
 cleanly (finalizes the writer + closes the env).
 
 **Output layout** (per
-[`harness-architecture.md` §Repository layout per scene](tasks/active/harness/harness-architecture.md#repository-layout-per-scene))
+`harness-architecture.md` §Repository layout per scene)
 
 ```
 data/sim_in_the_loop/<scene_name>/
@@ -923,7 +923,7 @@ shutdown.
 - **IMU data is absent.** The bridge has no `ROS2PublishImu` node.
   RTAB-Map runs visual-only in this test. If SLAM quality proves too
   poor in a particular scene, this is the first thing to revisit.
-  See [`docs/tasks/DEFERRED_WORK.md`](tasks/DEFERRED_WORK.md).
+  See `docs/tasks/DEFERRED_WORK.md`.
 - **Scene swap requires re-launching.** The harness is single-scene
   per launch. `IsaacLabEnvAdapter.reset(scene_name=...)` rejects
   cross-scene calls on purpose — swap scenes by re-running the DGX
@@ -932,8 +932,8 @@ shutdown.
   policies were trained without goal noise; VLM-grounded goals
   carry ±0.2-0.5 m localization error. Expect some goal-pose
   oscillation near the target. Tracked under
-  [`docs/tasks/active/trained-policy/goal-noise-training.md`](tasks/active/trained-policy/goal-noise-training.md).
+  `docs/tasks/active/trained-policy/goal-noise-training.md`.
 - **Electronics masses are missing from the USD.** The chassis
   inertia underestimates the real robot. Fine control behaves
   differently in sim vs. real until this is fixed. See
-  [`docs/tasks/DEFERRED_WORK.md`](tasks/DEFERRED_WORK.md).
+  `docs/tasks/DEFERRED_WORK.md`.

@@ -660,7 +660,7 @@ flowchart LR
   `strafer_inference` path. Until that ships, Flow 6 uses Nav2 as its
   only `navigate_to_pose` backend.
 - The `Flow 6 → Flow 5` feedback edge is the deferred "failure-to-sim"
-  pipeline (see [`tasks/DEFERRED_WORK.md`](tasks/DEFERRED_WORK.md)) — it closes the
+  pipeline (see `tasks/DEFERRED_WORK.md`) — it closes the
   loop by turning real-world mission failures into targeted sim
   regression tests.
 - Flow 6 feeding back into itself is the semantic map: every mission

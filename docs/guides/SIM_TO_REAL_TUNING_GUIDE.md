@@ -1,6 +1,6 @@
 ﻿# Sim-to-Real Tuning Guide
 
-> **INTERIM — verify before relying.** Reference tuning guide kept for context; not actively maintained against current sim / policy state. The sim→real promotion process is being formalized in [`nav2-sim-real-promotion-architecture`](tasks/active/tooling/nav2-sim-real-promotion-architecture.md). Do **not** update this file in implementation PRs. Exempt from the docs-maintenance sweep (see `tasks/context/conventions.md`).
+> **INTERIM — verify before relying.** Reference tuning guide kept for context; not actively maintained against current sim / policy state. The sim→real promotion process is being formalized in `nav2-sim-real-promotion-architecture`. Do **not** update this file in implementation PRs. Exempt from the docs-maintenance sweep (see `tasks/context/conventions.md`).
 
 This guide is the deep-dive companion to `docs/SIM_TO_REAL_PLAN.md`.
 

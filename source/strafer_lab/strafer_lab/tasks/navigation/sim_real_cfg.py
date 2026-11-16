@@ -139,6 +139,12 @@ class ActuatorModelCfg:
     """Range for randomized max acceleration [min, max] rad/s².
     Models battery state (fresh 16.8V vs depleted 14.0V) and load variation."""
 
+    # Command envelope
+    speed_scale_range: tuple[float, float] | None = None
+    """Per-env scale on both command caps, drawn at every reset and unobserved
+    (``MecanumWheelActionCfg.speed_scale_range``). None leaves the caps at the
+    full envelope; the deploy node's cap is s = 0.5."""
+
 
 # =============================================================================
 # Sensor Noise Configuration
@@ -626,6 +632,8 @@ def create_robust_training_contract() -> SimRealContractCfg:
             motor_time_constant_range=(0.02, 0.10),  # Wide range
             max_acceleration_rad_s2=900.0,
             max_acceleration_range=(500.0, 1200.0),  # Wide: depleted+loaded → fresh+free
+            # 0.40 to 1.57 m/s on |vx| + |vy|, the deploy cap (s = 0.5) inside it.
+            speed_scale_range=(0.255, 1.0),
         ),
         sensors=SensorNoiseCfg(
             imu=IMUNoiseCfg(
@@ -886,6 +894,7 @@ def get_action_config_params(contract: SimRealContractCfg) -> dict:
         "hold_run_range": contract.timing.action_hold_run_range,
         "max_acceleration_rad_s2": contract.actuator.max_acceleration_rad_s2,
         "max_acceleration_range": contract.actuator.max_acceleration_range,
+        "speed_scale_range": contract.actuator.speed_scale_range,
     }
 
 

@@ -109,19 +109,19 @@ def _hash(obj):
 # exists: it is the half a deployed checkpoint depends on, and it must not move.
 _CONTRACT_GOLDENS = {
     "RLDepth_Real": "1b3f96117aac6a04fe1bf95bd049d87e1e805f3e00c6534c35fd0cc01baa05c5",
-    "RLDepth_Robust": "b7ca684585bc831346141a9f92826e4ec127b047875a1144ca295d615779e95e",
+    "RLDepth_Robust": "58531e8b30187103de8a6390adff4fff33fb75d65dae2e958d441f2709a80528",
     "RLNoCam": "08f4eb3691bc7d176f610ade7b92600c29d62a7daf122a75a53dd7cd7f3030d5",
     "RLDepth_Real_PLAY": "08297f18ef7b9d2d54d02dcc6441314916297d092e31ecdc85fa5ab2397d0a9f",
-    "RLDepth_Robust_PLAY": "59c3d84a154be8ad0daacb83a99b8484eae7a1815b580657698f7e8d9bb731d1",
+    "RLDepth_Robust_PLAY": "480bc0a9c6f626fef9ea61806b01b6c5f43d52543b193cb060eeec880270d9ae",
     "RLNoCam_PLAY": "9369ce4f169577c41ef9e929472acee4b8da2507461bf6fa4afd82d1bb382345",
     "RLNoCamSubgoal_Real": "5d81b96104814c0a4196bec35a1595a4445139559e6fe762f47403873f1ccb43",
-    "RLNoCamSubgoal_Robust": "135cdc7de2e486a2aaeca1244d184568f8e4d5a88549d7da918baa268e8f59bd",
+    "RLNoCamSubgoal_Robust": "b8ef97978ca0b4113416059b8a0610fe2ad6002e6599d26fb5d9f4a73c2351a8",
     "RLNoCamSubgoal_Real_PLAY": "d760a7db199428e73e06d76f8e3956bf8c095bf3e6d33e6fa340bcdd37c4f358",
-    "RLNoCamSubgoal_Robust_PLAY": "b4e7ba60c4ce26565854415584d5ce8408de010d8d9ee6533a307ddc6d6e12eb",
+    "RLNoCamSubgoal_Robust_PLAY": "6b95966b5264791fa03beebe013525866cc99a5c31b04204b57d210f9d7e53f8",
     "RLDepthSubgoal_Real": "a008efd5dd7529b3ee4e59db7774e471800dfe7cc79b820106e0852e15593c4f",
-    "RLDepthSubgoal_Robust": "574aae44ac8ae2dd53bee8bf57aa7276981c1120aa16eb05c270d26d6eb098cc",
+    "RLDepthSubgoal_Robust": "8742e18218b6e1736514d533022148fe9abffdfc0029285e5216157ef6141d98",
     "RLDepthSubgoal_Real_PLAY": "c1320390722de571cd2dfcfb8f498e30d90bd90fba57da1965ba6b4174580512",
-    "RLDepthSubgoal_Robust_PLAY": "763da42bd6e1b251dd2012a794068f5be72c3dade66ad30a10fad9d2fb206a71",
+    "RLDepthSubgoal_Robust_PLAY": "bf7cfe7b68972228423ee69c83ff84e09b422433215e872a20e74978e4490683",
 }
 
 # Frozen signature (slot name set + spawn sizes) of the pre-enrichment 44-object

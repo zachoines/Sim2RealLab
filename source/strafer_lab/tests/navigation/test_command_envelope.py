@@ -96,19 +96,39 @@ def test_an_impossible_range_is_refused(bad):
         _term(bad)
 
 
-def test_no_composed_variant_carries_the_envelope():
-    """The mechanism alone: every composed variant keeps the fixed caps."""
+def test_the_range_reaches_the_action_term():
+    """The robust contract's range is passed into the action cfg and the built term
+    draws from it (a contract field that get_action_config_params does not pass
+    would be inert)."""
+    from strafer_lab.tasks.navigation import sim_real_cfg
+    from strafer_lab.tasks.navigation import strafer_env_cfg as tiers
+
+    assert sim_real_cfg.ROBUST_TRAINING_CONTRACT.actuator.speed_scale_range == (0.255, 1.0)
+    assert sim_real_cfg.get_action_config_params(sim_real_cfg.ROBUST_TRAINING_CONTRACT)["speed_scale_range"] == (0.255, 1.0)
+    cfg = tiers.ActionsCfg_Robust().wheel_velocities
+    assert cfg.speed_scale_range == (0.255, 1.0)
+    env = SimpleNamespace(scene={cfg.asset_name: _Asset()}, device="cpu", num_envs=N, physics_dt=1 / 120, step_dt=1 / 30)
+    term = cfg.class_type(cfg, env)
+    s = term._speed_scale
+    assert torch.all((s >= 0.255) & (s <= 1.0)) and s.std() > 0.05
+    for tier in (tiers.ActionsCfg_Ideal, tiers.ActionsCfg_Realistic):
+        assert tier().wheel_velocities.speed_scale_range is None, tier.__name__
+
+
+def test_exactly_the_robust_tier_carries_the_envelope():
     import dataclasses
 
     from strafer_lab.tasks.navigation import composed_env_cfg as composed
 
-    seen = 0
+    seen = {"robust": 0, "other": 0}
     for name in sorted(n for n in dir(composed) if n.startswith("StraferNavCfg_")):
         cls = getattr(composed, name)
         kind = [f.default_factory().kind for f in dataclasses.fields(cls) if f.name == "scene_source"]
         if kind == ["infinigen"]:
             continue  # reads the scene corpus at construction; composes the same action tiers
-        rng = cls().actions.wheel_velocities.speed_scale_range
-        seen += 1
-        assert rng is None, f"{name}: {rng}"
-    assert seen > 12, "the variant sweep collapsed"
+        cfg = cls()
+        robust = cfg.realism.level == "robust"
+        seen["robust" if robust else "other"] += 1
+        rng = cfg.actions.wheel_velocities.speed_scale_range
+        assert rng == ((0.255, 1.0) if robust else None), f"{name}: {rng}"
+    assert seen["robust"] >= 6 and seen["other"] >= 6, seen

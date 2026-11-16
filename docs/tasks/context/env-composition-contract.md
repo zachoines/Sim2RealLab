@@ -95,3 +95,14 @@ If it is policy-facing (a checkpoint will train against it), its sensor stack
 is **fixed** and it is snapshot-gated — add a frozen golden hash. Capture
 variants are not snapshot-gated: their gate is "renders exactly the intended
 stack; writer declares matching columns."
+
+## Changing a variant
+
+A gym ID names a cell of the axes (sensor profile, objective, realism tier,
+env-count preset) and nothing else: no retrain number, and no word for an
+improved state of a scene. A change to what a cell composes is made in place;
+every contract golden that moves is re-frozen in the same commit with a
+preimage diff by field name, and the two policy-layout goldens move only with a
+deliberate change to the deployed observation layout. An older policy's
+environment is the commit its record names, and a new ID is added only for a
+new cell that has a consumer.

@@ -21,6 +21,8 @@ so that **cross-room paths enter training and no v3 ID or golden moves.**
 - [context/repo-topology.md](../../context/repo-topology.md)
 - [context/conventions.md](../../context/conventions.md), [context/branching-and-prs.md](../../context/branching-and-prs.md)
 - [context/env-composition-contract.md](../../context/env-composition-contract.md): a new variant is a new ID.
+  - *2026-11-15: whether the house lands in place or on the `House` IDs below is decided in
+    [`env-id-consolidation`](env-id-consolidation.md), under `env-composition-contract`'s "Changing a variant" rule.*
 - [context/path-planning-architecture.md](../../context/path-planning-architecture.md): the one shared A*.
 - [`procroom-placement-architecture`](procroom-placement-architecture.md): F2, the July ruling, F-3, the consult list.
 - [`procroom-depth-enrichment`](procroom-depth-enrichment.md): the descriptors D1–D5 and the enriched parameters.

@@ -157,9 +157,14 @@ class StraferDepthRNNModel(RNNModel):
         obs_list = [obs[obs_group] for obs_group in self.obs_groups]
         raw = torch.cat(obs_list, dim=-1)
 
-        # Step 2: Encode depth if present
+        # Step 2: Encode depth if present. In the recurrent update (masks given)
+        # the DeFM encoder sees only the valid steps; the CNN encoder's
+        # BatchNorm normalizes over its batch, so it keeps the padded batch.
         if self._has_depth and self.depth_encoder is not None:
-            encoded = self._encode_depth(raw)
+            if masks is not None and isinstance(self.depth_encoder, DeFMDepthEncoder):
+                encoded = self._encode_valid_steps(raw, masks)
+            else:
+                encoded = self._encode_depth(raw)
         else:
             encoded = raw
 
@@ -229,6 +234,20 @@ class StraferDepthRNNModel(RNNModel):
 
         encoded = torch.cat([scalar, depth_emb], dim=-1)
         return encoded.reshape(*leading_shape, -1)
+
+    def _encode_valid_steps(self, raw: torch.Tensor, masks: torch.Tensor) -> torch.Tensor:
+        """Encode only the valid steps of a padded ``(T, B, D)`` recurrent mini-batch.
+
+        Padding follows each trajectory's last valid step, so the RNN's outputs
+        at valid steps never depend on it and ``unpad_trajectories`` drops the
+        rest. Padded steps are left at zero instead of being encoded. The
+        encoder then always sees ``T x envs`` rows, whatever the number of
+        trajectories.
+        """
+        valid = self._encode_depth(raw[masks])
+        encoded = valid.new_zeros(*raw.shape[:-1], valid.shape[-1])
+        encoded[masks] = valid
+        return encoded
 
     # -- Export overrides (depth encoder needs custom handling) ----------------
 

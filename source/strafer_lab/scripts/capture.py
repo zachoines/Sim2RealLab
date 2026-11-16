@@ -1,7 +1,6 @@
 """Strafer harness data-capture entry point.
 
-Unified entry point for the harness data-capture pipeline per
-``docs/tasks/active/harness/harness-architecture.md``. Selects one
+Unified entry point for the harness data-capture pipeline. Selects one
 ``(driver, mission-source)`` cell of the cross-product matrix and runs
 a capture session that writes a LeRobot v3 dataset.
 

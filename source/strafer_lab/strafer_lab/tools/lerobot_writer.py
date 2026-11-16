@@ -476,7 +476,7 @@ class StraferLeRobotWriter:
                 "Install with `pip install --no-deps 'lerobot==0.5.1'` plus "
                 "the matching `datasets`, `av`, and `jsonlines` pins, "
                 "inside the Isaac Lab Python env. See "
-                "docs/HARNESS_DATA_CAPTURE.md → One-time env setup for "
+                "docs/guides/HARNESS_DATA_CAPTURE.md → One-time env setup for "
                 "the full instructions.",
             ) from exc
 

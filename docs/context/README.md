@@ -1,0 +1,241 @@
+# `context/` — reusable agent-onboarding modules
+
+This directory holds **stable facts about the system as it is now**,
+factored out of the per-task briefs, which live in the task repository
+([`tasks-and-evidence.md`](tasks-and-evidence.md)). The goal is to
+let task briefs stay focused on the task itself rather than re-state
+the same preamble every time.
+
+If you're picking up a task, the brief's `## Context bundle` section
+will list the modules to read first. Read those before starting; they
+cover the things the brief assumes you already know.
+
+If you're authoring a new task, the task repository's README says how
+to compose context.
+
+If you're updating a context module — typically as part of landing a
+task that invalidated a fact — keep reading.
+
+---
+
+## What belongs in a context module
+
+- **Stable facts about the system as it is now**, not as it was or
+  will be.
+- **Cross-cutting truths** that show up in multiple task briefs. If
+  the same fact has only ever appeared in one brief, it's not
+  context yet — leave it in the brief.
+- **Pointers, not exposition.** When the answer to "where is X?" is
+  a file path, link the file path. Don't re-explain the contents.
+- **Agent-facing tone**: same voice as the task briefs. Terse,
+  declarative, concrete, link-heavy.
+
+## What does NOT belong in a context module
+
+- **History** ("we used to do X but switched to Y in commit abc123").
+  Git tracks that.
+- **Speculation or future-state** ("we plan to refactor this into
+  Z"). Goes in a task brief, not in context.
+- **Currently open bugs or in-flight work**. Goes in the task
+  repository as a brief. Context describes the *intended invariants*;
+  tasks describe the *current deviations from them*.
+- **Operator-facing procedures**. The cheatsheet at
+  [`docs/guides/example_commands_cheatsheet.md`](../guides/example_commands_cheatsheet.md)
+  is the home for "commands operators copy-paste."
+- **Anything time-bound.** No "as of 2026-04-27" preambles.
+  Modules describe present state; if the present state changes, the
+  module changes.
+- **Rig state.** Link media, measured capacities and throughputs,
+  adapter or radio hardware, tuning parameters, and host addresses
+  beyond what identifies a role. These change without any code
+  changing, and a module is the worst place to discover that: it is
+  the surface future work reads *on its own*, so a stale number there
+  is quoted with a module's authority.
+
+**The rule for a constraint whose value moves.** A module may state
+that the constraint *exists* — that is a durable fact about the
+system's shape — and say that its current value is kept with the work
+that measures it, outside this repository. It must not carry the value,
+and it names no brief. "The sim-bridge camera stream crosses a
+bandwidth-constrained link between the sim host and the robot host;
+the measured budget and current topology are not kept here" is a
+module sentence. The Mbit/s figure, the interface names, and which
+host is on WiFi this month are not.
+
+**Put rig state at the least durable level that still serves its
+readers.** An active brief holds live state that work is being
+planned against; a measurement record holds the dated account of what
+was measured and when; the
+[sim-bridge cheatsheet](../guides/sim_bridge_autonomy_cheatsheet.md) holds
+the operational facts someone needs at the keyboard, as commands and
+gotchas of at most three lines. A module is the most durable level and
+therefore the wrong one by default.
+
+---
+
+## Module size
+
+**Soft ceiling: ~150 lines.** Context modules are reading material
+agents pull up before starting work; they need to be skimmable in a
+minute or two. If a module is past 150 lines, one of these is true:
+
+- It's documentation, not context. Move it (e.g., to
+  `docs/guides/SIM_TO_REAL_TUNING_GUIDE.md`-style long-form docs) and link
+  to it from the slimmer module.
+- It bundles two distinct topics. Split it.
+- It includes exposition that should be a link to source. Replace
+  the exposition with the link.
+
+---
+
+## How tasks reference modules
+
+Task briefs include a small section near the top. A brief lives in
+another repository, so it names a module by its path here and does not
+link it:
+
+```markdown
+## Context bundle
+
+Read these before starting (main repository):
+- `Sim2RealLab: docs/context/repo-topology.md`
+- `Sim2RealLab: docs/context/bridge-runtime-invariants.md`
+```
+
+That replaces what used to be 50 lines of duplicated preamble. The
+brief itself stays focused on what's specific to *this* task.
+
+---
+
+## Maintenance contract
+
+The acceptance criteria of every task brief includes:
+
+```markdown
+- [ ] If your work invalidates a fact in any referenced context
+      module, update that module in the same commit.
+```
+
+This is the forcing function that keeps modules current. The agent
+that ships the change is the one closest to the new truth.
+
+In practice:
+
+1. While implementing a task, you change something — a default value,
+   a script flag, a runtime invariant.
+2. Before opening the commit, scan the modules referenced in your
+   task's `## Context bundle` for any sentence the change makes
+   wrong. If found, edit the module in the same commit.
+3. The commit ends up touching both the source change AND the
+   context module. That's fine; that's the point.
+
+A secondary safety net: when the operator stages a fresh integration
+round, that audit should re-read context modules end-to-end and flag
+anything stale.
+
+---
+
+## When to add a new module
+
+Add a new context module when:
+
+- The same fact (a paragraph or so worth of explanation) has shown
+  up in 3+ task briefs OR is about to.
+- Or: you're writing a brief that needs preamble that isn't covered
+  by any existing module, AND a future agent on a different task
+  would also need it.
+
+Don't add a module:
+
+- Just-in-case for content nobody is asking for yet.
+- For one-off facts specific to one task.
+- For history. The repo's git log handles that.
+
+When you add a module, also add a one-line entry below in the
+[Current modules](#current-modules) section so the index stays
+accurate.
+
+---
+
+## When to split / merge / retire a module
+
+- **Split** when a module pushes past 150 lines AND covers more
+  than one topic. Always link the descendants to each other so
+  cross-references survive.
+- **Merge** when two modules are routinely pulled together by every
+  brief that pulls either, and merging would land both under the
+  ceiling.
+- **Retire** when the system has changed enough that the module
+  no longer describes anything real. Delete it, fix what links it in
+  this tree (`grep -rn '<retired-name>.md' docs/ source/ Readme.md`),
+  and say so in the pull request so the briefs that name it can follow.
+
+---
+
+## Current modules
+
+- [`repo-topology.md`](repo-topology.md) — hosts, branch, conda envs,
+  workspace layout, key entry-point scripts.
+- [`ownership-boundaries.md`](ownership-boundaries.md) — DGX vs
+  Jetson lanes, the peer-agent rule, shared-boundary append-only
+  files.
+- [`bridge-runtime-invariants.md`](bridge-runtime-invariants.md) —
+  bridge architecture, cmd_vel normalization contract, sim-time
+  timeout, headless-vs-`--viz kit` defaults.
+- [`conventions.md`](conventions.md) — commit style (no
+  `Co-Authored-By:` / agent-attribution trailers),
+  no-transient-doc-references-in-code rule, Mermaid edge-label
+  rule, closed-brief lifecycle.
+- [`branching-and-prs.md`](branching-and-prs.md) — one brief = one
+  branch = one PR; naming, branch-off point (always `main`), per-task
+  workflow, PR composition rules incl. the PR register (title/body are
+  the public merge record), merge style.
+- [`tasks-and-evidence.md`](tasks-and-evidence.md) — where briefs, the
+  board and measurement records live (two other repositories), the
+  rule that this tree names none of them, and the `## References`
+  block of a PR body as the only cross-reference.
+- [`env-composition-contract.md`](env-composition-contract.md) — the
+  3-axis (sensor stack × scene source × realism) navigation env-cfg
+  composition, the composed gym-ID scheme (RL fixed-stack vs
+  operator-selectable capture), the preserved-RL-obs invariant + its
+  golden-hash gate, and the single `cameras_required` parameter that
+  drives both env render and LeRobot writer schema.
+- [`deploy-env-config.md`](deploy-env-config.md) — how a value reaches a
+  node in the containerized deploy: the one-key-one-home partition
+  between canon-owned `env_file` mirrors and host `${VAR:-default}`
+  levers, the per-lane canon files and how they layer, the measured
+  compose behaviours the rule rests on, and the `check_env_sync`
+  invariants that enforce it. (Deploy config — not the Isaac Lab env-cfg
+  composition above, despite the similar name.)
+- [`recurrent-policy-contract.md`](recurrent-policy-contract.md) — the
+  DEPTH policy's recurrent hidden-state seam across train → export →
+  inference (tensor shape, reset semantics, ownership at each layer).
+- [`nav2-config-parity.md`](nav2-config-parity.md) — Nav2's config is
+  byte-identical on both lanes by construction (`_patch_params` injects
+  only physical constants); the lifecycle for introducing a lane
+  divergence (sim-first → temporary robot flag → A/B → universalize and
+  delete the flag); and why parity matters on the hybrid backend even
+  though the trained policy does local control.
+
+The operator → planner → executor → grounding → goal projection →
+Nav2 → bridge → Isaac Sim arrow chain is documented in
+[`docs/guides/SYSTEM_FLOW_DIAGRAMS.md`](../guides/SYSTEM_FLOW_DIAGRAMS.md); no
+separate context module duplicates it.
+
+---
+
+## Style guide for module authors
+
+- **Lead with the fact, not the rationale.** Why something is true
+  is sometimes useful, but the fact itself is what an agent needs in
+  the first sentence.
+- **Use links liberally.** "Defined in `path/file.py:42`" beats
+  "the value lives in a file called file.py."
+- **Use small tables for enumerations.** Hosts × IPs, owners × file
+  paths, etc.
+- **Avoid bulletpoint chains.** A 12-bullet list is hard to skim;
+  a 3-row table is fast.
+- **No marketing.** Don't say "the bridge is robust"; say "the bridge
+  publishes /clock at 50 Hz from a Python rclpy thread."
+- **Match the existing modules' tone.** Pull one up before
+  authoring a new one and keep voice consistent.

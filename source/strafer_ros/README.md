@@ -126,7 +126,7 @@ map ← odom ← base_link ← {chassis, wheel_*, d555_link}
 - `wheel_axis_signs = [-1, 1, -1, 1]` for `[FL, FR, RL, RR]` is applied inside `strafer_shared.mecanum_kinematics`. **Do not** re-apply sign inversion inside this package.
 - RoboClaw PID values (`P=15000`, `I=750`, `D=0`, `QPPS=2657`) live in `strafer_shared.constants` and are auto-written to RAM, and read back, on every `roboclaw_node` startup and after every reconnect; `diagnose_roboclaw.py --set-gains --write-nvm` saves the same values to each controller's flash.
 - udev rules in [`99-strafer.rules`](99-strafer.rules) create a `/dev/roboclaw<N>` symlink for each RoboClaw (`<N>` is its ttyACM number, so with the camera at `ttyACM0` the pair may be 1 and 2) and grant IIO permissions for the D555 IMU stack.
-- **Before powering the robot** (evidence: [`jetson-untether`](../../docs/tasks/active/reliability/jetson-untether.md)):
+- **Before powering the robot**:
   - **Plug the D555 in after the Jetson has booted.** Attached at power-on, it enumerates without a
     driver (no `/dev/video*`) until it is unplugged and plugged back in.
   - **The driver needs both RoboClaws at `/dev/roboclaw*` (`make udev`).** Detection probes only
@@ -179,8 +179,8 @@ source install/setup.bash
 Prerequisites:
 
 - Jetson Orin NX 16 GB (L4T R36.4.3) with ROS 2 Humble.
-- RealSense D555 on USB 3 with the host kernel modules for its IMU and per-frame metadata (see [`docs/D555_IMU_KERNEL_FIX.md`](../../docs/D555_IMU_KERNEL_FIX.md) for the out-of-tree build required on Tegra kernels).
-- Two RoboClaw ST 2x45A controllers wired per [`docs/WIRING_GUIDE.md`](../../docs/WIRING_GUIDE.md).
+- RealSense D555 on USB 3 with the host kernel modules for its IMU and per-frame metadata (see [`docs/guides/D555_IMU_KERNEL_FIX.md`](../../docs/guides/D555_IMU_KERNEL_FIX.md) for the out-of-tree build required on Tegra kernels).
+- Two RoboClaw ST 2x45A controllers wired per [`docs/guides/WIRING_GUIDE.md`](../../docs/guides/WIRING_GUIDE.md).
 - `strafer_shared` and `strafer_autonomy` pip-installed into the ROS Python environment: `pip install -e source/strafer_shared -e source/strafer_autonomy --no-build-isolation`. One `-e` per package (a lone `-e` makes only the first editable); `--no-build-isolation` reuses the host `setuptools`, since the stock Jetson pip 22.0.2 otherwise build-isolates a `setuptools` too old for PEP 660 and the editable install fails with a missing `build_editable` hook.
 - `onnxruntime-gpu` for the `strafer_inference` node's TensorRT/CUDA execution providers — the stock CPU `onnxruntime` silently runs DEPTH inference on CPU (~84 ms, over the 33 ms budget). The CPU and GPU wheels share one install dir, so uninstall the CPU build first: `pip uninstall -y onnxruntime && pip install --index-url https://pypi.jetson-ai-lab.io/jp6/cu126 onnxruntime-gpu==1.23.0` (JetPack 6.2 / CUDA 12.6 → `jp6/cu126`). Verify with `python3 -c "import onnxruntime; print(onnxruntime.get_available_providers())"` (lists `TensorrtExecutionProvider`). Do **not** `pip install` the `nvidia-*-cu12` / `tensorrt` wheels — the Jetson build links the JetPack system CUDA/cuDNN/TensorRT and pip copies conflict.
 - udev rules: `sudo cp source/strafer_ros/99-strafer.rules /etc/udev/rules.d/ && sudo udevadm control --reload-rules`.
@@ -226,7 +226,7 @@ VLM_URL=http://192.168.50.196:8100 PLANNER_URL=http://192.168.50.196:8200 \
 make launch-sim
 # foxglove_bridge comes up on :8765 by default; SSH-tunnel from the
 # operator's workstation and connect Foxglove Studio to ws://localhost:8765
-# (full walkthrough: docs/INTEGRATION_SIM_IN_THE_LOOP.md Stage 3.5).
+# (full walkthrough: docs/guides/INTEGRATION_SIM_IN_THE_LOOP.md Stage 3.5).
 # Disable the visualizer with `viewer:=false` if the dep isn't installed.
 ```
 
@@ -287,11 +287,11 @@ cat /proc/sys/net/core/rmem_max   # expect 16777216
 
 **All constants live in `strafer_shared`, not in ROS code.** Wheel radius, track width, velocity limits, depth clip range, PID values, RoboClaw addresses — every number that must stay consistent between sim and real is imported from `strafer_shared.constants`. Do not hardcode values in nodes, launch files, or config YAML.
 
-**Motor sign inversion is applied exactly once, inside `strafer_shared.mecanum_kinematics`.** If a wheel spins backwards, fix the wiring per `docs/WIRING_GUIDE.md` — do not add a second sign flip in the driver, inference runtime, or autonomy code.
+**Motor sign inversion is applied exactly once, inside `strafer_shared.mecanum_kinematics`.** If a wheel spins backwards, fix the wiring per `docs/guides/WIRING_GUIDE.md` — do not add a second sign flip in the driver, inference runtime, or autonomy code.
 
 **The autonomy layer is not a ROS package.** `strafer_autonomy` is a pip-installed Python package that uses `rclpy` at runtime for the command server and ROS client. This keeps the mission runner, schemas, and HTTP clients testable in plain Python environments while still running inside the ROS 2 graph on the Jetson.
 
-**The `*_sync` topics are authoritative for grounding and projection.** `timestamp_fixer` relays the four camera topics as `*_sync` with their stamps unchanged: with the host modules in [`docs/D555_IMU_KERNEL_FIX.md`](../../docs/D555_IMU_KERNEL_FIX.md) the D555 stamps on librealsense's global time, about 25 ms behind receive time, and a frame's image and camera_info share one stamp, which `depth_to_pointcloud`'s exact sync needs. Consumers (RTAB-Map, `depth_to_pointcloud`, `goal_projection_node`, the executor's ROS client) subscribe to the `*_sync` versions, never to the raw topics; the Foxglove layout's colour panels do too.
+**The `*_sync` topics are authoritative for grounding and projection.** `timestamp_fixer` relays the four camera topics as `*_sync` with their stamps unchanged: with the host modules in [`docs/guides/D555_IMU_KERNEL_FIX.md`](../../docs/guides/D555_IMU_KERNEL_FIX.md) the D555 stamps on librealsense's global time, about 25 ms behind receive time, and a frame's image and camera_info share one stamp, which `depth_to_pointcloud`'s exact sync needs. Consumers (RTAB-Map, `depth_to_pointcloud`, `goal_projection_node`, the executor's ROS client) subscribe to the `*_sync` versions, never to the raw topics; the Foxglove layout's colour panels do too.
 
 **URDF is the single source of truth for `base_link → d555_link`.** `strafer_perception` also publishes a static TF of the same transform — a historical wart to be removed. Consumers should treat the URDF transform as authoritative.
 
@@ -326,20 +326,15 @@ End-to-end smoke checks with real hardware run through the validation scripts in
 
 ## Deferred / known limitations
 
-Tracked in [`docs/tasks/DEFERRED_WORK.md`](../../docs/tasks/DEFERRED_WORK.md). Items currently open:
-
-- **`orient_relative_to_target` action** — `strafer_msgs/action/OrientRelativeToTarget.action` is defined in the design docs but not shipped. Executor-side handler is drafted but commented out.
-- **`rotate_in_place` PID on real hardware** — `JetsonRosClient.rotate_in_place()` uses open-loop `cmd_vel` with odom yaw feedback; tolerance tuning on hardware is pending.
-- **Redundant static TF in `perception.launch.py`** — duplicates the URDF's `base_link → d555_link` transform and should be removed.
-- **`MissionStatus.msg` topic** — optional topic-based status for dashboards; not yet added to `strafer_msgs`.
+Open and deferred items are tracked in the task repository's deferred-work list
+([`tasks-and-evidence.md`](../../docs/context/tasks-and-evidence.md)).
 
 ## References
 
 - [`source/strafer_autonomy/README.md`](../strafer_autonomy/README.md) — executor, mission runner, CLI; consumes these ROS interfaces.
 - [`source/strafer_shared/`](../strafer_shared/) — constants, mecanum kinematics, policy I/O contract. Authoritative for every shared value.
 - [`source/strafer_lab/README.md`](../strafer_lab/README.md) — sim-side counterpart; uses the same shared contract so trained policies transfer unchanged.
-- [`docs/WIRING_GUIDE.md`](../../docs/WIRING_GUIDE.md) — motor + encoder + RoboClaw + Jetson wiring, pinouts, address configuration.
-- [`docs/D555_IMU_KERNEL_FIX.md`](../../docs/D555_IMU_KERNEL_FIX.md) — Tegra-kernel module build for the D555: HID-sensor modules (IMU) and a `uvcvideo` with the D555 metadata entry (advancing stamps, raw-depth repeats down from 50 % to 0.17 %, aligned depth).
-- [`docs/SIM_TO_REAL_TUNING_GUIDE.md`](../../docs/SIM_TO_REAL_TUNING_GUIDE.md) — actuator / sensor alignment procedure pairing this package with `strafer_lab`.
-- [`docs/INTEGRATION_SIM_IN_THE_LOOP.md`](../../docs/INTEGRATION_SIM_IN_THE_LOOP.md) — cross-host bringup runbook (Stage 3 covers `bringup_sim_in_the_loop.launch.py` consuming the DGX bridge).
-- [`docs/tasks/DEFERRED_WORK.md`](../../docs/tasks/DEFERRED_WORK.md) — open items.
+- [`docs/guides/WIRING_GUIDE.md`](../../docs/guides/WIRING_GUIDE.md) — motor + encoder + RoboClaw + Jetson wiring, pinouts, address configuration.
+- [`docs/guides/D555_IMU_KERNEL_FIX.md`](../../docs/guides/D555_IMU_KERNEL_FIX.md) — Tegra-kernel module build for the D555: HID-sensor modules (IMU) and a `uvcvideo` with the D555 metadata entry (advancing stamps, raw-depth repeats down from 50 % to 0.17 %, aligned depth).
+- [`docs/guides/SIM_TO_REAL_TUNING_GUIDE.md`](../../docs/guides/SIM_TO_REAL_TUNING_GUIDE.md) — actuator / sensor alignment procedure pairing this package with `strafer_lab`.
+- [`docs/guides/INTEGRATION_SIM_IN_THE_LOOP.md`](../../docs/guides/INTEGRATION_SIM_IN_THE_LOOP.md) — cross-host bringup runbook (Stage 3 covers `bringup_sim_in_the_loop.launch.py` consuming the DGX bridge).

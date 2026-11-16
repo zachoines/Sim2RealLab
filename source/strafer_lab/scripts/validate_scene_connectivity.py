@@ -15,7 +15,7 @@ in the scene-gen pipeline and produces two artifacts:
    Infinigen path-planning consumers (mission-generator oracle,
    grounding-negative trajectory checks) load instead of re-rasterizing — see
    :mod:`strafer_lab.tools.scene_connectivity` and
-   ``docs/tasks/context/path-planning-architecture.md``.
+   ``docs/context/path-planning-architecture.md``.
 
 2. A ``connectivity[]`` block + ``multi_story`` flag merged into the scene
    USD's root-prim ``customData`` (the authored metadata; no JSON sidecar).

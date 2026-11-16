@@ -1,5 +1,8 @@
 # Encode only the valid steps of a recurrent mini-batch with the frozen DeFM encoder
 
+**Status:** Shipped 2026-11-15 in `b0dbde57` (DGX).
+**PR:** https://github.com/zachoines/Sim2RealLab/pull/272
+
 **Type:** bug
 **Owner:** DGX
 **Priority:** P1. Every depth-policy training run steps its host memory by 14–16 GiB at a time during the policy
@@ -15,10 +18,10 @@ does the same arithmetic on every valid step (to convolution rounding on the GPU
 
 ## Context bundle
 
-- [context/repo-topology.md](../../context/repo-topology.md)
-- [context/conventions.md](../../context/conventions.md)
-- [context/branching-and-prs.md](../../context/branching-and-prs.md)
-- [context/recurrent-policy-contract.md](../../context/recurrent-policy-contract.md)
+- [context/repo-topology.md](../context/repo-topology.md)
+- [context/conventions.md](../context/conventions.md)
+- [context/branching-and-prs.md](../context/branching-and-prs.md)
+- [context/recurrent-policy-contract.md](../context/recurrent-policy-contract.md)
 
 ## Context
 
@@ -49,9 +52,11 @@ does the same arithmetic on every valid step (to convolution rounding on the GPU
 
 ## Acceptance criteria
 
-- [ ] In the recurrent update (`masks` given) the DeFM encoder sees `masks.sum()` rows, `48 × envs per mini-batch`
+- [x] In the recurrent update (`masks` given) the DeFM encoder sees `masks.sum()` rows, `48 × envs per mini-batch`
       whatever `n` is; padded steps enter the normalizer as exact zeros.
-- [ ] Pure tests, CPU only, against a padded-batch reference (every padded row encoded) on padded rollouts built by
+      *`test_the_encoder_sees_only_the_valid_steps_and_matches_the_padded_batch_reference` and
+      `test_padded_steps_enter_the_normalizer_as_exact_zeros`, in every mini-batch of the test rollout.*
+- [x] Pure tests, CPU only, against a padded-batch reference (every padded row encoded) on padded rollouts built by
       rsl_rl's own `act` and `process_env_step`, at every rollout seed from 0 to 59:
   - in every mini-batch, the valid rows' embeddings, the latent, the actor's distribution parameters,
     log-probabilities and entropy, and the critic's values equal the reference's;
@@ -64,15 +69,32 @@ does the same arithmetic on every valid step (to convolution rounding on the GPU
   - values put at the padded steps leave a whole update exactly as with zeros there, on both paths;
   - without masks, and with the CNN encoder whether requested or DeFM's fallback, every row is encoded as in the
     reference.
-- [ ] One GPU run on the same launch as the instrumented resume above, beside that resume run as its baseline, with
+
+  *The 11 tests of `tests/navigation/test_depth_rnn_valid_steps.py` pass at every rollout seed from 0 to 59. The
+  largest parameter difference after the step was 0.994 eps (|p| + lr), against the bound of 4. 33 of 36 one-place
+  mutants of `depth_rnn_model.py` fail at least one test; the three that pass change no number.*
+- [x] One GPU run on the same launch as the instrumented resume above, beside that resume run as its baseline, with
       the clock cap in force. From the second update on: reserved memory holds its level (no rise of 1 GiB or more),
       allocated peaks at 12.0–13.5 GiB in every update (predicted 12.6–12.9 GiB), and no release inside learning.
       Learning time is predicted at about 49 s per iteration and reported against the baseline's.
-- [ ] If your work invalidates a fact in any referenced context module, package README, top-level `Readme.md`, or
+      *Read on 2026-11-15, with the GPU clock limited to 2,100 MHz (`nvidia-smi -lgc 300,2100`):*
+  - *Allocated memory peaked at 12.22–12.26 GiB in every update from the second on, flat across `n`. The baseline
+    peaked at 15.7–17.7 GiB, and at 22.4–31.0 GiB in updates with a cuDNN search.*
+  - *Reserved memory never exceeded 19,154 MiB; the baseline reached 51,878 MiB. The registered "no rise of 1 GiB
+    or more" was not met once. In the third iteration's collection phase, an env step with four resets released
+    the cache, from 18,732 to 768 MiB, and the first mini-batch of that iteration's update regrew it to the held
+    level (+16.8 GiB). The level was never exceeded, and no release came inside learning. What releases the cache
+    at that step is a hypothesis outside this change: a cuDNN search on the room generator's convolution at a
+    first-seen reset count.*
+  - *Learning took 48.5–49.2 s per iteration, a median ratio of 0.741 against the same-day baseline. Both runs had
+    other CPU work beside them.*
+- [x] If your work invalidates a fact in any referenced context module, package README, top-level `Readme.md`, or
       guide under `docs/`, update those in the same commit. See
-      [`conventions.md`'s user-facing documentation maintenance section](../../context/conventions.md#user-facing-documentation-maintenance)
+      [`conventions.md`'s user-facing documentation maintenance section](../context/conventions.md#user-facing-documentation-maintenance)
       for the surface list and trigger heuristics.
-- [ ] No regression: `make test-lab-pure` passes.
+      *No context module, package README or guide describes how the update encodes padded steps, so none changes.*
+- [x] No regression: `make test-lab-pure` passes.
+      *1381 passed, 1 skipped at the branch's test head, from the JUnit XML; `main` gives 1370 and 1.*
 
 ## Investigation pointers
 

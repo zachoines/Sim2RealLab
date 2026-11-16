@@ -127,6 +127,10 @@ def _no_difficulty():
     return dict(max_internal_walls=1, max_furniture=6, max_clutter=10)
 
 
+def _no_difficulty_negative_budgets():
+    return dict(max_internal_walls=1, max_furniture=-1, max_clutter=-3)
+
+
 _ALL8 = (tuple(range(8)),)
 
 # name: (seeds, num_envs, calls (env ids per call, in order on one env), difficulty, origins, params, health sink)
@@ -179,6 +183,15 @@ CASES = {
     "robot-pool-fallback": (
         (20315534, 20323453, 20331372), 8, _ALL8, 7, _zero_origins, _enriched(robot_spawn_inflation_cells=40),
         False,
+    ),
+    # An erosion that empties some envs' robot pool and not others: the fallback is per env.
+    "robot-pool-fallback-mixed": (
+        (20315534, 20323453, 20331372), 8, _ALL8, 7, _zero_origins, _enriched(robot_spawn_inflation_cells=8),
+        False,
+    ),
+    # Negative budgets on an env without curriculum difficulty take no prefix of the sequences.
+    "no-difficulty-negative-budgets": (
+        (20307615,), 8, _ALL8, None, _zero_origins, _no_difficulty_negative_budgets, False,
     ),
     "sink-enriched-compound": (
         (20339291,), 8, _ALL8, 7, _zero_origins,
@@ -274,6 +287,10 @@ _SWEEP_GOLDEN = {
     "robot-pool-fallback-s20315534": "2d3bbaa71ce8cf9cc9a12071c6b5628d55c8d8aff225fba116e5d4a8deefd460",
     "robot-pool-fallback-s20323453": "127aaa629ca3efb8fe0d2939c163d5f20b2dda6574d58887fb04f42da001a469",
     "robot-pool-fallback-s20331372": "3c491c06fb133a8233a8d926a429eb1032eb4661570f9c76956f74d949273052",
+    "robot-pool-fallback-mixed-s20315534": "93433e4752ef403f2609b0cbf49162f63ebdcf849293ec927253f811127bc1d9",
+    "robot-pool-fallback-mixed-s20323453": "b6f6406fe952ceb59852305a07c4e29dfeb9845154807fecf4f4e3948079277b",
+    "robot-pool-fallback-mixed-s20331372": "ef116c7e99b1a815a80537cd51557c362d3175a995801851cded76e3316616bd",
+    "no-difficulty-negative-budgets-s20307615": "7cac94f71084b9e76963b38332779718ec6c9c127cbac738b2ca9d546bb947c1",
     "sink-enriched-compound-s20339291": "088107271d84a287f49f23e1d9b3ec074b25cecb26a0dd47f76005877bbd9c27",
 }
 
@@ -313,15 +330,25 @@ def test_each_case_reaches_its_branch():
     env = _run_case(_proc_room, seeds[0], n, calls, difficulty, origins, make_params, False)[0]
     assert not hasattr(env, "_proc_room_difficulty")
 
-    seeds, n, calls, difficulty, origins, make_params, _ = CASES["robot-pool-fallback"]
-    fell_back = 0
-    for seed in seeds:
-        env = _run_case(_proc_room, seed, n, calls, difficulty, origins, make_params, False)[0]
-        same = (env._proc_room_robot_spawn_count == env._proc_room_spawn_count) & torch.all(
-            (env._proc_room_robot_spawn_pts == env._proc_room_spawn_pts).flatten(1), dim=1
-        )
-        fell_back += int(same.sum())
-    assert fell_back > 0
+    def fallbacks(name):
+        seeds, n, calls, difficulty, origins, make_params, _ = CASES[name]
+        out = []
+        for seed in seeds:
+            env = _run_case(_proc_room, seed, n, calls, difficulty, origins, make_params, False)[0]
+            same = (env._proc_room_robot_spawn_count == env._proc_room_spawn_count) & torch.all(
+                (env._proc_room_robot_spawn_pts == env._proc_room_spawn_pts).flatten(1), dim=1
+            )
+            out.append(same)
+        return out
+
+    assert sum(int(f.sum()) for f in fallbacks("robot-pool-fallback")) > 0
+    for same in fallbacks("robot-pool-fallback-mixed"):  # each seed's batch holds both kinds of env
+        assert bool(same.any()) and not bool(same.all())
+
+    seeds, n, calls, difficulty, origins, make_params, _ = CASES["no-difficulty-negative-budgets"]
+    env = _run_case(_proc_room, seeds[0], n, calls, difficulty, origins, make_params, False)[0]
+    placed = env._proc_room_active_mask
+    assert not bool(placed[:, _proc_room.FURNITURE_SLOTS].any()) and not bool(placed[:, _proc_room.CLUTTER_SLOTS].any())
 
     seeds, n, calls, difficulty, origins, make_params, _ = CASES["origins-partial-resets-sink"]
     assert len(calls) > 1 and any(len(c) < n for c in calls)

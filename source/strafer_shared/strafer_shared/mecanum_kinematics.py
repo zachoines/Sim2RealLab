@@ -141,16 +141,18 @@ def l1_clamp_twist(
 def l1_clamp_twist_batched(
     body_velocities,
     *,
-    vel_cap_linear_m_s: float,
-    vel_cap_angular_rad_s: float,
+    vel_cap_linear_m_s,
+    vel_cap_angular_rad_s,
 ):
     """Torch-vectorized form of :func:`l1_clamp_twist` for sim training.
 
     Args:
         body_velocities: Tensor of shape ``(..., 3)`` whose last axis is
             ``(vx, vy, omega)`` in (m/s, m/s, rad/s).
-        vel_cap_linear_m_s: L1 budget shared by ``vx``/``vy``.
-        vel_cap_angular_rad_s: Independent clamp on ``omega``.
+        vel_cap_linear_m_s: L1 budget shared by ``vx``/``vy``: a float, or a
+            tensor broadcasting against the leading axes (one cap per env).
+        vel_cap_angular_rad_s: Independent clamp on ``omega``: a float, or a
+            tensor of the leading axes' shape.
 
     Returns:
         Tensor with the same shape and dtype as ``body_velocities``,

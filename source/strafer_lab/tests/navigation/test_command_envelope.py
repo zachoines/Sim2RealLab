@@ -1,0 +1,114 @@
+# Copyright (c) 2025, Strafer Lab Project
+# SPDX-License-Identifier: BSD-3-Clause
+
+"""The command envelope: a per-env scale on both caps, applied by the action term's clamp.
+
+The term is built against a stand-in env (an asset that names its four wheel joints), on the ideal tier so the
+processed wheel velocities are the clamped body command through the kinematic matrix, with nothing after it. The body
+command is recovered from them by the matrix's pseudo-inverse.
+"""
+
+from __future__ import annotations
+
+from types import SimpleNamespace
+
+import numpy as np
+import pytest
+import torch
+
+from strafer_shared.mecanum_kinematics import l1_clamp_twist, l1_clamp_twist_batched
+
+N = 64
+
+
+class _Asset:
+    def find_joints(self, names, preserve_order=False):
+        return [0, 1, 2, 3], ["wheel_1_drive", "wheel_2_drive", "wheel_3_drive", "wheel_4_drive"]
+
+
+def _term(speed_scale_range):
+    from strafer_lab.tasks.navigation import strafer_env_cfg as tiers
+
+    cfg = tiers.ActionsCfg_Ideal().wheel_velocities
+    cfg.speed_scale_range = speed_scale_range
+    env = SimpleNamespace(scene={cfg.asset_name: _Asset()}, device="cpu", num_envs=N, physics_dt=1 / 120, step_dt=1 / 30)
+    return cfg.class_type(cfg, env)
+
+
+def _body(term):
+    """The clamped body command, recovered from the processed wheel velocities."""
+    wheels = term.processed_actions / term._wheel_axis_signs
+    return wheels @ torch.linalg.pinv(term._kinematic_matrix).T
+
+
+def test_per_env_caps_clamp_each_row_as_the_scalar_form():
+    rng = np.random.default_rng(0)
+    v = torch.from_numpy(rng.uniform(-3, 3, (N, 3))).float()
+    lin = torch.from_numpy(rng.uniform(0.2, 1.6, N)).float()
+    ang = torch.from_numpy(rng.uniform(0.5, 4.2, N)).float()
+    out = l1_clamp_twist_batched(v, vel_cap_linear_m_s=lin, vel_cap_angular_rad_s=ang)
+    for i in range(N):
+        want = l1_clamp_twist(*v[i].tolist(), vel_cap_linear_m_s=float(lin[i]), vel_cap_angular_rad_s=float(ang[i]))
+        assert np.allclose(out[i].numpy(), np.asarray(want, dtype=np.float32), atol=1e-6), i
+
+
+def test_scales_draw_in_range_and_reset_redraws_only_its_envs():
+    term = _term((0.255, 1.0))
+    s0 = term._speed_scale.clone()
+    assert torch.all((s0 >= 0.255) & (s0 <= 1.0)) and s0.std() > 0.05
+    ids = torch.tensor([3, 10, 41])
+    term.reset(ids)
+    moved = (term._speed_scale != s0).nonzero().flatten().tolist()
+    assert set(moved) <= set(ids.tolist()) and moved, moved
+
+
+def test_the_clamp_applies_each_envs_scale():
+    """Each cap alone: a full-speed command on one budget, so the per-wheel limit after the kinematics stays slack."""
+    term = _term((0.255, 1.0))
+    s = term._speed_scale
+    term.process_actions(torch.tensor([[1.0, 0.0, 0.0]]).repeat(N, 1))
+    assert torch.allclose(_body(term)[:, :2].abs().sum(-1), s * term._max_linear_vel, atol=1e-4)
+    term.process_actions(torch.tensor([[0.0, 0.0, 1.0]]).repeat(N, 1))
+    assert torch.allclose(_body(term)[:, 2].abs(), s * term._max_angular_vel, atol=1e-4)
+
+
+def test_a_pinned_half_scale_is_the_deploy_cap():
+    """s = 0.5 is the node's cap: 0.7841 m/s on |vx| + |vy| and 2.0933 rad/s on |omega|."""
+    term = _term((0.5, 0.5))
+    term.process_actions(torch.tensor([[1.0, 0.0, 0.0]]).repeat(N, 1))
+    assert torch.allclose(_body(term)[:, :2].abs().sum(-1), torch.full((N,), 0.7841), atol=5e-4)
+    term.process_actions(torch.tensor([[0.0, 0.0, 1.0]]).repeat(N, 1))
+    assert torch.allclose(_body(term)[:, 2].abs(), torch.full((N,), 2.0933), atol=5e-4)
+
+
+def test_off_and_unit_scale_leave_the_clamp_as_it_was():
+    torch.manual_seed(0)
+    a = torch.rand(N, 3) * 2 - 1
+    off, unit = _term(None), _term((1.0, 1.0))
+    off.process_actions(a.clone())
+    unit.process_actions(a.clone())
+    assert torch.allclose(off.processed_actions, unit.processed_actions, atol=1e-5)
+
+
+@pytest.mark.parametrize("bad", [(0.0, 1.0), (0.6, 0.5), (0.5, 1.2)])
+def test_an_impossible_range_is_refused(bad):
+    with pytest.raises(ValueError):
+        _term(bad)
+
+
+def test_no_composed_variant_carries_the_envelope():
+    """The mechanism alone: every composed variant keeps the fixed caps."""
+    import dataclasses
+
+    from strafer_lab.tasks.navigation import composed_env_cfg as composed
+
+    seen = 0
+    for name in sorted(n for n in dir(composed) if n.startswith("StraferNavCfg_")):
+        cls = getattr(composed, name)
+        kind = [f.default_factory().kind for f in dataclasses.fields(cls) if f.name == "scene_source"]
+        if kind == ["infinigen"]:
+            continue  # reads the scene corpus at construction; composes the same action tiers
+        rng = cls().actions.wheel_velocities.speed_scale_range
+        seen += 1
+        assert rng is None, f"{name}: {rng}"
+    assert seen > 12, "the variant sweep collapsed"

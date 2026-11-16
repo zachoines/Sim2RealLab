@@ -237,6 +237,21 @@ class MecanumWheelAction(ActionTerm):
             self._max_delta_per_step = (accel_per_env * env.physics_dt).unsqueeze(-1)
             self._prev_wheel_vels = torch.zeros(env.num_envs, 4, device=env.device)
         
+        # ============================================================
+        # Command envelope (per-env scale on both caps, clamp only)
+        # ============================================================
+        # One scale s per env, drawn at every reset, multiplies the L1 linear
+        # cap and the angular cap the clamp applies. _velocity_scale stays at
+        # the full envelope, as the deploy node scales the action by the full
+        # envelope before it caps.
+        self._speed_scale_range = cfg.speed_scale_range
+        if self._speed_scale_range is not None:
+            lo, hi = (float(x) for x in self._speed_scale_range)
+            if not 0.0 < lo <= hi <= 1.0:
+                raise ValueError(f"speed_scale_range must satisfy 0 < low <= high <= 1, got {self._speed_scale_range}")
+            self._speed_scale = torch.ones(env.num_envs, device=env.device)
+            self._draw_speed_scale(None)
+
         # Log configuration
         print(f"[MecanumWheelAction] Initialized with:")
         print(f"  Wheel radius: {self._wheel_radius*1000:.1f} mm")
@@ -252,12 +267,27 @@ class MecanumWheelAction(ActionTerm):
         print(f"  Command delay: {self._enable_command_delay} (steps={cfg.min_delay_steps}-{cfg.max_delay_steps})")
         print(f"  Command hold: {self._hold.enabled} (fraction={cfg.hold_fraction_range}, run={cfg.hold_run_range})")
         print(f"  Slew rate limit: {self._enable_slew_rate} (max_accel={cfg.max_acceleration_rad_s2} rad/s², range={cfg.max_acceleration_range})")
+        print(f"  Command envelope: {self._speed_scale_range is not None} (scale range={self._speed_scale_range})")
+
+    def _draw_speed_scale(self, env_ids: torch.Tensor | None) -> None:
+        """Draw each env's envelope scale uniformly in speed_scale_range."""
+        lo, hi = (float(x) for x in self._speed_scale_range)
+        n = self._speed_scale.shape[0] if env_ids is None else env_ids.shape[0]
+        draw = lo + (hi - lo) * torch.rand(n, device=self._speed_scale.device)
+        if env_ids is None:
+            self._speed_scale[:] = draw
+        else:
+            self._speed_scale[env_ids] = draw
 
     def reset(self, env_ids: torch.Tensor | None = None) -> None:
         """Reset action state for specified environments."""
         all_envs = env_ids is None
         if all_envs:
             env_ids = slice(None)
+
+        # Redraw the command envelope
+        if self._speed_scale_range is not None:
+            self._draw_speed_scale(None if all_envs else env_ids)
 
         # Reset motor dynamics filter
         if self._enable_motor_dynamics:
@@ -324,10 +354,15 @@ class MecanumWheelAction(ActionTerm):
         # wheel independently and distorts the commanded heading on
         # diagonal motions — a contract gap the Jetson side closes via
         # strafer_inference.obs_pipeline.l1_clamp_velocity.
+        if self._speed_scale_range is None:
+            cap_linear, cap_angular = self._max_linear_vel, self._max_angular_vel
+        else:
+            cap_linear = self._speed_scale * self._max_linear_vel
+            cap_angular = self._speed_scale * self._max_angular_vel
         body_velocities = l1_clamp_twist_batched(
             body_velocities,
-            vel_cap_linear_m_s=self._max_linear_vel,
-            vel_cap_angular_rad_s=self._max_angular_vel,
+            vel_cap_linear_m_s=cap_linear,
+            vel_cap_angular_rad_s=cap_angular,
         )
 
         # Convert to wheel angular velocities using mecanum kinematics
@@ -455,6 +490,18 @@ class MecanumWheelActionCfg(ActionTermCfg):
     hold_run_range: tuple[float, float] = (1.0, 1.0)
     """Per-env mean hold-run length [min, max] in control steps, sampled at
     reset."""
+
+    # ============================================================
+    # Command envelope
+    # ============================================================
+
+    speed_scale_range: tuple[float, float] | None = None
+    """Per-env scale s ~ U[low, high], drawn at every reset, on both command
+    caps: the L1 linear cap becomes s times the full linear speed and the
+    angular cap s times the full angular speed. The action is still scaled by
+    the full envelope, and only the clamp tightens. None (the default) leaves
+    the caps at the full envelope. A range with low == high pins s, which is
+    how an evaluation fixes the cap."""
 
     # ============================================================
     # Sim-to-Real: Slew rate limiting

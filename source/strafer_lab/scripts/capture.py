@@ -1,7 +1,6 @@
 """Strafer harness data-capture entry point.
 
-Unified entry point for the harness data-capture pipeline per
-``docs/tasks/active/harness/harness-architecture.md``. Selects one
+Unified entry point for the harness data-capture pipeline. Selects one
 ``(driver, mission-source)`` cell of the cross-product matrix and runs
 a capture session that writes a LeRobot v3 dataset.
 
@@ -161,7 +160,7 @@ def _build_parser() -> argparse.ArgumentParser:
         type=int,
         default=1,
         help="Parallel env count (scripted driver only). Bounded by "
-             "harness-throughput-measurement; default 1.",
+             "measured harness throughput; default 1.",
     )
     parser.add_argument(
         "--mission-queue",

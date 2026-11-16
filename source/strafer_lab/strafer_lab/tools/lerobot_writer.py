@@ -170,8 +170,8 @@ def _normalize_cameras_required(
 class StraferEpisodeExtensions:
     """Per-episode strafer metadata appended to a sidecar parquet.
 
-    Columns mirror the harness-architecture brief's per-episode metadata
-    table. None-valued fields land as null in the parquet.
+    One column per field below. None-valued fields land as null in the
+    parquet.
     """
 
     episode_index: int
@@ -476,7 +476,7 @@ class StraferLeRobotWriter:
                 "Install with `pip install --no-deps 'lerobot==0.5.1'` plus "
                 "the matching `datasets`, `av`, and `jsonlines` pins, "
                 "inside the Isaac Lab Python env. See "
-                "docs/HARNESS_DATA_CAPTURE.md → One-time env setup for "
+                "docs/guides/HARNESS_DATA_CAPTURE.md → One-time env setup for "
                 "the full instructions.",
             ) from exc
 

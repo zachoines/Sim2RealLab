@@ -161,7 +161,7 @@ class _ProgressTracker:
     beating its previous best. Single-room scenes don't hit this; large
     multi-room re-plans might. The principled fix is a multi-layer
     watchdog (chassis-motion + plan-health + goal-progress signals),
-    tracked in ``docs/tasks/active/nav-stall-multilayer-watchdog.md``.
+    which this helper does not implement.
 
     Pure helper: no ROS / clock dependencies, so unit tests can drive it
     by injecting samples directly.

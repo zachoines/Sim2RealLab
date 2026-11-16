@@ -1,17 +1,14 @@
 """Episode-end button-to-outcome translator for the harness teleop driver.
 
-Pure-Python — extracted from the in-process teleop loop so the mapping
-table from the harness brief's "Episode-end button mapping" section is
-unit-testable without booting Isaac Sim.
+Pure-Python — extracted from the in-process teleop loop so the
+episode-end button mapping is unit-testable without booting Isaac Sim.
 
 The translator takes a :class:`GamepadFrame`-shaped dict (buttons +
 D-pad) and returns a :class:`EpisodeEndDecision` carrying the
 ``(outcome, outcome_category, hard_negative_category, keep)`` tuple the
 writer needs on ``end_episode``.
 
-Mapping table (mirror of
-``docs/tasks/active/harness/harness-architecture.md`` §Episode-end
-button mapping)::
+Mapping table::
 
   Y (north)             succeeded            on_course           null      keep
   B (east)              failed               on_course           null      keep

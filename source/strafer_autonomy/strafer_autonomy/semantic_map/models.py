@@ -128,7 +128,7 @@ class RoomEntry:
     Centroid is the mean xy of the member nodes (observation-derived, not
     metadata-derived). `observed_objects` is the deduplicated set of object
     labels seen in any member node's `detected_objects` — used by the
-    autonomy-stack compiler as the primary target-room-inference signal.
+    plan compiler as the primary target-room-inference signal.
     """
 
     label: str

@@ -92,7 +92,7 @@ envs): `Isaac-Strafer-Nav-RLDepth-Real-Play-v0`,
 | Sensor failure events | Disabled | Disabled | Enabled |
 | Domain randomization | 0× | 1× | 1.5× |
 
-Full actuator and sensor tuning methodology is in [`docs/SIM_TO_REAL_TUNING_GUIDE.md`](../../docs/SIM_TO_REAL_TUNING_GUIDE.md).
+Full actuator and sensor tuning methodology is in [`docs/guides/SIM_TO_REAL_TUNING_GUIDE.md`](../../docs/guides/SIM_TO_REAL_TUNING_GUIDE.md).
 
 ### Policy I/O contract
 
@@ -113,7 +113,7 @@ If the Isaac-side observation layout changes, `strafer_shared.policy_interface` 
 ### Scripts and tools inventory
 
 Grouped by the placement rule (see
-[`conventions.md` → Script and tool placement](../../docs/tasks/context/conventions.md#script-and-tool-placement)):
+[`conventions.md` → Script and tool placement](../../docs/context/conventions.md#script-and-tool-placement)):
 runnable scripts under `scripts/`, importable modules under
 `strafer_lab.tools.*`, deprecated code under a sibling `retired/`.
 
@@ -127,7 +127,7 @@ runnable scripts under `scripts/`, importable modules under
 | `scripts/test_strafer_env.py` | Motion-pattern smoke test (forward / strafe / rotate / circle / figure8) | IsaacLab |
 | `scripts/export_policy.py` | Convert an rsl_rl checkpoint to a deployable TorchScript `.pt` + (where supported) ONNX `.onnx`. Round-trips the artifact through `strafer_shared.policy_interface.load_policy()` and refuses to write if the deterministic-mean head wasn't frozen. Emits a JSON sidecar with variant, dimensions, source checkpoint, repo SHA, ONNX opset, `is_recurrent`, and `trained_period_s` | IsaacLab |
 | `scripts/benchmark_policy.py` | Median / p95 / p99 inference-latency stats on an exported artifact. Accepts an ONNX execution-provider preference list so the Jetson lane can record TRT-EP latency after rsync | pure-Python |
-| `scripts/capture.py` | Unified harness data-capture entry point (`--driver × --mission-source` cross-product per `harness-architecture.md`). Wires `(teleop, scene-metadata)` via `scripts/teleop_capture.py`, `(bridge, scene-metadata)` / `(bridge, queue)` via `scripts/run_sim_in_the_loop.py --mode harness`, and `(scripted, coverage)` via `scripts/coverage_capture.py`; the scripted `queue` / `captioner` cells raise `NotImplementedError` until those mission sources ship | Isaac Sim (drivers); pure-Python for argv validation |
+| `scripts/capture.py` | Unified harness data-capture entry point (`--driver × --mission-source` cross-product). Wires `(teleop, scene-metadata)` via `scripts/teleop_capture.py`, `(bridge, scene-metadata)` / `(bridge, queue)` via `scripts/run_sim_in_the_loop.py --mode harness`, and `(scripted, coverage)` via `scripts/coverage_capture.py`; the scripted `queue` / `captioner` cells raise `NotImplementedError` until those mission sources ship | Isaac Sim (drivers); pure-Python for argv validation |
 | `scripts/teleop_capture.py` | In-process Isaac Lab teleop driver. Boots `AppLauncher`, loads `Isaac-Strafer-Nav-Capture-Teleop-v0`, reads gamepad, drives `env.step()`, and writes a LeRobot v3 dataset via `StraferLeRobotWriter` | Isaac Sim, pygame, lerobot |
 | `scripts/coverage_capture.py` | In-process scripted coverage driver — the bulk-capture default. Boots `AppLauncher`, runs the trained RL subgoal-follower (`policy_interface.load_policy`) along a deterministic geometric coverage plan (`tools/coverage_plan.py`: every room visited from spread approach headings), and records a LeRobot v3 dataset with detections + the realized-mount-quat column + the embedded `scene_metadata` sidecar. The diverse same-place / different-heading views are the training signal, not goal-reaching demos | Isaac Sim, lerobot, torch |
 | `scripts/run_sim_in_the_loop.py` | Launch Isaac Sim with the ROS 2 bridge in `--mode bridge` (manual Nav2 drive) or `--mode harness` (walks scene-metadata targets or a `mission_queue.yaml` through the Jetson autonomy stack and records a LeRobot v3 dataset with detections + optional `--inject-bad-grounding` hard negatives) | Isaac Sim, `isaacsim.ros2.bridge`, lerobot, Jetson on LAN |
@@ -168,13 +168,13 @@ runnable scripts under `scripts/`, importable modules under
 | `infinigen_label_parser` | Infinigen-specific semantic label normalization |
 | `command_overlay` | `CommandOverlay`, `draw_command`, `draw_robot`, `project` — draws the goal, rolling subgoal and planned path, and the robot's footprint, onto recorded video frames from the command state and the robot pose. The command terms create no scene geometry, so no camera renders them; `play`, `train` and `test_strafer_env` wrap `RecordVideo` with it |
 
-**Deprecated** (`scripts/retired/`, `tools/retired/`) — retained for reference / mining, **not imported or invoked by any live entry point**; the harness brief deletes each as it supersedes it:
+**Deprecated** (`scripts/retired/`, `tools/retired/`) — retained for reference / mining, **not imported or invoked by any live entry point**; each is deleted when its successor ships:
 
 | Path | Superseded by |
 |---|---|
-| `scripts/retired/generate_descriptions.py` | captioner mission source in `harness-architecture.md` |
+| `scripts/retired/generate_descriptions.py` | the captioner mission source of `scripts/capture.py` (not built) |
 | `scripts/retired/prepare_vlm_finetune_data.py` | direct LeRobot v3 loading |
-| `scripts/retired/finetune_clip.py` | the `cotrained-retrieval-augmented` multi-task recipe |
+| `scripts/retired/finetune_clip.py` | a co-trained, retrieval-augmented multi-task recipe (not built) |
 | `tools/retired/dataset_export.py` | direct LeRobot v3 loading |
 
 **Isaac Sim subpackages** (require Kit runtime):
@@ -194,10 +194,8 @@ runnable scripts under `scripts/`, importable modules under
 `v3.0.0-beta2.patch1`, paired with a clone of Isaac Lab at that tag. `.env` names
 the pair (`CONDA_ENV`, `ISAACLAB`); everything below refers to it by role.
 
-Why each step is the way it is — the ordering hazards, what a rebuild does and
-does not reproduce — is in
-[`isaac-lab-upgrade-pra-2026-08-26`](../../docs/measurements/isaac-lab-upgrade-pra-2026-08-26/README.md).
-Read that if a step surprises you; otherwise run these in order.
+The order of the steps is part of the recipe, and each step's comment names the
+hazard it avoids. Run them in order.
 
 **Prereqs** (audited on `gx10-d1d8`):
 
@@ -330,9 +328,8 @@ printing the other two. Do not "fix" it.
 **Reproducing this exact set.** The commands above pin about fifteen packages;
 the rest are whatever the resolver returns on the day.
 [`constraints-isaac-lab.txt`](constraints-isaac-lab.txt) holds
-the resolved versions of the environment
-[`isaac-lab-upgrade-stage3-2026-08-23`](../../docs/measurements/isaac-lab-upgrade-stage3-2026-08-23/README.md)
-validated. Three rules make it work, and none of them is optional:
+the resolved versions of the environment this stack was validated in. Three
+rules make it work, and none of them is optional:
 
 ```bash
 export PIP_CONSTRAINT=$PWD/source/strafer_lab/constraints-isaac-lab.txt
@@ -372,8 +369,7 @@ This was run: the recipe above, with these three rules, built from an empty cond
 env into **300 distributions with all 282 pinned versions identical** to the
 environment the constraints came from — the only difference being the two
 editable lines, which carry the working-tree revision rather than an environment
-fact. The logs are in
-[`isaac-lab-upgrade-pra-2026-08-26`](../../docs/measurements/isaac-lab-upgrade-pra-2026-08-26/README.md).
+fact.
 
 **DGX Spark limitations** (Isaac Sim aarch64 build): no SkillGen, no OpenXR, no
 JAX-GPU, no Livestream — none affect `strafer_lab`. `nvidia-smi` reports VRAM as
@@ -401,7 +397,7 @@ version, so the Isaac Lab env's torch is not free to move at all; `.venv_vlm`
 tracks its own. The two currently share a torch minor and differ only in the
 CUDA build.
 The full table, the why-separate rationale, and each recreate recipe live in
-[`repo-topology.md` → Python environments (DGX)](../../docs/tasks/context/repo-topology.md#python-environments-dgx).
+[`repo-topology.md` → Python environments (DGX)](../../docs/context/repo-topology.md#python-environments-dgx).
 
 ## Run
 
@@ -590,11 +586,8 @@ python -m pytest source/strafer_autonomy/tests/test_scene_labels.py \
 
 ## Deferred / known limitations
 
-Tracked in [`docs/DEFERRED_WORK.md`](../../docs/DEFERRED_WORK.md). Items currently open:
-
-- **Electronics masses in the USD** — RoboClaws, Jetson, buck converter, D555 camera meshes + masses are TODO in `source/strafer_lab/scripts/asset_authoring/setup_physics.py`. Without them, the simulated chassis inertia underestimates the real robot.
-- **`strafer_inference` Jetson package** — the deployment target for trained policies does not exist yet; see [`strafer_ros`](../strafer_ros/README.md) for the interface side.
-- **Goal position noise during final pre-deployment training** — for VLM-sourced goals, retrain with `goal_position_noise_std: 0.2-0.3 m` in `commands.py` to match Qwen2.5-VL-3B localization error; without this, the policy oscillates at deployment.
+Open and deferred items are tracked in the task repository's deferred-work list
+([`tasks-and-evidence.md`](../../docs/context/tasks-and-evidence.md)).
 
 ## References
 
@@ -602,6 +595,5 @@ Tracked in [`docs/DEFERRED_WORK.md`](../../docs/DEFERRED_WORK.md). Items current
 - [`source/strafer_ros/README.md`](../strafer_ros/README.md) — real-robot counterpart; consumes the same policy interface.
 - [`source/strafer_autonomy/README.md`](../strafer_autonomy/README.md) — Jetson executor that sim-in-the-loop drives.
 - [`source/strafer_vlm/README.md`](../strafer_vlm/README.md) — grounding service + LoRA fine-tuning tooling consuming datasets from this pipeline.
-- [`docs/SIM_TO_REAL_TUNING_GUIDE.md`](../../docs/SIM_TO_REAL_TUNING_GUIDE.md) — deep-dive actuator / sensor alignment procedure pairing sim presets with hardware measurements.
-- [`docs/INTEGRATION_SIM_IN_THE_LOOP.md`](../../docs/INTEGRATION_SIM_IN_THE_LOOP.md) — cross-host bridge runbook (Stage 2 covers `make sim-bridge` smoke-test gating this package).
-- [`docs/tasks/DEFERRED_WORK.md`](../../docs/tasks/DEFERRED_WORK.md) — open items.
+- [`docs/guides/SIM_TO_REAL_TUNING_GUIDE.md`](../../docs/guides/SIM_TO_REAL_TUNING_GUIDE.md) — deep-dive actuator / sensor alignment procedure pairing sim presets with hardware measurements.
+- [`docs/archived/INTEGRATION_SIM_IN_THE_LOOP.md`](../../docs/archived/INTEGRATION_SIM_IN_THE_LOOP.md) — cross-host bridge runbook (archived, not maintained; Stage 2 covers the `make sim-bridge` smoke test).

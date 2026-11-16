@@ -15,7 +15,7 @@ CONDA_ENV ?= env_isaaclab3
 
 .PHONY: build test test-unit test-driver test-ros test-autonomy test-vlm test-dgx test-jetson test-lab test-lab-pure lint lint-fix format format-check clean kill \
         launch launch-nav launch-autonomy launch-sim images up teleop submit submit-deploy down clean-map \
-        env-sync env-check \
+        env-sync env-check docs-check \
         install-tools udev serve-vlm serve-planner check-nvrtc help \
         sim-bridge sim-bridge-gui sim-harness harness-smoke
 
@@ -85,9 +85,10 @@ test-ros: ## ROS 2 package tests — native ROS if present, else in strafer-cpu:
 test-driver: ## strafer_driver unit tests — native ROS if present, else in strafer-cpu:humble
 	@tools/run_ros_tests.sh driver $(PYTEST_ARGS)
 
-test-dgx: ## DGX e2e umbrella — env-check + autonomy + vlm + lab, each in its env. SKIP_KIT=1 swaps the heavy Kit suite for the fast pure-Python lab half.
+test-dgx: ## DGX e2e umbrella — env-check + docs-check + autonomy + vlm + lab, each in its env. SKIP_KIT=1 swaps the heavy Kit suite for the fast pure-Python lab half.
 	@rc=0; \
 	$(MAKE) --no-print-directory env-check || rc=1; \
+	$(MAKE) --no-print-directory docs-check || rc=1; \
 	$(MAKE) --no-print-directory test-autonomy AUTONOMY_PY=$(VENV_VLM)/bin/python || rc=1; \
 	$(MAKE) --no-print-directory test-vlm || rc=1; \
 	if [ "$$SKIP_KIT" = "1" ]; then \
@@ -98,11 +99,11 @@ test-dgx: ## DGX e2e umbrella — env-check + autonomy + vlm + lab, each in its 
 	fi; \
 	exit $$rc
 
-test-jetson: ## Jetson e2e umbrella — env-check + autonomy + ros + driver
+test-jetson: ## Jetson e2e umbrella — env-check + docs-check + autonomy + ros + driver
 	@# Every step runs; the summary names each one so a partial run cannot be
 	@# mistaken for a full one, and any failure fails the umbrella.
 	@rc=0; summary=""; \
-	for step in env-check test-autonomy test-ros test-driver; do \
+	for step in env-check docs-check test-autonomy test-ros test-driver; do \
 		echo "=== $$step ==="; \
 		if $(MAKE) --no-print-directory $$step; then \
 			summary="$$summary\n  ok      $$step"; \
@@ -163,6 +164,9 @@ env-sync: ## Regenerate the compose env mirrors from canonical strafer_bringup/c
 
 env-check: ## Verify the compose env mirrors + DDS anchors match canon (fails on drift; run by `make test`)
 	@python3 $(DEPLOY_DIR)/tests/check_env_sync.py
+
+docs-check: ## Check tracked files for the former in-tree homes of briefs and records, the board's and the deferred-work list's file names, and dated directory names; TASKS_CLONE=<path> ARTIFACTS_CLONE=<path> add brief and record names (run by `make test`)
+	@python3 tools/check_transient_refs.py $(if $(TASKS_CLONE),--tasks "$(TASKS_CLONE)") $(if $(ARTIFACTS_CLONE),--records "$(ARTIFACTS_CLONE)")
 
 # Stamped into org.opencontainers.image.revision on both images and echoed by
 # every container's entrypoint, so a deploy running old code says so. The

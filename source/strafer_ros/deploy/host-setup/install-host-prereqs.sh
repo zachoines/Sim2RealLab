@@ -60,7 +60,7 @@ fi
 # --- Deferred hardware note --------------------------------------------------
 # The D555 needs custom-built kernel modules on the NX kernel: hid-sensor-hub +
 # IIO drivers for its IMU, and a uvcvideo with the D555 metadata entry for its
-# per-frame stamps (host-side; see docs/D555_IMU_KERNEL_FIX.md) -- kernel modules
+# per-frame stamps (host-side; see docs/guides/D555_IMU_KERNEL_FIX.md) -- kernel modules
 # cannot live in a container. 99-strafer.rules (installed above) grants the
 # iio/hidraw perms those modules expose to non-root processes.
 echo "[host-setup] done."

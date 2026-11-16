@@ -28,13 +28,14 @@ Four axis configurations drive the composition:
   read whatever the active command term emits.
 
 The composition root selects among the *existing* MDP building blocks for the
-requested axes, so an RL variant composed here is structurally identical to
-the hand-written class it replaces — the observation tensor, action layout,
-DR sequence, and scene a trained policy depends on are preserved exactly. The
-selector keeps the capture-facing variants (teleop, bridge, scripted) free to
-render a narrower or wider camera set than any RL variant, since those
-consumers read camera data through scene handles rather than the policy
-observation tensor.
+requested axes; each RL variant's observation tensor, action layout, DR
+sequence and scene size are frozen by the contract test. On the ProcRoom source
+the sensor profile selects the room: a stack carrying the policy depth camera
+(depth/full) composes the enclosed room, and the camera-free profile the
+open-top one. The selector keeps the capture-facing variants (teleop, bridge,
+scripted) free to render a narrower or wider camera set than any RL variant,
+since those consumers read camera data through scene handles rather than the
+policy observation tensor.
 """
 
 from __future__ import annotations
@@ -359,10 +360,11 @@ _CURRICULUM_BY_SOURCE = {
 def _select_scene(scene_source: SceneSourceCfg, sensors: SensorStackCfg):
     """Pick + size the scene class for the requested source and sensor stack.
 
-    For RL sources (plane / procroom / depth-only infinigen) this returns the
-    same scene class the hand-written variant used, so the composed env is
-    scene-identical. The Infinigen perception scene (both cameras) backs the
-    capture variants and is pruned to the requested stack afterwards.
+    On ProcRoom the profile selects the room: a depth/full stack gets the
+    enclosed scene (the perception or the depth one), and a camera-free stack
+    the open-top NoCam scene. The Infinigen perception scene (both cameras)
+    backs the capture variants and is pruned to the requested stack
+    afterwards.
     """
     kind = scene_source.kind
     has_policy_cam = sensors.has_policy_camera()

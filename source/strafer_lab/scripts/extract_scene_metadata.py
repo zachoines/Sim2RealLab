@@ -31,7 +31,7 @@ Authoring (needs ``pxr``; semantics need the Isaac Sim Kit runtime):
   pass (see ``--label-denylist``).
 
 The customData payload authored here is the ``objects[]`` / ``rooms[]`` /
-``room_adjacency`` shape (see ``docs/SCENE_PROVIDER_CONTRACT.md``). One more
+``room_adjacency`` shape (see ``docs/guides/SCENE_PROVIDER_CONTRACT.md``). One more
 block is layered onto the same payload *after* this pass, by the sibling
 ``validate_scene_connectivity.py`` (kept separate so this Infinigen-state
 walker stays pure): a **verified** ``connectivity[]`` graph (per room-pair

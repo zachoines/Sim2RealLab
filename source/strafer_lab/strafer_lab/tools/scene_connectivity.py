@@ -67,7 +67,7 @@ except Exception:  # pragma: no cover - strafer_shared always present in lab env
 # large occupancy GRID stays a sidecar (not embedded in the USD ``customData``
 # the connectivity graph rides in): a multi-hundred-thousand-cell array would
 # base64-bloat customData and every read of it, and the planner-side consumers
-# (this module, the mission-generator adapter) are numpy-only / pxr-free, so
+# (this module, the mission generator's adapter) are numpy-only / pxr-free, so
 # moving the grid into the USD would force ``pxr`` on all of them. The
 # ``occupancy.json`` USD-identity tie covers the sidecar's one downside
 # (staleness). The small connectivity GRAPH, by contrast, is authored truth and
@@ -155,7 +155,7 @@ def load_occupancy(scene_dir: Path | str) -> CachedOccupancy:
     """Load a scene's cached occupancy grid + metadata.
 
     The shared entry point for downstream Infinigen path-planning consumers
-    (mission-generator oracle, grounding-negative trajectory checks): load the
+    (the mission generator's oracle, grounding-negative trajectory checks): load the
     cached grid rather than re-rasterizing the scene.
     """
     scene_dir = Path(scene_dir)

@@ -292,10 +292,10 @@ _EVENTS_BY_SOURCE_REALISM = {
     ("procroom", "robust"): EventsCfg_ProcRoom_Robust,
 }
 
-# Depth-enrichment events (un-pinned difficulty + enriched generation), keyed on
-# realism. Selected for a procroom variant that carries the policy depth camera
-# (profile depth/full): the enclosed room. NOCAM keeps the base events above,
-# the open-top room. Mirrors the profile-keyed reward override below.
+# The enclosed room's events (difficulty drawn on levels 4-7, the enclosed
+# room's generator arguments), keyed on realism. Selected for a procroom variant
+# that carries the policy depth camera (profile depth/full). NOCAM keeps the base
+# events above, the open-top room. Mirrors the profile-keyed reward override below.
 _EVENTS_ENRICHED_BY_REALISM = {
     "real": EventsCfg_ProcRoom_Realistic_Enriched,
     "robust": EventsCfg_ProcRoom_Robust_Enriched,
@@ -382,18 +382,19 @@ def _select_scene(scene_source: SceneSourceCfg, sensors: SensorStackCfg):
                 env_spacing=base._STANDARD_ENV_SPACING,
             )
     elif kind == "procroom":
-        # Enrichment adds enclosure + a ceiling slab, on a depth/full profile
-        # carrying the policy depth camera (the NOCAM scene is never enriched,
-        # so its palette stays byte-identical). Gate matches the events fork in
-        # ``__post_init__`` so scene and events never disagree.
-        enrich = sensors.obs_profile() in ("depth", "full")
+        # A depth/full profile carries the policy depth camera and gets the
+        # enclosed room's scene: tall walls and furniture, and the ceiling
+        # surface. The camera-free NOCAM profile keeps the open-top scene, so its
+        # palette stays byte-identical. The same gate selects the events in
+        # ``__post_init__``, so scene and events never disagree.
+        enclosed = sensors.obs_profile() in ("depth", "full")
         # Perception first: the bridge stack requests BOTH a policy and a
         # perception camera, so has_policy_cam is also true — check
         # has_perception_cam first so the perception scene wins.
         if has_perception_cam:
             perception_cls = (
                 StraferSceneCfg_ProcRoomPerceptionEnriched
-                if enrich
+                if enclosed
                 else StraferSceneCfg_ProcRoomPerception
             )
             scene = perception_cls(
@@ -402,7 +403,7 @@ def _select_scene(scene_source: SceneSourceCfg, sensors: SensorStackCfg):
             )
         elif has_policy_cam:
             depth_cls = (
-                StraferSceneCfg_ProcRoomEnriched if enrich else StraferSceneCfg_ProcRoom
+                StraferSceneCfg_ProcRoomEnriched if enclosed else StraferSceneCfg_ProcRoom
             )
             scene = depth_cls(
                 num_envs=base._PROCROOM_DEPTH_TRAIN_NUM_ENVS,
@@ -510,12 +511,12 @@ class _ComposedStraferNavEnvCfg(base._BaseStraferNavEnvCfg):
         # --- Managers (select shared building blocks) ---
         self.observations = _OBS_BY_REALISM_PROFILE[(level, profile)]()
         self.actions = _ACTIONS_BY_REALISM[level]()
-        # A procroom depth/full variant gets the enriched events (enclosure +
-        # un-pinned density); every other source, and the NOCAM profile, keeps
-        # the base source/realism events.
-        enrich = kind == "procroom" and profile in ("depth", "full")
+        # A procroom depth/full variant gets the enclosed room's events (its
+        # generator arguments, difficulty drawn on levels 4-7); every other
+        # source, and the NOCAM profile, keeps the base source/realism events.
+        enclosed = kind == "procroom" and profile in ("depth", "full")
         try:
-            if enrich:
+            if enclosed:
                 self.events = _EVENTS_ENRICHED_BY_REALISM[level]()
             else:
                 self.events = _EVENTS_BY_SOURCE_REALISM[(kind, level)]()
@@ -575,7 +576,7 @@ class _ComposedStraferNavEnvCfg(base._BaseStraferNavEnvCfg):
             _apply_procroom_physx_buffers(self)
             # Same gate as the scene/events fork above: only the enclosed room
             # carries the one-sided ceiling the culling switch is for.
-            if enrich:
+            if enclosed:
                 _apply_enrich_render_face_culling(self)
 
         # --- Play/eval shrink ---

@@ -127,7 +127,7 @@ runnable scripts under `scripts/`, importable modules under
 | `scripts/test_strafer_env.py` | Motion-pattern smoke test (forward / strafe / rotate / circle / figure8) | IsaacLab |
 | `scripts/export_policy.py` | Convert an rsl_rl checkpoint to a deployable TorchScript `.pt` + (where supported) ONNX `.onnx`. Round-trips the artifact through `strafer_shared.policy_interface.load_policy()` and refuses to write if the deterministic-mean head wasn't frozen. Emits a JSON sidecar with variant, dimensions, source checkpoint, repo SHA, ONNX opset, `is_recurrent`, and `trained_period_s` | IsaacLab |
 | `scripts/benchmark_policy.py` | Median / p95 / p99 inference-latency stats on an exported artifact. Accepts an ONNX execution-provider preference list so the Jetson lane can record TRT-EP latency after rsync | pure-Python |
-| `scripts/capture.py` | Unified harness data-capture entry point (`--driver × --mission-source` cross-product per `harness-architecture.md`). Wires `(teleop, scene-metadata)` via `scripts/teleop_capture.py`, `(bridge, scene-metadata)` / `(bridge, queue)` via `scripts/run_sim_in_the_loop.py --mode harness`, and `(scripted, coverage)` via `scripts/coverage_capture.py`; the scripted `queue` / `captioner` cells raise `NotImplementedError` until those mission sources ship | Isaac Sim (drivers); pure-Python for argv validation |
+| `scripts/capture.py` | Unified harness data-capture entry point (`--driver × --mission-source` cross-product). Wires `(teleop, scene-metadata)` via `scripts/teleop_capture.py`, `(bridge, scene-metadata)` / `(bridge, queue)` via `scripts/run_sim_in_the_loop.py --mode harness`, and `(scripted, coverage)` via `scripts/coverage_capture.py`; the scripted `queue` / `captioner` cells raise `NotImplementedError` until those mission sources ship | Isaac Sim (drivers); pure-Python for argv validation |
 | `scripts/teleop_capture.py` | In-process Isaac Lab teleop driver. Boots `AppLauncher`, loads `Isaac-Strafer-Nav-Capture-Teleop-v0`, reads gamepad, drives `env.step()`, and writes a LeRobot v3 dataset via `StraferLeRobotWriter` | Isaac Sim, pygame, lerobot |
 | `scripts/coverage_capture.py` | In-process scripted coverage driver — the bulk-capture default. Boots `AppLauncher`, runs the trained RL subgoal-follower (`policy_interface.load_policy`) along a deterministic geometric coverage plan (`tools/coverage_plan.py`: every room visited from spread approach headings), and records a LeRobot v3 dataset with detections + the realized-mount-quat column + the embedded `scene_metadata` sidecar. The diverse same-place / different-heading views are the training signal, not goal-reaching demos | Isaac Sim, lerobot, torch |
 | `scripts/run_sim_in_the_loop.py` | Launch Isaac Sim with the ROS 2 bridge in `--mode bridge` (manual Nav2 drive) or `--mode harness` (walks scene-metadata targets or a `mission_queue.yaml` through the Jetson autonomy stack and records a LeRobot v3 dataset with detections + optional `--inject-bad-grounding` hard negatives) | Isaac Sim, `isaacsim.ros2.bridge`, lerobot, Jetson on LAN |
@@ -168,13 +168,13 @@ runnable scripts under `scripts/`, importable modules under
 | `infinigen_label_parser` | Infinigen-specific semantic label normalization |
 | `command_overlay` | `CommandOverlay`, `draw_command`, `draw_robot`, `project` — draws the goal, rolling subgoal and planned path, and the robot's footprint, onto recorded video frames from the command state and the robot pose. The command terms create no scene geometry, so no camera renders them; `play`, `train` and `test_strafer_env` wrap `RecordVideo` with it |
 
-**Deprecated** (`scripts/retired/`, `tools/retired/`) — retained for reference / mining, **not imported or invoked by any live entry point**; the harness brief deletes each as it supersedes it:
+**Deprecated** (`scripts/retired/`, `tools/retired/`) — retained for reference / mining, **not imported or invoked by any live entry point**; each is deleted when its successor ships:
 
 | Path | Superseded by |
 |---|---|
-| `scripts/retired/generate_descriptions.py` | captioner mission source in `harness-architecture.md` |
+| `scripts/retired/generate_descriptions.py` | the captioner mission source of `scripts/capture.py` (not built) |
 | `scripts/retired/prepare_vlm_finetune_data.py` | direct LeRobot v3 loading |
-| `scripts/retired/finetune_clip.py` | the `cotrained-retrieval-augmented` multi-task recipe |
+| `scripts/retired/finetune_clip.py` | a co-trained, retrieval-augmented multi-task recipe (not built) |
 | `tools/retired/dataset_export.py` | direct LeRobot v3 loading |
 
 **Isaac Sim subpackages** (require Kit runtime):

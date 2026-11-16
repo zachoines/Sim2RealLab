@@ -160,7 +160,7 @@ def _build_parser() -> argparse.ArgumentParser:
         type=int,
         default=1,
         help="Parallel env count (scripted driver only). Bounded by "
-             "harness-throughput-measurement; default 1.",
+             "measured harness throughput; default 1.",
     )
     parser.add_argument(
         "--mission-queue",

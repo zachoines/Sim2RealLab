@@ -11,22 +11,20 @@ than growing a second or third planner.
 ## The decision
 
 **One scene-agnostic grid A\* core; per-scene-source occupancy-grid
-adapters.** Any brief that needs a collision-free waypoint path —
-RL subgoal training, harness oracle/scripted paths, mission-generator
-waypoint validation, hard-negative trajectory generation — plans with
+adapters.** Any work that needs a collision-free waypoint path —
+RL subgoal training, harness oracle/scripted paths, the mission
+generator's waypoint validation, hard-negative trajectory generation —
+plans with
 [`strafer_lab.tasks.navigation.path_planner`](../../source/strafer_lab/strafer_lab/tasks/navigation/path_planner/). What differs
 per consumer is **only the occupancy grid** fed in, not the planner.
 
-This reverses the prior drift toward per-brief A* helpers: the
-`mission-generator` brief sketched "reuse the connectivity-validation
-brief's A* helper," `scene-connectivity-validation` had not yet written
-one, and `subgoal-env` shipped a third for RL training. The decision
-collapses those onto the subgoal-env planner, which already shipped and
-is tested.
+The alternative — one A* helper per consumer — is what this decision
+rules out: every consumer plans on the RL subgoal environment's planner,
+which is tested.
 
 ---
 
-## The core (shipped by `subgoal-env`, PR #87)
+## The core
 
 `path_planner` is scene-agnostic — it takes a boolean grid, not scene
 objects:
@@ -51,21 +49,21 @@ Each consumer rasterizes **its** scene representation into the same
 
 | Consumer | Scene source | Grid builder | Regime |
 |---|---|---|---|
-| `subgoal-env` RL training | ProcRoom procedural boxes | [`mdp/proc_room.py`](../../source/strafer_lab/strafer_lab/tasks/navigation/mdp/proc_room.py) `_build_occupancy_grid` + `_inflate_obstacles` | GPU-batched `(B, G, G)`, per-reset, throughput-bound |
-| `scene-connectivity-validation` (the **producer**) | Infinigen USD physics colliders | **generates** the cached occupancy via Isaac Sim's occupancy-map extension ([`validate_scene_connectivity.py`](../../source/strafer_lab/scripts/validate_scene_connectivity.py)) → `<scene>/occupancy.npy` | single-scene, scene-gen time |
-| `mission-generator` oracle / waypoint validation | the cached `<scene>/occupancy.npy` | **load** it + [`scene_connectivity.occupancy_to_free_space`](../../source/strafer_lab/strafer_lab/tools/scene_connectivity.py) (invert + robot-radius disc inflation) | single-scene, episode-gen time, latency-tolerant |
-| `grounding-negative-taxonomy` `trajectory_violation` | the cached `<scene>/occupancy.npy` | the same load + invert/inflate adapter | single-scene |
+| RL subgoal training | ProcRoom procedural boxes | [`mdp/proc_room.py`](../../source/strafer_lab/strafer_lab/tasks/navigation/mdp/proc_room.py) `_build_occupancy_grid` + `_inflate_obstacles` | GPU-batched `(B, G, G)`, per-reset, throughput-bound |
+| Scene connectivity validation (the **producer**) | Infinigen USD physics colliders | **generates** the cached occupancy via Isaac Sim's occupancy-map extension ([`validate_scene_connectivity.py`](../../source/strafer_lab/scripts/validate_scene_connectivity.py)) → `<scene>/occupancy.npy` | single-scene, scene-gen time |
+| Mission generator: oracle / waypoint validation | the cached `<scene>/occupancy.npy` | **load** it + [`scene_connectivity.occupancy_to_free_space`](../../source/strafer_lab/strafer_lab/tools/scene_connectivity.py) (invert + robot-radius disc inflation) | single-scene, episode-gen time, latency-tolerant |
+| Grounding negatives: `trajectory_violation` | the cached `<scene>/occupancy.npy` | the same load + invert/inflate adapter | single-scene |
 | `path-statistics` corridor/aperture measurement | either — ProcRoom grids from the CPU stub, scanned scenes from the cached `<scene>/occupancy.npy` | [`tools/path_statistics.py`](../../source/strafer_lab/strafer_lab/tools/path_statistics.py) consumes whichever `free_space` the source already builds, plus that source's *raw* occupancy for clearance | offline, CPU, both sources measured identically |
 
 The ProcRoom grid builder is GPU-batched for training-reset throughput.
 The Infinigen consumers share a **cached-occupancy seam** instead of each
-re-rasterizing the scene: `scene-connectivity-validation` generates the
+re-rasterizing the scene: `validate_scene_connectivity.py` generates the
 occupancy *once per scene at generation time* from the USD's physics
 colliders (Isaac Sim's occupancy-map extension `isaacsim.asset.gen.omap` —
 more accurate than rasterizing object AABBs, and it sees the doorway
 free-space a rasterizer misses) and caches it as `<scene>/occupancy.npy`
 (+ `occupancy.json` for the grid→world mapping). Downstream consumers
-(mission-generator oracle, grounding-negative trajectory checks) **load that
+(the mission generator's oracle, grounding-negative trajectory checks) **load that
 cached grid** and run the one shared invert/inflate adapter
 `scene_connectivity.occupancy_to_free_space` (occupied → free, dilated by
 the robot radius with a Euclidean disc) before calling `plan_path` — they do
@@ -122,10 +120,10 @@ recorded trajectory.
 
 ---
 
-## Distributional-gap caveat (carried from `subgoal-env`)
+## Distributional-gap caveat
 
-`subgoal-env` chose a custom grid A* (its "Option B") over Nav2's
-offline planner. At deployment the hybrid backend tracks paths from
+The RL subgoal environment plans with a custom grid A* rather than
+Nav2's offline planner. At deployment the hybrid backend tracks paths from
 Nav2's *actual* planner, so the training planner's quirks differ from
 Nav2's. The RL policy hedges this with `perturb_waypoints`. Harness
 consumers don't have a Nav2-parity bar — their paths are demonstration

@@ -170,8 +170,8 @@ def _normalize_cameras_required(
 class StraferEpisodeExtensions:
     """Per-episode strafer metadata appended to a sidecar parquet.
 
-    Columns mirror the harness-architecture brief's per-episode metadata
-    table. None-valued fields land as null in the parquet.
+    One column per field below. None-valued fields land as null in the
+    parquet.
     """
 
     episode_index: int

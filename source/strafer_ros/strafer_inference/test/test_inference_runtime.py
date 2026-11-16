@@ -1571,7 +1571,7 @@ class TestMissionEndStopIsLast(unittest.TestCase):
 
     @pytest.mark.xfail(
         strict=True,
-        reason="inference-finished-successor-stop: the fix removes this marker",
+        reason="known defect, pinned by this test: the fix removes this marker",
     )
     def test_goal_ending_before_its_preempted_predecessor_leaves(self) -> None:
         """A goal can end while the goal it preempted is still in its execute

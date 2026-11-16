@@ -349,8 +349,7 @@ class TestCollisionProprioception:
 
         This test pins that behaviour. A future change that silently
         reverts ``body_velocity_xy`` to a ground-truth body-velocity
-        source (the pre-`observation-contract-cleanup` behaviour, which
-        DID drop to zero on collision) would be caught here.
+        source (which DOES drop to zero on collision) would be caught here.
 
         The proprioceptive collision signal the policy CAN use is IMU
         deceleration — covered by ``test_collision_imu_mean_differs_from_free``

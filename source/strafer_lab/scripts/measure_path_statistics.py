@@ -63,10 +63,11 @@ class _StubScene:
 
 
 def _shipped_enriched_params():
-    """The generator kwargs and difficulty range the enriched variants ship."""
+    """The generator kwargs and difficulty range the depth variants ship (the
+    enriched generator path)."""
     from strafer_lab.tasks.navigation import composed_env_cfg as composed
 
-    events = composed.StraferNavCfg_RLDepthEnriched_Real().events
+    events = composed.StraferNavCfg_RLDepth_Real().events
     params = dict(events.generate_room.params)
     params.pop("collection_name", None)
     diff = events.randomize_difficulty.params

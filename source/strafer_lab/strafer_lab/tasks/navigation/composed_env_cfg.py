@@ -215,18 +215,15 @@ class SceneSourceCfg:
     runtime knobs. ``num_envs`` / ``env_spacing`` default to ``None`` so the
     per-source defaults apply; set them to override (e.g. a play preset).
 
-    ``enrich_depth`` opts a ``procroom`` variant into the depth-statistics
-    enrichment (enclosure + un-pinned density + spawn/clutter/doorway widening).
-    It engages only for the ``procroom`` source on a depth/full observation
-    profile (a policy-depth-camera stack); it is inert for any other source or
-    profile, so the default reproduces the open-top generator exactly. Not a
-    hashed contract field.
+    The ``procroom`` source composes the enclosed room (enclosure + un-pinned
+    density + spawn/clutter/doorway widening) on a depth/full observation
+    profile, a stack carrying the policy depth camera, and the open-top room on
+    the camera-free profile.
     """
 
     kind: str = "procroom"
     num_envs: int | None = None
     env_spacing: float | None = None
-    enrich_depth: bool = False
 
 
 @configclass
@@ -295,10 +292,9 @@ _EVENTS_BY_SOURCE_REALISM = {
 }
 
 # Depth-enrichment events (un-pinned difficulty + enriched generation), keyed on
-# realism. Selected only when a procroom variant opts into ``enrich_depth`` and
-# carries the policy depth camera (profile depth/full); NOCAM keeps the base
-# events above, so its manager hash is unchanged. Mirrors the profile-keyed
-# reward override below.
+# realism. Selected for a procroom variant that carries the policy depth camera
+# (profile depth/full): the enclosed room. NOCAM keeps the base events above,
+# the open-top room. Mirrors the profile-keyed reward override below.
 _EVENTS_ENRICHED_BY_REALISM = {
     "real": EventsCfg_ProcRoom_Realistic_Enriched,
     "robust": EventsCfg_ProcRoom_Robust_Enriched,
@@ -384,11 +380,11 @@ def _select_scene(scene_source: SceneSourceCfg, sensors: SensorStackCfg):
                 env_spacing=base._STANDARD_ENV_SPACING,
             )
     elif kind == "procroom":
-        # Enrichment adds enclosure + a ceiling slab, only on a depth/full
-        # profile carrying the policy depth camera (the NOCAM scene is never
-        # enriched, so its palette stays byte-identical). Gate matches the
-        # events fork in ``__post_init__`` so scene and events never disagree.
-        enrich = scene_source.enrich_depth and sensors.obs_profile() in ("depth", "full")
+        # Enrichment adds enclosure + a ceiling slab, on a depth/full profile
+        # carrying the policy depth camera (the NOCAM scene is never enriched,
+        # so its palette stays byte-identical). Gate matches the events fork in
+        # ``__post_init__`` so scene and events never disagree.
+        enrich = sensors.obs_profile() in ("depth", "full")
         # Perception first: the bridge stack requests BOTH a policy and a
         # perception camera, so has_policy_cam is also true — check
         # has_perception_cam first so the perception scene wins.
@@ -512,10 +508,10 @@ class _ComposedStraferNavEnvCfg(base._BaseStraferNavEnvCfg):
         # --- Managers (select shared building blocks) ---
         self.observations = _OBS_BY_REALISM_PROFILE[(level, profile)]()
         self.actions = _ACTIONS_BY_REALISM[level]()
-        # A procroom depth/full variant that opted into enrichment gets the
-        # enriched events (enclosure + un-pinned density); every other variant,
-        # and the NOCAM profile, keeps the base source/realism events.
-        enrich = kind == "procroom" and source.enrich_depth and profile in ("depth", "full")
+        # A procroom depth/full variant gets the enriched events (enclosure +
+        # un-pinned density); every other source, and the NOCAM profile, keeps
+        # the base source/realism events.
+        enrich = kind == "procroom" and profile in ("depth", "full")
         try:
             if enrich:
                 self.events = _EVENTS_ENRICHED_BY_REALISM[level]()
@@ -575,8 +571,8 @@ class _ComposedStraferNavEnvCfg(base._BaseStraferNavEnvCfg):
             _apply_infinigen_scene_setup(self)
         elif kind == "procroom":
             _apply_procroom_physx_buffers(self)
-            # Same gate as the scene/events fork above: only the enriched
-            # variants carry the one-sided ceiling the culling switch is for.
+            # Same gate as the scene/events fork above: only the enclosed room
+            # carries the one-sided ceiling the culling switch is for.
             if enrich:
                 _apply_enrich_render_face_culling(self)
 
@@ -589,15 +585,15 @@ class _ComposedStraferNavEnvCfg(base._BaseStraferNavEnvCfg):
 # Named composed variants
 #
 # RL variants (fixed sensor stack — the obs contract a trained policy was
-# fitted against). Each is structurally identical to the hand-written class
-# it replaces; the snapshot contract test asserts the byte-level identity.
+# fitted against). The depth variants compose the enclosed ProcRoom and the
+# NOCAM variants the open-top one; the snapshot contract test freezes each
+# variant's contract.
 # ---------------------------------------------------------------------------
 
 
 @configclass
 class StraferNavCfg_RLDepth_Real(_ComposedStraferNavEnvCfg):
-    """RL depth training (ProcRoom, realistic). Replaces the realistic
-    ProcRoom depth variant; obs/action/DR preserved byte-identical."""
+    """RL depth training (ProcRoom, realistic)."""
 
     sensors = SensorStackCfg(cameras_required=("depth_policy",))
     scene_source = SceneSourceCfg(kind="procroom")
@@ -613,8 +609,7 @@ class StraferNavCfg_RLDepth_Real_PLAY(StraferNavCfg_RLDepth_Real):
 
 @configclass
 class StraferNavCfg_RLDepth_Robust(_ComposedStraferNavEnvCfg):
-    """RL depth training (ProcRoom, robust DR). Replaces the robust ProcRoom
-    depth variant; obs/action/DR preserved byte-identical."""
+    """RL depth training (ProcRoom, robust DR)."""
 
     sensors = SensorStackCfg(cameras_required=("depth_policy",))
     scene_source = SceneSourceCfg(kind="procroom")
@@ -723,83 +718,6 @@ class StraferNavCfg_RLDepthSubgoal_Robust_PLAY(StraferNavCfg_RLDepthSubgoal_Robu
 
 
 # ---------------------------------------------------------------------------
-# Depth-enrichment RL variants (new IDs, own frozen goldens). Identical to the
-# depth variants above except the ProcRoom generator is enriched toward
-# enclosed, Infinigen-like depth statistics (enclosure + un-pinned density +
-# spawn/clutter/doorway widening). Separate IDs so the depth checkpoints trained
-# against the open-top generator keep their frozen contract; the enrichment
-# retrain targets these. NOCAM/NOCAM_SUBGOAL are never enriched.
-# ---------------------------------------------------------------------------
-
-
-@configclass
-class StraferNavCfg_RLDepthEnriched_Real(_ComposedStraferNavEnvCfg):
-    """RL depth training on the enriched ProcRoom generator (realistic)."""
-
-    sensors = SensorStackCfg(cameras_required=("depth_policy",))
-    scene_source = SceneSourceCfg(kind="procroom", enrich_depth=True)
-    realism = RealismCfg(level="real")
-
-
-@configclass
-class StraferNavCfg_RLDepthEnriched_Real_PLAY(StraferNavCfg_RLDepthEnriched_Real):
-    """Play/eval preset for enriched RL depth (realistic)."""
-
-    play_num_envs = base._PROCROOM_DEPTH_PLAY_NUM_ENVS
-
-
-@configclass
-class StraferNavCfg_RLDepthEnriched_Robust(_ComposedStraferNavEnvCfg):
-    """RL depth training on the enriched ProcRoom generator (robust DR)."""
-
-    sensors = SensorStackCfg(cameras_required=("depth_policy",))
-    scene_source = SceneSourceCfg(kind="procroom", enrich_depth=True)
-    realism = RealismCfg(level="robust")
-
-
-@configclass
-class StraferNavCfg_RLDepthEnriched_Robust_PLAY(StraferNavCfg_RLDepthEnriched_Robust):
-    """Play/eval preset for enriched RL depth (robust)."""
-
-    play_num_envs = base._PROCROOM_DEPTH_PLAY_NUM_ENVS
-
-
-@configclass
-class StraferNavCfg_RLDepthSubgoalEnriched_Real(_ComposedStraferNavEnvCfg):
-    """RL depth-camera subgoal tracking on the enriched generator (realistic) —
-    the enrichment retrain's primary target."""
-
-    sensors = SensorStackCfg(cameras_required=("depth_policy",))
-    scene_source = SceneSourceCfg(kind="procroom", enrich_depth=True)
-    realism = RealismCfg(level="real")
-    objective = ObjectiveCfg(kind="subgoal")
-
-
-@configclass
-class StraferNavCfg_RLDepthSubgoalEnriched_Real_PLAY(StraferNavCfg_RLDepthSubgoalEnriched_Real):
-    """Play/eval preset for enriched RL depth subgoal tracking (realistic)."""
-
-    play_num_envs = base._PROCROOM_DEPTH_PLAY_NUM_ENVS
-
-
-@configclass
-class StraferNavCfg_RLDepthSubgoalEnriched_Robust(_ComposedStraferNavEnvCfg):
-    """RL depth-camera subgoal tracking on the enriched generator (robust DR)."""
-
-    sensors = SensorStackCfg(cameras_required=("depth_policy",))
-    scene_source = SceneSourceCfg(kind="procroom", enrich_depth=True)
-    realism = RealismCfg(level="robust")
-    objective = ObjectiveCfg(kind="subgoal")
-
-
-@configclass
-class StraferNavCfg_RLDepthSubgoalEnriched_Robust_PLAY(StraferNavCfg_RLDepthSubgoalEnriched_Robust):
-    """Play/eval preset for enriched RL depth subgoal tracking (robust)."""
-
-    play_num_envs = base._PROCROOM_DEPTH_PLAY_NUM_ENVS
-
-
-# ---------------------------------------------------------------------------
 # Capture variants (operator-selectable stack — NOT snapshot-gated). These
 # read camera data through scene handles, not the policy obs tensor, so their
 # render set is free to differ from any RL variant. The ``cameras_required``
@@ -838,8 +756,11 @@ class StraferNavCfg_BridgeAutonomy_ProcRoom(_ComposedStraferNavEnvCfg):
     The expanded capture stack (full RGB + full depth + policy depth) on the
     ``procroom`` scene source: the world is a procedural primitive room
     generated in-env, and the robot spawns from the room's own BFS free-space
-    events. Runs the deploy pipeline against a training-distribution scene — the
-    scene axis of the drive-fault matrix. ``--mode bridge`` only: the procedural
+    events. The stack carries the policy depth camera, so the room is the
+    enclosed one the depth variants train in. Runs the deploy pipeline against
+    a training-distribution scene — the scene axis of the drive-fault matrix.
+    A ``--sensors`` stack without ``depth_policy`` gets the open-top room.
+    ``--mode bridge`` only: the procedural
     scene is event-generated, so there is no scene USD for ``--scene-usd`` /
     ``--mode harness`` to load."""
 
@@ -847,22 +768,6 @@ class StraferNavCfg_BridgeAutonomy_ProcRoom(_ComposedStraferNavEnvCfg):
         cameras_required=("rgb_full", "depth_full", "depth_policy"),
     )
     scene_source = SceneSourceCfg(kind="procroom")
-    realism = RealismCfg(level="real", localization_drift=False)
-
-
-@configclass
-class StraferNavCfg_BridgeAutonomy_ProcRoomEnriched(_ComposedStraferNavEnvCfg):
-    """Bridge sim-in-the-loop on the enriched procedural-room generator.
-
-    The ProcRoom bridge A/B instrument against the enriched scene distribution,
-    so a policy retrained on enriched statistics deploys against matching rooms
-    (the open-top bridge variant would otherwise generate vanilla rooms under an
-    enriched-trained policy). ``--mode bridge`` only, like the open-top twin."""
-
-    sensors = SensorStackCfg(
-        cameras_required=("rgb_full", "depth_full", "depth_policy"),
-    )
-    scene_source = SceneSourceCfg(kind="procroom", enrich_depth=True)
     realism = RealismCfg(level="real", localization_drift=False)
 
 

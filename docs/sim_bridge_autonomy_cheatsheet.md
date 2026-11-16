@@ -15,7 +15,7 @@ lines, each linking its long form once. Mechanism, history and measurements live
    tools/kit_boot_watchdog.sh --label sim-bridge -- \
        $ISAACLAB -p source/strafer_lab/scripts/run_sim_in_the_loop.py \
        --mode bridge --headless --enable_cameras \
-       --task Isaac-Strafer-Nav-Capture-Bridge-ProcRoom-Enriched-v0
+       --task Isaac-Strafer-Nav-Capture-Bridge-ProcRoom-v0
    ```
    [`kit_boot_watchdog.sh`](../tools/kit_boot_watchdog.sh) relaunches a Kit boot that stops early
    and stays stopped (Isaac Sim 6.0.1), printing one accounting line per attempt, and never touches
@@ -26,9 +26,10 @@ lines, each linking its long form once. Mechanism, history and measurements live
    **Do not add `--decimation 4 --render-interval 4`:** depth starves to ~0.3 Hz sim; see
    [`enriched-lane-rig-stability`](tasks/active/reliability/enriched-lane-rig-stability.md) mode 4.
 
-   **Match the task to the policy's training scene.** The depth-subgoal work was validated on
-   `ProcRoom-Enriched-v0` (enclosed rooms, tall furniture, mid-room columns); plain `ProcRoom-v0`
-   is a different distribution and its map is not interchangeable.
+   **Match the task to the policy's training scene.** `ProcRoom-v0` composes the enclosed room
+   (enclosed rooms, tall furniture, mid-room columns) the depth-subgoal policies train in. The
+   open-top room, which `ProcRoom-v0` named before the `-Enriched-` IDs were retired, is a different
+   distribution, and a map made in it is not interchangeable.
 
 ## On the NX (`strafer-nx`)
 

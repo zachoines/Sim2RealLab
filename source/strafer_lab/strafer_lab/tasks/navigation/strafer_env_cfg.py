@@ -1393,10 +1393,10 @@ from .mdp.proc_room import (
 )
 
 
-# --- ProcRoom depth-enrichment parameters (enriched depth variants only) ---
+# --- ProcRoom depth-enrichment parameters (the depth variants' enclosed room) ---
 # Move ProcRoom's open-top, close-quarters depth statistics toward enclosed,
-# Infinigen-like values. Applied only to the enriched depth variant IDs; the
-# NOCAM / vanilla-depth generator path keeps the generator argument defaults.
+# Infinigen-like values. Applied to the depth variants on ProcRoom; the NOCAM
+# generator path keeps the generator argument defaults.
 _ENRICH_WALL_HEIGHT = 2.7               # enclosing walls (open-top default 1.0)
 _ENRICH_DOOR_WIDTH_MAX = 2.0            # doorway U[0.8, 2.0] (default 1.2)
 _ENRICH_SPAN_MAX = 7.5                  # room span U[4.0, 7.5] (default 7.0)
@@ -1764,8 +1764,8 @@ class EventsCfg_ProcRoom_Robust:
 
 
 # Depth-enrichment event terms: un-pin difficulty to a room-mode range and feed
-# the generator the enrichment arguments. Used only by the enriched depth
-# variants; the vanilla terms above keep the generator defaults.
+# the generator the enrichment arguments. Used by the depth variants on
+# ProcRoom; the base terms above keep the generator defaults.
 _GENERATE_PROC_ROOM_ENRICHED = EventTerm(
     func=mdp.generate_proc_room,
     mode="reset",

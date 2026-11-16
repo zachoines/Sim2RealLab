@@ -25,6 +25,7 @@ Usage:
     isaaclab -p -m pytest test_sim/env/test_composition_contract.py -v
 """
 
+import dataclasses
 import hashlib
 import inspect
 import json
@@ -107,33 +108,20 @@ def _hash(obj):
 # training distribution did change — and it is why the layout golden below
 # exists: it is the half a deployed checkpoint depends on, and it must not move.
 _CONTRACT_GOLDENS = {
-    "RLDepth_Real": "4b601af6984fbabb3ef0044dee21e7f3aa0bd205c8847b0677f39fb6d8cb37e7",
-    "RLDepth_Robust": "1b34c8d7a318be8a358f93b5d4c4498338db3ac674d8617114822dd3646bed12",
+    "RLDepth_Real": "7bed78427cd0f6966a203c17a2e6da89940b8b8eb1d9cf2d57c92af87ac5caff",
+    "RLDepth_Robust": "1fba79a617930e2e94f7ba23bb3a7df1aedce992abb807849b651be76d96c211",
     "RLNoCam": "dca33abd5ff642ee23d0e4d71881c1301ba4f7ed9d4c5edc0331d57dbe5f887f",
-    "RLDepth_Real_PLAY": "f282a3ce3affcfc8ed57e5f562691cfa52804921583c332c2e2c91c41f05e29a",
-    "RLDepth_Robust_PLAY": "31534c688ddc355b2e856c114c9065854841b840f8e4594b7b662427b14e118a",
+    "RLDepth_Real_PLAY": "818e71f70980a9881885b4a8aa7f598866f605558d1faab90cb35dbff0995c13",
+    "RLDepth_Robust_PLAY": "ded3d83a629f4d267c3078788ea3c58af95a40d8e734ac16e6a6510c8247ea7c",
     "RLNoCam_PLAY": "be8f54681e9098dfa89c825db5d7edba67f38b5d7d6a41cb5cd5a6dcd9e5f865",
     "RLNoCamSubgoal_Real": "3af5b11feae53fa141c8794608c234e03159b66ea5390f14f4d1c61b2c83aadf",
     "RLNoCamSubgoal_Robust": "b15bfe85a00edde7b2b1b82e76d1e4b8eb35f34ee566c8e7c250339afd8bb0f4",
     "RLNoCamSubgoal_Real_PLAY": "4f87941f028c2d7ead3340b4f9ae4e37382bb487a4620e44eee51138c4ea9622",
     "RLNoCamSubgoal_Robust_PLAY": "b48bfe60aaf3b330567bf049478f1aea3dfd3275eee286f894b6ba4aea2f2990",
-    "RLDepthSubgoal_Real": "3a5eeafd5477aa0612b4d8ef1f4021a6c1350d5cd866b092f24dc3b20df91b71",
-    "RLDepthSubgoal_Robust": "634f1891386f280f63deb8991dc78cd181a7e2ab368a6ca25e4863e8e709f9d8",
-    "RLDepthSubgoal_Real_PLAY": "5e27c238ce6954d6352a809b2bb5d679fd96cf8e91e2c1fdda9659f9abf2ba20",
-    "RLDepthSubgoal_Robust_PLAY": "7528e5ce1b59751c661f6426cb9247ff0ae7cfc48af7d7188ffdf81c0493a2d2",
-    # Depth-enrichment variants — NEW IDs frozen at creation (no prior checkpoint
-    # depends on them). The enrichment lives in the `events` field (un-pinned
-    # difficulty, enriched generation params incl. the tall-object heights, and
-    # the rendered-camera mount offset); the observation contract is
-    # byte-identical to the open-top depth variants (asserted separately).
-    "RLDepthEnriched_Real": "7bed78427cd0f6966a203c17a2e6da89940b8b8eb1d9cf2d57c92af87ac5caff",
-    "RLDepthEnriched_Robust": "1fba79a617930e2e94f7ba23bb3a7df1aedce992abb807849b651be76d96c211",
-    "RLDepthEnriched_Real_PLAY": "818e71f70980a9881885b4a8aa7f598866f605558d1faab90cb35dbff0995c13",
-    "RLDepthEnriched_Robust_PLAY": "ded3d83a629f4d267c3078788ea3c58af95a40d8e734ac16e6a6510c8247ea7c",
-    "RLDepthSubgoalEnriched_Real": "8e8615a9f32fc686533145a913cfbd33dde337c8dc5551a5a05fbaf94770784b",
-    "RLDepthSubgoalEnriched_Robust": "c98d18baedffd070eebbc8deef6f07510a81ea0cd66ee1dc797bfff21d471546",
-    "RLDepthSubgoalEnriched_Real_PLAY": "1585a43ce225062c2a387c951d40e16ddc36e3c2da58241fd7cfa2eab7551e74",
-    "RLDepthSubgoalEnriched_Robust_PLAY": "a27f086252e47caffb4d5111c3c7a0496287a2d2c39e5f8fa2ba5ca903f9d464",
+    "RLDepthSubgoal_Real": "8e8615a9f32fc686533145a913cfbd33dde337c8dc5551a5a05fbaf94770784b",
+    "RLDepthSubgoal_Robust": "c98d18baedffd070eebbc8deef6f07510a81ea0cd66ee1dc797bfff21d471546",
+    "RLDepthSubgoal_Real_PLAY": "1585a43ce225062c2a387c951d40e16ddc36e3c2da58241fd7cfa2eab7551e74",
+    "RLDepthSubgoal_Robust_PLAY": "a27f086252e47caffb4d5111c3c7a0496287a2d2c39e5f8fa2ba5ca903f9d464",
 }
 
 # Frozen signature (slot name set + spawn sizes) of the pre-enrichment 44-object
@@ -176,14 +164,6 @@ _COMPOSED_RL = {
     "RLDepthSubgoal_Robust": composed.StraferNavCfg_RLDepthSubgoal_Robust,
     "RLDepthSubgoal_Real_PLAY": composed.StraferNavCfg_RLDepthSubgoal_Real_PLAY,
     "RLDepthSubgoal_Robust_PLAY": composed.StraferNavCfg_RLDepthSubgoal_Robust_PLAY,
-    "RLDepthEnriched_Real": composed.StraferNavCfg_RLDepthEnriched_Real,
-    "RLDepthEnriched_Robust": composed.StraferNavCfg_RLDepthEnriched_Robust,
-    "RLDepthEnriched_Real_PLAY": composed.StraferNavCfg_RLDepthEnriched_Real_PLAY,
-    "RLDepthEnriched_Robust_PLAY": composed.StraferNavCfg_RLDepthEnriched_Robust_PLAY,
-    "RLDepthSubgoalEnriched_Real": composed.StraferNavCfg_RLDepthSubgoalEnriched_Real,
-    "RLDepthSubgoalEnriched_Robust": composed.StraferNavCfg_RLDepthSubgoalEnriched_Robust,
-    "RLDepthSubgoalEnriched_Real_PLAY": composed.StraferNavCfg_RLDepthSubgoalEnriched_Real_PLAY,
-    "RLDepthSubgoalEnriched_Robust_PLAY": composed.StraferNavCfg_RLDepthSubgoalEnriched_Robust_PLAY,
 }
 
 
@@ -192,10 +172,20 @@ _COMPOSED_RL = {
 # =====================================================================
 
 
-# Derived rather than listed so a new open-top variant is covered by
-# construction; the enriched IDs are exactly the complement.
+def _sensor_profile(variant_cls):
+    """The variant's observation profile, read off the class as
+    ``scene_source_kind`` reads its source."""
+    for field in dataclasses.fields(variant_cls):
+        if field.name == "sensors":
+            return field.default_factory().obs_profile()
+    return None
+
+
+# Derived from the cfg rather than listed, so a new variant is covered by
+# construction: the camera-free profile composes the open-top room, and the
+# depth variants, exactly the complement, the enclosed one.
 _OPEN_TOP_RL_VARIANTS = tuple(
-    name for name in sorted(_COMPOSED_RL) if "Enriched" not in name
+    name for name in sorted(_COMPOSED_RL) if _sensor_profile(_COMPOSED_RL[name]) == "nocam"
 )
 
 
@@ -413,7 +403,6 @@ def test_only_the_randomized_tiers_carry_referent_drift():
         composed.StraferNavCfg_TeleopCapture,
         composed.StraferNavCfg_BridgeAutonomy,
         composed.StraferNavCfg_BridgeAutonomy_ProcRoom,
-        composed.StraferNavCfg_BridgeAutonomy_ProcRoomEnriched,
         composed.StraferNavCfg_Coverage,
     ],
     ids=lambda f: f.__name__,
@@ -436,9 +425,9 @@ def _palette_sig(collection_cfg):
 
     The composition hash covers the manager cfgs + scene scalars, NOT the
     rigid-object palette, so a palette change slips past every contract golden.
-    This is the explicit pin for the invariant that the open-top variants (NOCAM
-    and the un-enriched depth variants) keep the exact pre-enrichment palette,
-    and no enriched palette adds a new slot.
+    This is the explicit pin for the invariant that the open-top variants (the
+    camera-free NOCAM profile) keep the exact pre-enrichment palette, and no
+    enriched palette adds a new slot.
     """
     sig = {}
     for name, cfg in sorted(collection_cfg.rigid_objects.items()):
@@ -453,14 +442,13 @@ def _palette_sig(collection_cfg):
 
 
 def test_open_top_variants_keep_pre_enrichment_palette_and_no_ceiling():
-    """Every open-top variant — NOCAM/NOCAM_SUBGOAL *and* the un-enriched depth
-    variants — keeps the exact pre-enrichment palette and has no ceiling entity.
+    """Every open-top variant — NOCAM and NOCAM_SUBGOAL, the camera-free
+    profile — keeps the exact pre-enrichment palette and has no ceiling entity.
 
-    Guards both directions of the scene swap: enrichment must not leak into the
-    camera-free NOCAM path, and a future ``_select_scene`` regression handing the
-    enriched (2.7 m wall + ceiling) scene to a *vanilla* depth variant — which
-    would pass every contract golden (the hash excludes the scene) and the NOCAM
-    palette check — is caught here."""
+    Enrichment must not leak into the camera-free path: a ``_select_scene``
+    regression handing it the enclosed (2.7 m wall + ceiling) scene would pass
+    every contract golden (the hash excludes the scene) and is caught here. The
+    other direction is ``test_the_depth_profile_composes_the_enclosed_room``."""
     for name in _OPEN_TOP_RL_VARIANTS:
         scene = _COMPOSED_RL[name]().scene
         got = _hash(_palette_sig(scene.room_primitives))
@@ -477,13 +465,9 @@ def test_open_top_variants_drive_the_generator_at_its_defaults():
     the collection name, at the pinned 7/7 difficulty.
 
     The contract hash renders a callable as its qualified name, so it sees the
-    event term's presence but not which arguments it carries. The ProcRoom
-    bridge cfg is checked here too: it consumes the same vanilla event term and
-    is not in ``_COMPOSED_RL``."""
+    event term's presence but not which arguments it carries."""
     cfgs = [(name, _COMPOSED_RL[name]()) for name in _OPEN_TOP_RL_VARIANTS]
-    cfgs.append(
-        ("BridgeAutonomy_ProcRoom", composed.StraferNavCfg_BridgeAutonomy_ProcRoom())
-    )
+    assert cfgs, "no open-top variant to check"
     for name, cfg in cfgs:
         events = cfg.events
         assert set(events.generate_room.params) == {"collection_name"}, (
@@ -508,7 +492,7 @@ def test_enriched_palette_adds_no_new_slot():
     )
 
     base_names = set(build_proc_room_collection_cfg().keys())
-    enriched_scene = composed.StraferNavCfg_RLDepthSubgoalEnriched_Real().scene
+    enriched_scene = composed.StraferNavCfg_RLDepthSubgoal_Real().scene
     enriched_names = set(enriched_scene.room_primitives.rigid_objects.keys())
     assert enriched_names == base_names
     # Only the walls and the tall furniture/clutter differ, and only in Z.
@@ -537,29 +521,43 @@ def test_enriched_palette_adds_no_new_slot():
     assert "ceiling" not in enriched_names
 
 
-def test_enriched_depth_obs_matches_open_top_twin():
-    """Enrichment changes the world, not the observation: each enriched depth
-    variant emits the byte-identical depth observation of its open-top twin at
-    the same realism, so the deployed inference package / any depth checkpoint
-    stays valid (the realistic twin's obs is itself the frozen depth golden)."""
-    pairs = [
-        ("RLDepthEnriched_Real", composed.StraferNavCfg_RLDepth_Real),
-        ("RLDepthEnriched_Robust", composed.StraferNavCfg_RLDepth_Robust),
-        ("RLDepthSubgoalEnriched_Real", composed.StraferNavCfg_RLDepthSubgoal_Real),
-        ("RLDepthSubgoalEnriched_Robust", composed.StraferNavCfg_RLDepthSubgoal_Robust),
-    ]
-    for enr_name, twin_cls in pairs:
-        enr = _hash(_canon(_COMPOSED_RL[enr_name]().observations))
-        twin = _hash(_canon(twin_cls().observations))
-        assert enr == twin, f"{enr_name} depth obs != its open-top twin"
+def test_the_room_never_reaches_the_observation():
+    """The enclosed room changes the world, not the observation: every RL
+    variant observes exactly its realism tier's building block for its sensor
+    profile, so the room a depth variant composes cannot reach the tensor a
+    checkpoint consumes (the realistic depth block is itself the frozen depth
+    golden above)."""
+    for name in sorted(_COMPOSED_RL):
+        cfg = _COMPOSED_RL[name]()
+        block = composed._OBS_BY_REALISM_PROFILE[(cfg.realism.level, cfg.sensors.obs_profile())]()
+        assert _hash(_canon(cfg.observations)) == _hash(_canon(block)), (
+            f"{name}'s observations differ from its tier's building block"
+        )
 
 
-def test_enriched_events_differ_from_open_top():
-    """Sanity: the enriched variant's event contract is actually different from
-    its open-top twin (guards against the enrichment silently no-op'ing)."""
-    enriched = _hash(_canon(composed.StraferNavCfg_RLDepthSubgoalEnriched_Real().events))
-    open_top = _hash(_canon(composed.StraferNavCfg_RLDepthSubgoal_Real().events))
-    assert enriched != open_top
+def test_the_depth_profile_composes_the_enclosed_room():
+    """On the procroom source the sensor profile alone selects the room: a
+    stack carrying the policy depth camera gets the enclosed scene (with its
+    ceiling) and the enriched events, the camera-free one the open-top scene and
+    the base events, at every tier. The scene and the events must agree, and the
+    two event blocks must differ, so the enclosure cannot silently no-op."""
+    rows = [(name, _COMPOSED_RL[name]()) for name in sorted(_COMPOSED_RL)]
+    rows.append(("BridgeAutonomy_ProcRoom", composed.StraferNavCfg_BridgeAutonomy_ProcRoom()))
+    seen = {"enclosed": 0, "open_top": 0}
+    for name, cfg in rows:
+        level = cfg.realism.level
+        if cfg.sensors.obs_profile() in ("depth", "full"):
+            seen["enclosed"] += 1
+            assert type(cfg.events) is composed._EVENTS_ENRICHED_BY_REALISM[level], name
+            assert hasattr(cfg.scene, "ceiling"), f"{name} carries the policy camera but no ceiling"
+        else:
+            seen["open_top"] += 1
+            assert type(cfg.events) is composed._EVENTS_BY_SOURCE_REALISM[("procroom", level)], name
+            assert not hasattr(cfg.scene, "ceiling"), f"{name} is camera-free but got a ceiling"
+    assert seen["enclosed"] and seen["open_top"], seen
+    for level, enriched_cls in composed._EVENTS_ENRICHED_BY_REALISM.items():
+        open_top_cls = composed._EVENTS_BY_SOURCE_REALISM[("procroom", level)]
+        assert _hash(_canon(enriched_cls())) != _hash(_canon(open_top_cls())), level
 
 
 def _obs_term_names(obs_cfg):
@@ -874,7 +872,7 @@ def test_the_camera_jitter_never_appears_without_its_offset():
     """The jitter consumes the realization the offset leaves behind, and points
     the camera prim it names, so alone it is either inert or a lie."""
     rows = _mount_dr_rows()
-    assert len(rows) > 20, "the variant sweep collapsed"
+    assert len(rows) > 15, "the variant sweep collapsed"
     jittered = [r for r in rows if r["jitter"]]
     assert jittered, "no variant points the rendered camera through the mount"
     for row in jittered:
@@ -888,13 +886,14 @@ def test_the_camera_jitter_never_appears_without_its_offset():
         )
 
 
-def test_the_camera_jitter_rides_exactly_the_enriched_arm():
+def test_the_camera_jitter_rides_exactly_the_enclosed_room():
     """Among the variants that both sample the mount and render the camera the
-    jitter targets, carrying it is the same question as being enriched.
+    jitter targets, carrying it is the same question as composing the enclosed
+    room: the procroom source on a stack carrying the policy depth camera.
 
-    Stated as an equivalence on purpose: a new enriched tier that samples the
+    Stated as an equivalence on purpose: a new enclosed tier that samples the
     mount and leaves the render at nominal fails here, and so does a jitter
-    added off the enriched arm — where a nominal-mount TF tree would then
+    added off the enclosed room — where a nominal-mount TF tree would then
     disagree with the render.
     """
     rows = _mount_dr_rows()
@@ -913,11 +912,11 @@ def test_the_camera_jitter_rides_exactly_the_enriched_arm():
         if not row["offset"] or getattr(cfg.scene, sensor, None) is None:
             continue
         checked += 1
-        assert bool(row["jitter"]) is bool(cfg.scene_source.enrich_depth), (
-            f"{row['name']}: enrich_depth={cfg.scene_source.enrich_depth} but "
-            f"jitter={row['jitter']}"
+        enclosed = cfg.scene_source.kind == "procroom" and cfg.sensors.obs_profile() in ("depth", "full")
+        assert bool(row["jitter"]) is enclosed, (
+            f"{row['name']}: enclosed={enclosed} but jitter={row['jitter']}"
         )
-    assert checked > 10, "the paired-arm sweep matched too few variants"
+    assert checked > 7, "the paired-arm sweep matched too few variants"
 
 
 # =====================================================================
@@ -943,7 +942,7 @@ def test_no_camera_bearing_variant_enables_command_debug_vis():
     from isaaclab.managers import CommandTermCfg
 
     rows = _camera_bearing_variants()
-    assert len(rows) > 15, "the camera-bearing sweep collapsed"
+    assert len(rows) > 10, "the camera-bearing sweep collapsed"
     drawing = [
         (name, term_name)
         for name, cfg in rows

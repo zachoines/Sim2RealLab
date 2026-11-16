@@ -66,4 +66,4 @@ def test_every_composed_camera_renders_the_datasheet_lens():
             seen += 1
             assert cam.spawn.horizontal_aperture == D555_HORIZONTAL_APERTURE_MM, f"{name}.{attr}"
             assert cam.spawn.focal_length == D555_FOCAL_LENGTH_MM, f"{name}.{attr} renders {cam.spawn.focal_length} mm"
-    assert seen > 15, "the camera sweep collapsed"
+    assert seen > 8, "the camera sweep collapsed"

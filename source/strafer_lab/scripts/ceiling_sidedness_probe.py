@@ -56,7 +56,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--compare", nargs=2, metavar=("BEFORE", "AFTER"), default=None,
         help="read two recordings and print the deltas; skips Kit entirely",
     )
-    parser.add_argument("--task", default="Isaac-Strafer-Nav-RLDepth-Enriched-Real-v0")
+    parser.add_argument("--task", default="Isaac-Strafer-Nav-RLDepth-Real-v0")
     parser.add_argument("--num_envs", type=int, default=4)
     parser.add_argument("--seed", type=int, default=20260101)
     parser.add_argument(

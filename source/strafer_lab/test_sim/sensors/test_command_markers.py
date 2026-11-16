@@ -31,7 +31,7 @@ from isaaclab.utils.math import quat_apply
 
 from strafer_lab.tasks.navigation import mdp
 from strafer_lab.tasks.navigation.composed_env_cfg import (
-    StraferNavCfg_RLDepthSubgoalEnriched_Robust,
+    StraferNavCfg_RLDepthSubgoal_Robust,
 )
 from strafer_lab.tasks.navigation.d555_cfg import make_d555_perception_camera_cfg
 from strafer_shared.constants import CAMERA_OFFSET_X
@@ -51,7 +51,7 @@ DEPTH_PRODUCTS = ("policy depth", "policy grid", "perception depth")
 
 @pytest.fixture(scope="module")
 def env():
-    cfg = StraferNavCfg_RLDepthSubgoalEnriched_Robust()
+    cfg = StraferNavCfg_RLDepthSubgoal_Robust()
     cfg.scene.num_envs = 1
     # The bridge composes the goal objective; carry its term beside the subgoal one.
     cfg.commands.bridge_goal = mdp.GoalCommandProcRoomCfg(

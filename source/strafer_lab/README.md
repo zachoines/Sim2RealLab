@@ -44,23 +44,57 @@ Sibling packages it interacts with:
 ### Gym environment registry (`strafer_lab.tasks.navigation`)
 
 Registration happens in `tasks/navigation/__init__.py` via `gym.register`. Each
-variant is composed over three orthogonal axes — sensor stack × scene source ×
-realism — in `tasks/navigation/composed_env_cfg.py`. RL variants have a fixed
+variant is composed over four orthogonal axes — sensor stack × scene source ×
+realism × objective — in `tasks/navigation/composed_env_cfg.py`. RL variants have a fixed
 sensor stack (the obs contract a trained policy was fit against); capture
 variants take an operator-selectable stack via `capture.py --sensors`.
 
-| Family | Gym ID | sensors | scene | realism | Obs dims |
-|---|---|---|---|---|---|
-| RL | `Isaac-Strafer-Nav-RLDepth-Real-v0` | depth policy | ProcRoom | Realistic | 4,819 |
-| RL | `Isaac-Strafer-Nav-RLDepth-Robust-v0` | depth policy | ProcRoom | Robust | 4,819 |
-| RL | `Isaac-Strafer-Nav-RLNoCam-v0` | none | ProcRoom | Realistic | 19 |
-| Capture | `Isaac-Strafer-Nav-Capture-Teleop-v0` | rgb_full (default) | Infinigen | Realistic | — |
-| Capture | `Isaac-Strafer-Nav-Capture-Bridge-v0` | rgb_full+depth_full+depth_policy (default) | Infinigen | Realistic | — |
-| Capture | `Isaac-Strafer-Nav-Capture-Coverage-v0` | rgb_full+depth_full (default) | Infinigen | Realistic | — |
+| Family | Gym ID | sensors | scene | realism | objective | Obs dims |
+|---|---|---|---|---|---|---|
+| RL | `Isaac-Strafer-Nav-RLDepth-Real-v0` | depth policy | ProcRoom, enclosed | Realistic | goal | 3,619 |
+| RL | `Isaac-Strafer-Nav-RLDepth-Robust-v0` | depth policy | ProcRoom, enclosed | Robust | goal | 3,619 |
+| RL | `Isaac-Strafer-Nav-RLDepth-Subgoal-Real-v0` | depth policy | ProcRoom, enclosed | Realistic | subgoal | 3,619 |
+| RL | `Isaac-Strafer-Nav-RLDepth-Subgoal-Robust-v0` | depth policy | ProcRoom, enclosed | Robust | subgoal | 3,619 |
+| RL | `Isaac-Strafer-Nav-RLNoCam-v0` | none | ProcRoom, open-top | Realistic | goal | 19 |
+| RL | `Isaac-Strafer-Nav-RLNoCam-Subgoal-Real-v0` | none | ProcRoom, open-top | Realistic | subgoal | 19 |
+| RL | `Isaac-Strafer-Nav-RLNoCam-Subgoal-Robust-v0` | none | ProcRoom, open-top | Robust | subgoal | 19 |
+| RL | `Isaac-Strafer-Nav-RLNoCam-Subgoal-Robust-GRU-v0` | none (recurrent runner) | ProcRoom, open-top | Robust | subgoal | 19 |
+| Capture | `Isaac-Strafer-Nav-Capture-Teleop-v0` | rgb_full (default) | Infinigen | Realistic | goal | — |
+| Capture | `Isaac-Strafer-Nav-Capture-Bridge-v0` | rgb_full+depth_full+depth_policy (default) | Infinigen | Realistic | goal | — |
+| Capture | `Isaac-Strafer-Nav-Capture-Bridge-ProcRoom-v0` | rgb_full+depth_full+depth_policy (default) | ProcRoom, enclosed | Realistic | goal | — |
+| Capture | `Isaac-Strafer-Nav-Capture-Coverage-v0` | rgb_full+depth_full (default) | Infinigen | Realistic | goal | — |
 
-Add the `-Play-v0` suffix to an RL ID to get its evaluation variant (fewer
-envs): `Isaac-Strafer-Nav-RLDepth-Real-Play-v0`,
-`Isaac-Strafer-Nav-RLDepth-Robust-Play-v0`, `Isaac-Strafer-Nav-RLNoCam-Play-v0`.
+Each RL ID but the GRU one has a `-Play-v0` twin for evaluation (fewer envs),
+e.g. `Isaac-Strafer-Nav-RLDepth-Subgoal-Robust-Play-v0`; the GRU arm's is
+`Isaac-Strafer-Nav-RLNoCam-Subgoal-Real-Play-GRU-v0`. 20 IDs in all.
+
+On ProcRoom the sensor stack selects the room: a stack carrying the policy
+depth camera composes the enclosed room (2.7 m walls, a ceiling, the enriched
+generator), and a camera-free stack the open-top room.
+
+**Retired `-Enriched-` IDs.** The depth IDs and the ProcRoom bridge once came
+in two rooms, the open-top room under the plain name and the enclosed room
+under an `-Enriched-` name. The plain names now compose the enclosed room and
+the `-Enriched-` names are gone, so a command that names one fails with an
+unknown ID. Its replacement composes the same environment:
+
+| Retired ID | Replacement |
+|---|---|
+| `Isaac-Strafer-Nav-RLDepth-Enriched-Real-v0` | `Isaac-Strafer-Nav-RLDepth-Real-v0` |
+| `Isaac-Strafer-Nav-RLDepth-Enriched-Real-Play-v0` | `Isaac-Strafer-Nav-RLDepth-Real-Play-v0` |
+| `Isaac-Strafer-Nav-RLDepth-Enriched-Robust-v0` | `Isaac-Strafer-Nav-RLDepth-Robust-v0` |
+| `Isaac-Strafer-Nav-RLDepth-Enriched-Robust-Play-v0` | `Isaac-Strafer-Nav-RLDepth-Robust-Play-v0` |
+| `Isaac-Strafer-Nav-RLDepth-Subgoal-Enriched-Real-v0` | `Isaac-Strafer-Nav-RLDepth-Subgoal-Real-v0` |
+| `Isaac-Strafer-Nav-RLDepth-Subgoal-Enriched-Real-Play-v0` | `Isaac-Strafer-Nav-RLDepth-Subgoal-Real-Play-v0` |
+| `Isaac-Strafer-Nav-RLDepth-Subgoal-Enriched-Robust-v0` | `Isaac-Strafer-Nav-RLDepth-Subgoal-Robust-v0` |
+| `Isaac-Strafer-Nav-RLDepth-Subgoal-Enriched-Robust-Play-v0` | `Isaac-Strafer-Nav-RLDepth-Subgoal-Robust-Play-v0` |
+| `Isaac-Strafer-Nav-Capture-Bridge-ProcRoom-Enriched-v0` | `Isaac-Strafer-Nav-Capture-Bridge-ProcRoom-v0` |
+
+The nine replacement strings are the ones that change without an error: each
+built the open-top room before and builds the enclosed room now. A stored
+command or record that names one of them, from before the change, ran in the
+open-top room. The open-top depth and bridge rooms are composed from a checkout
+of the commit such a record names.
 
 ### Observation vector (15-19D proprioceptive base, optionally + depth + RGB)
 

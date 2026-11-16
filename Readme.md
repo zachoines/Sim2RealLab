@@ -159,8 +159,14 @@ Sim2RealLab/
 This repository holds code and user-facing documentation. The work queue —
 briefs, the board and the deferred-work list — lives in `Sim2RealLab-Tasks`, and
 measurement records live beside their evidence in `Sim2RealLab-Artifacts`.
-How the three repositories divide the work and refer to one another is in
-[`docs/context/tasks-and-evidence.md`](docs/context/tasks-and-evidence.md).
+Outside the documents under an INTERIM banner, which are frozen, nothing in this
+tree names a brief or a record; a pull request's `## References` block is the only
+cross-reference ([`docs/context/tasks-and-evidence.md`](docs/context/tasks-and-evidence.md)).
+`make docs-check` fails on a line naming the former in-tree homes of briefs and
+records, the board's or the deferred-work list's file, or a dated directory name;
+given clones of the two other repositories
+(`make docs-check TASKS_CLONE=<path> ARTIFACTS_CLONE=<path>`) it checks brief and
+record names too.
 
 ## Contracts
 

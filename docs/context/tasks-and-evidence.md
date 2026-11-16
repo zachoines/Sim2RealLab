@@ -9,7 +9,11 @@ No file here — code, test, config, guide or context module — links to or nam
 board, a measurement record, a deposit or a dated measurement. A comment
 states the present fact and its mechanism. A context module that would need to name briefs is an
 epic map and belongs in the task repository. The general form of
-[`conventions.md`'s rule](conventions.md#no-transient-documentation-references-in-code); `make docs-check` enforces it.
+[`conventions.md`'s rule](conventions.md#no-transient-documentation-references-in-code).
+`make docs-check` enforces the part a pattern can see, in every tracked file but the checker itself and
+documents under an INTERIM banner: always the former in-tree homes of briefs and records, the board's
+and the deferred-work list's file names and dated directory names; brief and record names only when
+clones of the two other repositories are given (`make docs-check TASKS_CLONE=<path> ARTIFACTS_CLONE=<path>`).
 
 ## 2. The PR body is the only cross-reference
 

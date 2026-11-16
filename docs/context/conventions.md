@@ -139,6 +139,19 @@ Sweep before every commit:
 rg -n "Task \d+|Phase [A-D]?\d|phase_15|Section \d+\.\d+|post-Task" path/to/changed/files
 ```
 
+`make docs-check`, run by both test umbrellas, checks the part of this
+rule a pattern can see, in every tracked text file but the checker itself
+and documents under an INTERIM banner. On its own it fails on a line
+that names the former in-tree home of the briefs or of the records, the
+board's file name, the deferred-work list's name, or a dated directory
+name (a `-YYYY-MM-DD` suffix). It checks brief and record names only when
+clones of the two other repositories are given, a clone of
+`Sim2RealLab-Tasks` and one of `Sim2RealLab-Artifacts`:
+`make docs-check TASKS_CLONE=<path> ARTIFACTS_CLONE=<path>` (the
+checker's `--tasks` and `--records`). Pull-request numbers are listed by
+its `--list` and never fail it. The general rule is
+[`tasks-and-evidence.md`](tasks-and-evidence.md).
+
 ---
 
 ## Workspace environment names

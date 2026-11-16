@@ -293,9 +293,10 @@ _EVENTS_BY_SOURCE_REALISM = {
 }
 
 # The enclosed room's events (difficulty drawn on levels 4-7, the enclosed
-# room's generator arguments), keyed on realism. Selected for a procroom variant
-# that carries the policy depth camera (profile depth/full). NOCAM keeps the base
-# events above, the open-top room. Mirrors the profile-keyed reward override below.
+# room's generator arguments, the rendered camera pointed through the mount
+# offset), keyed on realism. Selected for a procroom variant that carries the
+# policy depth camera (profile depth/full). NOCAM keeps the base events above,
+# the open-top room. Mirrors the profile-keyed reward override below.
 _EVENTS_ENRICHED_BY_REALISM = {
     "real": EventsCfg_ProcRoom_Realistic_Enriched,
     "robust": EventsCfg_ProcRoom_Robust_Enriched,
@@ -512,8 +513,9 @@ class _ComposedStraferNavEnvCfg(base._BaseStraferNavEnvCfg):
         self.observations = _OBS_BY_REALISM_PROFILE[(level, profile)]()
         self.actions = _ACTIONS_BY_REALISM[level]()
         # A procroom depth/full variant gets the enclosed room's events (its
-        # generator arguments, difficulty drawn on levels 4-7); every other
-        # source, and the NOCAM profile, keeps the base source/realism events.
+        # generator arguments, difficulty drawn on levels 4-7, the rendered
+        # camera's mount jitter); every other source, and the NOCAM profile,
+        # keeps the base source/realism events.
         enclosed = kind == "procroom" and profile in ("depth", "full")
         try:
             if enclosed:

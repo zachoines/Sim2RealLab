@@ -639,7 +639,7 @@ def reset_robot_proc_room(
     device = env.device
 
     # Read per-env spawn points (populated by generate_proc_room EventTerm).
-    # Prefer the robot-spawn-only pool when the enriched generator built one
+    # Prefer the robot-spawn-only pool when the enclosed room's generator built one
     # (extra standoff for the robot); otherwise use the shared pool that also
     # feeds the goal command and subgoal planner.
     if hasattr(env, "_proc_room_robot_spawn_pts"):

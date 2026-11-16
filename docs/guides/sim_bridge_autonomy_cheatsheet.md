@@ -27,8 +27,9 @@ in this repository.
    **Do not add `--decimation 4 --render-interval 4`:** depth starves to ~0.3 Hz sim.
 
    **Match the task to the policy's training scene.** `ProcRoom-v0` composes the enclosed room
-   (enclosed rooms, tall furniture, mid-room columns) the depth-subgoal policies train in. The
-   open-top room is a different distribution, and a map made in it is not interchangeable.
+   (2.7 m walls, a ceiling on most episodes, tall furniture, mid-room columns) the depth-subgoal
+   policies train in. A `--sensors` stack without `depth_policy` composes the open-top room, a
+   different distribution: a map made in it is not interchangeable.
 
 ## On the NX (`strafer-nx`)
 

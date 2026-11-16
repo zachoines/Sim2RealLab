@@ -17,7 +17,7 @@ Examples:
         --checkpoint logs/rsl_rl/strafer_navigation/run_20260425_035916/model_600.pt \\
         --headless --video --video_length 600
 
-    # The same on a depth variant (the enclosed room), every room open so the video shows it lit:
+    # An exported policy on the subgoal variant, every room built without a ceiling so the overhead video shows it lit:
     $ISAACLAB -p source/strafer_lab/scripts/play_strafer_navigation.py \\
         --env Isaac-Strafer-Nav-RLDepth-Subgoal-Robust-Play-v0 \\
         --policy models/strafer_depth_subgoal_v3_999.pt \\

@@ -17,7 +17,7 @@ widens corridors.
 Run with a python that carries numpy + torch + the package::
 
     <python> source/strafer_lab/scripts/measure_path_statistics.py \
-        --scene <scene>.usdc --arm vanilla --arm enriched \
+        --scene <scene>.usdc --arm vanilla --arm enclosed \
         --arm 'lowbias:clutter_wall_bias_prob=0.1'
 """
 from __future__ import annotations

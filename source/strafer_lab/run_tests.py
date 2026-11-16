@@ -68,8 +68,8 @@ SUITE_TIMEOUTS = {
     "env": 300,
     "rewards": 300,       # per-file timeout (collision tests run physics)
     "obs_dump": 300,      # brings up a depth camera env
-    "camera_jitter": 300,  # brings up an enriched depth camera env
-    "command_markers": 300,  # brings up an enriched depth camera env
+    "camera_jitter": 300,  # brings up a depth camera env in the enclosed room
+    "command_markers": 300,  # brings up a depth camera env in the enclosed room
 }
 DEFAULT_TIMEOUT = 180
 

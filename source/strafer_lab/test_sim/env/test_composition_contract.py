@@ -130,9 +130,10 @@ _CONTRACT_GOLDENS = {
 # exact palette, and the enclosed room's palette adds no NEW slot (only taller walls).
 _PALETTE_GOLDEN = "cf3499bf212a50c571b1bda4980fbbf16c7ad743dc40c5e88b7b528de3d41832"
 
-# The depth observation a checkpoint consumes: any depth checkpoint stays valid
-# whichever depth variant produced it. This walks both observation groups, so a privileged-group change moves it; the
-# policy half is pinned separately by the layout golden below.
+# The realistic tier's depth observation, as a checkpoint consumes it, hashed
+# on RLDepth_Real. This walks both observation groups, so a privileged-group
+# change moves it; the policy half is pinned separately by the layout golden
+# below.
 _DEPTH_OBS_GOLDEN = "ba68b61eda5400552706061710dee1404ba2aa779a6c93241ef562f082a82533"
 
 # The policy tensor's *layout* — terms, order, params and scales, with every

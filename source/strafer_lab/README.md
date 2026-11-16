@@ -72,30 +72,6 @@ On ProcRoom the sensor stack selects the room: a stack carrying the policy
 depth camera composes the enclosed room (2.7 m walls, a ceiling, the enriched
 generator), and a camera-free stack the open-top room.
 
-**Retired `-Enriched-` IDs.** The depth IDs and the ProcRoom bridge once came
-in two rooms, the open-top room under the plain name and the enclosed room
-under an `-Enriched-` name. The plain names now compose the enclosed room and
-the `-Enriched-` names are gone, so a command that names one fails with an
-unknown ID. Its replacement composes the same environment:
-
-| Retired ID | Replacement |
-|---|---|
-| `Isaac-Strafer-Nav-RLDepth-Enriched-Real-v0` | `Isaac-Strafer-Nav-RLDepth-Real-v0` |
-| `Isaac-Strafer-Nav-RLDepth-Enriched-Real-Play-v0` | `Isaac-Strafer-Nav-RLDepth-Real-Play-v0` |
-| `Isaac-Strafer-Nav-RLDepth-Enriched-Robust-v0` | `Isaac-Strafer-Nav-RLDepth-Robust-v0` |
-| `Isaac-Strafer-Nav-RLDepth-Enriched-Robust-Play-v0` | `Isaac-Strafer-Nav-RLDepth-Robust-Play-v0` |
-| `Isaac-Strafer-Nav-RLDepth-Subgoal-Enriched-Real-v0` | `Isaac-Strafer-Nav-RLDepth-Subgoal-Real-v0` |
-| `Isaac-Strafer-Nav-RLDepth-Subgoal-Enriched-Real-Play-v0` | `Isaac-Strafer-Nav-RLDepth-Subgoal-Real-Play-v0` |
-| `Isaac-Strafer-Nav-RLDepth-Subgoal-Enriched-Robust-v0` | `Isaac-Strafer-Nav-RLDepth-Subgoal-Robust-v0` |
-| `Isaac-Strafer-Nav-RLDepth-Subgoal-Enriched-Robust-Play-v0` | `Isaac-Strafer-Nav-RLDepth-Subgoal-Robust-Play-v0` |
-| `Isaac-Strafer-Nav-Capture-Bridge-ProcRoom-Enriched-v0` | `Isaac-Strafer-Nav-Capture-Bridge-ProcRoom-v0` |
-
-The nine replacement strings are the ones that change without an error: each
-built the open-top room before and builds the enclosed room now. A stored
-command or record that names one of them, from before the change, ran in the
-open-top room. The open-top depth and bridge rooms are composed from a checkout
-of the commit such a record names.
-
 ### Observation vector (15-19D proprioceptive base, optionally + depth + RGB)
 
 | Component | Dims | Source |

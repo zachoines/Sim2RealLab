@@ -28,8 +28,7 @@ in this repository.
 
    **Match the task to the policy's training scene.** `ProcRoom-v0` composes the enclosed room
    (enclosed rooms, tall furniture, mid-room columns) the depth-subgoal policies train in. The
-   open-top room, which `ProcRoom-v0` named before the `-Enriched-` IDs were retired, is a different
-   distribution, and a map made in it is not interchangeable.
+   open-top room is a different distribution, and a map made in it is not interchangeable.
 
 ## On the NX (`strafer-nx`)
 

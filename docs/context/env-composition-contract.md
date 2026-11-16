@@ -52,10 +52,7 @@ Two families, prefix `Isaac-Strafer-Nav-`:
   recurrent pair `-RLNoCam-Subgoal-Robust-GRU-v0` /
   `-RLNoCam-Subgoal-Real-Play-GRU-v0`): **fixed** sensor stack — the obs
   contract a trained policy was fitted against. On ProcRoom the depth IDs
-  compose the enclosed room and the NoCam IDs the open-top room. The nine
-  `-Enriched-` IDs are retired into the plain depth IDs and the ProcRoom bridge;
-  the old→new table is in the
-  [`strafer_lab` README](../../../source/strafer_lab/README.md#gym-environment-registry-strafer_labtasksnavigation).
+  compose the enclosed room and the NoCam IDs the open-top room.
 - **Capture** (`-Capture-Teleop-v0`, `-Capture-Bridge-v0`,
   `-Capture-Bridge-ProcRoom-v0`, `-Capture-Coverage-v0`):
   the registered stack is a **default preset**, operator-overridable per session.
@@ -66,10 +63,7 @@ Two families, prefix `Isaac-Strafer-Nav-`:
   harness` to resolve.
 
 The runner cfg pairs with the observation profile: a depth-image obs uses the
-CNN depth runner, a proprioceptive obs the MLP runner. Old per-cell gym IDs
-(`-Real-v0`, `-Real-Depth-v0`, `-Real-ProcRoom-Depth-v0`, `-InfinigenPerception-Play-v0`, …)
-are retired — the old→new table is in
-[`docs/archived/INTEGRATION_SIM_IN_THE_LOOP.md`](../archived/INTEGRATION_SIM_IN_THE_LOOP.md).
+CNN depth runner, a proprioceptive obs the MLP runner.
 
 ## The two invariants
 

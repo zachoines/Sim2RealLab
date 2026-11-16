@@ -752,7 +752,8 @@ def rgb_image(
     1. Noise is applied to normalized pixel values
     2. Output is already bounded, no additional scale needed
     
-    WARNING: RGB observations are very high dimensional (80*60*3 = 14400 dims).
+    WARNING: RGB observations are very high dimensional: the camera's render,
+    unreduced (640*360*3 = 691,200 dims for the policy camera).
     Consider using a CNN encoder or feature extractor for RGB-based policies.
     
     Preprocesses the RGB image by:

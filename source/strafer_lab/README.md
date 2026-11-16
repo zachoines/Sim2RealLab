@@ -108,8 +108,8 @@ of the commit such a record names.
 | Goal heading | 1 | Angular error |
 | Body velocity | 2 | `(vx, vy)` |
 | Last action | 3 | Previous `[vx, vy, omega]` |
-| Depth image (optional) | 4,800 | D555 depth 80×60, normalized |
-| RGB image (optional) | 14,400 | D555 RGB 80×60×3, normalized |
+| Depth image (optional) | 3,600 | D555 depth, reduced to the 80×45 policy grid, normalized |
+| RGB image (optional) | 691,200 | the policy camera's 640×360×3 render, unreduced, in [0, 1]; no registered ID observes it |
 
 ### Sim-to-real contract presets
 
@@ -134,8 +134,8 @@ Lives in `strafer_shared.policy_interface` — the single source of truth for ho
 
 ```python
 PolicyVariant.NOCAM   # 19 dims, proprioceptive only
-PolicyVariant.DEPTH   # 4,819 dims, + depth
-# (Full 19,219-dim variant exists but is not the sim-to-real MVP target.)
+PolicyVariant.DEPTH   # 3,619 dims, + depth (19 + 80×45)
+# NOCAM_SUBGOAL (19) and DEPTH_SUBGOAL (3,619) share these layouts; no variant carries RGB.
 
 assemble_observation(raw, variant)    # normalize + concatenate raw sensor values
 interpret_action(action)               # [-1, 1] → physical (vx, vy, omega)
@@ -455,7 +455,7 @@ cd /home/zachoines/Workspace/Sim2RealLab
 ../IsaacLab/isaaclab.sh -p source/strafer_lab/scripts/train_strafer_navigation.py \
     --env Isaac-Strafer-Nav-RLNoCam-v0 --num_envs 512 --headless
 
-# Depth Realistic (4,819 obs dims; cameras auto-enabled)
+# Depth Realistic (3,619 obs dims; cameras auto-enabled)
 ../IsaacLab/isaaclab.sh -p source/strafer_lab/scripts/train_strafer_navigation.py \
     --env Isaac-Strafer-Nav-RLDepth-Real-v0 --num_envs 32 --headless
 

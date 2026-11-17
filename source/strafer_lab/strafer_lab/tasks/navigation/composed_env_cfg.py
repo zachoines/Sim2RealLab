@@ -385,7 +385,7 @@ def _select_scene(scene_source: SceneSourceCfg, sensors: SensorStackCfg):
     elif kind == "procroom":
         # A depth/full profile carries the policy depth camera and gets the
         # enclosed room's scene: tall walls and furniture, and the ceiling
-        # surface. The camera-free NOCAM profile keeps the open-top scene, so its
+        # surface. Every other profile keeps the open-top scene, so the NOCAM
         # palette stays byte-identical. The same gate selects the events in
         # ``__post_init__``, so scene and events never disagree.
         enclosed = sensors.obs_profile() in ("depth", "full")
@@ -764,7 +764,7 @@ class StraferNavCfg_BridgeAutonomy_ProcRoom(_ComposedStraferNavEnvCfg):
     events. The stack carries the policy depth camera, so the room is the
     enclosed one the depth variants train in. Runs the deploy pipeline against
     a training-distribution scene — the scene axis of the drive-fault matrix.
-    A ``--sensors`` stack without ``depth_policy`` gets the open-top room.
+    Composed with a stack that lacks ``depth_policy``, it gets the open-top room.
     ``--mode bridge`` only: the procedural
     scene is event-generated, so there is no scene USD for ``--scene-usd`` /
     ``--mode harness`` to load."""

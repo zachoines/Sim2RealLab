@@ -127,7 +127,8 @@ _CONTRACT_GOLDENS = {
 # Frozen signature (slot name set + spawn sizes) of the open-top room's 44-object
 # palette. The composition hash cannot see the rigid-object palette (it is on the
 # scene, not a hashed manager), so this pins the NOCAM promise: NOCAM keeps this
-# exact palette, and the enclosed room's palette adds no NEW slot (only taller walls).
+# exact palette, and the enclosed room's palette adds no NEW slot (only taller
+# walls and taller tall-object slots).
 _PALETTE_GOLDEN = "cf3499bf212a50c571b1bda4980fbbf16c7ad743dc40c5e88b7b528de3d41832"
 
 # The realistic tier's depth observation, as a checkpoint consumes it, hashed

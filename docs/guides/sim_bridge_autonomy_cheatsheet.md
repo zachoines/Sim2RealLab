@@ -28,8 +28,7 @@ in this repository.
 
    **Match the task to the policy's training scene.** `ProcRoom-v0` composes the enclosed room
    (2.7 m walls, a ceiling on most episodes, tall furniture, mid-room columns) the depth-subgoal
-   policies train in. A `--sensors` stack without `depth_policy` composes the open-top room, a
-   different distribution: a map made in it is not interchangeable.
+   policies train in. A map made in another scene is not interchangeable.
 
 ## On the NX (`strafer-nx`)
 

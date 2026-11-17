@@ -367,7 +367,7 @@ def test_column_phase_is_additive_not_a_displacement():
     assert active[:, ordinary[:4]].sum(dim=1).max() == 4
 
 
-def test_column_phase_off_leaves_the_enriched_path_alone():
+def test_column_phase_off_draws_nothing():
     """``column_prob`` at zero draws nothing, so an enriched arm carrying only
     the park rank is byte-identical to one carrying no placement at all."""
     rank_only = _digest(*_run(placement=PlacementCfg(park_rank=column_protected_park_rank())))
@@ -449,13 +449,13 @@ def test_seed_correction_clears_blocked_cells_from_the_spawn_pool():
     """``_gpu_bfs`` marks its seed reachable free or not, so a grid-blocked room
     centre puts a cell inside an obstacle into the pool the robot, the goal and
     the planner endpoints all draw from."""
-    enriched = dict(
+    enclosed = dict(
         wall_height=2.7, door_width_max=2.0, span_max=7.5, max_span_sum=13.4,
         clutter_wall_bias_prob=0.3, robot_spawn_inflation_cells=1,
     )
     sink = {}
-    off, _ = _run(num_envs=64, difficulty=7, **enriched)
-    on, _ = _run(num_envs=64, difficulty=7, health_sink=sink, **enriched,
+    off, _ = _run(num_envs=64, difficulty=7, **enclosed)
+    on, _ = _run(num_envs=64, difficulty=7, health_sink=sink, **enclosed,
                  placement=PlacementCfg(relocate_blocked_bfs_seed=True))
     assert _blocked_spawn_cells(off) > 0, "no blocked seed in this batch — test is vacuous"
     assert _blocked_spawn_cells(on) == 0
@@ -521,7 +521,7 @@ def test_free_space_components_partition_the_bfs_reachable_set():
     Needs the seed correction — ``_gpu_bfs`` marks its seed reachable free or
     not, so an uncorrected blocked centre floods out of a cell no component
     owns and the subtraction splits a component instead of removing it."""
-    env, _ = _run(num_envs=64, difficulty=7, **_ENRICHED_KW,
+    env, _ = _run(num_envs=64, difficulty=7, **_ENCLOSED_KW,
                   placement=PlacementCfg(relocate_blocked_bfs_seed=True))
     free = env._proc_room_free_space
     zeros = torch.zeros(free.shape[0])
@@ -540,8 +540,8 @@ def test_health_sink_reports_free_space_fragmentation():
     Tight rooms so the retry ladder fires: the grid the counters must read is
     the one left after the ladder parks objects, not the first pass."""
     sink = {}
-    enriched = {**_ENRICHED_KW, "span_max": 4.0}
-    env, _ = _run(num_envs=64, difficulty=7, health_sink=sink, **enriched,
+    enclosed = {**_ENCLOSED_KW, "span_max": 4.0}
+    env, _ = _run(num_envs=64, difficulty=7, health_sink=sink, **enclosed,
                   placement=_COLUMNS)
     assert sink["ladder_passes"] > 0, "tight rooms did not exercise the ladder"
     count, share = _free_space_components(env._proc_room_free_space)
@@ -574,7 +574,7 @@ _COMPOUNDS = PlacementCfg(
     park_rank=_COMPOUND_RANK, compounds=(_WARDROBE,), compound_prob=1.0,
     furniture_aabb_reject=True,
 )
-_ENRICHED_KW = dict(
+_ENCLOSED_KW = dict(
     wall_height=2.7, door_width_max=2.0, span_max=7.5, max_span_sum=13.4,
     clutter_wall_bias_prob=0.3, robot_spawn_inflation_cells=1,
     tall_object_heights={"shelf": 2.0, "cabinet": 2.1, "tall_cyl": 1.8},
@@ -602,7 +602,7 @@ def test_compound_catalogue_places_one_shape_per_episode():
     menu = PlacementCfg(
         furniture_sequence=(20, 21, 26, 27), park_rank=_MENU_RANK,
         compounds=(_WARDROBE, _CABINETS), compound_prob=1.0, furniture_aabb_reject=True)
-    env, _ = _run(num_envs=128, difficulty=7, placement=menu, **_ENRICHED_KW)
+    env, _ = _run(num_envs=128, difficulty=7, placement=menu, **_ENCLOSED_KW)
     active = env._proc_room_active_mask
     wardrobe = active[:, 22] & active[:, 23]
     cabinets = active[:, 24] & active[:, 25]
@@ -612,7 +612,7 @@ def test_compound_catalogue_places_one_shape_per_episode():
     assert wardrobe.any() and cabinets.any(), "the menu never exercised both shapes"
 
 
-def test_compound_phase_off_leaves_the_enriched_path_alone():
+def test_compound_phase_off_draws_nothing():
     """``compound_prob`` at zero draws nothing, so an arm carrying a compound
     catalogue at zero probability digests identically to one carrying none."""
     none = _digest(*_run(placement=PlacementCfg(park_rank=_COMPOUND_RANK)))
@@ -624,13 +624,13 @@ def test_compound_phase_off_leaves_the_enriched_path_alone():
 def test_compound_places_and_parks_as_a_unit():
     """A compound is all-or-nothing per env and the retry ladder never splits it,
     which is the property the group-atomic park rank exists to guarantee."""
-    env, _ = _run(num_envs=64, difficulty=7, placement=_COMPOUNDS, **_ENRICHED_KW)
+    env, _ = _run(num_envs=64, difficulty=7, placement=_COMPOUNDS, **_ENCLOSED_KW)
     active = env._proc_room_active_mask
     assert (active[:, 22] & active[:, 23]).any(), "the wardrobe never seated"
     assert not (active[:, 22] ^ active[:, 23]).any(), "a member placed without its pair"
     # Drive the ladder to exhaustion on tight rooms — still never a half-compound.
     tight, _ = _run(num_envs=16, difficulty=7, placement=_COMPOUNDS,
-                    **{**_ENRICHED_KW, "span_max": 4.0, "max_span_sum": 8.0})
+                    **{**_ENCLOSED_KW, "span_max": 4.0, "max_span_sum": 8.0})
     tight_active = tight._proc_room_active_mask
     assert not (tight_active[:, 22] ^ tight_active[:, 23]).any()
 
@@ -639,7 +639,7 @@ def test_compound_keeps_within_overlap_but_rejects_between_overlap():
     """Within-compound overlap is intentional (the members interpenetrate by
     design); between-unit overlap is not — the true-AABB test keeps ordinary
     furniture out of a placed compound member."""
-    env, ents = _run(num_envs=64, difficulty=7, placement=_COMPOUNDS, **_ENRICHED_KW)
+    env, ents = _run(num_envs=64, difficulty=7, placement=_COMPOUNDS, **_ENCLOSED_KW)
     active = env._proc_room_active_mask
     poses = ents["room_primitives"].body_poses
     placed = torch.where(active[:, 22] & active[:, 23])[0].tolist()
@@ -670,7 +670,7 @@ def test_compound_keeps_within_overlap_but_rejects_between_overlap():
 def test_compound_footprint_reaches_the_occupancy_grid():
     """Each member rasterizes its own AABB into occupancy, so BFS sees the whole
     composite footprint — a member's centre cell is never passable."""
-    env, ents = _run(num_envs=64, difficulty=7, placement=_COMPOUNDS, **_ENRICHED_KW)
+    env, ents = _run(num_envs=64, difficulty=7, placement=_COMPOUNDS, **_ENCLOSED_KW)
     active = env._proc_room_active_mask
     poses = ents["room_primitives"].body_poses
     free = env._proc_room_free_space
@@ -686,7 +686,7 @@ def test_compound_consumes_the_furniture_budget():
     4 + 2 — held by construction so density does not silently inflate."""
     sink = {}
     env, _ = _run(num_envs=64, difficulty=4, health_sink=sink,
-                  placement=_COMPOUNDS, **_ENRICHED_KW)
+                  placement=_COMPOUNDS, **_ENCLOSED_KW)
     active = env._proc_room_active_mask
     placed = active[:, 22] & active[:, 23]
     assert placed.any()

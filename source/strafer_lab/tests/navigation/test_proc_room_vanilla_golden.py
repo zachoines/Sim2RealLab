@@ -335,7 +335,7 @@ _SWEEP_GOLDEN = {
 }
 
 
-def test_default_path_output_matches_pre_enrichment_goldens():
+def test_default_path_output_matches_open_top_goldens():
     got = sweep_digests()
     assert set(got) == set(_SWEEP_GOLDEN), "sweep shape changed — goldens are stale"
     diverged = sorted(k for k in got if got[k] != _SWEEP_GOLDEN[k])

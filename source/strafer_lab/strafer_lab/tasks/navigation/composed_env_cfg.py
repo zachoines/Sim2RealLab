@@ -87,14 +87,14 @@ from .strafer_env_cfg import (
     StraferSceneCfg_NoCam,
     StraferSceneCfg_ProcRoom,
     StraferSceneCfg_ProcRoom_NoCam,
-    StraferSceneCfg_ProcRoomEnriched,
+    StraferSceneCfg_ProcRoomEnclosed,
     StraferSceneCfg_ProcRoomPerception,
-    StraferSceneCfg_ProcRoomPerceptionEnriched,
+    StraferSceneCfg_ProcRoomPerceptionEnclosed,
     TerminationsCfg,
     TerminationsCfg_ProcRoom,
     TerminationsCfg_ProcRoom_Subgoal,
     _apply_default_nav_runtime,
-    _apply_enrich_render_face_culling,
+    _apply_enclosed_render_face_culling,
     _apply_infinigen_scene_setup,
     _apply_play_num_envs,
     _apply_procroom_physx_buffers,
@@ -297,7 +297,7 @@ _EVENTS_BY_SOURCE_REALISM = {
 # offset), keyed on realism. Selected for a procroom variant that carries the
 # policy depth camera (profile depth/full). NOCAM keeps the base events above,
 # the open-top room. Mirrors the profile-keyed reward override below.
-_EVENTS_ENRICHED_BY_REALISM = {
+_EVENTS_ENCLOSED_BY_REALISM = {
     "real": EventsCfg_ProcRoom_Realistic_Enriched,
     "robust": EventsCfg_ProcRoom_Robust_Enriched,
 }
@@ -394,7 +394,7 @@ def _select_scene(scene_source: SceneSourceCfg, sensors: SensorStackCfg):
         # has_perception_cam first so the perception scene wins.
         if has_perception_cam:
             perception_cls = (
-                StraferSceneCfg_ProcRoomPerceptionEnriched
+                StraferSceneCfg_ProcRoomPerceptionEnclosed
                 if enclosed
                 else StraferSceneCfg_ProcRoomPerception
             )
@@ -404,7 +404,7 @@ def _select_scene(scene_source: SceneSourceCfg, sensors: SensorStackCfg):
             )
         elif has_policy_cam:
             depth_cls = (
-                StraferSceneCfg_ProcRoomEnriched if enclosed else StraferSceneCfg_ProcRoom
+                StraferSceneCfg_ProcRoomEnclosed if enclosed else StraferSceneCfg_ProcRoom
             )
             scene = depth_cls(
                 num_envs=base._PROCROOM_DEPTH_TRAIN_NUM_ENVS,
@@ -519,7 +519,7 @@ class _ComposedStraferNavEnvCfg(base._BaseStraferNavEnvCfg):
         enclosed = kind == "procroom" and profile in ("depth", "full")
         try:
             if enclosed:
-                self.events = _EVENTS_ENRICHED_BY_REALISM[level]()
+                self.events = _EVENTS_ENCLOSED_BY_REALISM[level]()
             else:
                 self.events = _EVENTS_BY_SOURCE_REALISM[(kind, level)]()
         except KeyError as exc:
@@ -579,7 +579,7 @@ class _ComposedStraferNavEnvCfg(base._BaseStraferNavEnvCfg):
             # Same gate as the scene/events fork above: only the enclosed room
             # carries the one-sided ceiling the culling switch is for.
             if enclosed:
-                _apply_enrich_render_face_culling(self)
+                _apply_enclosed_render_face_culling(self)
 
         # --- Play/eval shrink ---
         if self.play_num_envs is not None:

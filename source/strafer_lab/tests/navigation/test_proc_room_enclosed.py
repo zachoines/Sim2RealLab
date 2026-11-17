@@ -99,7 +99,7 @@ def test_default_path_walls_at_half_meter_no_ceiling_no_robot_pool():
 # ---------------------------------------------------------------------------
 
 
-def test_enriched_path_encloses_and_forks_spawn_pool():
+def test_enclosed_room_has_tall_walls_a_ceiling_and_a_robot_pool():
     env, entities = _make_env()
     env_ids = torch.arange(env.num_envs)
     wall_height = 2.7
@@ -153,7 +153,7 @@ def _room_dims_from_walls(env, body_poses):
     return 2.0 * wx.max(dim=1).values, 2.0 * wy.max(dim=1).values
 
 
-def test_enriched_span_cap_bounds_perimeter():
+def test_enclosed_span_cap_bounds_perimeter():
     torch.manual_seed(7)
     env, entities = _make_env(num_envs=32)
     env_ids = torch.arange(env.num_envs)
@@ -204,7 +204,7 @@ def test_default_path_byte_identical_to_explicit_defaults():
     assert torch.equal(implicit, explicit)
 
 
-def test_ceiling_mixture_parks_open_top_envs():
+def test_ceiling_mixture_parks_the_slab_without_a_ceiling():
     # p_ceil=0.0 => no env is enclosed => the slab parks below the floor.
     env, entities = _make_env(num_envs=8)
     env_ids = torch.arange(env.num_envs)
@@ -221,7 +221,7 @@ def test_ceiling_mixture_parks_open_top_envs():
 # ---------------------------------------------------------------------------
 
 
-def test_enriched_tall_objects_stand_full_height():
+def test_enclosed_tall_objects_stand_full_height():
     """With the ``tall_object_heights`` map the shelf / cabinet / tall-cylinder
     slots are posed at ``height/2``; without it they keep the OBJECT_SIZES
     default. Both runs share a seed, so the map is the only difference."""

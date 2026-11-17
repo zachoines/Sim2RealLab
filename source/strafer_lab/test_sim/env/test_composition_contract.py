@@ -441,7 +441,7 @@ def _palette_sig(collection_cfg):
     return sig
 
 
-def test_open_top_variants_keep_pre_enrichment_palette_and_no_ceiling():
+def test_open_top_variants_keep_the_open_top_palette_and_no_ceiling():
     """Every open-top variant — NOCAM and NOCAM_SUBGOAL, the camera-free
     profile — keeps the open-top room's exact palette and has no ceiling entity.
 
@@ -479,7 +479,7 @@ def test_open_top_variants_drive_the_generator_at_its_defaults():
         )
 
 
-def test_enriched_palette_adds_no_new_slot():
+def test_enclosed_palette_adds_no_new_slot():
     """The enclosed room's palette has the SAME slot-name set as the open-top one —
     only the walls and the tall-furniture/clutter slots grow taller. No new
     collection slot is ever added (the ceiling is a standalone entity outside the
@@ -488,21 +488,21 @@ def test_enriched_palette_adds_no_new_slot():
         build_proc_room_collection_cfg,
     )
     from strafer_lab.tasks.navigation.strafer_env_cfg import (
-        _ENRICH_TALL_OBJECT_HEIGHTS,
+        _ENCLOSED_TALL_OBJECT_HEIGHTS,
     )
 
     base_names = set(build_proc_room_collection_cfg().keys())
-    enriched_scene = composed.StraferNavCfg_RLDepthSubgoal_Real().scene
-    enriched_names = set(enriched_scene.room_primitives.rigid_objects.keys())
-    assert enriched_names == base_names
+    enclosed_scene = composed.StraferNavCfg_RLDepthSubgoal_Real().scene
+    enclosed_names = set(enclosed_scene.room_primitives.rigid_objects.keys())
+    assert enclosed_names == base_names
     # Only the walls and the tall furniture/clutter differ, and only in Z.
     base_sig = _palette_sig(
-        type(enriched_scene.room_primitives)(
+        type(enclosed_scene.room_primitives)(
             rigid_objects=build_proc_room_collection_cfg()
         )
     )
-    enr_sig = _palette_sig(enriched_scene.room_primitives)
-    changed = {k for k in base_sig if base_sig[k] != enr_sig[k]}
+    enclosed_sig = _palette_sig(enclosed_scene.room_primitives)
+    changed = {k for k in base_sig if base_sig[k] != enclosed_sig[k]}
     tall_prefixes = ("furn_shelf_", "furn_cabinet_", "clutter_tall_cyl_")
     expected = {k for k in base_names if k.startswith("wall_")} | {
         k for k in base_names if k.startswith(tall_prefixes)
@@ -510,15 +510,15 @@ def test_enriched_palette_adds_no_new_slot():
     assert changed == expected
     # Geometry half of the palette/pose lockstep (the generator poses these at
     # height/2, pinned in the CPU suite of the enclosed room's generator).
-    assert enr_sig["furn_shelf_0"]["size"][2] == _ENRICH_TALL_OBJECT_HEIGHTS["shelf"]
-    assert enr_sig["furn_cabinet_0"]["size"][2] == _ENRICH_TALL_OBJECT_HEIGHTS["cabinet"]
-    assert enr_sig["clutter_tall_cyl_0"]["height"] == _ENRICH_TALL_OBJECT_HEIGHTS["tall_cyl"]
+    assert enclosed_sig["furn_shelf_0"]["size"][2] == _ENCLOSED_TALL_OBJECT_HEIGHTS["shelf"]
+    assert enclosed_sig["furn_cabinet_0"]["size"][2] == _ENCLOSED_TALL_OBJECT_HEIGHTS["cabinet"]
+    assert enclosed_sig["clutter_tall_cyl_0"]["height"] == _ENCLOSED_TALL_OBJECT_HEIGHTS["tall_cyl"]
     for k in changed:
         z_base = base_sig[k]["size"][2] if "size" in base_sig[k] else base_sig[k]["height"]
-        z_enr = enr_sig[k]["size"][2] if "size" in enr_sig[k] else enr_sig[k]["height"]
-        assert z_enr > z_base
+        z_enclosed = enclosed_sig[k]["size"][2] if "size" in enclosed_sig[k] else enclosed_sig[k]["height"]
+        assert z_enclosed > z_base
     # The ceiling is NOT part of the collection.
-    assert "ceiling" not in enriched_names
+    assert "ceiling" not in enclosed_names
 
 
 def test_the_room_never_reaches_the_observation():
@@ -548,16 +548,16 @@ def test_the_depth_profile_composes_the_enclosed_room():
         level = cfg.realism.level
         if cfg.sensors.obs_profile() in ("depth", "full"):
             seen["enclosed"] += 1
-            assert type(cfg.events) is composed._EVENTS_ENRICHED_BY_REALISM[level], name
+            assert type(cfg.events) is composed._EVENTS_ENCLOSED_BY_REALISM[level], name
             assert hasattr(cfg.scene, "ceiling"), f"{name} carries the policy camera but no ceiling"
         else:
             seen["open_top"] += 1
             assert type(cfg.events) is composed._EVENTS_BY_SOURCE_REALISM[("procroom", level)], name
             assert not hasattr(cfg.scene, "ceiling"), f"{name} is camera-free but got a ceiling"
     assert seen["enclosed"] and seen["open_top"], seen
-    for level, enriched_cls in composed._EVENTS_ENRICHED_BY_REALISM.items():
+    for level, enclosed_cls in composed._EVENTS_ENCLOSED_BY_REALISM.items():
         open_top_cls = composed._EVENTS_BY_SOURCE_REALISM[("procroom", level)]
-        assert _hash(_canon(enriched_cls())) != _hash(_canon(open_top_cls())), level
+        assert _hash(_canon(enclosed_cls())) != _hash(_canon(open_top_cls())), level
 
 
 def _obs_term_names(obs_cfg):

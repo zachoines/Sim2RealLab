@@ -55,8 +55,8 @@ def _make_env(num_envs, difficulty):
     return env, entities
 
 
-def _enriched_params():
-    return dict(_env_cfg._GENERATE_PROC_ROOM_ENRICHED.params)
+def _enclosed_room_params():
+    return dict(_env_cfg._GENERATE_PROC_ROOM_ENCLOSED.params)
 
 
 SEEDS = (20260101, 20268020, 20275939, 20283858, 20291777, 20299696,
@@ -107,7 +107,7 @@ def _case_digest(module, params, seed, difficulty, num_envs):
 
 def sweep_digests(module=_proc_room, params=None):
     """{case-key: digest} over the sweep, with the shipped enriched arguments unless ``params`` is given."""
-    params = _enriched_params() if params is None else params
+    params = _enclosed_room_params() if params is None else params
     return {
         f"s{seed}-d{difficulty}-b{num_envs}": _case_digest(module, params, seed, difficulty, num_envs)
         for seed, difficulty, num_envs in CASES
@@ -220,18 +220,18 @@ _SWEEP_GOLDEN = {
 }
 
 
-def test_the_sweep_covers_the_shipped_enriched_draw():
+def test_the_sweep_covers_the_enclosed_room_events():
     """The sweep's difficulties are the range the enriched events draw, and the shipped term poses the ceiling and
     builds the robot spawn pool, so every enriched phase runs under the guard."""
-    difficulty = _env_cfg._RANDOMIZE_PROC_ROOM_DIFFICULTY_ENRICHED.params
+    difficulty = _env_cfg._RANDOMIZE_PROC_ROOM_DIFFICULTY_ENCLOSED.params
     assert (difficulty["min_level"], difficulty["max_level"]) == (DIFFICULTIES[0], DIFFICULTIES[-1])
-    params = _enriched_params()
+    params = _enclosed_room_params()
     assert params["ceiling_entity_name"] == "ceiling"
     assert params["robot_spawn_inflation_cells"] > 0
     assert params["placement"] is not None
 
 
-def test_enriched_path_output_matches_goldens():
+def test_enclosed_room_output_matches_goldens():
     got = sweep_digests()
     assert set(got) == set(_SWEEP_GOLDEN), "sweep shape changed — goldens are stale"
     diverged = sorted(k for k in got if got[k] != _SWEEP_GOLDEN[k])

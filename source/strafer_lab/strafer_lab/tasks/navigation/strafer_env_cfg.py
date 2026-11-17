@@ -1308,15 +1308,15 @@ def _apply_infinigen_render_exposure(cfg: ManagerBasedRLEnvCfg) -> None:
 # into a one-way ceiling; without it RTX draws both sides of every face. Geometry
 # that does not carry the custom ``singleSided`` attribute stays two-sided, so
 # the switch reaches only the ceiling.
-_ENRICH_RENDER_FACE_CULLING_CARB: dict[str, object] = {
+_ENCLOSED_RENDER_FACE_CULLING_CARB: dict[str, object] = {
     "rtx.hydra.faceCulling.enabled": True,
 }
 
 
-def _apply_enrich_render_face_culling(cfg: ManagerBasedRLEnvCfg) -> None:
+def _apply_enclosed_render_face_culling(cfg: ManagerBasedRLEnvCfg) -> None:
     """Merge the back-face-culling carb setting into the sim's RenderCfg."""
     existing = cfg.sim.render.carb_settings or {}
-    cfg.sim.render.carb_settings = {**existing, **_ENRICH_RENDER_FACE_CULLING_CARB}
+    cfg.sim.render.carb_settings = {**existing, **_ENCLOSED_RENDER_FACE_CULLING_CARB}
 
 
 def _apply_infinigen_scene_setup(cfg: ManagerBasedRLEnvCfg) -> None:
@@ -1399,37 +1399,37 @@ from .mdp.proc_room import (
 # walls and furniture, a ceiling on most episodes, mid-room columns and wall-biased
 # clutter. Applied to the depth variants on ProcRoom; the NOCAM generator path keeps
 # the generator argument defaults.
-_ENRICH_WALL_HEIGHT = 2.7               # enclosing walls (open-top default 1.0)
-_ENRICH_DOOR_WIDTH_MAX = 2.0            # doorway U[0.8, 2.0] (default 1.2)
-_ENRICH_SPAN_MAX = 7.5                  # room span U[4.0, 7.5] (default 7.0)
-_ENRICH_MAX_SPAN_SUM = 13.4            # perimeter cap for the 26 m wall stock
-_ENRICH_CLUTTER_WALL_BIAS = 0.3        # per-episode perimeter-biased clutter prob
+_ENCLOSED_WALL_HEIGHT = 2.7               # enclosing walls (open-top default 1.0)
+_ENCLOSED_DOOR_WIDTH_MAX = 2.0            # doorway U[0.8, 2.0] (default 1.2)
+_ENCLOSED_SPAN_MAX = 7.5                  # room span U[4.0, 7.5] (default 7.0)
+_ENCLOSED_MAX_SPAN_SUM = 13.4            # perimeter cap for the 26 m wall stock
+_ENCLOSED_CLUTTER_WALL_BIAS = 0.3        # per-episode perimeter-biased clutter prob
 # Extra spawn erosion cells (0.1 m standoff). The shared pool's 0.3 m disc
 # inflation is quantized on a 0.1 m grid, so it alone leaves a small tail of
 # candidates inside the 0.28 m chassis radius; one erosion cell clears it.
-_ENRICH_ROBOT_SPAWN_INFLATION = 1
-_ENRICH_MIN_LEVEL = 4                  # un-pin difficulty to U[4, 7] (default pins 7)
-_ENRICH_MAX_LEVEL = 7
-_ENRICH_P_CEIL = 0.7                    # per-episode enclosure probability
-_ENRICH_CEILING_HEIGHT_RANGE = (2.2, 2.9)
-_ENRICH_CEILING_SPAN = (7.6, 7.6)       # spans the largest room + overhang
+_ENCLOSED_ROBOT_SPAWN_INFLATION = 1
+_ENCLOSED_MIN_LEVEL = 4                  # un-pin difficulty to U[4, 7] (default pins 7)
+_ENCLOSED_MAX_LEVEL = 7
+_ENCLOSED_P_CEIL = 0.7                    # per-episode enclosure probability
+_ENCLOSED_CEILING_HEIGHT_RANGE = (2.2, 2.9)
+_ENCLOSED_CEILING_SPAN = (7.6, 7.6)       # spans the largest room + overhang
 # The rendered surface hangs 5 cm under the entity's pose, which is where the
 # height band's 2.2 m lower bound puts the enclosure the camera sees at 2.15 m.
-_ENRICH_CEILING_SURFACE_OFFSET = -0.05
+_ENCLOSED_CEILING_SURFACE_OFFSET = -0.05
 # Open-top defaults shelf 0.8 / cabinet 0.6 / tall_cyl 0.7. Must stay under the
 # lowest ceiling surface (2.15 m) or a tall object pierces the enclosure.
-_ENRICH_TALL_OBJECT_HEIGHTS = {"shelf": 2.0, "cabinet": 2.1, "tall_cyl": 1.8}
+_ENCLOSED_TALL_OBJECT_HEIGHTS = {"shelf": 2.0, "cabinet": 2.1, "tall_cyl": 1.8}
 # Mid-room tall columns. The two tall-cylinder slots sit at the end of the
 # clutter sequence, so only level 7 reaches them and the retry ladder parks them
 # first; the phase makes their presence a per-episode draw and the rank moves
 # them behind the rest of their own category. A probability rather than a
 # promotion: full promotion overshoots to near-certain presence.
-_ENRICH_COLUMN_PROB = 0.5
-_ENRICH_COLUMN_COUNT = 2
-_ENRICH_PLACEMENT = PlacementCfg(
+_ENCLOSED_COLUMN_PROB = 0.5
+_ENCLOSED_COLUMN_COUNT = 2
+_ENCLOSED_PLACEMENT = PlacementCfg(
     park_rank=column_protected_park_rank(),
-    column_prob=_ENRICH_COLUMN_PROB,
-    column_count=_ENRICH_COLUMN_COUNT,
+    column_prob=_ENCLOSED_COLUMN_PROB,
+    column_count=_ENCLOSED_COLUMN_COUNT,
     relocate_blocked_bfs_seed=True,
     # Reject interpenetrating furniture by true footprint AABB rather than the
     # extent-blind centre test, so a couch no longer seats inside a table. The
@@ -1454,8 +1454,8 @@ def _make_ceiling_surface_cfg() -> RigidObjectCfg:
     return RigidObjectCfg(
         prim_path="{ENV_REGEX_NS}/Ceiling",
         spawn=CeilingSurfaceCfg(
-            size=_ENRICH_CEILING_SPAN,
-            surface_offset=_ENRICH_CEILING_SURFACE_OFFSET,
+            size=_ENCLOSED_CEILING_SPAN,
+            surface_offset=_ENCLOSED_CEILING_SURFACE_OFFSET,
             rigid_props=sim_utils.RigidBodyPropertiesCfg(kinematic_enabled=True),
             mass_props=sim_utils.MassPropertiesCfg(mass=1.0),
             visual_material=sim_utils.PreviewSurfaceCfg(diffuse_color=(0.6, 0.6, 0.62)),
@@ -1623,7 +1623,7 @@ class StraferSceneCfg_ProcRoom_NoCam(InteractiveSceneCfg):
 
 
 @configclass
-class StraferSceneCfg_ProcRoomEnriched(StraferSceneCfg_ProcRoom):
+class StraferSceneCfg_ProcRoomEnclosed(StraferSceneCfg_ProcRoom):
     """Depth scene with enclosing (tall) walls + a standalone ceiling surface.
 
     Same geometry pipeline and depth camera as :class:`StraferSceneCfg_ProcRoom`,
@@ -1637,15 +1637,15 @@ class StraferSceneCfg_ProcRoomEnriched(StraferSceneCfg_ProcRoom):
 
     room_primitives: RigidObjectCollectionCfg = RigidObjectCollectionCfg(
         rigid_objects=build_proc_room_collection_cfg(
-            wall_height=_ENRICH_WALL_HEIGHT,
-            tall_object_heights=_ENRICH_TALL_OBJECT_HEIGHTS,
+            wall_height=_ENCLOSED_WALL_HEIGHT,
+            tall_object_heights=_ENCLOSED_TALL_OBJECT_HEIGHTS,
         ),
     )
     ceiling: RigidObjectCfg = _make_ceiling_surface_cfg()
 
 
 @configclass
-class StraferSceneCfg_ProcRoomPerceptionEnriched(StraferSceneCfg_ProcRoomPerception):
+class StraferSceneCfg_ProcRoomPerceptionEnclosed(StraferSceneCfg_ProcRoomPerception):
     """Perception (bridge/capture) scene with enclosure + a per-env fill light.
 
     The ceiling shades the single global DomeLight out of the room, so the
@@ -1662,8 +1662,8 @@ class StraferSceneCfg_ProcRoomPerceptionEnriched(StraferSceneCfg_ProcRoomPercept
 
     room_primitives: RigidObjectCollectionCfg = RigidObjectCollectionCfg(
         rigid_objects=build_proc_room_collection_cfg(
-            wall_height=_ENRICH_WALL_HEIGHT,
-            tall_object_heights=_ENRICH_TALL_OBJECT_HEIGHTS,
+            wall_height=_ENCLOSED_WALL_HEIGHT,
+            tall_object_heights=_ENCLOSED_TALL_OBJECT_HEIGHTS,
         ),
     )
     ceiling: RigidObjectCfg = _make_ceiling_surface_cfg()
@@ -1768,29 +1768,29 @@ class EventsCfg_ProcRoom_Robust:
 # The enclosed room's event terms: difficulty drawn on levels 4-7, and the
 # generator fed the enclosed room's arguments. Used by the depth variants on
 # ProcRoom; the base terms above keep the generator defaults.
-_GENERATE_PROC_ROOM_ENRICHED = EventTerm(
+_GENERATE_PROC_ROOM_ENCLOSED = EventTerm(
     func=mdp.generate_proc_room,
     mode="reset",
     params={
         "collection_name": "room_primitives",
-        "wall_height": _ENRICH_WALL_HEIGHT,
-        "door_width_max": _ENRICH_DOOR_WIDTH_MAX,
-        "span_max": _ENRICH_SPAN_MAX,
-        "max_span_sum": _ENRICH_MAX_SPAN_SUM,
-        "clutter_wall_bias_prob": _ENRICH_CLUTTER_WALL_BIAS,
-        "robot_spawn_inflation_cells": _ENRICH_ROBOT_SPAWN_INFLATION,
+        "wall_height": _ENCLOSED_WALL_HEIGHT,
+        "door_width_max": _ENCLOSED_DOOR_WIDTH_MAX,
+        "span_max": _ENCLOSED_SPAN_MAX,
+        "max_span_sum": _ENCLOSED_MAX_SPAN_SUM,
+        "clutter_wall_bias_prob": _ENCLOSED_CLUTTER_WALL_BIAS,
+        "robot_spawn_inflation_cells": _ENCLOSED_ROBOT_SPAWN_INFLATION,
         "ceiling_entity_name": "ceiling",
-        "p_ceil": _ENRICH_P_CEIL,
-        "ceiling_height_range": _ENRICH_CEILING_HEIGHT_RANGE,
-        "tall_object_heights": _ENRICH_TALL_OBJECT_HEIGHTS,
-        "placement": _ENRICH_PLACEMENT,
+        "p_ceil": _ENCLOSED_P_CEIL,
+        "ceiling_height_range": _ENCLOSED_CEILING_HEIGHT_RANGE,
+        "tall_object_heights": _ENCLOSED_TALL_OBJECT_HEIGHTS,
+        "placement": _ENCLOSED_PLACEMENT,
     },
 )
 
-_RANDOMIZE_PROC_ROOM_DIFFICULTY_ENRICHED = EventTerm(
+_RANDOMIZE_PROC_ROOM_DIFFICULTY_ENCLOSED = EventTerm(
     func=mdp.randomize_proc_room_difficulty,
     mode="reset",
-    params={"min_level": _ENRICH_MIN_LEVEL, "max_level": _ENRICH_MAX_LEVEL},
+    params={"min_level": _ENCLOSED_MIN_LEVEL, "max_level": _ENCLOSED_MAX_LEVEL},
 )
 
 # Point the rendered policy camera through the mount offset the IMU
@@ -1808,8 +1808,8 @@ class EventsCfg_ProcRoom_Realistic_Enriched(EventsCfg_ProcRoom_Realistic):
     """Realistic ProcRoom events for the enclosed room (difficulty on levels
     4-7, the enclosed room's generator arguments) and the rendered camera
     carrying the mount offset; DR bands unchanged."""
-    randomize_difficulty = _RANDOMIZE_PROC_ROOM_DIFFICULTY_ENRICHED
-    generate_room = _GENERATE_PROC_ROOM_ENRICHED
+    randomize_difficulty = _RANDOMIZE_PROC_ROOM_DIFFICULTY_ENCLOSED
+    generate_room = _GENERATE_PROC_ROOM_ENCLOSED
     jitter_d555_camera_prim = _JITTER_D555_CAMERA_PRIM
 
 
@@ -1817,8 +1817,8 @@ class EventsCfg_ProcRoom_Realistic_Enriched(EventsCfg_ProcRoom_Realistic):
 class EventsCfg_ProcRoom_Robust_Enriched(EventsCfg_ProcRoom_Robust):
     """Robust ProcRoom events for the enclosed room and the rendered camera
     carrying the mount offset; DR bands unchanged."""
-    randomize_difficulty = _RANDOMIZE_PROC_ROOM_DIFFICULTY_ENRICHED
-    generate_room = _GENERATE_PROC_ROOM_ENRICHED
+    randomize_difficulty = _RANDOMIZE_PROC_ROOM_DIFFICULTY_ENCLOSED
+    generate_room = _GENERATE_PROC_ROOM_ENCLOSED
     jitter_d555_camera_prim = _JITTER_D555_CAMERA_PRIM
 
 

@@ -17,11 +17,11 @@ import pytest
 
 from strafer_lab.tasks.navigation.ceiling_surface import CeilingSurfaceCfg, quad_points
 from strafer_lab.tasks.navigation.strafer_env_cfg import (
-    _ENRICH_CEILING_HEIGHT_RANGE,
-    _ENRICH_CEILING_SURFACE_OFFSET,
-    _ENRICH_RENDER_FACE_CULLING_CARB,
-    _ENRICH_TALL_OBJECT_HEIGHTS,
-    _apply_enrich_render_face_culling,
+    _ENCLOSED_CEILING_HEIGHT_RANGE,
+    _ENCLOSED_CEILING_SURFACE_OFFSET,
+    _ENCLOSED_RENDER_FACE_CULLING_CARB,
+    _ENCLOSED_TALL_OBJECT_HEIGHTS,
+    _apply_enclosed_render_face_culling,
 )
 
 
@@ -65,9 +65,9 @@ def test_quad_spans_the_requested_extent_at_one_height():
 
 
 def test_lowest_surface_clears_the_tallest_object():
-    lowest = _ENRICH_CEILING_HEIGHT_RANGE[0] + _ENRICH_CEILING_SURFACE_OFFSET
+    lowest = _ENCLOSED_CEILING_HEIGHT_RANGE[0] + _ENCLOSED_CEILING_SURFACE_OFFSET
     assert lowest == pytest.approx(2.15)
-    assert max(_ENRICH_TALL_OBJECT_HEIGHTS.values()) < lowest
+    assert max(_ENCLOSED_TALL_OBJECT_HEIGHTS.values()) < lowest
 
 
 def test_spawn_cfg_has_no_collider():
@@ -85,18 +85,18 @@ def test_spawn_cfg_has_no_collider():
 
 
 def test_constant_enables_back_face_culling():
-    assert _ENRICH_RENDER_FACE_CULLING_CARB["rtx.hydra.faceCulling.enabled"] is True
+    assert _ENCLOSED_RENDER_FACE_CULLING_CARB["rtx.hydra.faceCulling.enabled"] is True
 
 
 def test_applies_to_empty_render_cfg():
     cfg = _stub_cfg(None)
-    _apply_enrich_render_face_culling(cfg)
+    _apply_enclosed_render_face_culling(cfg)
     assert cfg.sim.render.carb_settings["rtx.hydra.faceCulling.enabled"] is True
 
 
 def test_merges_without_clobbering_existing():
     cfg = _stub_cfg({"rtx.post.histogram.enabled": True})
-    _apply_enrich_render_face_culling(cfg)
+    _apply_enclosed_render_face_culling(cfg)
     cs = cfg.sim.render.carb_settings
     assert cs["rtx.post.histogram.enabled"] is True          # preserved
     assert cs["rtx.hydra.faceCulling.enabled"] is True       # added

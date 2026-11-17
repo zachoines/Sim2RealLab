@@ -174,14 +174,13 @@ def test_enclosed_span_cap_bounds_perimeter():
 def test_default_path_byte_identical_to_explicit_defaults():
     """The default (open-top) generation is byte-for-byte identical whether the
     enclosed room's arguments are omitted or passed explicitly at their default
-    values — the load-bearing safety property. A stray *unconditional* draw for
-    one of those arguments on the default path would desync the shared RNG
-    stream and break this.
+    values — the load-bearing safety property. It pins the signature's defaults
+    to the values listed here; the frozen-output guard is what catches a stray
+    draw on the default path.
 
-    (Exact equality holds because both runs use this branch's identical formulas;
-    the one accepted deviation vs pre-PR main is the door-width multiplier's
-    1-ulp float difference — `door_width_max - 0.8 != 0.4` in IEEE754 — which is
-    identical across both runs here, so it does not surface.)
+    (Exact equality holds because both runs use the same formulas; the
+    door-width multiplier's 1-ulp float difference — `door_width_max - 0.8 !=
+    0.4` in IEEE754 — is identical across both runs, so it does not surface.)
     """
     def _run(**kwargs):
         torch.manual_seed(20260719)

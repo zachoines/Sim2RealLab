@@ -9,8 +9,8 @@ compares two legs of the *same* checkout, so it cannot detect a change that
 moves both legs together; the frozen manager hashes cover manager cfgs and
 scene scalars, not the generator's geometry, defaults or RNG consumption.
 
-Golden literals are the generator's open-top output, frozen before the enclosed
-room's arguments existed. A diff is a contract break, not a test to update.
+Golden literals are the generator's output at its argument defaults, the
+open-top room. A diff is a contract break, not a test to update.
 
 No Kit, no GPU. Run with the pure-Python lab tests.
 """

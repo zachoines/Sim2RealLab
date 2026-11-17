@@ -97,11 +97,10 @@ def _hash(obj):
     ).hexdigest()
 
 
-# Golden contract hashes captured from the legacy RL classes
-# (StraferNavEnvCfg_*_ProcRoom_*) before they were deleted. These are the
-# obs/action/DR contract a trained policy + the DEPTH inference package depend
-# on. Do not edit to make a test pass — a mismatch means the composition
-# drifted from the contract a checkpoint was trained against.
+# Golden contract hashes: the obs/action/DR contract a trained policy + the
+# DEPTH inference package depend on. Do not edit to make a test pass — a
+# mismatch means the composition drifted from the contract a checkpoint was
+# trained against.
 #
 # A randomization change moves every hash here, because the snapshot walks the
 # noise models, the event terms and the action term. That is correct — the

@@ -1,7 +1,7 @@
 # Copyright (c) 2025, Strafer Lab Project
 # SPDX-License-Identifier: BSD-3-Clause
 
-"""Frozen-output guard for the generator with the enclosed room's arguments, the room every depth stack trains on.
+"""Frozen-output guard for the enclosed room, which every depth stack trains on: the generator with its arguments.
 
 Pins absolute values: one digest per case of the generator's output and its RNG stream position, driven with the
 arguments of the enclosed room's ``generate_room`` term. The frozen manager hashes see those arguments but not the

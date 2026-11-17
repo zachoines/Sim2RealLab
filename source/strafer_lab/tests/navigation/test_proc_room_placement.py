@@ -368,8 +368,9 @@ def test_column_phase_is_additive_not_a_displacement():
 
 
 def test_column_phase_off_draws_nothing():
-    """``column_prob`` at zero draws nothing, so an arm carrying only
-    the park rank is byte-identical to one carrying no placement at all."""
+    """``column_prob`` at zero draws nothing: a placement carrying the park
+    rank and a zero-probability column knob is byte-identical to one carrying
+    the park rank alone."""
     rank_only = _digest(*_run(placement=PlacementCfg(park_rank=column_protected_park_rank())))
     knob_off = _digest(
         *_run(placement=PlacementCfg(park_rank=column_protected_park_rank(),

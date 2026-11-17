@@ -107,8 +107,8 @@ def main() -> None:
                         help="Directory for the recorded MP4 (default under logs/)")
     parser.add_argument("--open_rooms", action="store_true",
                         help="Build every room without a ceiling, so an overhead recording shows it "
-                             "lit. Enclosed rooms are most of what the depth variants train on, "
-                             "so this is for watching the policy, not for judging it")
+                             "lit. Most training episodes draw a ceiling, so this is for watching the "
+                             "policy, not for judging it")
     parser.add_argument("--no_robot_outline", action="store_true",
                         help="Record the command overlay without the robot's outline")
 

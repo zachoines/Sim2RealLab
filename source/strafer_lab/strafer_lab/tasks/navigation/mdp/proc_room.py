@@ -1038,7 +1038,7 @@ def generate_proc_room(
             nothing.
 
     The enclosed room's arguments all default to the open-top, single-pool,
-    uniform-scatter behavior, so the NOCAM generator path is unchanged.
+    uniform-scatter behavior, so a call without them builds the open-top room.
     """
     B = len(env_ids)
     if B == 0:

@@ -1654,7 +1654,7 @@ class StraferSceneCfg_ProcRoomPerceptionEnclosed(StraferSceneCfg_ProcRoomPercept
     geometry-only and unaffected. Only the single-env perception path carries
     this light. The depth path's policy camera still force-includes an rgb
     channel (so the viewport/--video pipeline comes up) but gets no fill light —
-    under enclosure its debug RGB is lit only by what reaches the room past the
+    under the ceiling its debug RGB is lit only by what reaches the room past the
     walls, which leaves the overhead recording legible and the floor dark. The
     depth observation it trains on is unaffected. Intensity is a debug-RGB fill,
     not a training signal.

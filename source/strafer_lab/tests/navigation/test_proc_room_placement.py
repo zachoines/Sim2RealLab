@@ -7,8 +7,8 @@ The sibling frozen-output guard proves the *default* path did not move. These
 cover the ``placement`` surface: that an explicitly-vanilla ``PlacementCfg`` is
 byte-for-byte the ``None`` path, that the group-atomic park rank reproduces and
 generalizes the two-tier ladder, that the mid-room column phase is additive and
-bounded away from the solvability seed, and that the enriched seed correction
-removes blocked cells from the spawn pool.
+bounded away from the solvability seed, and that the seed correction
+(``relocate_blocked_bfs_seed``) removes blocked cells from the spawn pool.
 
 No Kit / GPU. Run with the pure-Python lab tests.
 """
@@ -368,7 +368,7 @@ def test_column_phase_is_additive_not_a_displacement():
 
 
 def test_column_phase_off_draws_nothing():
-    """``column_prob`` at zero draws nothing, so an enriched arm carrying only
+    """``column_prob`` at zero draws nothing, so an arm carrying only
     the park rank is byte-identical to one carrying no placement at all."""
     rank_only = _digest(*_run(placement=PlacementCfg(park_rank=column_protected_park_rank())))
     knob_off = _digest(

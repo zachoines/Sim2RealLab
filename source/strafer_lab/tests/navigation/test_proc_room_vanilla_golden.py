@@ -9,8 +9,8 @@ compares two legs of the *same* checkout, so it cannot detect a change that
 moves both legs together; the frozen manager hashes cover manager cfgs and
 scene scalars, not the generator's geometry, defaults or RNG consumption.
 
-Golden literals are the generator's output before any enrichment argument
-existed. A diff is a contract break, not a test to update.
+Golden literals are the generator's open-top output, frozen before the enclosed
+room's arguments existed. A diff is a contract break, not a test to update.
 
 No Kit, no GPU. Run with the pure-Python lab tests.
 """
@@ -27,7 +27,7 @@ from strafer_lab.tasks.navigation.mdp import proc_room as _proc_room
 
 
 # ---------------------------------------------------------------------------
-# Stub scene (mirrors the sibling enrichment suite's harness)
+# Stub scene (mirrors the sibling enclosed-room suite's harness)
 # ---------------------------------------------------------------------------
 
 
@@ -341,7 +341,7 @@ def test_default_path_output_matches_open_top_goldens():
     diverged = sorted(k for k in got if got[k] != _SWEEP_GOLDEN[k])
     assert not diverged, (
         f"{len(diverged)} of {len(got)} default-path cases diverged from the frozen "
-        f"pre-enrichment output; first: {diverged[:5]}"
+        f"open-top output; first: {diverged[:5]}"
     )
 
 

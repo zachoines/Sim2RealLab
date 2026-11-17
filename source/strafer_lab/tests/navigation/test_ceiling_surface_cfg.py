@@ -1,4 +1,4 @@
-"""Tests for the enriched scenes' one-way ceiling surface.
+"""Tests for the enclosed room's one-way ceiling surface.
 
 The ceiling is a single open quad whose one normal faces down, so the robot's
 camera underneath renders it and an overhead camera renders through it. Two
@@ -45,7 +45,7 @@ def _face_normal(points):
 
 
 # ---------------------------------------------------------------------------
-# Geometry: the single face has to point down, at the enclosure's own height
+# Geometry: the single face has to point down, at the ceiling's own height
 # ---------------------------------------------------------------------------
 
 

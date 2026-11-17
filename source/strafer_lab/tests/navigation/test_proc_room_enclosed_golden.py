@@ -1,10 +1,10 @@
 # Copyright (c) 2025, Strafer Lab Project
 # SPDX-License-Identifier: BSD-3-Clause
 
-"""Frozen-output guard for the generator's enriched path, the enclosed room every depth stack trains on.
+"""Frozen-output guard for the generator with the enclosed room's arguments, the room every depth stack trains on.
 
 Pins absolute values: one digest per case of the generator's output and its RNG stream position, driven with the
-arguments of the shipped enriched ``generate_room`` term. The frozen manager hashes see those arguments but not the
+arguments of the enclosed room's ``generate_room`` term. The frozen manager hashes see those arguments but not the
 code that consumes them, and the vanilla guard drives the generator at its defaults, where the enclosure, the
 ceiling, the wall-biased clutter, the robot spawn pool and the placement phases never run.
 
@@ -61,7 +61,7 @@ def _enclosed_room_params():
 
 SEEDS = (20260101, 20268020, 20275939, 20283858, 20291777, 20299696,
          20307615, 20315534, 20323453, 20331372, 20339291, 20347210)
-# The enriched events draw the difficulty from this range at each reset.
+# The enclosed room's events draw the difficulty from this range at each reset.
 DIFFICULTIES = (4, 5, 6, 7)
 
 # Every scalar draw is issued inside the per-env loop, so the stream is positionally coupled across envs and the
@@ -86,7 +86,7 @@ def _feed(h, tensor):
 
 
 def _case_digest(module, params, seed, difficulty, num_envs):
-    """Digest one enriched call's observable output plus its stream position (the trailing draw)."""
+    """Digest one call's observable output plus its stream position (the trailing draw)."""
     torch.manual_seed(seed)
     env, entities = _make_env(num_envs, difficulty)
     module.generate_proc_room(env, torch.arange(num_envs), **params)
@@ -106,7 +106,7 @@ def _case_digest(module, params, seed, difficulty, num_envs):
 
 
 def sweep_digests(module=_proc_room, params=None):
-    """{case-key: digest} over the sweep, with the shipped enriched arguments unless ``params`` is given."""
+    """{case-key: digest} over the sweep, with the enclosed room's arguments unless ``params`` is given."""
     params = _enclosed_room_params() if params is None else params
     return {
         f"s{seed}-d{difficulty}-b{num_envs}": _case_digest(module, params, seed, difficulty, num_envs)
@@ -221,8 +221,8 @@ _SWEEP_GOLDEN = {
 
 
 def test_the_sweep_covers_the_enclosed_room_events():
-    """The sweep's difficulties are the range the enriched events draw, and the shipped term poses the ceiling and
-    builds the robot spawn pool, so every enriched phase runs under the guard."""
+    """The sweep's difficulties are the range the enclosed room's events draw, and its term poses the ceiling and
+    builds the robot spawn pool, so every phase those arguments reach runs under the guard."""
     difficulty = _env_cfg._RANDOMIZE_PROC_ROOM_DIFFICULTY_ENCLOSED.params
     assert (difficulty["min_level"], difficulty["max_level"]) == (DIFFICULTIES[0], DIFFICULTIES[-1])
     params = _enclosed_room_params()
@@ -236,5 +236,5 @@ def test_enclosed_room_output_matches_goldens():
     assert set(got) == set(_SWEEP_GOLDEN), "sweep shape changed — goldens are stale"
     diverged = sorted(k for k in got if got[k] != _SWEEP_GOLDEN[k])
     assert not diverged, (
-        f"{len(diverged)} of {len(got)} enriched-path cases diverged from the frozen output; first: {diverged[:5]}"
+        f"{len(diverged)} of {len(got)} enclosed-room cases diverged from the frozen output; first: {diverged[:5]}"
     )

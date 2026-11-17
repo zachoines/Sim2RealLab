@@ -3,11 +3,11 @@
 
 """Frozen-output guard for the generator's branches that neither sweep executes.
 
-The vanilla sweep runs the defaults and the enriched sweep the shipped enriched arguments, both on full resets of
-envs at the origin, with no health sink. Neither reaches: the compound catalogue (the seat and the phase), a call
-on an env without curriculum difficulty, the enriched arguments at levels 0-3, non-zero env origins with partial
-resets, the health sink, custom furniture and clutter sequences, the column phase's early exit, and the robot
-pool's fallback to the shared pool. Each case below drives one of them and pins one digest per seed of the
+The vanilla sweep runs the defaults and the enclosed-room sweep the enclosed room's arguments, both on full resets
+of envs at the origin, with no health sink. Neither reaches: the compound catalogue (the seat and the phase), a
+call on an env without curriculum difficulty, the enclosed room's arguments at levels 0-3, non-zero env origins
+with partial resets, the health sink, custom furniture and clutter sequences, the column phase's early exit, and
+the robot pool's fallback to the shared pool. Each case below drives one of them and pins one digest per seed of the
 generator's output, its health sink where one is passed, and its RNG stream position.
 
 A diff is a change to the generator, not a test to update.

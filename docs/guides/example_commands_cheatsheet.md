@@ -172,8 +172,8 @@ MP4 lands in `logs/rsl_rl/strafer_navigation/play_videos/play_<timestamp>/`.
 The goal, rolling subgoal and path are drawn onto the frames, and the robot is outlined in
 magenta: most enclosed rooms have a ceiling, which leaves their floor black from above. For
 cleaner shots, `--open_rooms` builds every room without a ceiling, so the room renders lit and
-the robot reads on its own, and `--no_robot_outline` then drops the outline. Open rooms are a
-normal part of training, but enclosed ones are most of it, so use this for watching tracking,
+the robot reads on its own, and `--no_robot_outline` then drops the outline. Rooms without a
+ceiling are normal in training, but most episodes draw one, so use this for watching tracking,
 not for judging a policy. Only the ProcRoom depth IDs and the ProcRoom bridge build a ceiling;
 any other env refuses the flag.
 

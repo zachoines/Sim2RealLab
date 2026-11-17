@@ -1410,14 +1410,14 @@ _ENCLOSED_CLUTTER_WALL_BIAS = 0.3        # per-episode perimeter-biased clutter 
 _ENCLOSED_ROBOT_SPAWN_INFLATION = 1
 _ENCLOSED_MIN_LEVEL = 4                  # un-pin difficulty to U[4, 7] (default pins 7)
 _ENCLOSED_MAX_LEVEL = 7
-_ENCLOSED_P_CEIL = 0.7                    # per-episode enclosure probability
+_ENCLOSED_P_CEIL = 0.7                    # per-episode ceiling probability
 _ENCLOSED_CEILING_HEIGHT_RANGE = (2.2, 2.9)
 _ENCLOSED_CEILING_SPAN = (7.6, 7.6)       # spans the largest room + overhang
 # The rendered surface hangs 5 cm under the entity's pose, which is where the
-# height band's 2.2 m lower bound puts the enclosure the camera sees at 2.15 m.
+# height band's 2.2 m lower bound puts the ceiling the camera sees at 2.15 m.
 _ENCLOSED_CEILING_SURFACE_OFFSET = -0.05
 # Open-top defaults shelf 0.8 / cabinet 0.6 / tall_cyl 0.7. Must stay under the
-# lowest ceiling surface (2.15 m) or a tall object pierces the enclosure.
+# lowest ceiling surface (2.15 m) or a tall object pierces the ceiling.
 _ENCLOSED_TALL_OBJECT_HEIGHTS = {"shelf": 2.0, "cabinet": 2.1, "tall_cyl": 1.8}
 # Mid-room tall columns. The two tall-cylinder slots sit at the end of the
 # clutter sequence, so only level 7 reaches them and the retry ladder parks them
@@ -1627,12 +1627,12 @@ class StraferSceneCfg_ProcRoomEnclosed(StraferSceneCfg_ProcRoom):
     """Depth scene with enclosing (tall) walls + a standalone ceiling surface.
 
     Same geometry pipeline and depth camera as :class:`StraferSceneCfg_ProcRoom`,
-    but the walls reach ``_ENRICH_WALL_HEIGHT``, the shelf / cabinet / tall-
-    cylinder slots stand at ``_ENRICH_TALL_OBJECT_HEIGHTS``, and a per-env ceiling
-    surface (outside the collection — never in occupancy / BFS / the proximity
-    mask) closes the room's top over enclosed episodes. Depth is geometry-only,
-    so no added light is needed here (see the perception variant for the RGB
-    path).
+    but the walls reach ``_ENCLOSED_WALL_HEIGHT``, the shelf / cabinet / tall-
+    cylinder slots stand at ``_ENCLOSED_TALL_OBJECT_HEIGHTS``, and a per-env
+    ceiling surface (outside the collection — never in occupancy / BFS / the
+    proximity mask) closes the room's top on the episodes that draw a ceiling.
+    Depth is geometry-only, so no added light is needed here (see the perception
+    variant for the RGB path).
     """
 
     room_primitives: RigidObjectCollectionCfg = RigidObjectCollectionCfg(

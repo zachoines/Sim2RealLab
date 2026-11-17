@@ -63,9 +63,9 @@ from .strafer_env_cfg import (
     EventsCfg_Infinigen_Realistic,
     EventsCfg_Infinigen_Robust,
     EventsCfg_ProcRoom_Realistic,
-    EventsCfg_ProcRoom_Realistic_Enriched,
+    EventsCfg_ProcRoom_Realistic_Enclosed,
     EventsCfg_ProcRoom_Robust,
-    EventsCfg_ProcRoom_Robust_Enriched,
+    EventsCfg_ProcRoom_Robust_Enclosed,
     EventsCfg_Realistic,
     EventsCfg_Robust,
     ObsCfg_Depth_Ideal,
@@ -298,8 +298,8 @@ _EVENTS_BY_SOURCE_REALISM = {
 # policy depth camera (profile depth/full). NOCAM keeps the base events above,
 # the open-top room. Mirrors the profile-keyed reward override below.
 _EVENTS_ENCLOSED_BY_REALISM = {
-    "real": EventsCfg_ProcRoom_Realistic_Enriched,
-    "robust": EventsCfg_ProcRoom_Robust_Enriched,
+    "real": EventsCfg_ProcRoom_Realistic_Enclosed,
+    "robust": EventsCfg_ProcRoom_Robust_Enclosed,
 }
 
 _COMMANDS_BY_SOURCE = {

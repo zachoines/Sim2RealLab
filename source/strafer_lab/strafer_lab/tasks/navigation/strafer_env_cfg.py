@@ -1804,7 +1804,7 @@ _JITTER_D555_CAMERA_PRIM = EventTerm(
 
 
 @configclass
-class EventsCfg_ProcRoom_Realistic_Enriched(EventsCfg_ProcRoom_Realistic):
+class EventsCfg_ProcRoom_Realistic_Enclosed(EventsCfg_ProcRoom_Realistic):
     """Realistic ProcRoom events for the enclosed room (difficulty on levels
     4-7, the enclosed room's generator arguments) and the rendered camera
     carrying the mount offset; DR bands unchanged."""
@@ -1814,7 +1814,7 @@ class EventsCfg_ProcRoom_Realistic_Enriched(EventsCfg_ProcRoom_Realistic):
 
 
 @configclass
-class EventsCfg_ProcRoom_Robust_Enriched(EventsCfg_ProcRoom_Robust):
+class EventsCfg_ProcRoom_Robust_Enclosed(EventsCfg_ProcRoom_Robust):
     """Robust ProcRoom events for the enclosed room and the rendered camera
     carrying the mount offset; DR bands unchanged."""
     randomize_difficulty = _RANDOMIZE_PROC_ROOM_DIFFICULTY_ENCLOSED

@@ -106,7 +106,7 @@ def test_procroom_reset_spawns_by_yaw_range(cfg):
 def test_procroom_managers_selected(cfg):
     assert type(cfg.commands).__name__ == "CommandsCfg_ProcRoom"
     assert type(cfg.terminations).__name__ == "TerminationsCfg_ProcRoom"
-    assert type(cfg.events).__name__ == "EventsCfg_ProcRoom_Realistic_Enriched"
+    assert type(cfg.events).__name__ == "EventsCfg_ProcRoom_Realistic_Enclosed"
 
 
 def test_the_room_is_enclosed(cfg):

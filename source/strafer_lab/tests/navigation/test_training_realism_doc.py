@@ -211,26 +211,27 @@ def _trained_fixed(t, accel):
 
 @functools.lru_cache(maxsize=None)
 def _usd_shapes():
-    """(static, dynamic) friction of the physics material bound to each collision prim of the robot's USD."""
-    from pxr import Usd, UsdPhysics
+    """Per collision prim of the robot's USD: the (static, dynamic) friction of the physics material UsdShade resolves
+    for it (None when none resolves), and whether it authors a binding to a prim that carries a physics material."""
+    from pxr import Usd, UsdPhysics, UsdShade
 
     from strafer_lab.assets import strafer
 
     stage = Usd.Stage.Open(strafer._STRAFER_USD_PATH, load=Usd.Stage.LoadAll)
-
-    def bound(prim):
-        while prim and prim.IsValid():
-            for rel_name in ("material:binding:physics", "material:binding"):
-                rel = prim.GetRelationship(rel_name)
-                if rel and rel.GetTargets():
-                    mat = stage.GetPrimAtPath(rel.GetTargets()[0])
-                    if mat and mat.HasAPI(UsdPhysics.MaterialAPI):
-                        api = UsdPhysics.MaterialAPI(mat)
-                        return api.GetStaticFrictionAttr().Get(), api.GetDynamicFrictionAttr().Get()
-            prim = prim.GetParent()
-        return None
-
-    return [bound(p) for p in stage.Traverse() if p.HasAPI(UsdPhysics.CollisionAPI)]
+    out = []
+    for prim in stage.Traverse():
+        if not prim.HasAPI(UsdPhysics.CollisionAPI):
+            continue
+        mat, _ = UsdShade.MaterialBindingAPI(prim).ComputeBoundMaterial("physics")
+        resolved = None
+        if mat and mat.GetPrim().HasAPI(UsdPhysics.MaterialAPI):
+            api = UsdPhysics.MaterialAPI(mat.GetPrim())
+            resolved = (api.GetStaticFrictionAttr().Get(), api.GetDynamicFrictionAttr().Get())
+        rel = prim.GetRelationship("material:binding:physics")
+        targets = rel.GetTargets() if rel else []
+        authored = bool(targets) and stage.GetPrimAtPath(targets[0]).HasAPI(UsdPhysics.MaterialAPI)
+        out.append((resolved, authored))
+    return out
 
 
 @functools.lru_cache(maxsize=None)
@@ -246,8 +247,9 @@ def _usd_mass():
 
 
 def _friction_run(t):
-    """randomize_friction on a stand-in robot whose shapes carry the USD's materials (the unbound ones the sim's
-    default); returns the dynamic / static ratio it writes on the shapes it draws, after checking it keeps the rest."""
+    """randomize_friction on a stand-in robot whose shapes carry the physics materials their USD resolves (the sim's
+    default where none resolves, as PhysX applies it); returns the dynamic / static ratio it writes on the shapes it
+    draws, after checking it keeps the rest."""
     import warp as wp
 
     from strafer_lab.tasks.navigation.mdp import events
@@ -255,7 +257,7 @@ def _friction_run(t):
     params = _event(t, "randomize_friction")
     threshold = inspect.signature(events.randomize_friction).parameters["roller_friction_threshold"].default
     default = _c(t).sim.physics_material
-    shapes = [s if s is not None else (default.static_friction, default.dynamic_friction) for s in _usd_shapes()]
+    shapes = [r if r is not None else (default.static_friction, default.dynamic_friction) for r, _ in _usd_shapes()]
     table = torch.tensor([[s, d, 0.0] for s, d in shapes], dtype=torch.float32).repeat(8, 1, 1)
     written = {}
     view = SimpleNamespace(get_material_properties=lambda: table.clone(),
@@ -580,11 +582,26 @@ def _():
         if p is None:
             return OFF
         ratio, drawn, kept, _ = _friction_run(t)
-        return [*p["friction_range"], ratio, drawn] if t == "real" else list(p["friction_range"])
-    _, _, kept, threshold = _friction_run("real")
-    rollers = {s for s in _usd_shapes() if s is not None and s[0] >= threshold}
-    assert len(rollers) == 1, rollers
-    return {**_tiers(cell), "models": [kept, *rollers.pop()], "basis": []}
+        assert kept == 0  # no shape reads rubber, so the draw reaches every one
+        floor = _floor_static(t)
+        lo, hi = p["friction_range"]
+        grip = [(lo + floor) / 2.0, (hi + floor) / 2.0]  # PhysX averages the two materials' coefficients
+        if t == "real":
+            covers = sum(authored for _, authored in _usd_shapes())
+            return [lo, hi, ratio, drawn, covers, floor, *grip]
+        return [lo, hi, *grip]
+    # The flip guard: the covers author a rubber material that resolves as no physics material, so the term's rubber
+    # exception matches no shape. A cover whose material resolved would hold its grip fixed and fail here first.
+    assert not [r for r, _ in _usd_shapes() if r is not None], "a collision shape now resolves a physics material"
+    still = (_c("ideal").sim.physics_material.static_friction + _floor_static("ideal")) / 2.0
+    return {**_tiers(cell), "models": [still], "basis": []}
+
+
+def _floor_static(t):
+    """The floor's static friction, with both materials left at PhysX's default (average) combine."""
+    floor, robot = _c(t).scene.terrain.physics_material, _c(t).sim.physics_material
+    assert floor.friction_combine_mode in (None, "average") and robot.friction_combine_mode in (None, "average")
+    return floor.static_friction
 
 
 @row("Mass", {"design"})

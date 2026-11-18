@@ -166,6 +166,10 @@ def _get_scenes_metadata() -> dict | None:
     return json.loads(meta_path.read_text())
 
 
+# The floor's static and dynamic friction, on every scene; the wheel-grip term draws the covers' friction against it.
+_FLOOR_FRICTION = 0.5
+
+
 # =============================================================================
 # Scene Configurations
 # =============================================================================
@@ -180,8 +184,8 @@ class StraferSceneCfg(InteractiveSceneCfg):
         terrain_type="plane",
         collision_group=-1,
         physics_material=sim_utils.RigidBodyMaterialCfg(
-            static_friction=0.5,
-            dynamic_friction=0.5,
+            static_friction=_FLOOR_FRICTION,
+            dynamic_friction=_FLOOR_FRICTION,
             restitution=0.0,
         ),
         debug_vis=False,
@@ -228,8 +232,8 @@ class StraferSceneCfg_NoCam(InteractiveSceneCfg):
         terrain_type="plane",
         collision_group=-1,
         physics_material=sim_utils.RigidBodyMaterialCfg(
-            static_friction=0.5,
-            dynamic_friction=0.5,
+            static_friction=_FLOOR_FRICTION,
+            dynamic_friction=_FLOOR_FRICTION,
             restitution=0.0,
         ),
         debug_vis=False,
@@ -289,8 +293,8 @@ class StraferSceneCfg_Infinigen(InteractiveSceneCfg):
         terrain_type="plane",
         collision_group=-1,
         physics_material=sim_utils.RigidBodyMaterialCfg(
-            static_friction=0.5,
-            dynamic_friction=0.5,
+            static_friction=_FLOOR_FRICTION,
+            dynamic_friction=_FLOOR_FRICTION,
             restitution=0.0,
         ),
         debug_vis=False,
@@ -371,8 +375,8 @@ class StraferSceneCfg_InfinigenPerception(InteractiveSceneCfg):
         terrain_type="plane",
         collision_group=-1,
         physics_material=sim_utils.RigidBodyMaterialCfg(
-            static_friction=0.5,
-            dynamic_friction=0.5,
+            static_friction=_FLOOR_FRICTION,
+            dynamic_friction=_FLOOR_FRICTION,
             restitution=0.0,
         ),
         debug_vis=False,
@@ -958,8 +962,9 @@ class EventsCfg_Realistic:
     """Realistic: moderate domain randomization for sim-to-real transfer."""
     reset_robot = _RESET_ROBOT
     randomize_friction = EventTerm(
-        func=mdp.randomize_friction, mode="reset",
-        params={"friction_range": (0.6, 1.2)},
+        func=mdp.randomize_wheel_grip, mode="reset",
+        params={"grip_range": (0.55, 0.85), "floor_friction": _FLOOR_FRICTION, "dynamic_ratio": 0.9,
+                "chassis_mode": "same", "chassis_friction": _FLOOR_FRICTION, "chassis_friction_range": None},
     )
     randomize_mass = EventTerm(
         func=mdp.randomize_mass, mode="reset",
@@ -981,8 +986,9 @@ class EventsCfg_Robust:
     """Robust: aggressive domain randomization for worst-case robustness."""
     reset_robot = _RESET_ROBOT
     randomize_friction = EventTerm(
-        func=mdp.randomize_friction, mode="reset",
-        params={"friction_range": (0.3, 1.5)},
+        func=mdp.randomize_wheel_grip, mode="reset",
+        params={"grip_range": (0.40, 1.00), "floor_friction": _FLOOR_FRICTION, "dynamic_ratio": 0.9,
+                "chassis_mode": "same", "chassis_friction": _FLOOR_FRICTION, "chassis_friction_range": None},
     )
     randomize_mass = EventTerm(
         func=mdp.randomize_mass, mode="reset",
@@ -1092,8 +1098,9 @@ class EventsCfg_Infinigen_Realistic:
     lift_ground = _LIFT_GROUND_INFINIGEN
     stamp_d555_opencv_pinhole = _STAMP_D555_OPENCV_PINHOLE
     randomize_friction = EventTerm(
-        func=mdp.randomize_friction, mode="reset",
-        params={"friction_range": (0.6, 1.2)},
+        func=mdp.randomize_wheel_grip, mode="reset",
+        params={"grip_range": (0.55, 0.85), "floor_friction": _FLOOR_FRICTION, "dynamic_ratio": 0.9,
+                "chassis_mode": "same", "chassis_friction": _FLOOR_FRICTION, "chassis_friction_range": None},
     )
     randomize_mass = EventTerm(
         func=mdp.randomize_mass, mode="reset",
@@ -1117,8 +1124,9 @@ class EventsCfg_Infinigen_Robust:
     lift_ground = _LIFT_GROUND_INFINIGEN
     stamp_d555_opencv_pinhole = _STAMP_D555_OPENCV_PINHOLE
     randomize_friction = EventTerm(
-        func=mdp.randomize_friction, mode="reset",
-        params={"friction_range": (0.3, 1.5)},
+        func=mdp.randomize_wheel_grip, mode="reset",
+        params={"grip_range": (0.40, 1.00), "floor_friction": _FLOOR_FRICTION, "dynamic_ratio": 0.9,
+                "chassis_mode": "same", "chassis_friction": _FLOOR_FRICTION, "chassis_friction_range": None},
     )
     randomize_mass = EventTerm(
         func=mdp.randomize_mass, mode="reset",
@@ -1460,8 +1468,8 @@ class StraferSceneCfg_ProcRoom(InteractiveSceneCfg):
         terrain_type="plane",
         collision_group=-1,
         physics_material=sim_utils.RigidBodyMaterialCfg(
-            static_friction=0.5,
-            dynamic_friction=0.5,
+            static_friction=_FLOOR_FRICTION,
+            dynamic_friction=_FLOOR_FRICTION,
             restitution=0.0,
         ),
         debug_vis=False,
@@ -1524,8 +1532,8 @@ class StraferSceneCfg_ProcRoomPerception(InteractiveSceneCfg):
         terrain_type="plane",
         collision_group=-1,
         physics_material=sim_utils.RigidBodyMaterialCfg(
-            static_friction=0.5,
-            dynamic_friction=0.5,
+            static_friction=_FLOOR_FRICTION,
+            dynamic_friction=_FLOOR_FRICTION,
             restitution=0.0,
         ),
         debug_vis=False,
@@ -1572,8 +1580,8 @@ class StraferSceneCfg_ProcRoom_NoCam(InteractiveSceneCfg):
         terrain_type="plane",
         collision_group=-1,
         physics_material=sim_utils.RigidBodyMaterialCfg(
-            static_friction=0.5,
-            dynamic_friction=0.5,
+            static_friction=_FLOOR_FRICTION,
+            dynamic_friction=_FLOOR_FRICTION,
             restitution=0.0,
         ),
         debug_vis=False,
@@ -1703,8 +1711,9 @@ class EventsCfg_ProcRoom_Realistic:
     generate_room = _GENERATE_PROC_ROOM
     reset_robot = _RESET_ROBOT_PROC_ROOM
     randomize_friction = EventTerm(
-        func=mdp.randomize_friction, mode="reset",
-        params={"friction_range": (0.6, 1.2)},
+        func=mdp.randomize_wheel_grip, mode="reset",
+        params={"grip_range": (0.55, 0.85), "floor_friction": _FLOOR_FRICTION, "dynamic_ratio": 0.9,
+                "chassis_mode": "same", "chassis_friction": _FLOOR_FRICTION, "chassis_friction_range": None},
     )
     randomize_mass = EventTerm(
         func=mdp.randomize_mass, mode="reset",
@@ -1728,8 +1737,9 @@ class EventsCfg_ProcRoom_Robust:
     generate_room = _GENERATE_PROC_ROOM
     reset_robot = _RESET_ROBOT_PROC_ROOM
     randomize_friction = EventTerm(
-        func=mdp.randomize_friction, mode="reset",
-        params={"friction_range": (0.3, 1.5)},
+        func=mdp.randomize_wheel_grip, mode="reset",
+        params={"grip_range": (0.40, 1.00), "floor_friction": _FLOOR_FRICTION, "dynamic_ratio": 0.9,
+                "chassis_mode": "same", "chassis_friction": _FLOOR_FRICTION, "chassis_friction_range": None},
     )
     randomize_mass = EventTerm(
         func=mdp.randomize_mass, mode="reset",

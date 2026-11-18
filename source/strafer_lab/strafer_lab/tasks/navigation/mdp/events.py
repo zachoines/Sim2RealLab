@@ -23,6 +23,8 @@ from isaaclab.utils.math import (
     quat_mul,
 )
 
+from isaaclab.managers import ManagerTermBase
+
 from .subgoal_drift import SubgoalDriftProcess
 
 logger = logging.getLogger(__name__)
@@ -167,61 +169,112 @@ def reset_robot_state_on_floor(
     robot.write_joint_velocity_to_sim_index(velocity=joint_vel, env_ids=env_ids)
 
 
-def randomize_friction(
-    env: ManagerBasedEnv,
-    env_ids: torch.Tensor,
-    friction_range: tuple[float, float],
-) -> None:
-    """Randomize the robot's contact friction for domain randomization.
+GRIP_CHASSIS_MODES = ("same", "fixed", "band")
 
-    One draw d per reset env, uniform in ``friction_range``, sets the static
-    friction of every robot collision shape to d and its dynamic friction to
-    0.9 d; restitution is left as it is. The roller covers, the only floor
-    contact on a level floor, take the draw with the rest, so under PhysX's
-    default ``average`` combine mode the wheel-floor static grip is
-    (d + floor) / 2, with the floor's own static friction; the same draw sets
-    the chassis's friction against walls and furniture.
 
-    Args:
-        env: The environment instance.
-        env_ids: Indices of environments to randomize.
-        friction_range: (min, max) static friction drawn per env.
+class randomize_wheel_grip(ManagerTermBase):
+    """Randomize the wheel-floor grip on the roller covers, from an effective-grip band.
+
+    One draw per reset env sets the effective static grip between the roller covers and the floor, mu_eff, uniform in
+    ``grip_range``. Under PhysX's default ``average`` combine the contact's static friction is the mean of the two
+    materials', so the covers take 2 mu_eff - ``floor_friction`` (the floor's own static friction) and their dynamic
+    friction ``dynamic_ratio`` times that; restitution is left as it is. The roller covers are the only floor contact
+    on a level floor.
+
+    The chassis's shapes set its friction against walls and furniture:
+    - ``chassis_mode="same"``: every robot shape takes the covers' value, one write per env;
+    - ``"fixed"``: the chassis shapes take ``chassis_friction``;
+    - ``"band"``: they take their own draw in ``chassis_friction_range``, after the covers' draw.
+    Outside "same" the covers are the shapes of the links whose name holds ``cover_pattern``, resolved at the first
+    call from the view's per-link shape counts and required to number ``expected_covers``.
+
+    The average combine can represent mu_eff only from ``floor_friction / 2`` up (a cover coefficient below 0 is not
+    valid), so a band reaching lower fails when the term is built; another combine mode on the covers' material, or a
+    floor value set per scene, is then the fallback. A band at a point draws nothing.
     """
-    if len(env_ids) == 0:
-        return
 
-    robot = env.scene["robot"]
+    def __init__(self, cfg, env: ManagerBasedEnv):
+        super().__init__(cfg, env)
+        p = cfg.params
+        self._floor = float(p.get("floor_friction", 0.5))
+        lo, hi = sorted(float(x) for x in p["grip_range"])
+        if lo < self._floor / 2.0:
+            raise ValueError(
+                f"grip_range {p['grip_range']} reaches below floor_friction / 2 = {self._floor / 2.0}, which PhysX's "
+                "average combine cannot represent against this floor; use another combine mode on the roller covers' "
+                "material ('min' or 'multiply'), or a floor value set per scene")
+        # The covers' static band, rounded so the draw below is the friction band's own expression
+        self._cover_range = (round(2.0 * lo - self._floor, 12), round(2.0 * hi - self._floor, 12))
+        self._ratio = float(p.get("dynamic_ratio", 0.9))
+        self._mode = p.get("chassis_mode", "same")
+        if self._mode not in GRIP_CHASSIS_MODES:
+            raise ValueError(f"chassis_mode {self._mode!r} is not one of {GRIP_CHASSIS_MODES}")
+        self._chassis_friction = float(p.get("chassis_friction", 0.5))
+        self._chassis_range = p.get("chassis_friction_range")
+        if self._mode == "band" and self._chassis_range is None:
+            raise ValueError("chassis_mode 'band' needs chassis_friction_range")
+        self._cover_pattern = p.get("cover_pattern", "roller_cover")
+        self._expected_covers = int(p.get("expected_covers", 40))
+        self._cover_rows = None
 
-    # Get current material properties from PhysX view
-    # Shape: (num_envs, max_num_shapes, 3) where 3 = [static, dynamic, restitution]
-    materials = robot.root_view.get_material_properties()
-    # materials may be a warp array — convert to torch for slicing
-    if not isinstance(materials, torch.Tensor):
-        materials = wp.to_torch(materials)
-    materials_device = materials.device
-    env_ids_device = env_ids.to(materials_device)
+    def _resolve_covers(self, robot, num_shapes: int, device) -> torch.Tensor:
+        """The covers' rows in the material table: the shapes of the links whose name holds the pattern, the per-link
+        shape counts read as Isaac Lab's material term reads them."""
+        view = robot.root_view
+        counts = [robot._physics_sim_view.create_rigid_body_view(path).max_shapes for path in view.link_paths[0]]
+        if sum(counts) != num_shapes:
+            raise RuntimeError(f"the links hold {sum(counts)} shapes, the material table {num_shapes}")
+        rows, start = [], 0
+        for path, count in zip(view.link_paths[0], counts):
+            if self._cover_pattern in path.rsplit("/", 1)[-1]:
+                rows.extend(range(start, start + count))
+            start += count
+        if len(rows) != self._expected_covers:
+            raise RuntimeError(f"{len(rows)} roller-cover shapes resolved, {self._expected_covers} expected")
+        return torch.tensor(rows, dtype=torch.long, device=device)
 
-    # Sample random friction values for each environment being reset
-    num_resets = len(env_ids)
-    friction_values = (
-        torch.rand(num_resets, device=materials_device)
-        * (friction_range[1] - friction_range[0])
-        + friction_range[0]
-    )
+    @staticmethod
+    def _draw(n: int, band, device) -> torch.Tensor | float:
+        lo, hi = band
+        if lo == hi:
+            return lo
+        return torch.rand(n, device=device) * (hi - lo) + lo
 
-    # Apply friction to every shape of the reset envs
-    num_shapes = materials.shape[1]
-    friction_expanded = friction_values.unsqueeze(1).expand(-1, num_shapes)
-
-    materials[env_ids_device, :, 0] = friction_expanded          # Static friction
-    materials[env_ids_device, :, 1] = friction_expanded * 0.9    # Dynamic friction
-
-    # Apply the modified materials back to simulation
-    # root_view methods expect warp arrays on develop branch — convert back
-    # Index tensor must be on CPU (device -1)
-    materials_wp = wp.from_torch(materials)
-    env_ids_cpu = env_ids.cpu().int()
-    robot.root_view.set_material_properties(materials_wp, wp.from_torch(env_ids_cpu))
+    def __call__(self, env: ManagerBasedEnv, env_ids: torch.Tensor, grip_range, floor_friction: float = 0.5,
+                 dynamic_ratio: float = 0.9, chassis_mode: str = "same", chassis_friction: float = 0.5,
+                 chassis_friction_range=None, cover_pattern: str = "roller_cover", expected_covers: int = 40) -> None:
+        if len(env_ids) == 0:
+            return
+        robot = env.scene["robot"]
+        materials = robot.root_view.get_material_properties()
+        # materials may be a warp array — convert to torch for slicing
+        if not isinstance(materials, torch.Tensor):
+            materials = wp.to_torch(materials)
+        device = materials.device
+        ids = env_ids.to(device)
+        num_shapes = materials.shape[1]
+        n = len(env_ids)
+        cover = self._draw(n, self._cover_range, device)
+        cover = cover if isinstance(cover, torch.Tensor) else torch.full((n,), cover, device=device)
+        if self._mode == "same":
+            static = cover.unsqueeze(1).expand(-1, num_shapes)
+            materials[ids, :, 0] = static
+            materials[ids, :, 1] = static * self._ratio
+        else:
+            if self._cover_rows is None:
+                self._cover_rows = self._resolve_covers(robot, num_shapes, device)
+            if self._mode == "fixed":
+                chassis = torch.full((n,), self._chassis_friction, device=device)
+            else:
+                chassis = self._draw(n, self._chassis_range, device)
+                chassis = chassis if isinstance(chassis, torch.Tensor) else torch.full((n,), chassis, device=device)
+            is_cover = torch.zeros(num_shapes, dtype=torch.bool, device=device)
+            is_cover[self._cover_rows] = True
+            static = torch.where(is_cover.unsqueeze(0), cover.unsqueeze(1), chassis.unsqueeze(1))
+            materials[ids, :, 0] = static
+            materials[ids, :, 1] = static * self._ratio
+        # Index tensor must be on CPU (device -1)
+        robot.root_view.set_material_properties(wp.from_torch(materials), wp.from_torch(env_ids.cpu().int()))
 
 
 def randomize_obstacles(

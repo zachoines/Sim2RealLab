@@ -562,6 +562,12 @@ class TestContractTiers:
             "jump_rate_hz",
             "jump_position_range_m",
             "jump_heading_range_deg",
+            # the TF-age delay (get_tf_age_params) and the replan (get_replan_period)
+            "tf_age_enable",
+            "tf_age_steps_range",
+            "tf_age_interval_steps",
+            "replan_enable",
+            "replan_period_s",
         }
 
     def test_both_tiers_range_and_robust_does_not_reach_past_realistic(self):

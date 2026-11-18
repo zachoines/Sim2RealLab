@@ -71,6 +71,7 @@ from .noise_models import (
 
 # Referent-frame drift (goal-shaped observations)
 from .subgoal_drift import SubgoalDriftProcess, drift_referent
+from .tf_age import TfAgeProcess
 
 # Custom actions
 from .actions import MecanumWheelActionCfg
@@ -117,6 +118,7 @@ from .events import (
     reset_robot_state_on_floor,
     reset_robot_proc_room,
     randomize_wheel_grip,
+    randomize_tf_age,
     randomize_obstacles,
     randomize_mass,
     randomize_subgoal_drift,

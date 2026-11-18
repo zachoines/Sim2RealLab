@@ -430,8 +430,20 @@ def _drift_offsets(env: ManagerBasedEnv) -> torch.Tensor | None:
     return process.advance_to(env.common_step_counter)
 
 
-def _referent_body_xy(env: ManagerBasedEnv, command_name: str) -> torch.Tensor:
-    """True referent offset (x, y) in the robot's local frame, in metres.
+def _robot_pose(env: ManagerBasedEnv, perceived: bool) -> tuple[torch.Tensor, torch.Tensor]:
+    """The base pose (position, XYZW quaternion) a goal-shaped term projects the goal with: the live pose, or, for a
+    perceived term with the TF-age process on (``env._tf_age``), the pose its age in control steps old."""
+    robot = env.scene["robot"]
+    pos_w = wp.to_torch(robot.data.root_pos_w)
+    quat_w = wp.to_torch(robot.data.root_quat_w)  # (x, y, z, w) — XYZW (Isaac Lab 3.0)
+    process = getattr(env, "_tf_age", None)
+    if perceived and process is not None and process.enabled:
+        return process.observe(env.common_step_counter, pos_w, quat_w)
+    return pos_w, quat_w
+
+
+def _referent_body_xy(env: ManagerBasedEnv, command_name: str, perceived: bool = False) -> torch.Tensor:
+    """Referent offset (x, y) in the robot's local frame, in metres; perceived, through the aged base pose.
 
     Uses a full quaternion inverse rotation (matching TF2 on the real robot)
     rather than a yaw-only 2D rotation.  The world-frame displacement vector
@@ -441,9 +453,8 @@ def _referent_body_xy(env: ManagerBasedEnv, command_name: str) -> torch.Tensor:
     command = env.command_manager.get_command(command_name)
     goal_pos_w = command[:, :2]
 
-    robot = env.scene["robot"]
-    robot_pos_w = wp.to_torch(robot.data.root_pos_w)[:, :2]
-    robot_quat_w = wp.to_torch(robot.data.root_quat_w)  # (x, y, z, w) — XYZW (Isaac Lab 3.0)
+    robot_pos_w, robot_quat_w = _robot_pose(env, perceived)
+    robot_pos_w = robot_pos_w[:, :2]
 
     # World-frame displacement lifted to 3-D (z=0)
     rel_w = torch.zeros(robot_pos_w.shape[0], 3, device=robot_pos_w.device)
@@ -473,7 +484,7 @@ def goal_position_relative(
     Returns:
         Relative goal position (x, y) in robot's local frame. Shape: (num_envs, 2)
     """
-    rel_local = _referent_body_xy(env, command_name)
+    rel_local = _referent_body_xy(env, command_name, perceived)
     offsets = _drift_offsets(env) if perceived else None
     if offsets is None:
         return rel_local
@@ -500,14 +511,13 @@ def goal_distance(
         # projection otherwise. Taking the drifted range off the same vector
         # the offset and bearing come from matters more than that residual,
         # which is why the branch is skipped entirely at zero drift.
-        drifted = drift_referent(_referent_body_xy(env, command_name), offsets)
+        drifted = drift_referent(_referent_body_xy(env, command_name, perceived), offsets)
         return torch.norm(drifted, dim=-1, keepdim=True)
 
     command = env.command_manager.get_command(command_name)
     goal_pos_w = command[:, :2]
 
-    robot = env.scene["robot"]
-    robot_pos_w = wp.to_torch(robot.data.root_pos_w)[:, :2]
+    robot_pos_w = _robot_pose(env, perceived)[0][:, :2]
 
     distance = torch.norm(goal_pos_w - robot_pos_w, dim=-1, keepdim=True)
     return distance
@@ -537,8 +547,7 @@ def goal_heading_relative(
     command = env.command_manager.get_command(command_name)
     desired_heading = command[:, 2]
 
-    robot = env.scene["robot"]
-    robot_quat = wp.to_torch(robot.data.root_quat_w)
+    robot_quat = _robot_pose(env, perceived)[1]
     x, y, z, w = robot_quat[:, QX], robot_quat[:, QY], robot_quat[:, QZ], robot_quat[:, QW]
     robot_yaw = torch.atan2(2.0 * (w * z + x * y), 1.0 - 2.0 * (y * y + z * z))
 
@@ -574,15 +583,14 @@ def goal_heading_to_goal(
     """
     offsets = _drift_offsets(env) if perceived else None
     if offsets is not None:
-        drifted = drift_referent(_referent_body_xy(env, command_name), offsets)
+        drifted = drift_referent(_referent_body_xy(env, command_name, perceived), offsets)
         return torch.atan2(drifted[:, 1], drifted[:, 0]).unsqueeze(-1)
 
     command = env.command_manager.get_command(command_name)
     goal_pos_w = command[:, :2]
 
-    robot = env.scene["robot"]
-    robot_pos_w = wp.to_torch(robot.data.root_pos_w)[:, :2]
-    robot_quat = wp.to_torch(robot.data.root_quat_w)
+    robot_pos_w, robot_quat = _robot_pose(env, perceived)
+    robot_pos_w = robot_pos_w[:, :2]
     x, y, z, w = robot_quat[:, QX], robot_quat[:, QY], robot_quat[:, QZ], robot_quat[:, QW]
     robot_yaw = torch.atan2(2.0 * (w * z + x * y), 1.0 - 2.0 * (y * y + z * z))
 

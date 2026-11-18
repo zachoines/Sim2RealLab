@@ -26,6 +26,7 @@ from isaaclab.utils.math import (
 from isaaclab.managers import ManagerTermBase
 
 from .subgoal_drift import SubgoalDriftProcess
+from .tf_age import TfAgeProcess
 
 logger = logging.getLogger(__name__)
 
@@ -461,6 +462,32 @@ def randomize_subgoal_drift(
             jump_heading_range_deg=jump_heading_range_deg,
         )
         env._subgoal_drift = process
+    process.reset(env_ids)
+
+
+
+def randomize_tf_age(
+    env: ManagerBasedEnv,
+    env_ids: torch.Tensor,
+    age_steps_range: tuple[int, int],
+    interval_steps: int,
+) -> None:
+    """Forget the reset envs' base-pose history and redraw the age of the pose the goal is projected with.
+
+    The process is created on the first call and lives on the env, as the referent's drift does, so the goal-shaped
+    observation terms read one aged pose. Its draws come after the reset's other draws (the term sits after the
+    drift's).
+
+    Args:
+        env: The environment instance.
+        env_ids: Indices of environments to reset.
+        age_steps_range: Per-env age band [min, max] in control steps.
+        interval_steps: Control steps between redraws of every env's age.
+    """
+    process = getattr(env, "_tf_age", None)
+    if process is None:
+        process = TfAgeProcess(env.num_envs, env.device, age_steps_range, interval_steps)
+        env._tf_age = process
     process.reset(env_ids)
 
 

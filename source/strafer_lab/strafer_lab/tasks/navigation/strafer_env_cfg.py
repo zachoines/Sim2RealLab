@@ -65,6 +65,8 @@ from .sim_real_cfg import (
     get_rgb_noise,
     get_action_config_params,
     get_subgoal_drift_params,
+    get_tf_age_params,
+    get_replan_period,
 )
 from .ceiling_surface import CeilingSurfaceCfg
 from .d555_cfg import (
@@ -982,6 +984,16 @@ _SUBGOAL_DRIFT_ROBUST = EventTerm(
 )
 
 
+def _tf_age_term(contract) -> EventTerm | None:
+    """The TF-age reset event, after the drift's in each class so its draws come last; None where it is off."""
+    params = get_tf_age_params(contract)
+    return None if params is None else EventTerm(func=mdp.randomize_tf_age, mode="reset", params=params)
+
+
+_TF_AGE_REAL = _tf_age_term(REAL_ROBOT_CONTRACT)
+_TF_AGE_ROBUST = _tf_age_term(ROBUST_TRAINING_CONTRACT)
+
+
 @configclass
 class EventsCfg_Ideal:
     """Ideal: no domain randomization. For debugging and ablation."""
@@ -1012,6 +1024,7 @@ class EventsCfg_Realistic:
         params={"max_angle_deg": _D555_MOUNT_ANGLE_REAL_DEG, "max_translation_m": _D555_MOUNT_TRANSLATION_REAL_M},
     )
     randomize_subgoal_drift = _SUBGOAL_DRIFT_REAL
+    randomize_tf_age = _TF_AGE_REAL
 
 
 @configclass
@@ -1038,6 +1051,7 @@ class EventsCfg_Robust:
         params={"max_angle_deg": _D555_MOUNT_ANGLE_ROBUST_DEG, "max_translation_m": _D555_MOUNT_TRANSLATION_ROBUST_M},
     )
     randomize_subgoal_drift = _SUBGOAL_DRIFT_ROBUST
+    randomize_tf_age = _TF_AGE_ROBUST
 
 
 @configclass
@@ -1152,6 +1166,7 @@ class EventsCfg_Infinigen_Realistic:
         params={"max_angle_deg": _D555_MOUNT_ANGLE_REAL_DEG, "max_translation_m": _D555_MOUNT_TRANSLATION_REAL_M},
     )
     randomize_subgoal_drift = _SUBGOAL_DRIFT_REAL
+    randomize_tf_age = _TF_AGE_REAL
 
 
 @configclass
@@ -1180,6 +1195,7 @@ class EventsCfg_Infinigen_Robust:
         params={"max_angle_deg": _D555_MOUNT_ANGLE_ROBUST_DEG, "max_translation_m": _D555_MOUNT_TRANSLATION_ROBUST_M},
     )
     randomize_subgoal_drift = _SUBGOAL_DRIFT_ROBUST
+    randomize_tf_age = _TF_AGE_ROBUST
 
 
 @configclass
@@ -1769,6 +1785,7 @@ class EventsCfg_ProcRoom_Realistic:
         params={"max_angle_deg": _D555_MOUNT_ANGLE_REAL_DEG, "max_translation_m": _D555_MOUNT_TRANSLATION_REAL_M},
     )
     randomize_subgoal_drift = _SUBGOAL_DRIFT_REAL
+    randomize_tf_age = _TF_AGE_REAL
 
 
 @configclass
@@ -1797,6 +1814,7 @@ class EventsCfg_ProcRoom_Robust:
         params={"max_angle_deg": _D555_MOUNT_ANGLE_ROBUST_DEG, "max_translation_m": _D555_MOUNT_TRANSLATION_ROBUST_M},
     )
     randomize_subgoal_drift = _SUBGOAL_DRIFT_ROBUST
+    randomize_tf_age = _TF_AGE_ROBUST
 
 
 # The enclosed room's event terms: difficulty drawn on levels 4-7, and the
@@ -1913,6 +1931,9 @@ _SUBGOAL_MAX_OFF_PATH_M = INFLATION_CELLS * GRID_RES  # 0.3 m
 # distance. The training workflow is train-on-robust, evaluate-on-realistic.
 _SUBGOAL_REAL_LOOKAHEAD_BAND = (0.9, 1.1)
 _SUBGOAL_ROBUST_LOOKAHEAD_BAND = (0.7, 1.3)
+# The subgoal command's replan period per tier (None plans once at reset), from the contract.
+_SUBGOAL_REAL_REPLAN_PERIOD_S = get_replan_period(REAL_ROBOT_CONTRACT)
+_SUBGOAL_ROBUST_REPLAN_PERIOD_S = get_replan_period(ROBUST_TRAINING_CONTRACT)
 
 
 @configclass

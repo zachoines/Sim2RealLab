@@ -3,7 +3,7 @@
 
 """The subgoal episode's path-scaled time-out (`mdp.path_time_out`, registered as `time_out`).
 
-The term is driven on a stand-in env that holds what it reads: the command's `path_cursor.total_arc` and
+The term is driven on a stand-in env that holds what it reads: the command's `path_arc` (the reset plan's arc) and
 `path_turning`, the action term's cfg and `speed_scale`, `max_episode_length`, `step_dt` and `episode_length_buf`. A
 limit is the first counter at which the term fires. The turning the command measures is read from the real
 `SubgoalCommand` on a stub env with its planner calls replaced. The composition and the action-term seam are read from
@@ -57,7 +57,7 @@ class _ActionTerm:
 def _env(arc, s, turning=None, speed_scale_range=ENVELOPE, base=600):
     arc = torch.as_tensor(arc, dtype=torch.float32)
     turning = torch.zeros_like(arc) if turning is None else torch.as_tensor(turning, dtype=torch.float32)
-    command = SimpleNamespace(path_cursor=SimpleNamespace(total_arc=arc), path_turning=turning)
+    command = SimpleNamespace(path_arc=arc, path_turning=turning)
     action = _ActionTerm(s, speed_scale_range)
     return SimpleNamespace(
         max_episode_length=base, step_dt=1 / 30, episode_length_buf=torch.zeros(len(arc), dtype=torch.long),

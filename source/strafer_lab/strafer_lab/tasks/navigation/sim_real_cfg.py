@@ -446,6 +446,26 @@ class LocalizationDriftCfg:
     """Snap heading band [min, max] in degrees, with a random sign. Zero is off,
     for the same reason as the displacement band."""
 
+    tf_age_enable: bool = False
+    """Project the goal-shaped observations through a base pose some control
+    steps old, as the robot's TF lookup can be. Off by default."""
+
+    tf_age_steps_range: tuple[int, int] = (0, 0)
+    """Per-env age band [min, max] of that pose, in control steps (the
+    observation latencies count control steps). Drawn at reset and on the
+    interval below."""
+
+    tf_age_interval_steps: int = 15
+    """Control steps between redraws of every env's age (0.5 s at 30 Hz)."""
+
+    replan_enable: bool = False
+    """Re-plan each subgoal episode's path from the robot's pose on the period
+    below, as the robot's subgoal generator does. Off by default: the path is
+    planned once at reset."""
+
+    replan_period_s: float = 0.5
+    """The replan period in seconds, the subgoal generator's."""
+
 
 # =============================================================================
 # Combined Sensor Noise Configuration
@@ -918,6 +938,20 @@ def get_action_config_params(contract: SimRealContractCfg) -> dict:
         "max_acceleration_range": contract.actuator.max_acceleration_range,
         "speed_scale_range": contract.actuator.speed_scale_range,
     }
+
+
+def get_tf_age_params(contract: SimRealContractCfg) -> dict | None:
+    """The ``randomize_tf_age`` event's params, or None where the TF-age delay is off (the caller omits the term)."""
+    loc = contract.localization
+    if not loc.tf_age_enable:
+        return None
+    return {"age_steps_range": loc.tf_age_steps_range, "interval_steps": loc.tf_age_interval_steps}
+
+
+def get_replan_period(contract: SimRealContractCfg) -> float | None:
+    """The subgoal command's replan period in seconds, or None where the replan is off (planned once at reset)."""
+    loc = contract.localization
+    return loc.replan_period_s if loc.replan_enable else None
 
 
 def get_subgoal_drift_params(contract: SimRealContractCfg) -> dict | None:

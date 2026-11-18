@@ -62,7 +62,7 @@ class _StubScene:
         return self._entities[key]
 
 
-def _shipped_enriched_params():
+def _enclosed_room_params():
     """The generator kwargs and difficulty range the depth variants ship (the
     enclosed room's generator path)."""
     from strafer_lab.tasks.navigation import composed_env_cfg as composed
@@ -118,7 +118,7 @@ def measure_procroom(*, vanilla, overrides, num_envs, resets, pairs_per_env,
     if vanilla:
         params, difficulty_range = {}, (7, 7)
     else:
-        params, difficulty_range = _shipped_enriched_params()
+        params, difficulty_range = _enclosed_room_params()
     params.update(overrides)
 
     rng = np.random.default_rng(seed)

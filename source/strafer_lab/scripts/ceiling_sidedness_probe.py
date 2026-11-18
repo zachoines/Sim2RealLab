@@ -214,8 +214,8 @@ def main() -> None:
         return float(inside.mean())
 
     cfg = parse_env_cfg(args.task, num_envs=args.num_envs)
-    # Every env enclosed at one known height, so the overhead range band counts
-    # ceiling pixels and nothing else.
+    # Every env gets a ceiling at one known height, so the overhead range band
+    # counts ceiling pixels and nothing else.
     cfg.events.generate_room.params["p_ceil"] = 1.0
     cfg.events.generate_room.params["ceiling_height_range"] = (args.ceiling_z, args.ceiling_z)
     setattr(cfg.scene, "probe_overhead_camera", overhead_camera_cfg(args.overhead_alt))

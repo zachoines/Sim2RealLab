@@ -52,7 +52,7 @@ CLUTTER_TALL_CYL_SLOTS = list(range(42, 44))
 # Object sizes (X, Y, Z) for AABB computation
 # Must match the spawner configs in build_proc_room_collection_cfg().
 # Occupancy and the geometric proximity reward read only [:, :2] (XY), so the
-# Z entries here are not load-bearing: under enrichment the wall height is
+# Z entries here are not load-bearing: in the enclosed room the wall height is
 # authoritative from ``generate_proc_room``'s ``wall_height`` argument and the
 # shelf / cabinet / tall-cylinder heights from its ``tall_object_heights`` map
 # (pose z = height / 2 in both cases) — these Z literals are the open-top default.
@@ -89,7 +89,7 @@ OBJECT_SIZES = torch.tensor([
 
 assert OBJECT_SIZES.shape[0] == NUM_OBJECTS
 
-# Category -> the slots an enriched height map may raise. The palette builds
+# Category -> the slots a ``tall_object_heights`` map may raise. The palette builds
 # these and the generator poses them from the same map, so the rendered geometry
 # and the pose z cannot desync.
 TALL_OBJECT_SLOTS = {
@@ -438,7 +438,7 @@ def build_proc_room_collection_cfg(
 
     Args:
         wall_height: Vertical extent of the wall cuboids in meters. The default
-            reproduces the open-top 1.0 m rooms; enriched depth scenes raise it
+            reproduces the open-top 1.0 m rooms; the enclosed room raises it
             to enclose the camera's vertical field. The pose-z the generator
             writes must track this (``wall_height / 2``); see
             ``generate_proc_room``'s ``wall_height`` argument.
@@ -522,7 +522,7 @@ def _build_occupancy_grid(
         room_w: (B,) room width.
         room_h: (B,) room height.
         device: torch device.
-        has_room_walls: (B,) long — 1 if env has enclosing walls, 0 for open field.
+        has_room_walls: (B,) long — 1 if env has perimeter walls, 0 for open field.
             When None, all envs are treated as having room walls.
 
     Returns:
@@ -575,7 +575,7 @@ def _build_occupancy_grid(
     # Mark cells outside the room bounding box as occupied.
     # Without this, BFS floods through doorway gaps into unbounded exterior,
     # causing robot/goals to spawn outside the room.
-    # Skipped for open-field envs (no enclosing walls).
+    # Skipped for open-field envs (no perimeter walls).
     grid_xs = torch.arange(G, device=device).float() * GRID_RES + grid_origin_x + GRID_RES / 2.0
     grid_ys = torch.arange(G, device=device).float() * GRID_RES + grid_origin_y + GRID_RES / 2.0
 
@@ -897,10 +897,10 @@ def _pose_ceiling_surface(
     The surface is a scene entity *outside* the room-primitive collection, so it
     never enters the occupancy grid, the BFS retry ladder, or the geometric
     ``obstacle_proximity`` active mask (which is keyed on the collection). With
-    probability ``p_ceil`` the env is enclosed — the surface drops to a per-episode
-    height in ``height_range``; otherwise it parks below the floor (open-top),
-    so the far-clamp top-band stays a scene-class mixture rather than always
-    enclosed.
+    probability ``p_ceil`` the env gets a ceiling — the surface drops to a
+    per-episode height in ``height_range``; otherwise it parks below the floor
+    (no ceiling this episode), so the far-clamp top-band stays a scene-class
+    mixture rather than always under a ceiling.
     """
     B = len(env_ids)
     ceiling = env.scene[entity_name]
@@ -927,8 +927,8 @@ def _try_place_compound(
 ) -> list | None:
     """Seat a compound wall-flush without overlapping already-placed furniture.
 
-    Ten attempts, each drawing a wall side and an along-wall anchor (enriched-only
-    — never reached when ``placement`` is None). Local +x runs along the wall and
+    Ten attempts, each drawing a wall side and an along-wall anchor (never
+    reached when ``placement`` is None). Local +x runs along the wall and
     +y into the room, member yaw is the wall yaw, matching the single-furniture
     convention. Between-unit overlap (any member vs an already-placed piece) is
     rejected with the true rotated-AABB test; within-compound overlap is kept.
@@ -1037,8 +1037,8 @@ def generate_proc_room(
             placement, park, BFS and seed-relocation counters. Production passes
             nothing.
 
-    All enrichment arguments default to the open-top, single-pool, uniform-scatter
-    behavior, so the NOCAM / vanilla-depth generator path is unchanged.
+    The enclosed room's arguments all default to the open-top, single-pool,
+    uniform-scatter behavior, so a call without them builds the open-top room.
     """
     B = len(env_ids)
     if B == 0:
@@ -1104,8 +1104,8 @@ def generate_proc_room(
         difficulty = env._proc_room_difficulty[env_ids]
         # Curriculum levels override the max params per-env
         # Columns: (internal_walls, furniture, clutter, has_room_walls)
-        # Levels 0-1: open field (no enclosing walls) for easy early learning
-        # Levels 2+: enclosed rooms with increasing complexity
+        # Levels 0-1: open field (no perimeter walls) for easy early learning
+        # Levels 2+: walled rooms with increasing complexity
         level_table = torch.tensor([
             [0, 0, 0, 0],   # level 0: open field — just goals
             [0, 2, 4, 0],   # level 1: scattered obstacles on open ground
@@ -1254,7 +1254,7 @@ def generate_proc_room(
         placed_furn_aabb = []
         is_open_field = has_room_walls[b_idx].item() == 0
 
-        # --- Phase 3a: Compound furniture (rigid wall-flush clusters, enriched-only) ---
+        # --- Phase 3a: Compound furniture (rigid wall-flush clusters, only with a compound catalogue) ---
         # One shape per episode drawn from the catalogue (a menu, not a fixed set
         # placed together), seated before the ordinary scatter so the tall unit
         # anchors the room and later pieces avoid it. Its members consume the
@@ -1352,7 +1352,7 @@ def generate_proc_room(
         placed_clutter_xy = []
         inset = 0.5
 
-        # --- Phase 4a: Mid-room columns (additive, enriched-only) ---
+        # --- Phase 4a: Mid-room columns (additive, only with ``column_prob`` > 0) ---
         # Runs before the scatter so the columns get the interior the perimeter
         # bias vacates and the scatter then avoids them. The radial law is
         # bounded below by the BFS seed clearance and above by the room inset,
@@ -1605,7 +1605,7 @@ def generate_proc_room(
     all_object_ids = torch.arange(NUM_OBJECTS, device=device)
     collection.write_body_link_pose_to_sim_index(body_poses=poses, env_ids=env_ids, body_ids=all_object_ids)
 
-    # Enclosure: pose the standalone ceiling surface (outside the collection).
+    # Ceiling: pose the standalone ceiling surface (outside the collection).
     if ceiling_entity_name is not None:
         _pose_ceiling_surface(
             env, env_ids, ceiling_entity_name, p_ceil, ceiling_height_range, device

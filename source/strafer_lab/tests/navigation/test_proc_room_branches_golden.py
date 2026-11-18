@@ -3,11 +3,11 @@
 
 """Frozen-output guard for the generator's branches that neither sweep executes.
 
-The vanilla sweep runs the defaults and the enriched sweep the shipped enriched arguments, both on full resets of
-envs at the origin, with no health sink. Neither reaches: the compound catalogue (the seat and the phase), a call
-on an env without curriculum difficulty, the enriched arguments at levels 0-3, non-zero env origins with partial
-resets, the health sink, custom furniture and clutter sequences, the column phase's early exit, and the robot
-pool's fallback to the shared pool. Each case below drives one of them and pins one digest per seed of the
+The vanilla sweep runs the defaults and the enclosed-room sweep the enclosed room's arguments, both on full resets
+of envs at the origin, with no health sink. Neither reaches: the compound catalogue (the seat and the phase), a
+call on an env without curriculum difficulty, the enclosed room's arguments at levels 0-3, non-zero env origins
+with partial resets, the health sink, custom furniture and clutter sequences, the column phase's early exit, and
+the robot pool's fallback to the shared pool. Each case below drives one of them and pins one digest per seed of the
 generator's output, its health sink where one is passed, and its RNG stream position.
 
 A diff is a change to the generator, not a test to update.
@@ -65,8 +65,8 @@ def _spread_origins(num_envs):
     return torch.stack([i * 10.0 - 35.0, i * -7.5 + 12.0, torch.full((num_envs,), 0.25)], dim=-1)
 
 
-def _enriched(**overrides):
-    return lambda: {**dict(_env_cfg._GENERATE_PROC_ROOM_ENRICHED.params), **overrides}
+def _enclosed(**overrides):
+    return lambda: {**dict(_env_cfg._GENERATE_PROC_ROOM_ENCLOSED.params), **overrides}
 
 
 def _compound_placement():
@@ -137,65 +137,65 @@ _ALL8 = (tuple(range(8)),)
 CASES = {
     "compound": (
         (20260101, 20268020, 20275939), 8, _ALL8, 7, _zero_origins,
-        lambda: {**_enriched()(), "placement": _compound_placement()}, False,
+        lambda: {**_enclosed()(), "placement": _compound_placement()}, False,
     ),
     "compound-tight": (
         (20283858, 20291777, 20299696), 8, _ALL8, 7, _zero_origins,
-        lambda: {**_enriched()(), "placement": _compound_placement(), "span_max": 4.0, "max_span_sum": 8.0}, False,
+        lambda: {**_enclosed()(), "placement": _compound_placement(), "span_max": 4.0, "max_span_sum": 8.0}, False,
     ),
     "compound-unseatable-sink": (
         (20347210, 20260101), 8, _ALL8, 7, _zero_origins,
-        lambda: {**_enriched()(), "placement": _unseatable_compound_placement(), "span_max": 4.0,
+        lambda: {**_enclosed()(), "placement": _unseatable_compound_placement(), "span_max": 4.0,
                  "max_span_sum": 8.0}, True,
     ),
     "no-difficulty": (
         (20307615, 20315534, 20323453), 8, _ALL8, None, _zero_origins, _no_difficulty, False,
     ),
-    "enriched-levels-0-1": (
-        (20331372, 20339291, 20347210), 8, _ALL8, (0, 1, 0, 1, 1, 0, 1, 0), _zero_origins, _enriched(), False,
+    "enclosed-args-levels-0-1": (
+        (20331372, 20339291, 20347210), 8, _ALL8, (0, 1, 0, 1, 1, 0, 1, 0), _zero_origins, _enclosed(), False,
     ),
-    "enriched-levels-2-3": (
-        (20260101, 20268020, 20275939), 8, _ALL8, (2, 3, 2, 3, 3, 2, 3, 2), _zero_origins, _enriched(), False,
+    "enclosed-args-levels-2-3": (
+        (20260101, 20268020, 20275939), 8, _ALL8, (2, 3, 2, 3, 3, 2, 3, 2), _zero_origins, _enclosed(), False,
     ),
     "origins-partial-resets-sink": (
         (20283858, 20291777), 8, (tuple(range(8)), (1, 4, 6), (0, 7, 3, 2, 5)), (4, 5, 6, 7, 7, 6, 5, 4),
-        _spread_origins, _enriched(), True,
+        _spread_origins, _enclosed(), True,
     ),
     "custom-sequences": (
         (20291777, 20299696, 20307615), 8, _ALL8, 7, _zero_origins,
-        lambda: {**_enriched()(), "placement": _custom_sequences(column_radius_max=0.9)}, False,
+        lambda: {**_enclosed()(), "placement": _custom_sequences(column_radius_max=0.9)}, False,
     ),
     "column-early-exit-sink": (
         (20315534, 20323453), 8, _ALL8, 7, _zero_origins,
-        lambda: {**_enriched()(), "placement": _custom_sequences(
+        lambda: {**_enclosed()(), "placement": _custom_sequences(
             column_radius_max=_proc_room.BFS_SEED_CLEARANCE + 0.05)}, True,
     ),
     # Either side of the column phase's exit, by 0.01 m: just below it the phase exits before any column; just above
     # it places columns in a 0.01 m band.
     "column-exit-just-below-sink": (
         (20355129, 20363048), 8, _ALL8, 7, _zero_origins,
-        lambda: {**_enriched()(), "placement": _custom_sequences(column_radius_max=_column_r_min() - 0.01)}, True,
+        lambda: {**_enclosed()(), "placement": _custom_sequences(column_radius_max=_column_r_min() - 0.01)}, True,
     ),
     "column-exit-just-above-sink": (
         (20370967, 20378886), 8, _ALL8, 7, _zero_origins,
-        lambda: {**_enriched()(), "placement": _custom_sequences(column_radius_max=_column_r_min() + 0.01)}, True,
+        lambda: {**_enclosed()(), "placement": _custom_sequences(column_radius_max=_column_r_min() + 0.01)}, True,
     ),
     "robot-pool-fallback": (
-        (20315534, 20323453, 20331372), 8, _ALL8, 7, _zero_origins, _enriched(robot_spawn_inflation_cells=40),
+        (20315534, 20323453, 20331372), 8, _ALL8, 7, _zero_origins, _enclosed(robot_spawn_inflation_cells=40),
         False,
     ),
     # An erosion that empties some envs' robot pool and not others: the fallback is per env.
     "robot-pool-fallback-mixed": (
-        (20315534, 20323453, 20331372), 8, _ALL8, 7, _zero_origins, _enriched(robot_spawn_inflation_cells=8),
+        (20315534, 20323453, 20331372), 8, _ALL8, 7, _zero_origins, _enclosed(robot_spawn_inflation_cells=8),
         False,
     ),
     # Negative budgets on an env without curriculum difficulty take no prefix of the sequences.
     "no-difficulty-negative-budgets": (
         (20307615,), 8, _ALL8, None, _zero_origins, _no_difficulty_negative_budgets, False,
     ),
-    "sink-enriched-compound": (
+    "sink-enclosed-compound": (
         (20339291,), 8, _ALL8, 7, _zero_origins,
-        lambda: {**_enriched()(), "placement": _compound_placement(), "span_max": 4.0, "max_span_sum": 8.0}, True,
+        lambda: {**_enclosed()(), "placement": _compound_placement(), "span_max": 4.0, "max_span_sum": 8.0}, True,
     ),
 }
 
@@ -267,12 +267,12 @@ _SWEEP_GOLDEN = {
     "no-difficulty-s20307615": "944aa5d6ff3ff8397a4837b7f56a2a72fb515bb947882fb6b92e485be0690585",
     "no-difficulty-s20315534": "44b88eaeb15e89a2995e4405ae9c6173993fb7becb3eb627ce7f757d70ec78da",
     "no-difficulty-s20323453": "765b0a144c3902180085313bd75c23ebd8daa3e6c2939a13d740e20f0d81c364",
-    "enriched-levels-0-1-s20331372": "10a636dee4a00ff87f0c0287ac26c4f7bfb68ef5217362135f3ceda342ea18de",
-    "enriched-levels-0-1-s20339291": "f686ab3b6551689f1ec98d9816bccd8dba1b45d32ac4b47c41bf989455dd16d4",
-    "enriched-levels-0-1-s20347210": "b425486a3a17d9b94f6601a74af4e2d85c40b8915c454e8a0d2562ca5591ef46",
-    "enriched-levels-2-3-s20260101": "de6c38d2a7b8db849f4fbc3e7be0241eb014b5430a16709e5934c17c92ea2c00",
-    "enriched-levels-2-3-s20268020": "5430b48c122bac6f4cc8937a281147b007b837b4489a949ada63880e482048e0",
-    "enriched-levels-2-3-s20275939": "cd8436df7bd54e64e0d0c99d210eef88e757ab1ffeec4d8f7ff05443be44a054",
+    "enclosed-args-levels-0-1-s20331372": "10a636dee4a00ff87f0c0287ac26c4f7bfb68ef5217362135f3ceda342ea18de",
+    "enclosed-args-levels-0-1-s20339291": "f686ab3b6551689f1ec98d9816bccd8dba1b45d32ac4b47c41bf989455dd16d4",
+    "enclosed-args-levels-0-1-s20347210": "b425486a3a17d9b94f6601a74af4e2d85c40b8915c454e8a0d2562ca5591ef46",
+    "enclosed-args-levels-2-3-s20260101": "de6c38d2a7b8db849f4fbc3e7be0241eb014b5430a16709e5934c17c92ea2c00",
+    "enclosed-args-levels-2-3-s20268020": "5430b48c122bac6f4cc8937a281147b007b837b4489a949ada63880e482048e0",
+    "enclosed-args-levels-2-3-s20275939": "cd8436df7bd54e64e0d0c99d210eef88e757ab1ffeec4d8f7ff05443be44a054",
     "origins-partial-resets-sink-s20283858": "80c2bd1d7c9a1599fa90d76d11d3a5afade54fdeaac436164bebc1e26813f050",
     "origins-partial-resets-sink-s20291777": "bc551f4069005fabd607a0355265879983b5c3a8710507598195df0ccc2f1567",
     "custom-sequences-s20291777": "22dd1899b09afece6436e70038016f61070eea8eb20bfb43e2137b6ec8d8f9f0",
@@ -291,7 +291,7 @@ _SWEEP_GOLDEN = {
     "robot-pool-fallback-mixed-s20323453": "b6f6406fe952ceb59852305a07c4e29dfeb9845154807fecf4f4e3948079277b",
     "robot-pool-fallback-mixed-s20331372": "ef116c7e99b1a815a80537cd51557c362d3175a995801851cded76e3316616bd",
     "no-difficulty-negative-budgets-s20307615": "7cac94f71084b9e76963b38332779718ec6c9c127cbac738b2ca9d546bb947c1",
-    "sink-enriched-compound-s20339291": "088107271d84a287f49f23e1d9b3ec074b25cecb26a0dd47f76005877bbd9c27",
+    "sink-enclosed-compound-s20339291": "088107271d84a287f49f23e1d9b3ec074b25cecb26a0dd47f76005877bbd9c27",
 }
 
 
@@ -314,7 +314,7 @@ def test_each_case_reaches_its_branch():
     assert _proc_room._try_place_compound(wide, 4.0, 4.0, [], "cpu") is None
     tight = _sinks("compound-tight")
     assert sum(s["ladder_passes"] for s in tight) > 0
-    levels_open = _sinks("enriched-levels-0-1")
+    levels_open = _sinks("enclosed-args-levels-0-1")
     assert all(s["envs"] == 8 for s in levels_open)
     early = _sinks("column-early-exit-sink")
     assert sum(s["column_phase_fired"] for s in early) > 0

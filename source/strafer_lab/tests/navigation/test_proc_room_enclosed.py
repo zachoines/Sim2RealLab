@@ -1,7 +1,7 @@
 # Copyright (c) 2025, Strafer Lab Project
 # SPDX-License-Identifier: BSD-3-Clause
 
-"""CPU smoke tests for the ProcRoom depth-enrichment generator path.
+"""CPU smoke tests for the ProcRoom generator with the enclosed room's arguments.
 
 ``generate_proc_room`` normally runs inside a live Kit env, but its geometry is
 pure torch (occupancy raster, disc inflation, GPU-BFS via conv/max-pool), so it
@@ -10,9 +10,9 @@ tests pin two things the GPU descriptor run cannot cheaply re-check every time:
 
 1. With the argument defaults the generator is byte-for-byte the open-top
    behavior (walls at z=0.5, no ceiling write, single shared spawn pool).
-2. With the enrichment arguments the walls stand at ``wall_height/2``, the
-   standalone ceiling slab is posed per env, and a separate robot-spawn pool is
-   built — none of which perturbs the default path.
+2. With the enclosed room's arguments the walls stand at ``wall_height/2``,
+   the standalone ceiling slab is posed per env, and a separate robot-spawn
+   pool is built — none of which perturbs the default path.
 
 No Kit / GPU. Run with the pure-Python lab tests.
 """
@@ -95,11 +95,11 @@ def test_default_path_walls_at_half_meter_no_ceiling_no_robot_pool():
 
 
 # ---------------------------------------------------------------------------
-# Enriched path raises the walls, encloses, and forks the robot pool
+# The enclosed room: tall walls, a ceiling, a robot-only spawn pool
 # ---------------------------------------------------------------------------
 
 
-def test_enriched_path_encloses_and_forks_spawn_pool():
+def test_enclosed_room_has_tall_walls_a_ceiling_and_a_robot_pool():
     env, entities = _make_env()
     env_ids = torch.arange(env.num_envs)
     wall_height = 2.7
@@ -113,7 +113,7 @@ def test_enriched_path_encloses_and_forks_spawn_pool():
         clutter_wall_bias_prob=1.0,  # force the perimeter law for coverage
         robot_spawn_inflation_cells=2,
         ceiling_entity_name="ceiling",
-        p_ceil=1.0,  # force enclosure so the ceiling z is deterministic-in-range
+        p_ceil=1.0,  # force the ceiling so its z is deterministic-in-range
         ceiling_height_range=(2.2, 2.9),
     )
 
@@ -122,7 +122,7 @@ def test_enriched_path_encloses_and_forks_spawn_pool():
     assert wall_z.numel() > 0
     assert torch.allclose(wall_z, torch.full_like(wall_z, wall_height / 2.0))
 
-    # The ceiling slab was posed; with p_ceil=1.0 every env is enclosed at a
+    # The ceiling slab was posed; with p_ceil=1.0 every env gets a ceiling at a
     # height in the sampled band (env origins are zero here).
     ceil_pose = entities["ceiling"].root_pose
     assert ceil_pose is not None and ceil_pose.shape == (env.num_envs, 7)
@@ -144,7 +144,7 @@ def _room_dims_from_walls(env, body_poses):
 
     E/W walls sit at x=±w/2, N/S walls at y=±h/2, so the max abs coordinate over
     active wall slots is the half-span. Inactive (parked) wall slots are masked
-    out. Walls are never parked by the retry ladder, so enclosed envs keep all
+    out. Walls are never parked by the retry ladder, so walled envs keep all
     their perimeter segments.
     """
     am = env._proc_room_active_mask[:, WALL_SLOTS]  # (B, 20)
@@ -153,7 +153,7 @@ def _room_dims_from_walls(env, body_poses):
     return 2.0 * wx.max(dim=1).values, 2.0 * wy.max(dim=1).values
 
 
-def test_enriched_span_cap_bounds_perimeter():
+def test_enclosed_span_cap_bounds_perimeter():
     torch.manual_seed(7)
     env, entities = _make_env(num_envs=32)
     env_ids = torch.arange(env.num_envs)
@@ -173,14 +173,14 @@ def test_enriched_span_cap_bounds_perimeter():
 
 def test_default_path_byte_identical_to_explicit_defaults():
     """The default (open-top) generation is byte-for-byte identical whether the
-    enrichment kwargs are omitted or passed explicitly at their default values —
-    the load-bearing safety property. A stray *unconditional* enrichment draw on
-    the default path would desync the shared RNG stream and break this.
+    enclosed room's arguments are omitted or passed explicitly at their default
+    values — the load-bearing safety property. It pins the signature's defaults
+    to the values listed here; the frozen-output guard is what catches a stray
+    draw on the default path.
 
-    (Exact equality holds because both runs use this branch's identical formulas;
-    the one accepted deviation vs pre-PR main is the door-width multiplier's
-    1-ulp float difference — `door_width_max - 0.8 != 0.4` in IEEE754 — which is
-    identical across both runs here, so it does not surface.)
+    (Exact equality holds because both runs use the same formulas; the
+    door-width multiplier's 1-ulp float difference — `door_width_max - 0.8 !=
+    0.4` in IEEE754 — is identical across both runs, so it does not surface.)
     """
     def _run(**kwargs):
         torch.manual_seed(20260719)
@@ -204,8 +204,8 @@ def test_default_path_byte_identical_to_explicit_defaults():
     assert torch.equal(implicit, explicit)
 
 
-def test_ceiling_mixture_parks_open_top_envs():
-    # p_ceil=0.0 => no env is enclosed => the slab parks below the floor.
+def test_ceiling_mixture_parks_the_slab_without_a_ceiling():
+    # p_ceil=0.0 => no env gets a ceiling => the slab parks below the floor.
     env, entities = _make_env(num_envs=8)
     env_ids = torch.arange(env.num_envs)
     generate_proc_room(
@@ -217,11 +217,11 @@ def test_ceiling_mixture_parks_open_top_envs():
 
 
 # ---------------------------------------------------------------------------
-# Enriched tall objects stand full-height (pose-z half of the palette lockstep)
+# The enclosed room's tall objects stand full-height (pose-z half of the palette lockstep)
 # ---------------------------------------------------------------------------
 
 
-def test_enriched_tall_objects_stand_full_height():
+def test_enclosed_tall_objects_stand_full_height():
     """With the ``tall_object_heights`` map the shelf / cabinet / tall-cylinder
     slots are posed at ``height/2``; without it they keep the OBJECT_SIZES
     default. Both runs share a seed, so the map is the only difference."""

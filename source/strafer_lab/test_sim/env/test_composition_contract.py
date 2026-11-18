@@ -97,31 +97,30 @@ def _hash(obj):
     ).hexdigest()
 
 
-# Golden contract hashes captured from the legacy RL classes
-# (StraferNavEnvCfg_*_ProcRoom_*) before they were deleted. These are the
-# obs/action/DR contract a trained policy + the DEPTH inference package depend
-# on. Do not edit to make a test pass — a mismatch means the composition
-# drifted from the contract a checkpoint was trained against.
+# Golden contract hashes: the obs/action/DR contract a trained policy + the
+# DEPTH inference package depend on. Do not edit to make a test pass — a
+# mismatch means the composition drifted from the contract a checkpoint was
+# trained against.
 #
 # A randomization change moves every hash here, because the snapshot walks the
 # noise models, the event terms and the action term. That is correct — the
 # training distribution did change — and it is why the layout golden below
 # exists: it is the half a deployed checkpoint depends on, and it must not move.
 _CONTRACT_GOLDENS = {
-    "RLDepth_Real": "7bed78427cd0f6966a203c17a2e6da89940b8b8eb1d9cf2d57c92af87ac5caff",
-    "RLDepth_Robust": "1fba79a617930e2e94f7ba23bb3a7df1aedce992abb807849b651be76d96c211",
+    "RLDepth_Real": "0d32a11e0bb046aee9da3111d1e7989cf9fd2e1f680878d461757d8fa3dcd352",
+    "RLDepth_Robust": "28b28b1a4020555fdc405ba7ab04cedbe23bb59acd327072e5c83a2a76ed1fc0",
     "RLNoCam": "dca33abd5ff642ee23d0e4d71881c1301ba4f7ed9d4c5edc0331d57dbe5f887f",
-    "RLDepth_Real_PLAY": "818e71f70980a9881885b4a8aa7f598866f605558d1faab90cb35dbff0995c13",
-    "RLDepth_Robust_PLAY": "ded3d83a629f4d267c3078788ea3c58af95a40d8e734ac16e6a6510c8247ea7c",
+    "RLDepth_Real_PLAY": "1a22c39e52384aac42376b62e7b104e5625e09eb41104189fd152e254da02c7c",
+    "RLDepth_Robust_PLAY": "854d6adda025e2180e4be6d03fe6bdf4222e0a6946783ef107134815617ff51f",
     "RLNoCam_PLAY": "be8f54681e9098dfa89c825db5d7edba67f38b5d7d6a41cb5cd5a6dcd9e5f865",
     "RLNoCamSubgoal_Real": "3af5b11feae53fa141c8794608c234e03159b66ea5390f14f4d1c61b2c83aadf",
     "RLNoCamSubgoal_Robust": "b15bfe85a00edde7b2b1b82e76d1e4b8eb35f34ee566c8e7c250339afd8bb0f4",
     "RLNoCamSubgoal_Real_PLAY": "4f87941f028c2d7ead3340b4f9ae4e37382bb487a4620e44eee51138c4ea9622",
     "RLNoCamSubgoal_Robust_PLAY": "b48bfe60aaf3b330567bf049478f1aea3dfd3275eee286f894b6ba4aea2f2990",
-    "RLDepthSubgoal_Real": "8e8615a9f32fc686533145a913cfbd33dde337c8dc5551a5a05fbaf94770784b",
-    "RLDepthSubgoal_Robust": "c98d18baedffd070eebbc8deef6f07510a81ea0cd66ee1dc797bfff21d471546",
-    "RLDepthSubgoal_Real_PLAY": "1585a43ce225062c2a387c951d40e16ddc36e3c2da58241fd7cfa2eab7551e74",
-    "RLDepthSubgoal_Robust_PLAY": "a27f086252e47caffb4d5111c3c7a0496287a2d2c39e5f8fa2ba5ca903f9d464",
+    "RLDepthSubgoal_Real": "a7b565831b2394e492f4c7409fbb819a94902aca795f0f03b924c89425b7160d",
+    "RLDepthSubgoal_Robust": "ce82e9ab4de617851bd4e59850f60882ff92a9cb7e7407abf8606a886ca36026",
+    "RLDepthSubgoal_Real_PLAY": "a4257a793651289f61710a887d95c3bb2fb54b59a31488c1d86e714a0ba94b59",
+    "RLDepthSubgoal_Robust_PLAY": "960bfdb5b4044adbcf1b28d99ff8297535b4a7166c2995d5d7e61fa4c4d0ac55",
 }
 
 # Frozen signature (slot name set + spawn sizes) of the open-top room's 44-object
@@ -441,7 +440,7 @@ def _palette_sig(collection_cfg):
     return sig
 
 
-def test_open_top_variants_keep_pre_enrichment_palette_and_no_ceiling():
+def test_open_top_variants_keep_the_open_top_palette_and_no_ceiling():
     """Every open-top variant — NOCAM and NOCAM_SUBGOAL, the camera-free
     profile — keeps the open-top room's exact palette and has no ceiling entity.
 
@@ -479,7 +478,7 @@ def test_open_top_variants_drive_the_generator_at_its_defaults():
         )
 
 
-def test_enriched_palette_adds_no_new_slot():
+def test_enclosed_palette_adds_no_new_slot():
     """The enclosed room's palette has the SAME slot-name set as the open-top one —
     only the walls and the tall-furniture/clutter slots grow taller. No new
     collection slot is ever added (the ceiling is a standalone entity outside the
@@ -488,21 +487,21 @@ def test_enriched_palette_adds_no_new_slot():
         build_proc_room_collection_cfg,
     )
     from strafer_lab.tasks.navigation.strafer_env_cfg import (
-        _ENRICH_TALL_OBJECT_HEIGHTS,
+        _ENCLOSED_TALL_OBJECT_HEIGHTS,
     )
 
     base_names = set(build_proc_room_collection_cfg().keys())
-    enriched_scene = composed.StraferNavCfg_RLDepthSubgoal_Real().scene
-    enriched_names = set(enriched_scene.room_primitives.rigid_objects.keys())
-    assert enriched_names == base_names
+    enclosed_scene = composed.StraferNavCfg_RLDepthSubgoal_Real().scene
+    enclosed_names = set(enclosed_scene.room_primitives.rigid_objects.keys())
+    assert enclosed_names == base_names
     # Only the walls and the tall furniture/clutter differ, and only in Z.
     base_sig = _palette_sig(
-        type(enriched_scene.room_primitives)(
+        type(enclosed_scene.room_primitives)(
             rigid_objects=build_proc_room_collection_cfg()
         )
     )
-    enr_sig = _palette_sig(enriched_scene.room_primitives)
-    changed = {k for k in base_sig if base_sig[k] != enr_sig[k]}
+    enclosed_sig = _palette_sig(enclosed_scene.room_primitives)
+    changed = {k for k in base_sig if base_sig[k] != enclosed_sig[k]}
     tall_prefixes = ("furn_shelf_", "furn_cabinet_", "clutter_tall_cyl_")
     expected = {k for k in base_names if k.startswith("wall_")} | {
         k for k in base_names if k.startswith(tall_prefixes)
@@ -510,15 +509,15 @@ def test_enriched_palette_adds_no_new_slot():
     assert changed == expected
     # Geometry half of the palette/pose lockstep (the generator poses these at
     # height/2, pinned in the CPU suite of the enclosed room's generator).
-    assert enr_sig["furn_shelf_0"]["size"][2] == _ENRICH_TALL_OBJECT_HEIGHTS["shelf"]
-    assert enr_sig["furn_cabinet_0"]["size"][2] == _ENRICH_TALL_OBJECT_HEIGHTS["cabinet"]
-    assert enr_sig["clutter_tall_cyl_0"]["height"] == _ENRICH_TALL_OBJECT_HEIGHTS["tall_cyl"]
+    assert enclosed_sig["furn_shelf_0"]["size"][2] == _ENCLOSED_TALL_OBJECT_HEIGHTS["shelf"]
+    assert enclosed_sig["furn_cabinet_0"]["size"][2] == _ENCLOSED_TALL_OBJECT_HEIGHTS["cabinet"]
+    assert enclosed_sig["clutter_tall_cyl_0"]["height"] == _ENCLOSED_TALL_OBJECT_HEIGHTS["tall_cyl"]
     for k in changed:
         z_base = base_sig[k]["size"][2] if "size" in base_sig[k] else base_sig[k]["height"]
-        z_enr = enr_sig[k]["size"][2] if "size" in enr_sig[k] else enr_sig[k]["height"]
-        assert z_enr > z_base
+        z_enclosed = enclosed_sig[k]["size"][2] if "size" in enclosed_sig[k] else enclosed_sig[k]["height"]
+        assert z_enclosed > z_base
     # The ceiling is NOT part of the collection.
-    assert "ceiling" not in enriched_names
+    assert "ceiling" not in enclosed_names
 
 
 def test_the_room_never_reaches_the_observation():
@@ -548,16 +547,16 @@ def test_the_depth_profile_composes_the_enclosed_room():
         level = cfg.realism.level
         if cfg.sensors.obs_profile() in ("depth", "full"):
             seen["enclosed"] += 1
-            assert type(cfg.events) is composed._EVENTS_ENRICHED_BY_REALISM[level], name
+            assert type(cfg.events) is composed._EVENTS_ENCLOSED_BY_REALISM[level], name
             assert hasattr(cfg.scene, "ceiling"), f"{name} carries the policy camera but no ceiling"
         else:
             seen["open_top"] += 1
             assert type(cfg.events) is composed._EVENTS_BY_SOURCE_REALISM[("procroom", level)], name
             assert not hasattr(cfg.scene, "ceiling"), f"{name} is camera-free but got a ceiling"
     assert seen["enclosed"] and seen["open_top"], seen
-    for level, enriched_cls in composed._EVENTS_ENRICHED_BY_REALISM.items():
+    for level, enclosed_cls in composed._EVENTS_ENCLOSED_BY_REALISM.items():
         open_top_cls = composed._EVENTS_BY_SOURCE_REALISM[("procroom", level)]
-        assert _hash(_canon(enriched_cls())) != _hash(_canon(open_top_cls())), level
+        assert _hash(_canon(enclosed_cls())) != _hash(_canon(open_top_cls())), level
 
 
 def _obs_term_names(obs_cfg):

@@ -978,12 +978,12 @@ ANCHORS = {
     "actions.py#L451": "l1_clamp_twist_batched(", "actions.py#L572": "max_wheel_angular_vel",
     "events.py#L454": "def randomize_motor_strength", "events.py#L505": "def randomize_d555_mount_offset",
     "events.py#L407": "def randomize_subgoal_drift", "events.py#L175": "class randomize_wheel_grip(",
-    "events.py#L358": "def randomize_mass", "events.py#L622": "def reset_robot_proc_room",
-    "noise_models.py#L185": "class IMUNoiseModel(", "noise_models.py#L352": "class EncoderNoiseModel(",
-    "noise_models.py#L478": "class DepthNoiseModel(",
+    "events.py#L358": "def randomize_mass", "events.py#L643": "def reset_robot_proc_room",
+    "noise_models.py#L185": "class IMUNoiseModel(", "noise_models.py#L351": "class EncoderNoiseModel(",
+    "noise_models.py#L477": "class DepthNoiseModel(",
     "observations.py#L45": "def reduce_depth_to_policy_grid", "d555_cfg.py#L145": "focal_length=",
     "composed_env_cfg.py#L572": "num_rerenders_on_reset = 1", "commands.py#L668": "perturb_waypoints(",
-    "proc_room.py#L981": "def generate_proc_room", "sim_real_cfg.py#L713": "IDEAL_SIM_CONTRACT",
+    "proc_room.py#L981": "def generate_proc_room", "sim_real_cfg.py#L721": "IDEAL_SIM_CONTRACT",
 }
 
 

@@ -316,6 +316,19 @@ def imu_angular_velocity(
     return ang_vel
 
 
+def _mount_lever_arm(env: ManagerBasedEnv, omega: torch.Tensor, translation: torch.Tensor) -> torch.Tensor:
+    """alpha x dr + omega x (omega x dr): the acceleration a housing moved by dr adds, in the body frame (the IMU's
+    frame is the body's), alpha the chassis body's angular acceleration and omega the IMU's rate."""
+    robot = env.scene["robot"]
+    index = getattr(env, "_d555_body_index", None)
+    if index is None:
+        index = robot.find_bodies("body_link")[0][0]
+        env._d555_body_index = index
+    quat = wp.to_torch(robot.data.body_quat_w)[:, index]
+    alpha = quat_apply_inverse(quat, wp.to_torch(robot.data.body_ang_acc_w)[:, index])
+    return torch.linalg.cross(alpha, translation) + torch.linalg.cross(omega, torch.linalg.cross(omega, translation))
+
+
 def imu_linear_acceleration(
     env: ManagerBasedEnv,
     sensor_cfg: SceneEntityCfg,
@@ -329,7 +342,10 @@ def imu_linear_acceleration(
 
     If ``env._d555_mount_quat`` exists (set by :func:`randomize_d555_mount_offset`),
     the reading is rotated into the slightly-misaligned mount frame, simulating
-    imperfect physical mounting of the D555 housing.
+    imperfect physical mounting of the D555 housing. If the offset also drew a
+    translation dr of the housing (``env._d555_mount_translation``), the reading
+    gains its lever arm, alpha x dr + omega x (omega x dr), with the chassis
+    body's angular acceleration and the sensor's rate, before that rotation.
 
     Note: Returns RAW values in m/s². Normalization should be handled via
     the ObservationTermCfg.scale parameter so that noise is applied to
@@ -344,6 +360,11 @@ def imu_linear_acceleration(
     """
     sensor: Imu = env.scene.sensors[sensor_cfg.name]
     lin_acc = wp.to_torch(sensor.data.lin_acc_b).clone()
+
+    # The housing's drawn translation from its nominal position adds its lever arm
+    translation = getattr(env, "_d555_mount_translation", None)
+    if translation is not None:
+        lin_acc = lin_acc + _mount_lever_arm(env, wp.to_torch(sensor.data.ang_vel_b), translation)
 
     # Apply D555 mount offset (if randomized)
     if hasattr(env, "_d555_mount_quat"):

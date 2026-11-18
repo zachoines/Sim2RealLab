@@ -506,8 +506,9 @@ def randomize_d555_mount_offset(
     env: ManagerBasedEnv,
     env_ids: torch.Tensor,
     max_angle_deg: float = 2.0,
+    max_translation_m: tuple[float, float, float] = (0.0, 0.0, 0.0),
 ) -> None:
-    """Randomize D555 camera/IMU mounting orientation offset.
+    """Randomize D555 camera/IMU mounting orientation offset, and optionally its position.
 
     The Intel RealSense D555 is bolted to a bracket on the chassis. Small
     mounting imprecision means the sensor frame differs slightly from the
@@ -521,10 +522,17 @@ def randomize_d555_mount_offset(
     applies the same realization to the rendered camera prim on the
     variants that carry it, so both sensors share one misalignment.
 
+    With a nonzero ``max_translation_m`` it also draws, after the angles, a
+    per-env translation of the housing in the body frame, uniform within
+    ±max_translation_m per axis, stored on ``env._d555_mount_translation``;
+    the IMU observation adds its lever arm and the camera prim moves by it.
+    At (0, 0, 0) nothing is drawn and no translation is stored.
+
     Args:
         env: The environment instance.
         env_ids: Indices of environments to randomize.
         max_angle_deg: Maximum offset per axis in degrees.
+        max_translation_m: Maximum translation per body axis (x, y, z) in metres.
     """
     if len(env_ids) == 0:
         return
@@ -545,6 +553,13 @@ def randomize_d555_mount_offset(
 
     mount_quat = quat_from_euler_xyz(roll, pitch, yaw)
     env._d555_mount_quat[env_ids] = mount_quat
+
+    # The housing's translation, drawn after the angles, only where a band is set
+    if any(m > 0.0 for m in max_translation_m):
+        if not hasattr(env, "_d555_mount_translation"):
+            env._d555_mount_translation = torch.zeros(env.num_envs, 3, device=device)
+        span = torch.tensor(max_translation_m, dtype=torch.float32, device=device)
+        env._d555_mount_translation[env_ids] = (torch.rand(num_resets, 3, device=device) * 2.0 - 1.0) * span
 
 
 def d555_camera_mount_local_quat(
@@ -577,8 +592,9 @@ def jitter_d555_camera_prim_pose(
     Consumes the realization ``randomize_d555_mount_offset`` left on
     ``env._d555_mount_quat`` instead of drawing its own, so the IMU observation
     and the rendered image carry the same per-episode misalignment and the
-    band cannot drift between them. Orientation only — the sampled offset has
-    no translation.
+    band cannot drift between them. Where the offset also drew a translation
+    (``env._d555_mount_translation``), the prim's local position moves by it
+    from the camera's nominal offset; otherwise only the orientation is written.
 
     The prim's local transform is relative to the chassis body, so one write
     per reset holds for the episode as the robot moves. No-op where the mount
@@ -612,8 +628,13 @@ def jitter_d555_camera_prim_pose(
     # the parent body's pose and be recomposed from the local transform on the
     # next hierarchy update anyway. The view's local-pose write is the mount
     # offset itself, and its index order is environment order.
+    translation = getattr(env, "_d555_mount_translation", None)
+    translations = None
+    if translation is not None:
+        nominal_pos = torch.tensor(offset.pos, dtype=translation.dtype, device=translation.device).unsqueeze(0)
+        translations = wp.from_torch((nominal_pos + translation[env_ids]).contiguous())
     camera._view.set_local_poses(
-        translations=None,
+        translations=translations,
         orientations=wp.from_torch(local_quat.contiguous()),
         indices=wp.from_torch(env_ids.to(dtype=torch.int32).contiguous()),
     )

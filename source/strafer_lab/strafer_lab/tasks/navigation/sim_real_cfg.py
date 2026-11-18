@@ -14,8 +14,8 @@ imperfections for robust sim-to-real transfer:
    - Velocity/torque limits and slew rates
 
 3. SENSOR NOISE & FAILURES
-   - IMU: bias drift, gaussian noise, temperature effects
-   - Encoders: quantization, missed ticks, electrical noise
+   - IMU: bias drift, gaussian noise
+   - Encoders: the reported speed's lag, quantization, noise
    - Depth camera: holes, noise, range limits, dropped frames, bursty holds
    - RGB camera: motion blur, exposure variation
 
@@ -199,7 +199,7 @@ class IMUNoiseCfg:
     accel_noise_density: float = 0.0098  # m/s² per √Hz (0.98 mg/√Hz)
     """Accelerometer white noise density. BMI055 typical: 0.98 mg/√Hz."""
     
-    accel_bias_stability: float = 0.04  # m/s² (40 μg)
+    accel_bias_stability: float = 0.04  # m/s² (about 4.1 mg)
     """Accelerometer bias instability (drift over time)."""
     
     accel_random_walk: float = 0.001
@@ -214,6 +214,14 @@ class IMUNoiseCfg:
     
     gyro_random_walk: float = 0.0001
     """Gyroscope random walk (bias drift rate)."""
+
+    # Per-sample white noise, as the policy reads it: one sample of the filtered stream per control tick
+    accel_noise_std_sample: float | None = None
+    """Accelerometer white noise per sample in m/s², the standard deviation of one reading at the policy. None
+    derives it from the density as density x sqrt(control rate)."""
+
+    gyro_noise_std_sample: float | None = None
+    """Gyroscope white noise per sample in rad/s. None derives it from the density as density x sqrt(control rate)."""
 
 
 @configclass
@@ -734,7 +742,9 @@ def get_imu_accel_noise(contract: SimRealContractCfg) -> IMUNoiseModelCfg | None
     # noise_density [m/s²/√Hz] → std [m/s²/sample] = density * √(sample_rate_hz)
     import math
     sample_rate = contract.timing.control_frequency_hz
-    std = contract.sensors.imu.accel_noise_density * math.sqrt(sample_rate)
+    std = contract.sensors.imu.accel_noise_std_sample
+    if std is None:
+        std = contract.sensors.imu.accel_noise_density * math.sqrt(sample_rate)
 
     # Get the stuck probability from SensorFailureCfg
     failures = contract.sensors.failures
@@ -770,7 +780,9 @@ def get_imu_gyro_noise(contract: SimRealContractCfg) -> IMUNoiseModelCfg | None:
     # noise_density [rad/s/√Hz] → std [rad/s/sample] = density * √(sample_rate_hz)
     import math
     sample_rate = contract.timing.control_frequency_hz
-    std = contract.sensors.imu.gyro_noise_density * math.sqrt(sample_rate)
+    std = contract.sensors.imu.gyro_noise_std_sample
+    if std is None:
+        std = contract.sensors.imu.gyro_noise_density * math.sqrt(sample_rate)
 
     # Get the stuck probability from SensorFailureCfg
     failures = contract.sensors.failures

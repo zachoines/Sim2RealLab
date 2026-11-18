@@ -14,7 +14,9 @@ The deploy node writes every invalid pixel as the far clamp before the 8×8 bloc
 (``observations.reduce_depth_to_policy_grid``), so the training field reads what the node's would.
 
 The per-env state is a scale on ``f·B`` drawn at each reset from the process's own generator, seeded from the env's
-seed, so no other term's random stream moves.
+seed, so no other term's random stream moves. With a noise cfg (``mdp.d555_noise``) the frame also carries the sensor's
+correlated depth noise, its lattice and its invalid blobs, drawn from a second generator, so the ``f·B`` draws are the
+same with the noise on or off.
 """
 
 from __future__ import annotations
@@ -25,6 +27,8 @@ from dataclasses import dataclass
 import torch
 
 from strafer_shared.constants import D555_MEASURED_FX_PX, D555_RENDER_FAR_CLIP_M, DEPTH_MAX
+
+from .d555_noise import D555NoiseCfg, D555NoiseProcess
 
 
 @dataclass(frozen=True)
@@ -79,24 +83,28 @@ def stereo_validity(depth: torch.Tensor, fb: torch.Tensor | float, cfg: D555Sens
 class D555SensorProcess:
     """Per-env stereo-validity state: the ``f·B`` each env's mask is computed with."""
 
-    def __init__(self, num_envs: int, device, cfg: D555SensorCfg, seed: int = 0):
+    def __init__(self, num_envs: int, device, cfg: D555SensorCfg, seed: int = 0, noise: D555NoiseCfg | None = None,
+                 step_dt: float = 1.0 / 30.0):
         self.cfg = cfg
         self.num_envs = num_envs
         self.device = device
         self._generator = torch.Generator(device=device)
         self._generator.manual_seed(int(seed))
         self.fb = torch.full((num_envs,), float(cfg.fb_px_m), device=device)
+        self.noise = None if noise is None else D555NoiseProcess(num_envs, device, noise, step_dt, seed=int(seed) + 1)
 
     def reset(self, env_ids: Sequence[int] | torch.Tensor | None = None) -> None:
         """Redraw the reset envs' ``f·B`` scale; a band of one value draws nothing."""
         lo, hi = (float(x) for x in self.cfg.fb_scale_range)
         if lo == hi:
             self.fb.fill_(self.cfg.fb_px_m * lo)
-            return
-        ids = (torch.arange(self.num_envs, device=self.device) if env_ids is None
-               else torch.as_tensor(env_ids, dtype=torch.long, device=self.device))
-        draw = torch.rand(len(ids), generator=self._generator, device=self.device)
-        self.fb[ids] = self.cfg.fb_px_m * (lo + (hi - lo) * draw)
+        else:
+            ids = (torch.arange(self.num_envs, device=self.device) if env_ids is None
+                   else torch.as_tensor(env_ids, dtype=torch.long, device=self.device))
+            draw = torch.rand(len(ids), generator=self._generator, device=self.device)
+            self.fb[ids] = self.cfg.fb_px_m * (lo + (hi - lo) * draw)
+        if self.noise is not None:
+            self.noise.reset(env_ids)
 
 
 def sensor_frame(depth: torch.Tensor, process: D555SensorProcess) -> tuple[torch.Tensor, torch.Tensor]:
@@ -107,6 +115,9 @@ def sensor_frame(depth: torch.Tensor, process: D555SensorProcess) -> tuple[torch
     squeeze = depth.dim() == 4
     z = depth[..., 0] if squeeze else depth
     valid = stereo_validity(z, process.fb, process.cfg)
+    if process.noise is not None:
+        z, blobs = process.noise.step(z, process.fb, process.cfg.invalid_depth_m)
+        valid = valid & ~blobs
     out = torch.where(valid, z, torch.full_like(z, process.cfg.invalid_depth_m))
     if squeeze:
         return out.unsqueeze(-1), valid.unsqueeze(-1)

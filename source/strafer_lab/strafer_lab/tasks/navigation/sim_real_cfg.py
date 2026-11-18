@@ -318,6 +318,31 @@ class DepthCameraNoiseCfg:
     stereo_occlusion_tol_px: float = 0.5
     """Right-image overlap beyond which a pixel is occluded, in px."""
 
+    # The sensor's correlated depth noise in the same function (off by default; needs the stereo mask)
+    stereo_noise_enable: bool = False
+    """Add the D555's depth noise on the rendered frame, in disparity before the block median: a temporal field
+    correlated in space, a static field held per episode, the 1/32 px disparity lattice with millimetre rounding, and
+    invalid blobs. Its centres are fitted to one unit; this tier draws its spread around them. The 80×45 disparity
+    noise must be off with it on."""
+
+    stereo_noise_amp_range: tuple[float, float] = (1.0, 1.0)
+    """Per-env scales on the temporal and the static field, each drawn log-uniformly at each reset."""
+
+    stereo_noise_clean_fraction: float = 0.0
+    """Share of envs drawn with both fields at zero."""
+
+    stereo_noise_s_static_probability: float = 1.0
+    """Share of envs whose static field is held in the image for the episode; the rest decay."""
+
+    stereo_noise_s_tau_range_s: tuple[float, float] = (1.0, 10.0)
+    """The decaying static field's time constant, in s, drawn uniformly per env."""
+
+    stereo_noise_patch_share_range: tuple[float, float] = (0.0, 0.0)
+    """Share of pixels in a per-episode invalid patch field, drawn uniformly per env."""
+
+    stereo_noise_patch_zero_probability: float = 0.0
+    """Probability an env draws no patch field."""
+
     # Range limits
     min_range_m: float = DEPTH_NEARFIELD_FILL
     """Depth in meters below which a reading is treated as unresolvable, and the
@@ -941,6 +966,8 @@ def get_depth_noise(contract: SimRealContractCfg) -> DepthNoiseModelCfg | None:
     cfg = contract.sensors.depth_camera
     if cfg.stereo_mask_enable and cfg.hole_probability > 0:
         raise ValueError("the stereo mask replaces the cell holes; set hole_probability to 0 with it on")
+    if cfg.stereo_noise_enable and (cfg.disparity_noise_px > 0 or cfg.disparity_noise_px_range is not None):
+        raise ValueError("the sensor noise replaces the 80x45 disparity noise; set it to 0 with no band")
     noise_at_1m = cfg.disparity_noise_px / (cfg.focal_length_px * cfg.baseline_m)
 
     return DepthNoiseModelCfg(
@@ -1019,8 +1046,10 @@ def get_d555_sensor_params(contract: SimRealContractCfg) -> dict | None:
     """The ``randomize_d555_sensor`` event's params, or None where the stereo mask is off (the caller omits the term)."""
     d = contract.sensors.depth_camera
     if not d.stereo_mask_enable:
+        if d.stereo_noise_enable:
+            raise ValueError("the sensor noise is computed in the stereo validity's function; enable the mask with it")
         return None
-    return {
+    params = {
         "fb_px_m": D555_MEASURED_FX_PX * d.baseline_m,
         "fb_scale_range": d.stereo_fb_scale_range,
         "margin_px": d.stereo_margin_px,
@@ -1030,6 +1059,17 @@ def get_d555_sensor_params(contract: SimRealContractCfg) -> dict | None:
         "invalid_depth_m": d.max_range_m,
         "max_return_m": D555_RENDER_FAR_CLIP_M,
     }
+    if d.stereo_noise_enable:
+        params["noise"] = {
+            "amp_t_range": d.stereo_noise_amp_range,
+            "amp_s_range": d.stereo_noise_amp_range,
+            "clean_fraction": d.stereo_noise_clean_fraction,
+            "s_static_probability": d.stereo_noise_s_static_probability,
+            "s_tau_range_s": d.stereo_noise_s_tau_range_s,
+            "patch_share_range": d.stereo_noise_patch_share_range,
+            "patch_zero_probability": d.stereo_noise_patch_zero_probability,
+        }
+    return params
 
 
 def get_outage_params(contract: SimRealContractCfg) -> dict | None:

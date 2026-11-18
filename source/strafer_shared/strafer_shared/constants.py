@@ -96,7 +96,8 @@ WHEEL_JOINT_NAMES = ("wheel_1_drive", "wheel_2_drive", "wheel_3_drive", "wheel_4
 IMU_ACCEL_MAX = 156.96  # ±16g in m/s²
 IMU_GYRO_MAX = 34.9  # ±2000°/s in rad/s
 ENCODER_VEL_MAX = 3000.0  # Max ticks/sec (312 RPM ≈ 2796 ticks/s + margin)
-DEPTH_MIN = 0.4  # Min usable depth in meters (D555 stereo baseline limit)
+DEPTH_MIN = 0.4  # meters; a block median nearer than this takes DEPTH_NEARFIELD_FILL (the node's near fill;
+# the D555 returns depth below it down to its minimum, about 0.244 m, and none nearer)
 DEPTH_MAX = 6.0  # Max depth in meters
 
 BODY_VEL_MAX = 2.0  # Max body velocity in m/s (robot tops ~1.57 m/s, with margin)
@@ -130,7 +131,7 @@ CAMERA_OFFSET_Z = 0.25  # meters up from body_link
 # obs_pipeline.downsample_depth.
 DEPTH_WIDTH = 80
 DEPTH_HEIGHT = 45
-DEPTH_CLIP_NEAR = 0.4  # meters — D555 stereo min range (real hardware limit)
+DEPTH_CLIP_NEAR = 0.4  # meters — the near end of the usable range, the node's near-fill threshold
 DEPTH_CLIP_FAR = 6.0  # meters
 DEPTH_SIM_CLIP_NEAR = 0.01  # meters — sim renders below D555 min range
 DEPTH_NEARFIELD_FILL = 0.2  # meters — replacement value for sub-0.4m pixels

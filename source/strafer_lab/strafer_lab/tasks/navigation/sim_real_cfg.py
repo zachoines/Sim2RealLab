@@ -661,7 +661,16 @@ def create_real_robot_contract() -> SimRealContractCfg:
                 baseline_m=0.095,
                 focal_length_px=673.0,
                 disparity_noise_px=0.08,
-                hole_probability=0.01,
+                # The sensor's stereo validity on the rendered frame, fitted on the robot's frames at mount height:
+                # the left band f·B/z + 6.5 px with no core, the occlusion shadows at 0.5 px. It replaces the cell
+                # holes. The 0.244 m minimum is the bench sensor's nearest finite return, where a 126-disparity
+                # search ends at 640x360 (f·B / 126); it is kept only if the robot session confirms the sensor
+                # returns none below it at mount height, and is 0 (no minimum) otherwise.
+                stereo_mask_enable=True,
+                stereo_margin_px=6.5,
+                stereo_core_px=0.0,
+                stereo_min_depth_m=0.244,
+                hole_probability=0.0,
                 frame_drop_probability=0.001,
                 # Design. The band was sized from the sim-in-the-loop rig's 23 Hz
                 # effective arrival rate (a 0.22 hold fraction against a 30 Hz
@@ -744,7 +753,19 @@ def create_robust_training_contract() -> SimRealContractCfg:
                 # depth, so the tier spans the range the per-band matches
                 # cover rather than picking one of them.
                 disparity_noise_px_range=(0.002, 0.16),
-                hole_probability=0.03,  # 3x typical
+                # The sensor's stereo validity on the rendered frame, fitted on the robot's frames at mount height:
+                # the left band f·B/z + 6.5 px with no core, the occlusion shadows at 0.5 px. It replaces the cell
+                # holes. The 0.244 m minimum is the bench sensor's nearest finite return, where a 126-disparity
+                # search ends at 640x360 (f·B / 126); it is kept only if the robot session confirms the sensor
+                # returns none below it at mount height, and is 0 (no minimum) otherwise.
+                stereo_mask_enable=True,
+                stereo_margin_px=6.5,
+                stereo_core_px=0.0,
+                stereo_min_depth_m=0.244,
+                # Design: f·B scaled per env around the nominal 30.545 px m, bracketing the band's fitted slope
+                # (about 31.8) and the depth lattice's estimate (31.2-32.2)
+                stereo_fb_scale_range=(0.98, 1.06),
+                hole_probability=0.0,
                 # 10x typical, plus the 0.001 of a failed frame, which repeats the previous one as a drop does
                 frame_drop_probability=0.011,
                 # Held to the realistic tier's law entirely, burst included.

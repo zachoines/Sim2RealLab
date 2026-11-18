@@ -223,13 +223,19 @@ def test_no_noise_at_the_clamp_consumes_the_same_draws():
     assert torch.equal(outs[0][:, 300:], outs[1][:, 300:])
 
 
-def test_built_and_off_on_every_composition():
+def test_on_at_the_realistic_and_robust_tiers_off_at_the_ideal_one_and_without_a_camera():
     from strafer_lab.tasks.navigation import composed_env_cfg as composed
 
-    for name in ("StraferNavCfg_RLDepthSubgoal_Real", "StraferNavCfg_RLDepthSubgoal_Robust",
-                 "StraferNavCfg_RLNoCamSubgoal_Robust", "StraferNavCfg_RLDepth_Real"):
+    for name in ("StraferNavCfg_RLDepthSubgoal_Real", "StraferNavCfg_RLDepthSubgoal_Robust", "StraferNavCfg_RLDepth_Real",
+                 "StraferNavCfg_RLDepth_Robust_PLAY"):
         cfg = getattr(composed, name)()
-        assert cfg.events.randomize_d555_sensor is None, name
-        if hasattr(cfg.observations.policy, "depth_image"):
-            assert "perceived" not in cfg.observations.policy.depth_image.params, name  # the layout is unchanged
-            assert cfg.observations.critic.depth_image.params["perceived"] is False, name
+        params = cfg.events.randomize_d555_sensor.params
+        assert params["fb_px_m"] == pytest.approx(FB) and params["margin_px"] == 6.5 and params["core_px"] == 0.0, name
+        assert params["fb_scale_range"] == ((0.98, 1.06) if "Robust" in name else (1.0, 1.0)), name
+        noise = cfg.observations.policy.depth_image.noise
+        assert noise.hole_probability == 0.0 and noise.noise_free_at_max_range, name
+        assert "perceived" not in cfg.observations.policy.depth_image.params, name  # the layout is unchanged
+        assert cfg.observations.critic.depth_image.params["perceived"] is False, name  # the critic reads the render
+    for name in ("StraferNavCfg_RLNoCamSubgoal_Robust", "StraferNavCfg_RLNoCam"):
+        assert getattr(composed, name)().events.randomize_d555_sensor is None, name
+    assert getattr(composed.StraferNavCfg_Depth_Ideal().events, "randomize_d555_sensor", None) is None

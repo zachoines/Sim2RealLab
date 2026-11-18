@@ -50,8 +50,8 @@ TIERS = {"realistic": REAL_ROBOT_CONTRACT, "robust": ROBUST_TRAINING_CONTRACT}
 # ships a band has no live fixed arm to compare against. Re-freeze by name when
 # a depth-noise parameter on that tier changes deliberately.
 _FIXED_PATH_FINGERPRINTS = {
-    "realistic": "3d0d224c8e2fb5411a8472bd549cd05eeaa15af17c64761d986a894e56fdd3a7",
-    "robust": "9a61d640b46f09c2373e9143fb98efe01f80fc0e231ad021f89633202073e4a9",
+    "realistic": "b588e8754149082c732066bd37c22ee9ee5470ec4870d4e97133f9ab0dfae001",
+    "robust": "ef761b6a5000d9fceb4c55be36451991cf7ea018b1a298114f9601447443df05",
 }
 
 

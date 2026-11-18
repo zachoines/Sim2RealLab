@@ -711,13 +711,15 @@ def depth_image(
     term downstream sees the policy grid either way.
 
     Nearfield handling:
-        The real D555 camera cannot resolve depth below ~0.4m.  In sim the near
-        clip is set to 0.01m so objects are still rendered at close range.  Any
-        pixel with depth < ``nearfield_clip`` is replaced with ``nearfield_fill``
-        — a small constant that signals "something very close" to the policy.
-        This prevents the camera from "seeing through" close objects (whose
-        clipped faces would otherwise reveal empty interiors or far walls) and
-        matches the real sensor's saturated near-field behavior.
+        The deploy node fills every block whose median is under 0.4 m
+        (``nearfield_clip``) with ``nearfield_fill``, a small constant that
+        signals "something very close"; this term does the same after the
+        same reduction. In sim the near clip is 0.01 m, so close objects still
+        render and the camera cannot "see through" their clipped faces. The
+        sensor itself returns depth nearer than 0.4 m down to its minimum
+        (0.244 m on the bench); nearer than that it returns none, which the
+        node reads far. Where the env has the stereo validity, the perceived
+        term writes those pixels far too, before the reduction.
 
     Args:
         env: The environment instance.

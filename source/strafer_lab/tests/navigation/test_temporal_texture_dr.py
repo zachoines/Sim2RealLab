@@ -349,10 +349,6 @@ class TestDepthStreamTexture:
             hold_fraction_range=(0.5, 0.5),
             hold_run_range=(2.0, 2.0),
             hold_burst_weight=0.0,
-            # Camera failure runs after the hold and blanks the row, which is
-            # correct — a failed camera outranks a stale one — but it is not
-            # what this assertion is about.
-            failure_probability=0.0,
         )
         model = DepthNoiseModel(cfg, num_envs=16, device=DEVICE)
 
@@ -419,7 +415,6 @@ class TestDepthStreamTexture:
             latency_steps=0,
             latency_steps_range=None,
             hole_probability=0.0,
-            failure_probability=0.0,
             # Hold on essentially every step, so the guard is under maximum
             # pressure rather than being exercised by luck.
             hold_fraction_range=(0.49, 0.49),
@@ -465,7 +460,6 @@ class TestDepthStreamTexture:
             latency_steps=0,
             latency_steps_range=None,
             hole_probability=0.0,
-            failure_probability=0.0,
             hold_fraction_range=(0.49, 0.49),
             hold_run_range=(4.0, 4.0),
             hold_burst_weight=0.0,
@@ -504,7 +498,6 @@ class TestDepthStreamTexture:
             latency_steps=0,
             latency_steps_range=None,
             hole_probability=0.0,
-            failure_probability=0.0,
             hold_fraction_range=(0.49, 0.49),
             hold_run_range=(1.0, 1.0),
             hold_burst_weight=0.0,

@@ -186,7 +186,7 @@ class IMUNoiseModel(NoiseModel):
     - Additive white Gaussian noise
     - Slowly drifting bias (random walk)
     - Optional temperature-dependent effects
-    - Sensor failure modes (zeros or stuck values)
+    - A stuck sensor, which repeats its previous reading
 
     The model uses sensor_type to determine which parameters to use:
     - "accel": uses accel_noise_std, accel_bias_range, accel_bias_drift_rate
@@ -218,8 +218,9 @@ class IMUNoiseModel(NoiseModel):
         # Initialize bias terms (sampled at reset)
         self._bias = torch.zeros(num_envs, self.cfg.output_size, device=device)
 
-        # Track previous output for "stuck" failure mode
+        # The previous reading a stuck sensor repeats, and whether each env has one since its last reset
         self._prev_output = None
+        self._has_prev = torch.zeros(num_envs, dtype=torch.bool, device=device)
 
         # Delay buffer for observation latency
         self._delay_buffer = DelayBuffer(
@@ -230,13 +231,10 @@ class IMUNoiseModel(NoiseModel):
         self.reset()
 
     def reset(self, env_ids: Sequence[int] | None = None):
-        """Reset bias to random values within range."""
+        """Reset bias to random values within range, and forget the previous reading."""
         if env_ids is None:
             env_ids = slice(None)
-            self._prev_output = None
-        elif self._prev_output is not None:
-            # Reset stuck state for specific environments
-            self._prev_output[env_ids] = 0.0
+        self._has_prev[env_ids] = False
 
         # Reset delay buffer
         if self._delay_buffer is not None:
@@ -261,9 +259,9 @@ class IMUNoiseModel(NoiseModel):
         The drift rate is scaled by sqrt(dt) to properly model a random walk
         where drift_rate is specified per-second.
 
-        Failure modes:
-        - failure_probability: sensor returns zeros
-        - stuck_probability: sensor returns previous value
+        Failure mode:
+        - stuck_probability: the sensor repeats its previous reading (on an env's first step after a reset there is
+          none, and the current reading passes)
         """
         # Add bias drift (random walk)
         # Per-step drift std = per-second drift rate * sqrt(dt)
@@ -278,24 +276,15 @@ class IMUNoiseModel(NoiseModel):
         noise = torch.randn_like(data) * self._noise_std
         noisy_data = data + self._bias + noise
 
-        # Apply failure modes
-        if self.cfg.failure_probability > 0 or self.cfg.stuck_probability > 0:
-            # Initialize prev_output if needed
+        # A stuck sensor repeats its previous reading
+        if self.cfg.stuck_probability > 0:
             if self._prev_output is None:
                 self._prev_output = noisy_data.clone()
-
-            # Failure mode: return zeros
-            if self.cfg.failure_probability > 0:
-                failed = torch.rand(self._num_envs, device=self._device) < self.cfg.failure_probability
-                noisy_data[failed] = 0.0
-
-            # Stuck mode: return previous value
-            if self.cfg.stuck_probability > 0:
-                stuck = torch.rand(self._num_envs, device=self._device) < self.cfg.stuck_probability
-                noisy_data[stuck] = self._prev_output[stuck]
-
-            # Store for next step
+            stuck = torch.rand(self._num_envs, device=self._device) < self.cfg.stuck_probability
+            stuck &= self._has_prev
+            noisy_data[stuck] = self._prev_output[stuck]
             self._prev_output = noisy_data.clone()
+            self._has_prev.fill_(True)
 
         # Apply observation latency
         if self._delay_buffer is not None:
@@ -337,12 +326,9 @@ class IMUNoiseModelCfg(NoiseModelCfg):
     # Combined output size (3 for accel OR gyro, 6 for both)
     output_size: int = 3
 
-    # Failure modes (for robustness training)
-    failure_probability: float = 0.0
-    """Probability of sensor failure per step (returns zeros)."""
-
+    # Failure mode (for robustness training)
     stuck_probability: float = 0.0
-    """Probability of sensor getting stuck per step (returns previous value)."""
+    """Probability per step that the sensor repeats its previous reading."""
 
     # Observation latency
     latency_steps: int = 0
@@ -360,7 +346,7 @@ class EncoderNoiseModel(NoiseModel):
     - Quantization to discrete ticks
     - Random missed/extra ticks
     - Velocity estimation noise
-    - Sensor failure mode (returns zeros)
+    - A stuck encoder, which repeats its previous reading
     """
 
     def __init__(self, noise_model_cfg, num_envs: int, device: str):
@@ -370,13 +356,18 @@ class EncoderNoiseModel(NoiseModel):
         # Track accumulated tick errors for position observations
         self._tick_error_accumulator = None
 
+        # The previous reading a stuck encoder repeats, and whether each env has one since its last reset
+        self._prev_output = None
+        self._has_prev = torch.zeros(num_envs, dtype=torch.bool, device=device)
+
         # Delay buffer for observation latency
         self._delay_buffer = DelayBuffer(
             num_envs, self.cfg.output_size, self.cfg.latency_steps, device
         ) if self.cfg.latency_steps > 0 else None
 
     def reset(self, env_ids: Sequence[int] | None = None):
-        """Reset tick error accumulator and delay buffer."""
+        """Reset tick error accumulator and delay buffer, and forget the previous reading."""
+        self._has_prev[slice(None) if env_ids is None else env_ids] = False
         if self._tick_error_accumulator is not None:
             if env_ids is None:
                 self._tick_error_accumulator.zero_()
@@ -396,7 +387,8 @@ class EncoderNoiseModel(NoiseModel):
         Pipeline: raw obs → noise → scale (normalize) → clip
 
         Failure mode:
-        - failure_probability: encoder returns zeros (electrical failure)
+        - stuck_probability: the encoders repeat their previous reading (on an env's first step after a reset there
+          is none, and the current reading passes)
         """
         noisy_data = data.clone()
 
@@ -425,10 +417,15 @@ class EncoderNoiseModel(NoiseModel):
         if self.cfg.enable_quantization:
             noisy_data = torch.round(noisy_data)
 
-        # Apply failure mode: return zeros for failed encoders
-        if self.cfg.failure_probability > 0:
-            failed = torch.rand(self._num_envs, device=self._device) < self.cfg.failure_probability
-            noisy_data[failed] = 0.0
+        # A stuck encoder repeats its previous reading
+        if self.cfg.stuck_probability > 0:
+            if self._prev_output is None:
+                self._prev_output = noisy_data.clone()
+            stuck = torch.rand(self._num_envs, device=self._device) < self.cfg.stuck_probability
+            stuck &= self._has_prev
+            noisy_data[stuck] = self._prev_output[stuck]
+            self._prev_output = noisy_data.clone()
+            self._has_prev.fill_(True)
 
         # Apply observation latency
         if self._delay_buffer is not None:
@@ -455,9 +452,9 @@ class EncoderNoiseModelCfg(NoiseModelCfg):
     missed_tick_prob: float = 0.001
     extra_tick_prob: float = 0.0005
 
-    # Failure modes (for robustness training)
-    failure_probability: float = 0.0
-    """Probability of encoder failure per step (returns zeros)."""
+    # Failure mode (for robustness training)
+    stuck_probability: float = 0.0
+    """Probability per step that the encoders repeat their previous reading."""
 
     # Observation latency
     latency_steps: int = 0
@@ -705,8 +702,7 @@ class DepthNoiseModel(NoiseModel):
 
         Pipeline: RAW meters → noise (this) → scale (normalize via ObsTerm.scale)
 
-        Failure mode:
-        - failure_probability: camera returns max_range for all pixels
+        A failed frame is a dropped one: it repeats the previous frame (``frame_drop_prob``).
         """
         # Data shape: (num_envs, height * width) - flattened depth in METERS
         if self.cfg.height * self.cfg.width != data.shape[-1]:
@@ -758,11 +754,6 @@ class DepthNoiseModel(NoiseModel):
                 # believes is still going.
                 held = held & self._has_prev_frame
                 noisy_data[held] = self._prev_frame[held]
-
-        # Camera failure: return max_range for all pixels (camera returns "far" everywhere)
-        if self.cfg.failure_probability > 0:
-            failed = torch.rand(self._num_envs, device=self._device) < self.cfg.failure_probability
-            noisy_data[failed] = max_range
 
         # Store for next frame
         self._prev_frame = noisy_data.clone()
@@ -861,10 +852,6 @@ class DepthNoiseModelCfg(NoiseModelCfg):
     # Image dimensions, used to unflatten for the neighbourhood median.
     height: int = DEPTH_HEIGHT
     width: int = DEPTH_WIDTH
-
-    # Failure modes (for robustness training)
-    failure_probability: float = 0.0
-    """Probability of camera failure per step (returns max_range for all pixels)."""
 
     # Observation latency
     latency_steps: int = 1

@@ -123,9 +123,6 @@ class ActuatorModelCfg:
     """Time constant in seconds of the first-order wheel lag, which advances once
     per control step. The real wheel's lag is not measured."""
     
-    motor_time_constant_range: tuple[float, float] = (0.03, 0.08)
-    """Range for randomized motor time constant [min, max] seconds."""
-    
     # Velocity limits
     max_velocity_rad_s: float = 32.67
     """Maximum motor velocity in rad/s. GoBilda 5203 = 312 RPM = 32.67 rad/s."""
@@ -182,13 +179,6 @@ class IMUNoiseCfg:
     
     gyro_random_walk: float = 0.0001
     """Gyroscope random walk (bias drift rate)."""
-    
-    # Temperature effects (optional)
-    enable_temp_effects: bool = False
-    """Enable temperature-dependent bias drift."""
-    
-    temp_coefficient: float = 0.015
-    """Temperature coefficient for bias drift (per °C from 25°C)."""
 
 
 @configclass
@@ -299,13 +289,6 @@ class DepthCameraNoiseCfg:
 
     hold_burst_run_steps: float = 1.0
     """Mean length of a burst hold run, in control steps."""
-
-    # Temporal noise (flickering)
-    enable_temporal_noise: bool = False
-    """Enable frame-to-frame temporal noise (flickering)."""
-    
-    temporal_noise_std: float = 0.005
-    """Temporal noise standard deviation in meters."""
 
 
 @configclass
@@ -489,10 +472,6 @@ class SimRealContractCfg:
     """Referent-frame drift configuration. Not a sensor: the depth image and
     the encoders are unaffected by where the map frame thinks the robot is."""
 
-    # Domain randomization scale
-    domain_randomization_scale: float = 1.0
-    """Scale factor for all domain randomization. 0.0 = none, 1.0 = full."""
-
 
 # =============================================================================
 # Preset Configurations
@@ -524,7 +503,6 @@ def create_ideal_contract() -> SimRealContractCfg:
             failures=SensorFailureCfg(enable_failures=False),
         ),
         localization=LocalizationDriftCfg(enable_drift=False),
-        domain_randomization_scale=0.0,
     )
 
 
@@ -553,7 +531,6 @@ def create_real_robot_contract() -> SimRealContractCfg:
         actuator=ActuatorModelCfg(
             enable_motor_dynamics=True,
             motor_time_constant_s=0.2,
-            motor_time_constant_range=(0.03, 0.08),
             max_velocity_rad_s=32.67,  # 312 RPM
             max_acceleration_rad_s2=225.0,
             max_acceleration_range=(175.0, 275.0),  # ±~20% for battery state
@@ -600,7 +577,6 @@ def create_real_robot_contract() -> SimRealContractCfg:
             # localization to a fraction of what the rig recorded.
             gain_range=(0.0, 0.5),
         ),
-        domain_randomization_scale=1.0,
     )
 
 
@@ -630,7 +606,6 @@ def create_robust_training_contract() -> SimRealContractCfg:
         actuator=ActuatorModelCfg(
             enable_motor_dynamics=True,
             motor_time_constant_s=0.24,  # Slightly slower
-            motor_time_constant_range=(0.02, 0.10),  # Wide range
             max_acceleration_rad_s2=225.0,
             max_acceleration_range=(125.0, 300.0),  # Wide: depleted+loaded → fresh+free
             # 0.40 to 1.57 m/s on |vx| + |vy|, the deploy cap (s = 0.5) inside it.
@@ -700,7 +675,6 @@ def create_robust_training_contract() -> SimRealContractCfg:
             # rig measures the steady-state sigma and tau directly.
             gain_range=(0.0, 0.5),
         ),
-        domain_randomization_scale=1.5,  # Extra randomization
     )
 
 

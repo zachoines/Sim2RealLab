@@ -49,9 +49,13 @@ def test_velocity_noise_std():
     """Verify encoder noise variance matches configured std.
 
     The actual noise std = velocity_noise_std × max_velocity.
-    With quantization and tick errors disabled, model(zeros) gives
-    pure Gaussian noise. Single wheel tested to avoid inflated N.
+    With quantization disabled, model(zeros) gives pure Gaussian noise.
+    Single wheel tested to avoid inflated N. Seeded, and the variance
+    ratio's interval is its chi-squared sampling interval at the sample
+    size, two-sided at alpha = 1e-6, so a correct model does not fail by
+    chance.
     """
+    torch.manual_seed(42)
     expected_std = TEST_VEL_NOISE_FRACTION * TEST_MAX_VELOCITY
     cfg = EncoderNoiseModelCfg(
         velocity_noise_std=TEST_VEL_NOISE_FRACTION,
@@ -72,7 +76,7 @@ def test_velocity_noise_std():
         samples.append(noisy[0, 0].cpu().item())
 
     samples = np.array(samples)
-    result = chi_squared_variance_test(samples, expected_std**2)
+    result = chi_squared_variance_test(samples, expected_std**2, confidence_level=1.0 - 1e-6)
 
     print(f"\n  Encoder velocity noise test:")
     print(f"    Expected std: {expected_std:.2f} ticks/s")

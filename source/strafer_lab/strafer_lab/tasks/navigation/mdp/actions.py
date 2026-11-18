@@ -521,4 +521,4 @@ class MecanumWheelActionCfg(ActionTermCfg):
 
     max_acceleration_range: tuple[float, float] = (float('inf'), float('inf'))
     """Range for per-env randomization of max acceleration [min, max] rad/s².
-    Models battery discharge and load variation."""
+    A design spread: the motor controllers run from a regulated 12 V supply."""

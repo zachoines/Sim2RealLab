@@ -223,6 +223,31 @@ def resample_polyline(points: np.ndarray, spacing: float) -> np.ndarray:
     return np.stack([x, y], axis=1).astype(np.float32)
 
 
+# The planner emits float32 waypoints, so a geometrically straight polyline
+# still carries ~1e-5 rad of per-vertex heading jitter. Its corners, by
+# contrast, are the tens-of-degrees kind. A turn under this reads as straight.
+TURN_EPSILON_RAD = 1e-3
+
+
+def total_turning(path: np.ndarray) -> float:
+    """Total turning of a polyline, the sum of its exterior angles in radians.
+
+    Zero-length segments are dropped before the angles are taken, so a
+    repeated waypoint cannot inject a spurious turn, and a turn under
+    ``TURN_EPSILON_RAD`` counts as none. A polyline of fewer than two
+    segments turns 0.
+    """
+    pts = np.asarray(path, dtype=np.float64)
+    seg = np.diff(pts, axis=0)
+    seg = seg[np.hypot(seg[:, 0], seg[:, 1]) > 0.0]
+    if len(seg) < 2:
+        return 0.0
+    heading = np.arctan2(seg[:, 1], seg[:, 0])
+    turn = np.abs((np.diff(heading) + math.pi) % (2.0 * math.pi) - math.pi)
+    turn[turn < TURN_EPSILON_RAD] = 0.0
+    return float(turn.sum())
+
+
 def perturb_waypoints(
     path: np.ndarray,
     noise_std_m: float,

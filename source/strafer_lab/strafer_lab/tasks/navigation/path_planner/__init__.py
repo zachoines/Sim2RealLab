@@ -17,9 +17,11 @@ from .planner import (
     InvalidEndpointError,
     NoPathError,
     PathPlanningError,
+    TURN_EPSILON_RAD,
     perturb_waypoints,
     plan_path,
     resample_polyline,
+    total_turning,
 )
 
 __all__ = [
@@ -28,7 +30,9 @@ __all__ = [
     "PathCursor",
     "PathCursorState",
     "PathPlanningError",
+    "TURN_EPSILON_RAD",
     "perturb_waypoints",
     "plan_path",
     "resample_polyline",
+    "total_turning",
 ]

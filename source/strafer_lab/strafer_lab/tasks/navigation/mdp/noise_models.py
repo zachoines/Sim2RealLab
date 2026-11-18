@@ -16,6 +16,8 @@ attribute is properly set when the Cfg is instantiated.
 
 from __future__ import annotations
 
+import math
+
 import torch
 from collections.abc import Sequence
 from typing import TYPE_CHECKING
@@ -340,9 +342,10 @@ class IMUNoiseModelCfg(NoiseModelCfg):
 # =============================================================================
 
 class EncoderNoiseModel(NoiseModel):
-    """Encoder noise model with quantization, tick errors, and failure modes.
+    """Encoder noise model with the reported speed's lag, quantization, tick errors, and failure modes.
 
     Models realistic encoder behavior:
+    - The reported speed's lag behind the wheel (``ReportedSpeedLag``), off at a lag of 0
     - Quantization to discrete ticks
     - Random missed/extra ticks
     - Velocity estimation noise
@@ -352,6 +355,8 @@ class EncoderNoiseModel(NoiseModel):
     def __init__(self, noise_model_cfg, num_envs: int, device: str):
         super().__init__(noise_model_cfg, num_envs, device)
         self.cfg = noise_model_cfg
+        self._lag = ReportedSpeedLag(noise_model_cfg.reported_speed_form, noise_model_cfg.reported_speed_lag_s, num_envs,
+                                     noise_model_cfg.output_size, 1.0 / noise_model_cfg.control_frequency_hz, device)
 
         # Track accumulated tick errors for position observations
         self._tick_error_accumulator = None
@@ -366,8 +371,9 @@ class EncoderNoiseModel(NoiseModel):
         ) if self.cfg.latency_steps > 0 else None
 
     def reset(self, env_ids: Sequence[int] | None = None):
-        """Reset tick error accumulator and delay buffer, and forget the previous reading."""
+        """Reset the lag, the tick error accumulator and the delay buffer, and forget the previous reading."""
         self._has_prev[slice(None) if env_ids is None else env_ids] = False
+        self._lag.reset(None if env_ids is None else torch.as_tensor(env_ids, device=self._device))
         if self._tick_error_accumulator is not None:
             if env_ids is None:
                 self._tick_error_accumulator.zero_()
@@ -379,7 +385,7 @@ class EncoderNoiseModel(NoiseModel):
             self._delay_buffer.reset(env_ids)
 
     def __call__(self, data: torch.Tensor) -> torch.Tensor:
-        """Apply encoder noise: quantization + tick errors + noise + failures.
+        """Apply the reported speed's lag, then encoder noise: quantization + tick errors + noise + failures.
 
         Expects RAW input data in ticks/sec (not normalized).
         Noise is applied in physical units for realism.
@@ -390,7 +396,7 @@ class EncoderNoiseModel(NoiseModel):
         - stuck_probability: the encoders repeat their previous reading (on an env's first step after a reset there
           is none, and the current reading passes)
         """
-        noisy_data = data.clone()
+        noisy_data = self._lag(data).clone()
 
         # Initialize accumulator if needed
         if self._tick_error_accumulator is None:
@@ -451,6 +457,17 @@ class EncoderNoiseModelCfg(NoiseModelCfg):
     # Errors
     missed_tick_prob: float = 0.001
     extra_tick_prob: float = 0.0005
+
+    # The reported speed's lag, applied before the noise
+    reported_speed_form: str = "first_order"
+    """The lag's form: "first_order" (a filter whose 63 % rise time is the parameter), "delay" (a pure delay) or
+    "window" (a moving average over the parameter's span)."""
+
+    reported_speed_lag_s: float = 0.0
+    """The lag's parameter in seconds (the time constant, the delay, or the window's span); 0 = no lag."""
+
+    control_frequency_hz: float = 30.0
+    """The rate the observation is computed at, to convert the lag's seconds to steps."""
 
     # Failure mode (for robustness training)
     stuck_probability: float = 0.0
@@ -965,3 +982,56 @@ class RGBNoiseModelCfg(NoiseModelCfg):
     # Observation latency
     latency_steps: int = 1
     """Observation latency in control steps. 1 = one step delay (default for cameras)."""
+
+
+# =============================================================================
+# The reported speed's lag
+# =============================================================================
+
+REPORTED_SPEED_FORMS = ("first_order", "delay", "window")
+
+
+class ReportedSpeedLag:
+    """The lag of the wheel speed the robot reports behind the wheel's own speed, per env, in one of three forms.
+
+    The parameter is in seconds and is converted at the control step, so it means the same at any decimation: a
+    first-order filter with alpha = 1 - exp(-dt / lag), a delay of round(lag / dt) steps, or a moving average over
+    max(1, round(lag / dt)) steps. A lag of 0 is the identity. An env's first reading after a reset seeds the state,
+    so the lag starts from the wheel's speed, not from zero.
+    """
+
+    def __init__(self, form: str, lag_s: float, num_envs: int, width: int, step_dt: float, device):
+        if form not in REPORTED_SPEED_FORMS:
+            raise ValueError(f"reported_speed_form {form!r} is not one of {REPORTED_SPEED_FORMS}")
+        if lag_s < 0:
+            raise ValueError(f"reported_speed_lag_s {lag_s} is negative")
+        self.form = form
+        self.enabled = lag_s > 0
+        self._fresh = torch.ones(num_envs, dtype=torch.bool, device=device)
+        if not self.enabled:
+            return
+        if form == "first_order":
+            self._alpha = -math.expm1(-step_dt / lag_s)
+            self._state = torch.zeros(num_envs, width, device=device)
+        else:
+            steps = round(lag_s / step_dt)
+            self._length = max(1, steps) if form == "window" else steps + 1
+            self._history = torch.zeros(num_envs, self._length, width, device=device)
+
+    def reset(self, env_ids: torch.Tensor | None = None) -> None:
+        self._fresh[slice(None) if env_ids is None else env_ids] = True
+
+    def __call__(self, x: torch.Tensor) -> torch.Tensor:
+        if not self.enabled:
+            return x
+        fresh = self._fresh
+        if self.form == "first_order":
+            self._state = torch.where(fresh.unsqueeze(-1), x, self._state + self._alpha * (x - self._state))
+            out = self._state
+        else:
+            self._history = torch.roll(self._history, shifts=1, dims=1)
+            self._history[:, 0] = x
+            self._history[fresh] = x[fresh].unsqueeze(1).expand(-1, self._length, -1)
+            out = self._history[:, -1] if self.form == "delay" else self._history.mean(dim=1)
+        self._fresh = torch.zeros_like(fresh)
+        return out.clone()

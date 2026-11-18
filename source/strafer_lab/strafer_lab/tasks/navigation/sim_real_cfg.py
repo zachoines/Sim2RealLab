@@ -225,6 +225,13 @@ class EncoderNoiseCfg:
     velocity_quantization_ticks_per_step: float = 1.0
     """Minimum detectable velocity change in ticks per control step."""
 
+    # The reported speed's lag
+    reported_speed_form: str = "first_order"
+    """The lag's form: "first_order", "delay" or "window" (``EncoderNoiseModelCfg.reported_speed_form``)."""
+
+    reported_speed_lag_s: float = 0.0
+    """The lag's parameter in seconds; 0 = no lag. Not measured."""
+
 
 @configclass
 class DepthCameraNoiseCfg:
@@ -787,6 +794,9 @@ def get_encoder_noise(contract: SimRealContractCfg) -> EncoderNoiseModelCfg | No
         velocity_noise_std=contract.sensors.encoders.velocity_noise_std,
         missed_tick_prob=contract.sensors.encoders.missed_tick_probability,
         extra_tick_prob=contract.sensors.encoders.extra_tick_probability,
+        reported_speed_form=contract.sensors.encoders.reported_speed_form,
+        reported_speed_lag_s=contract.sensors.encoders.reported_speed_lag_s,
+        control_frequency_hz=contract.timing.control_frequency_hz,
         stuck_probability=stuck_prob,
         latency_steps=contract.timing.encoder_latency_steps,
     )

@@ -1393,10 +1393,12 @@ from .mdp.proc_room import (
 )
 
 
-# --- ProcRoom depth-enrichment parameters (enriched depth variants only) ---
-# Move ProcRoom's open-top, close-quarters depth statistics toward enclosed,
-# Infinigen-like values. Applied only to the enriched depth variant IDs; the
-# NOCAM / vanilla-depth generator path keeps the generator argument defaults.
+# --- The enclosed room's parameters (the depth variants on ProcRoom) ---
+# ProcRoom is a fast, low-memory, fairly coarse generator that adds room-like depth
+# characteristics to training. The enclosed room closes the open-top room in: tall
+# walls and furniture, a ceiling on most episodes, mid-room columns and wall-biased
+# clutter. Applied to the depth variants on ProcRoom; the NOCAM generator path keeps
+# the generator argument defaults.
 _ENRICH_WALL_HEIGHT = 2.7               # enclosing walls (open-top default 1.0)
 _ENRICH_DOOR_WIDTH_MAX = 2.0            # doorway U[0.8, 2.0] (default 1.2)
 _ENRICH_SPAN_MAX = 7.5                  # room span U[4.0, 7.5] (default 7.0)
@@ -1763,9 +1765,9 @@ class EventsCfg_ProcRoom_Robust:
     randomize_subgoal_drift = _SUBGOAL_DRIFT_ROBUST
 
 
-# Depth-enrichment event terms: un-pin difficulty to a room-mode range and feed
-# the generator the enrichment arguments. Used only by the enriched depth
-# variants; the vanilla terms above keep the generator defaults.
+# The enclosed room's event terms: difficulty drawn on levels 4-7, and the
+# generator fed the enclosed room's arguments. Used by the depth variants on
+# ProcRoom; the base terms above keep the generator defaults.
 _GENERATE_PROC_ROOM_ENRICHED = EventTerm(
     func=mdp.generate_proc_room,
     mode="reset",
@@ -1803,8 +1805,8 @@ _JITTER_D555_CAMERA_PRIM = EventTerm(
 
 @configclass
 class EventsCfg_ProcRoom_Realistic_Enriched(EventsCfg_ProcRoom_Realistic):
-    """Realistic ProcRoom events with depth-enrichment generation (un-pinned
-    difficulty + enclosure/clutter/spawn enrichment) and the rendered camera
+    """Realistic ProcRoom events for the enclosed room (difficulty on levels
+    4-7, the enclosed room's generator arguments) and the rendered camera
     carrying the mount offset; DR bands unchanged."""
     randomize_difficulty = _RANDOMIZE_PROC_ROOM_DIFFICULTY_ENRICHED
     generate_room = _GENERATE_PROC_ROOM_ENRICHED
@@ -1813,8 +1815,8 @@ class EventsCfg_ProcRoom_Realistic_Enriched(EventsCfg_ProcRoom_Realistic):
 
 @configclass
 class EventsCfg_ProcRoom_Robust_Enriched(EventsCfg_ProcRoom_Robust):
-    """Robust ProcRoom events with depth-enrichment generation and the rendered
-    camera carrying the mount offset; DR bands unchanged."""
+    """Robust ProcRoom events for the enclosed room and the rendered camera
+    carrying the mount offset; DR bands unchanged."""
     randomize_difficulty = _RANDOMIZE_PROC_ROOM_DIFFICULTY_ENRICHED
     generate_room = _GENERATE_PROC_ROOM_ENRICHED
     jitter_d555_camera_prim = _JITTER_D555_CAMERA_PRIM

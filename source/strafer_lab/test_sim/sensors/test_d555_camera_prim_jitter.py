@@ -25,7 +25,7 @@ from isaaclab.envs import ManagerBasedRLEnv
 from isaaclab.utils.math import quat_from_euler_xyz
 
 from strafer_lab.tasks.navigation.composed_env_cfg import (
-    StraferNavCfg_RLDepthEnriched_Real,
+    StraferNavCfg_RLDepth_Real,
 )
 from strafer_lab.tasks.navigation.mdp.events import jitter_d555_camera_prim_pose
 
@@ -38,7 +38,7 @@ DRIVE_STEPS = 20
 
 @pytest.fixture(scope="module")
 def env():
-    cfg = StraferNavCfg_RLDepthEnriched_Real()
+    cfg = StraferNavCfg_RLDepth_Real()
     cfg.scene.num_envs = NUM_ENVS
     instance = ManagerBasedRLEnv(cfg)
     instance.reset(seed=20260101)
@@ -83,7 +83,7 @@ def _point(env, env_ids, angle_deg):
 
 
 def test_reset_points_every_camera_through_its_own_offset(env):
-    """End-to-end: the term is wired into the enriched events, so a plain reset
+    """End-to-end: the term is wired into the enclosed room's events, so a plain reset
     leaves each environment's camera on its own sampled misalignment."""
     quats = _camera_local_quats(env)
     # Signs are free (q and -q are one rotation), so compare on |components|.

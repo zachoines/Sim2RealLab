@@ -201,8 +201,8 @@ class TestSceneKeyedDatabase:
 
     def test_key_derives_a_distinct_default_path(self, pkg_dir):
         mod = _load_launch(pkg_dir)
-        key = mod._scene_key("ProcRoom-Enriched-v0", "run4")
-        assert key == "ProcRoom-Enriched-v0_run4"
+        key = mod._scene_key("ProcRoom-v0", "run4")
+        assert key == "ProcRoom-v0_run4"
         assert mod._resolve_database_path(
             "~/.ros/rtabmap.db", key
         ) == os.path.expanduser(f"~/.ros/rtabmap_{key}.db")

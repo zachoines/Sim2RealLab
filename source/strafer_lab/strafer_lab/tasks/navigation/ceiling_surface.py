@@ -1,4 +1,4 @@
-"""One-way ceiling surface for the enriched procedural rooms.
+"""One-way ceiling surface for the enclosed procedural rooms.
 
 The enclosure has to read as a solid ceiling to the robot's camera underneath it
 and stay out of the way of an overhead debug/``--video`` camera above it. A

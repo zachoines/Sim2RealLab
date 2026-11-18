@@ -25,11 +25,13 @@ standard manager cfgs from them.
   being the same image. Drives which camera prims render **and** which image
   observation terms the policy gets. An empty tuple is camera-free.
 - **`SceneSourceCfg(kind=...)`** — `plane` / `infinigen` / `procroom` / `none`.
-  The seam that makes a foreign USD a parameter, not a subclass. Its
-  `enrich_depth` flag (procroom + a policy-depth-camera profile only) opts a
-  variant into the enclosed, Infinigen-like ProcRoom generation; the enriched
-  behavior lives on separate `-Enriched-` gym IDs with their own frozen
-  goldens, so NOCAM and the open-top depth variants are untouched.
+  The seam that makes a foreign USD a parameter, not a subclass. `procroom` is
+  a fast, low-memory, fairly coarse generator that adds room-like depth
+  characteristics to training. On it the sensor profile selects the room: a
+  stack carrying the policy depth camera (profile `depth` / `full`) composes the
+  enclosed room (tall walls and furniture, a ceiling, the enclosed room's
+  events), and the camera-free profile the open-top room, so NOCAM is untouched
+  by the enclosure.
 - **`RealismCfg(level=..., localization_drift=...)`** — `ideal` / `real` /
   `robust` DR + noise tier. `localization_drift` opts a variant out of the
   tier's referent-frame drift; it is off for the capture and bridge variants,
@@ -46,22 +48,23 @@ standard manager cfgs from them.
 
 Two families, prefix `Isaac-Strafer-Nav-`:
 
-- **RL** (`-RLDepth-Real-v0`, `-RLDepth-Robust-v0`, `-RLNoCam-v0`,
-  `-RLNoCam-Subgoal-Real-v0`, `-RLNoCam-Subgoal-Robust-v0`, each + `-Play`):
-  **fixed** sensor stack — the obs contract a trained policy was fitted against.
+- **RL** (`-RLDepth-{Real,Robust}-v0`, `-RLDepth-Subgoal-{Real,Robust}-v0`,
+  `-RLNoCam-v0`, `-RLNoCam-Subgoal-{Real,Robust}-v0`, each + `-Play`, and the
+  recurrent pair `-RLNoCam-Subgoal-Robust-GRU-v0` /
+  `-RLNoCam-Subgoal-Real-Play-GRU-v0`): **fixed** sensor stack — the obs
+  contract a trained policy was fitted against. On ProcRoom the depth IDs
+  compose the enclosed room and the NoCam IDs the open-top room.
 - **Capture** (`-Capture-Teleop-v0`, `-Capture-Bridge-v0`,
   `-Capture-Bridge-ProcRoom-v0`, `-Capture-Coverage-v0`):
   the registered stack is a **default preset**, operator-overridable per session.
   The `-Bridge-ProcRoom` variant is the Bridge stack on the `procroom` source
-  (a training-distribution scene) instead of `infinigen`; it is `--mode bridge`
+  (a training-distribution scene, the enclosed room since the stack carries
+  the policy depth camera) instead of `infinigen`; it is `--mode bridge`
   only, since ProcRoom has no loaded scene USD for `--scene-usd` / `--mode
   harness` to resolve.
 
 The runner cfg pairs with the observation profile: a depth-image obs uses the
-CNN depth runner, a proprioceptive obs the MLP runner. Old per-cell gym IDs
-(`-Real-v0`, `-Real-Depth-v0`, `-Real-ProcRoom-Depth-v0`, `-InfinigenPerception-Play-v0`, …)
-are retired — the old→new table is in
-[`docs/archived/INTEGRATION_SIM_IN_THE_LOOP.md`](../archived/INTEGRATION_SIM_IN_THE_LOOP.md).
+CNN depth runner, a proprioceptive obs the MLP runner.
 
 ## The two invariants
 

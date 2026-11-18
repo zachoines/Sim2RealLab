@@ -1,7 +1,7 @@
 # Copyright (c) 2025, Strafer Lab Project
 # SPDX-License-Identifier: BSD-3-Clause
 
-"""Spawn-pool clearance for the enriched generator path.
+"""Spawn-pool clearance for the enclosed room's generator path.
 
 The pool the robot reset draws from must never offer a start pose already in
 contact range: reset yaw is drawn independently of the spawn point, so a
@@ -16,7 +16,7 @@ floor is the generous one.
 The pool's own obstacle inflation does *not* deliver that on its own — it is
 a disc rasterized on a 0.1 m grid and a spawn point is a cell centre, so the
 guarantee it actually gives is one grid cell short of its nominal radius.
-Only the extra erosion the enriched path applies closes the gap, and the
+Only the extra erosion the enclosed room's arguments apply closes the gap, and the
 gap it closes is measured here rather than assumed.
 
 No Kit, no GPU. Run with the pure-Python lab tests.
@@ -60,7 +60,7 @@ class _StubScene:
 def _enriched_params():
     from strafer_lab.tasks.navigation import composed_env_cfg as composed
 
-    events = composed.StraferNavCfg_RLDepthEnriched_Real().events
+    events = composed.StraferNavCfg_RLDepth_Real().events
     params = dict(events.generate_room.params)
     params.pop("collection_name", None)
     diff = events.randomize_difficulty.params
@@ -147,7 +147,7 @@ def test_enriched_spawn_pool_never_offers_a_contact_start(enriched):
     worst = float(clearances.min())
     assert worst >= _proc_room.ROBOT_HALF_WIDTH, (
         f"{int((clearances < _proc_room.ROBOT_HALF_WIDTH).sum())} of "
-        f"{len(clearances)} enriched spawn candidates sit inside the "
+        f"{len(clearances)} enclosed-room spawn candidates sit inside the "
         f"{_proc_room.ROBOT_HALF_WIDTH} m footprint radius (worst {worst:.3f} m); "
         f"the robot would start in contact at some reset yaws"
     )

@@ -44,23 +44,33 @@ Sibling packages it interacts with:
 ### Gym environment registry (`strafer_lab.tasks.navigation`)
 
 Registration happens in `tasks/navigation/__init__.py` via `gym.register`. Each
-variant is composed over three orthogonal axes — sensor stack × scene source ×
-realism — in `tasks/navigation/composed_env_cfg.py`. RL variants have a fixed
+variant is composed over four orthogonal axes — sensor stack × scene source ×
+realism × objective — in `tasks/navigation/composed_env_cfg.py`. RL variants have a fixed
 sensor stack (the obs contract a trained policy was fit against); capture
 variants take an operator-selectable stack via `capture.py --sensors`.
 
-| Family | Gym ID | sensors | scene | realism | Obs dims |
-|---|---|---|---|---|---|
-| RL | `Isaac-Strafer-Nav-RLDepth-Real-v0` | depth policy | ProcRoom | Realistic | 4,819 |
-| RL | `Isaac-Strafer-Nav-RLDepth-Robust-v0` | depth policy | ProcRoom | Robust | 4,819 |
-| RL | `Isaac-Strafer-Nav-RLNoCam-v0` | none | ProcRoom | Realistic | 19 |
-| Capture | `Isaac-Strafer-Nav-Capture-Teleop-v0` | rgb_full (default) | Infinigen | Realistic | — |
-| Capture | `Isaac-Strafer-Nav-Capture-Bridge-v0` | rgb_full+depth_full+depth_policy (default) | Infinigen | Realistic | — |
-| Capture | `Isaac-Strafer-Nav-Capture-Coverage-v0` | rgb_full+depth_full (default) | Infinigen | Realistic | — |
+| Family | Gym ID | sensors | scene | realism | objective | Obs dims |
+|---|---|---|---|---|---|---|
+| RL | `Isaac-Strafer-Nav-RLDepth-Real-v0` | depth policy | ProcRoom, enclosed | Realistic | goal | 3,619 |
+| RL | `Isaac-Strafer-Nav-RLDepth-Robust-v0` | depth policy | ProcRoom, enclosed | Robust | goal | 3,619 |
+| RL | `Isaac-Strafer-Nav-RLDepth-Subgoal-Real-v0` | depth policy | ProcRoom, enclosed | Realistic | subgoal | 3,619 |
+| RL | `Isaac-Strafer-Nav-RLDepth-Subgoal-Robust-v0` | depth policy | ProcRoom, enclosed | Robust | subgoal | 3,619 |
+| RL | `Isaac-Strafer-Nav-RLNoCam-v0` | none | ProcRoom, open-top | Realistic | goal | 19 |
+| RL | `Isaac-Strafer-Nav-RLNoCam-Subgoal-Real-v0` | none | ProcRoom, open-top | Realistic | subgoal | 19 |
+| RL | `Isaac-Strafer-Nav-RLNoCam-Subgoal-Robust-v0` | none | ProcRoom, open-top | Robust | subgoal | 19 |
+| RL | `Isaac-Strafer-Nav-RLNoCam-Subgoal-Robust-GRU-v0` | none (recurrent runner) | ProcRoom, open-top | Robust | subgoal | 19 |
+| Capture | `Isaac-Strafer-Nav-Capture-Teleop-v0` | rgb_full (default) | Infinigen | Realistic | goal | — |
+| Capture | `Isaac-Strafer-Nav-Capture-Bridge-v0` | rgb_full+depth_full+depth_policy (default) | Infinigen | Realistic | goal | — |
+| Capture | `Isaac-Strafer-Nav-Capture-Bridge-ProcRoom-v0` | rgb_full+depth_full+depth_policy (default) | ProcRoom, enclosed | Realistic | goal | — |
+| Capture | `Isaac-Strafer-Nav-Capture-Coverage-v0` | rgb_full+depth_full (default) | Infinigen | Realistic | goal | — |
 
-Add the `-Play-v0` suffix to an RL ID to get its evaluation variant (fewer
-envs): `Isaac-Strafer-Nav-RLDepth-Real-Play-v0`,
-`Isaac-Strafer-Nav-RLDepth-Robust-Play-v0`, `Isaac-Strafer-Nav-RLNoCam-Play-v0`.
+Each RL ID but the GRU one has a `-Play-v0` twin for evaluation (fewer envs),
+e.g. `Isaac-Strafer-Nav-RLDepth-Subgoal-Robust-Play-v0`; the GRU arm's is
+`Isaac-Strafer-Nav-RLNoCam-Subgoal-Real-Play-GRU-v0`. 20 IDs in all.
+
+On ProcRoom the sensor stack selects the room: a stack carrying the policy
+depth camera composes the enclosed room (2.7 m walls, a ceiling, the enclosed
+room's generator arguments), and a camera-free stack the open-top room.
 
 ### Observation vector (15-19D proprioceptive base, optionally + depth + RGB)
 
@@ -74,8 +84,8 @@ envs): `Isaac-Strafer-Nav-RLDepth-Real-Play-v0`,
 | Goal heading | 1 | Angular error |
 | Body velocity | 2 | `(vx, vy)` |
 | Last action | 3 | Previous `[vx, vy, omega]` |
-| Depth image (optional) | 4,800 | D555 depth 80×60, normalized |
-| RGB image (optional) | 14,400 | D555 RGB 80×60×3, normalized |
+| Depth image (optional) | 3,600 | D555 depth, reduced to the 80×45 policy grid, normalized |
+| RGB image (optional) | 691,200 | the policy camera's 640×360×3 render, unreduced, in [0, 1]; no registered ID observes it |
 
 ### Sim-to-real contract presets
 
@@ -100,8 +110,8 @@ Lives in `strafer_shared.policy_interface` — the single source of truth for ho
 
 ```python
 PolicyVariant.NOCAM   # 19 dims, proprioceptive only
-PolicyVariant.DEPTH   # 4,819 dims, + depth
-# (Full 19,219-dim variant exists but is not the sim-to-real MVP target.)
+PolicyVariant.DEPTH   # 3,619 dims, + depth (19 + 80×45)
+# NOCAM_SUBGOAL (19) and DEPTH_SUBGOAL (3,619) share these layouts; no variant carries RGB.
 
 assemble_observation(raw, variant)    # normalize + concatenate raw sensor values
 interpret_action(action)               # [-1, 1] → physical (vx, vy, omega)
@@ -134,7 +144,7 @@ runnable scripts under `scripts/`, importable modules under
 | `scripts/bridge_harness_smoke.py` | Jetson-free Kit smoke of the bridge harness capture path: scripted-`/cmd_vel` sweep through the real harness + recorder + `StraferLeRobotWriter` (detections on), then asserts the round-tripped dataset (episodes/frames, depth sidecars, detections vocab, discard path). `make harness-smoke`. Does **not** exercise the ROS publishers or the live executor | Isaac Sim, lerobot |
 | `scripts/collect_demos.py` | Gamepad teleop recorder — writes one HDF5 group per episode (`obs` / `actions` / `rewards`). No training entry point reads this format today; demo-driven training consumes the teleop driver's LeRobot datasets instead. Shares the family-aware reader at `strafer_lab.tools.gamepad_reader` with the harness teleop driver | Isaac Sim |
 | `scripts/roller_bounce_probe.py` | Headless mecanum-roller contact diagnostic: spins in place across wheel speeds and logs chassis-z to quantify the high-yaw bounce. Exposes `--sim-hz` + PhysX solver knobs | IsaacLab |
-| `scripts/ceiling_sidedness_probe.py` | Headless one-way-ceiling check on the enriched rooms: records the policy camera's depth and RGB from inside the enclosure plus an overhead camera's ceiling pixel share, with `--ceiling` / `--face-culling` arms for the geometry and the RTX culling switch separately. `--compare` reads two recordings back with no Kit boot. The answer is renderer-build-specific — re-run it on an RTX / Isaac Sim upgrade | IsaacLab |
+| `scripts/ceiling_sidedness_probe.py` | Headless one-way-ceiling check on the enclosed rooms: records the policy camera's depth and RGB from inside the enclosure plus an overhead camera's ceiling pixel share, with `--ceiling` / `--face-culling` arms for the geometry and the RTX culling switch separately. `--compare` reads two recordings back with no Kit boot. The answer is renderer-build-specific — re-run it on an RTX / Isaac Sim upgrade | IsaacLab |
 | `scripts/prep_room_usds.py` | Orchestrate Infinigen scene generation (`generate`, `ingest`, `presets` subcommands) | IsaacLab + `INFINIGEN_ROOT`, `STRAFER_INFINIGEN_PYTHON` |
 | `scripts/postprocess_scene_usd.py` | Bake colliders + ceiling-light emitters into an Infinigen-exported USDC (called by `prep_room_usds.py`, or run manually) | IsaacLab (`pxr`) |
 | `scripts/generate_scenes_metadata.py` | Walk `Assets/generated/scenes/` and author the combined `scenes_metadata.json` with per-scene spawn points + floor top Z | IsaacLab (`pxr`) |
@@ -417,7 +427,7 @@ cd /home/zachoines/Workspace/Sim2RealLab
 ../IsaacLab/isaaclab.sh -p source/strafer_lab/scripts/train_strafer_navigation.py \
     --env Isaac-Strafer-Nav-RLNoCam-v0 --num_envs 512 --headless
 
-# Depth Realistic (4,819 obs dims; cameras auto-enabled)
+# Depth Realistic (3,619 obs dims; cameras auto-enabled)
 ../IsaacLab/isaaclab.sh -p source/strafer_lab/scripts/train_strafer_navigation.py \
     --env Isaac-Strafer-Nav-RLDepth-Real-v0 --num_envs 32 --headless
 

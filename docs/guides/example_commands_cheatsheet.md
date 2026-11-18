@@ -98,7 +98,7 @@ tensorboard --logdir ~/Workspace/Sim2RealLab/logs/rsl_rl/strafer_navigation
 ## Evaluate Policy
 ```bash
 $ISAACLAB -p source/strafer_lab/scripts/play_strafer_navigation.py \
-    --env Isaac-Strafer-Nav-RLDepth-Subgoal-Enriched-Robust-Play-v0 \
+    --env Isaac-Strafer-Nav-RLDepth-Subgoal-Robust-Play-v0 \
     --checkpoint logs/rsl_rl/strafer_navigation/run_20260727_171735/model_998.pt \
     --viz kit --real_time --steps 2000
 ```
@@ -141,7 +141,7 @@ built; as specified, it takes the teleop driver's LeRobot datasets
 # Fine-tune a live checkpoint:
 ```bash
 $ISAACLAB -p source/strafer_lab/scripts/train_strafer_navigation.py \
-    --env Isaac-Strafer-Nav-RLDepth-Subgoal-Enriched-Robust-v0 \
+    --env Isaac-Strafer-Nav-RLDepth-Subgoal-Robust-v0 \
     --num_envs 128 --max_iterations 6000 \
     --resume logs/rsl_rl/strafer_navigation/run_20260727_171735/model_998.pt \
     --seed 1337 \
@@ -155,7 +155,7 @@ policy in the Kit viewport. Use the Play variant (8 envs by default).
 ## (a) Headed, watch in the viewport, real-time pacing
 ```bash
 $ISAACLAB -p source/strafer_lab/scripts/play_strafer_navigation.py \
-    --env Isaac-Strafer-Nav-RLDepth-Subgoal-Enriched-Robust-Play-v0 \
+    --env Isaac-Strafer-Nav-RLDepth-Subgoal-Robust-Play-v0 \
     --checkpoint logs/rsl_rl/strafer_navigation/run_20260727_171735/model_998.pt \
     --viz kit --real_time --steps 2000
 ```
@@ -163,19 +163,19 @@ $ISAACLAB -p source/strafer_lab/scripts/play_strafer_navigation.py \
 ## (b) Headless rollout that records a single MP4 over env_0
 ```bash
 $ISAACLAB -p source/strafer_lab/scripts/play_strafer_navigation.py \
-    --env Isaac-Strafer-Nav-RLDepth-Subgoal-Enriched-Robust-Play-v0 \
+    --env Isaac-Strafer-Nav-RLDepth-Subgoal-Robust-Play-v0 \
     --checkpoint logs/rsl_rl/strafer_navigation/run_20260727_171735/model_998.pt \
     --headless --video --video_length 600
 ```
 MP4 lands in `logs/rsl_rl/strafer_navigation/play_videos/play_<timestamp>/`.
 
 The goal, rolling subgoal and path are drawn onto the frames, and the robot is outlined in
-magenta: most enriched rooms have a ceiling, which leaves their floor black from above. For
+magenta: most enclosed rooms have a ceiling, which leaves their floor black from above. For
 cleaner shots, `--open_rooms` builds every room without a ceiling, so the room renders lit and
 the robot reads on its own, and `--no_robot_outline` then drops the outline. Open rooms are a
 normal part of training, but enclosed ones are most of it, so use this for watching tracking,
-not for judging a policy. Only the enriched variants have a ceiling; any other env refuses the
-flag.
+not for judging a policy. Only the ProcRoom depth IDs and the ProcRoom bridge build a ceiling;
+any other env refuses the flag.
 
 # Evaluate a checkpoint under an emulated inference cadence
 Rolls the play env out with a per-env schedule of *held* ticks (the policy does
@@ -188,7 +188,7 @@ checkpoint costs one Kit boot rather than one per arm.
 ## (a) Baseline plus two degraded profiles
 ```bash
 $ISAACLAB -p source/strafer_lab/scripts/eval_cadence_emulation.py \
-    --env Isaac-Strafer-Nav-RLDepth-Subgoal-Enriched-Robust-Play-v0 \
+    --env Isaac-Strafer-Nav-RLDepth-Subgoal-Robust-Play-v0 \
     --checkpoint logs/rsl_rl/strafer_navigation/run_20260727_171735/model_998.pt \
     --profile clean,band,degraded \
     --num_envs 16 --episodes 100 --headless
@@ -201,7 +201,7 @@ result.
 ## (b) Replay a profile measured on the robot
 ```bash
 $ISAACLAB -p source/strafer_lab/scripts/eval_cadence_emulation.py \
-    --env Isaac-Strafer-Nav-RLDepth-Subgoal-Enriched-Robust-Play-v0 \
+    --env Isaac-Strafer-Nav-RLDepth-Subgoal-Robust-Play-v0 \
     --checkpoint logs/rsl_rl/strafer_navigation/run_20260727_171735/model_998.pt \
     --profile measured --profile-dump captures/inference_obs.jsonl \
     --episodes 100 --headless
@@ -480,7 +480,7 @@ the dark enclosed rooms; the livestream has no such overlay.
 ```bash
 tools/kit_boot_watchdog.sh --label gui -- "$ISAACLAB" -p \
   source/strafer_lab/scripts/play_strafer_navigation.py \
-  --env Isaac-Strafer-Nav-RLDepth-Subgoal-Enriched-Robust-Play-v0 \
+  --env Isaac-Strafer-Nav-RLDepth-Subgoal-Robust-Play-v0 \
   --checkpoint logs/rsl_rl/strafer_navigation/run_20260727_171735/model_998.pt \
   --video --livestream 2 \
   "--kit_args=--enable omni.kit.livestream.rtsp \

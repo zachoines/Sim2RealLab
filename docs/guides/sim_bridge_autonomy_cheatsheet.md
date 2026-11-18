@@ -16,7 +16,7 @@ in this repository.
    tools/kit_boot_watchdog.sh --label sim-bridge -- \
        $ISAACLAB -p source/strafer_lab/scripts/run_sim_in_the_loop.py \
        --mode bridge --headless --enable_cameras \
-       --task Isaac-Strafer-Nav-Capture-Bridge-ProcRoom-Enriched-v0
+       --task Isaac-Strafer-Nav-Capture-Bridge-ProcRoom-v0
    ```
    [`kit_boot_watchdog.sh`](../../tools/kit_boot_watchdog.sh) relaunches a Kit boot that stops early
    and stays stopped (Isaac Sim 6.0.1), printing one accounting line per attempt, and never touches
@@ -26,9 +26,9 @@ in this repository.
 
    **Do not add `--decimation 4 --render-interval 4`:** depth starves to ~0.3 Hz sim.
 
-   **Match the task to the policy's training scene.** The depth-subgoal work was validated on
-   `ProcRoom-Enriched-v0` (enclosed rooms, tall furniture, mid-room columns); plain `ProcRoom-v0`
-   is a different distribution and its map is not interchangeable.
+   **Match the task to the policy's training scene.** `ProcRoom-v0` composes the enclosed room
+   (2.7 m walls, a ceiling on most episodes, tall furniture, mid-room columns) the depth-subgoal
+   policies train in. A map made in another scene is not interchangeable.
 
 ## On the NX (`strafer-nx`)
 

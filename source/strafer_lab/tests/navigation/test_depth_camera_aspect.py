@@ -50,14 +50,6 @@ _POLICY_CAMERA_VARIANTS = (
     "StraferNavCfg_RLDepthSubgoal_Robust",
     "StraferNavCfg_RLDepthSubgoal_Real_PLAY",
     "StraferNavCfg_RLDepthSubgoal_Robust_PLAY",
-    "StraferNavCfg_RLDepthEnriched_Real",
-    "StraferNavCfg_RLDepthEnriched_Robust",
-    "StraferNavCfg_RLDepthEnriched_Real_PLAY",
-    "StraferNavCfg_RLDepthEnriched_Robust_PLAY",
-    "StraferNavCfg_RLDepthSubgoalEnriched_Real",
-    "StraferNavCfg_RLDepthSubgoalEnriched_Robust",
-    "StraferNavCfg_RLDepthSubgoalEnriched_Real_PLAY",
-    "StraferNavCfg_RLDepthSubgoalEnriched_Robust_PLAY",
 )
 
 

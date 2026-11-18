@@ -43,13 +43,13 @@ batch width constant, so no env's convolution numerics shift with its schedule.
 Examples:
     # Baseline plus two degraded profiles for one checkpoint, one launch:
     $ISAACLAB -p source/strafer_lab/scripts/eval_cadence_emulation.py \\
-        --env Isaac-Strafer-Nav-RLDepth-Subgoal-Enriched-Robust-Play-v0 \\
+        --env Isaac-Strafer-Nav-RLDepth-Subgoal-Robust-Play-v0 \\
         --checkpoint logs/rsl_rl/strafer_navigation/run_<timestamp>/model_<step>.pt \\
         --profile clean,band,degraded --num_envs 16 --episodes 100 --headless
 
     # Replay a temporal profile measured from an inference-node observation dump:
     $ISAACLAB -p source/strafer_lab/scripts/eval_cadence_emulation.py \\
-        --env Isaac-Strafer-Nav-RLDepth-Subgoal-Enriched-Robust-Play-v0 \\
+        --env Isaac-Strafer-Nav-RLDepth-Subgoal-Robust-Play-v0 \\
         --checkpoint logs/rsl_rl/strafer_navigation/run_<timestamp>/model_<step>.pt \\
         --profile measured --profile-dump captures/inference_obs.jsonl --headless
 
@@ -58,7 +58,7 @@ Examples:
     # the arm would not be comparable to the rest of a sweep, so the harness
     # refuses the composition rather than reporting it under the gain's name:
     $ISAACLAB -p source/strafer_lab/scripts/eval_cadence_emulation.py \\
-        --env Isaac-Strafer-Nav-RLDepth-Subgoal-Enriched-Robust-Play-v0 \\
+        --env Isaac-Strafer-Nav-RLDepth-Subgoal-Robust-Play-v0 \\
         --checkpoint logs/rsl_rl/strafer_navigation/run_<timestamp>/model_<step>.pt \\
         --subgoal-drift-m 0.166 --subgoal-drift-deg 6.7 --subgoal-drift-gain 1.0 \\
         --suppress-env-drift --headless

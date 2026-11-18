@@ -4,10 +4,11 @@
 """Kit-free checks for the rendered-camera arm of the D555 mount DR.
 
 The mount offset is sampled once per episode and consumed twice: the IMU
-observation rotates its readings through it, and the enriched depth variants
-also point the rendered camera prim through it. These pin the composition sense
-that makes those two the same misalignment, and pin which variants carry the
-term — the vanilla and NOCAM arms must not, or their frozen contracts move.
+observation rotates its readings through it, and the depth variants, on the
+enclosed room, also point the rendered camera prim through it. These pin the
+composition sense that makes those two the same misalignment, and pin which
+variants carry the term — the camera-free NOCAM arms must not, or their frozen
+contracts move.
 
 Config construction and pure quaternion math only — no Kit / GPU.
 """
@@ -28,21 +29,17 @@ from strafer_lab.tasks.navigation.mdp.events import (
 
 _TERM = "jitter_d555_camera_prim"
 
-_ENRICHED = (
-    "RLDepthEnriched_Real",
-    "RLDepthEnriched_Robust",
-    "RLDepthEnriched_Real_PLAY",
-    "RLDepthEnriched_Robust_PLAY",
-    "RLDepthSubgoalEnriched_Real",
-    "RLDepthSubgoalEnriched_Robust",
-    "RLDepthSubgoalEnriched_Real_PLAY",
-    "RLDepthSubgoalEnriched_Robust_PLAY",
-)
-_UNENRICHED = (
+_DEPTH = (
     "RLDepth_Real",
     "RLDepth_Robust",
+    "RLDepth_Real_PLAY",
+    "RLDepth_Robust_PLAY",
     "RLDepthSubgoal_Real",
     "RLDepthSubgoal_Robust",
+    "RLDepthSubgoal_Real_PLAY",
+    "RLDepthSubgoal_Robust_PLAY",
+)
+_NOCAM = (
     "RLNoCam",
     "RLNoCam_PLAY",
     "RLNoCamSubgoal_Real",
@@ -64,17 +61,17 @@ def _quat_close(a, b, atol=1e-6):
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.parametrize("name", _ENRICHED)
-def test_enriched_depth_variants_point_the_rendered_camera(name):
+@pytest.mark.parametrize("name", _DEPTH)
+def test_depth_variants_point_the_rendered_camera(name):
     assert hasattr(_events(name), _TERM)
 
 
-@pytest.mark.parametrize("name", _UNENRICHED)
-def test_unenriched_variants_leave_the_rendered_camera_alone(name):
+@pytest.mark.parametrize("name", _NOCAM)
+def test_camera_free_variants_leave_the_rendered_camera_alone(name):
     assert not hasattr(_events(name), _TERM)
 
 
-@pytest.mark.parametrize("name", _ENRICHED)
+@pytest.mark.parametrize("name", _DEPTH)
 def test_the_term_runs_after_the_offset_is_sampled(name):
     """It consumes the sampled offset, so it must not run before the draw."""
     fields = [k for k in _events(name).__dict__ if not k.startswith("_")]
@@ -84,12 +81,10 @@ def test_the_term_runs_after_the_offset_is_sampled(name):
 def test_both_arms_read_one_band_per_realism_tier():
     """The IMU and the render must not be able to drift onto different bands."""
     for realism, expected in (("Real", 1.0), ("Robust", 3.0)):
-        for prefix in ("RLDepth", "RLDepthEnriched"):
-            events = _events(f"{prefix}_{realism}")
-            assert events.randomize_d555_mount.params["max_angle_deg"] == expected
+        events = _events(f"RLDepth_{realism}")
+        assert events.randomize_d555_mount.params["max_angle_deg"] == expected
         # The rendered arm takes no band of its own — it consumes the draw.
-        enriched = _events(f"RLDepthEnriched_{realism}")
-        assert "max_angle_deg" not in getattr(enriched, _TERM).params
+        assert "max_angle_deg" not in getattr(events, _TERM).params
 
 
 # ---------------------------------------------------------------------------

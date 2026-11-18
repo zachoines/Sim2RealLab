@@ -492,12 +492,13 @@ def _parse_args() -> argparse.Namespace:
         type=int,
         default=1,
         help="Physics ticks per env.step. RL training defaults to 4 to "
-             "compress sim-time (motor dynamics / command delay are tuned "
-             "for that), but for sim-in-the-loop we want high wall-clock "
+             "compress sim-time; the motor lag and the acceleration limit are "
+             "set in seconds, but the command delay and hold count env steps. "
+             "For sim-in-the-loop we want high wall-clock "
              "publish rate, not sim-time compression. Decimation=1 runs "
              "one physics tick per env.step, which on DGX Spark gets the "
              "perception env to ~29 steps/s vs ~8 at the training default. "
-             "Raise back to 4 only if you need training-equivalent dynamics.",
+             "Raise back to 4 only if you need training's delay and hold.",
     )
     parser.add_argument(
         "--render-interval",
@@ -711,8 +712,8 @@ def _apply_sim_in_the_loop_overrides(
       layering boundary. Training keeps its terminations — the RL wrapper
       never runs this path, and the cfg classes are untouched.
     - **Override physics decimation.** RL training runs with
-      ``decimation=4`` so motor-dynamics and command-delay are tuned
-      against a 33 ms env-step. Bridge mode needs high wall-clock
+      ``decimation=4``, a 33 ms env-step; the command delay and hold count
+      env steps, the motor lag and acceleration limit are in seconds. Bridge mode needs high wall-clock
       publish rate, not sim-time compression; running at ``decimation=1``
       cuts wall-time per step by ~3×.
     """

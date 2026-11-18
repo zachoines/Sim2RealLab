@@ -3,8 +3,8 @@
 
 """Tests for domain-randomization events (friction randomization).
 
-``randomize_friction`` modifies wheel contact-surface material properties
-at episode reset to simulate varying floor conditions (carpet, tile, etc.).
+``randomize_friction`` sets the friction of every robot collision shape at
+episode reset, the roller covers' floor contact included.
 
 These tests verify:
 1. Sampled friction values fall within the configured range.

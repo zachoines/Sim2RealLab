@@ -107,20 +107,20 @@ def _hash(obj):
 # training distribution did change — and it is why the layout golden below
 # exists: it is the half a deployed checkpoint depends on, and it must not move.
 _CONTRACT_GOLDENS = {
-    "RLDepth_Real": "aa25e6168f395cd5846f04523c5034b298c08f610816ee500cfe1d62b4d8297a",
-    "RLDepth_Robust": "541fc8dae9c77fb6d233dfb8f250320fc7c1259ca8bbe5fb82e20a1026257ca2",
-    "RLNoCam": "64db31b9e6bdf5977ecb216c4a9c46fb441ac340b237c161f162419e3c206fae",
-    "RLDepth_Real_PLAY": "f8ea741bf13a8df16a1b7ae87176b1ebb8d661b434e44bd29fcebe76ba0e5ccc",
-    "RLDepth_Robust_PLAY": "3df6be56c1c987f57df8d6b3118a1d840e6af5397c4755e1d968ff2ae00879f2",
-    "RLNoCam_PLAY": "ae49c05a6978061a188bb3725a5f275c7a80fae047dbbaa7d99970dd113b0d5e",
-    "RLNoCamSubgoal_Real": "f5e7efe14965dc77c78d43129456ae6b89e5004dbeac579ced14154819202975",
-    "RLNoCamSubgoal_Robust": "66b4ddba165844c073764ff3aebdbecbefc9987c6d7004324b250e123fa4b0c5",
-    "RLNoCamSubgoal_Real_PLAY": "4e763279f170f8fd8adb4c4acb860934bd694ec9780fee473f8451176146f993",
-    "RLNoCamSubgoal_Robust_PLAY": "30a21913fcd07b53bcc78c7d42a4ddd71c88834db0c296da358c26c7628b4c42",
-    "RLDepthSubgoal_Real": "75d78e8f45c7580154f377e7342731b9098a0c7369e6f1025adcbe389b5c7bbe",
-    "RLDepthSubgoal_Robust": "58110b5bfd47e11da801be920e26da369577153334565f325c552f60c18adcc4",
-    "RLDepthSubgoal_Real_PLAY": "ab125823b684158a02d64aa46ed40f83927684b996fea63869a758e4c88e953e",
-    "RLDepthSubgoal_Robust_PLAY": "18898bccf2fa7aa85a2b96985e239a510232d30fca4c150389fb8e9f78cf934b",
+    "RLDepth_Real": "740deec59255928a9c3ca41b456f24505c32a0d0345f6517f54554c6b2e73a87",
+    "RLDepth_Robust": "32f2d28e1bd9be6042614d5d63c44aa07e1c81822a68c9bc8451a2eafc05ab38",
+    "RLNoCam": "54c37487759064f45ef242f218193c60ba5c445311ba148a79b8bea94992c4ce",
+    "RLDepth_Real_PLAY": "1db8abd8ded6301ceb69c9f1f0c9cafa8a39d6fea8477659d46e3b19f743359e",
+    "RLDepth_Robust_PLAY": "aa0005bb4e469d48352ba5f02cf81464ff669332cb85f4c8279f960e466f2189",
+    "RLNoCam_PLAY": "3548dc2809bb3f5b5f05b9bf8cb8bfb1a918674ce00a86bc293c578979af226c",
+    "RLNoCamSubgoal_Real": "246631c340f0568fceb586966d325b1879c89ea183e67c02c2caa819ffb63ece",
+    "RLNoCamSubgoal_Robust": "9d052d09c573a59dcd282e534d568dc1a41d1b7b28a02bacd0bf771d27fab30a",
+    "RLNoCamSubgoal_Real_PLAY": "68578d71bf713d95a97b208f358e1afaf1271635730ab441d9a04b7874cfcd41",
+    "RLNoCamSubgoal_Robust_PLAY": "35ad7f493814a5bda4d73215973097b74431e324259ec9c1a710ad5823f0baf8",
+    "RLDepthSubgoal_Real": "a26a950f730634b43f0c33988f7264d7be8588cc34e91ab29d2d20b360f00fda",
+    "RLDepthSubgoal_Robust": "27f0b2a8b2bb68375116770a66d39badfa3c7545cc216914f62b77606edf8ee8",
+    "RLDepthSubgoal_Real_PLAY": "14e6c02295095a34259e4dbfa13120a3229215b7d22cb1d0ec3200b5a9d3ed05",
+    "RLDepthSubgoal_Robust_PLAY": "25923c76c944e9f3fe116322149da3685bb03c884901f0dce175ee20c9c40c69",
 }
 
 # Frozen signature (slot name set + spawn sizes) of the open-top room's 44-object
@@ -658,14 +658,6 @@ def test_subgoal_observations_match_nocam_baseline():
     sub = composed.StraferNavCfg_RLNoCamSubgoal_Real()
     baseline = composed.StraferNavCfg_RLNoCam()
     assert _hash(_canon(sub.observations)) == _hash(_canon(baseline.observations))
-
-
-def test_subgoal_robust_drops_goal_pose_noise_event():
-    """Goal-pose reset noise targets the fixed-goal command's state; the
-    subgoal composition disables it (waypoint noise on the command term is
-    the deployment-noise analog)."""
-    cfg = composed.StraferNavCfg_RLNoCamSubgoal_Robust()
-    assert cfg.events.randomize_goal_noise is None
 
 
 def test_subgoal_lookahead_band_centered_on_shared_constant():

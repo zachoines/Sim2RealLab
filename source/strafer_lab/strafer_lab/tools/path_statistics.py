@@ -37,7 +37,6 @@ with it, so it is Kit-free but not dependency-free.
 
 from __future__ import annotations
 
-import math
 from dataclasses import dataclass
 from typing import Iterable, Sequence
 
@@ -47,15 +46,10 @@ from strafer_lab.tasks.navigation.path_planner import (
     InvalidEndpointError,
     NoPathError,
     plan_path,
+    total_turning,
 )
 
 BENDING_TORTUOSITY = 1.05
-
-# The planner emits float32 waypoints, so a geometrically straight polyline
-# still carries ~1e-5 rad of per-vertex heading jitter. Its corners, by
-# contrast, are the tens-of-degrees kind. Anything under this reads as
-# straight, which is what lets a turning *fraction* mean something.
-TURN_EPSILON_RAD = 1e-3
 
 
 @dataclass(frozen=True)
@@ -85,8 +79,9 @@ class PathStats:
 def turn_density(path: np.ndarray) -> tuple[float, float, float, float]:
     """``(turn_density, tortuosity, arc_m, straight_line_m)`` for a polyline.
 
-    Zero-length segments are dropped before the exterior angles are taken so
-    a repeated waypoint cannot inject a spurious turn.
+    The turning is the planner's ``total_turning``: zero-length segments are
+    dropped before the exterior angles are taken so a repeated waypoint cannot
+    inject a spurious turn.
     """
     pts = np.asarray(path, dtype=np.float64)
     if pts.ndim != 2 or pts.shape[1] != 2 or len(pts) < 2:
@@ -99,12 +94,7 @@ def turn_density(path: np.ndarray) -> tuple[float, float, float, float]:
     straight = float(np.hypot(*(pts[-1] - pts[0])))
     if arc <= 0.0 or len(seg) < 2:
         return 0.0, 1.0 if arc <= 0.0 else arc / max(straight, 1e-12), arc, straight
-    heading = np.arctan2(seg[:, 1], seg[:, 0])
-    turn = np.diff(heading)
-    turn = (turn + math.pi) % (2.0 * math.pi) - math.pi
-    turn = np.abs(turn)
-    turn[turn < TURN_EPSILON_RAD] = 0.0
-    density = float(turn.sum() / arc)
+    density = total_turning(pts) / arc
     tortuosity = arc / straight if straight > 1e-9 else float("inf")
     return density, float(tortuosity), arc, straight
 

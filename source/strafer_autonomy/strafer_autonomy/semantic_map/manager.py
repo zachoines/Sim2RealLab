@@ -438,7 +438,7 @@ class SemanticMapManager:
     def room_anchor(self, room_label: str) -> Pose2D | None:
         """Return the most recent semantic-map node's pose tagged `room_label`.
 
-        Used by the autonomy-stack compiler as the transit destination
+        Used by the plan compiler as the transit destination
         for cross-room missions. Returns `None` when no node carries
         the requested label.
         """

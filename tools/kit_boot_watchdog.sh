@@ -20,8 +20,7 @@
 # plugin startup while the main thread is still in carb.dictionary pre-startup;
 # both threads then park forever in an unbounded futex inside the plugin registry.
 # On 6.0.0.0 the same check reads its environment variable first and makes no carb
-# call, which is why that pin does not stall. See
-# docs/measurements/kit-boot-hang-2026-09-11.
+# call, which is why that pin does not stall.
 #
 # Detection is by progress, not by a runtime bound: a stopped tree accumulates
 # no CPU time and writes no output, while every healthy phase of a run — plugin

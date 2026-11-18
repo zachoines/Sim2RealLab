@@ -17,7 +17,7 @@ Examples:
         --checkpoint logs/rsl_rl/strafer_navigation/run_20260425_035916/model_600.pt \\
         --headless --video --video_length 600
 
-    # The same on an enriched variant, every room open so the video shows it lit:
+    # An exported policy on the subgoal variant, every room built without a ceiling so the overhead video shows it lit:
     $ISAACLAB -p source/strafer_lab/scripts/play_strafer_navigation.py \\
         --env Isaac-Strafer-Nav-RLDepth-Subgoal-Robust-Play-v0 \\
         --policy models/strafer_depth_subgoal_v3_999.pt \\
@@ -107,8 +107,8 @@ def main() -> None:
                         help="Directory for the recorded MP4 (default under logs/)")
     parser.add_argument("--open_rooms", action="store_true",
                         help="Build every room without a ceiling, so an overhead recording shows it "
-                             "lit. Enclosed rooms are most of what the depth variants train on, "
-                             "so this is for watching the policy, not for judging it")
+                             "lit. Most training episodes draw a ceiling, so this is for watching the "
+                             "policy, not for judging it")
     parser.add_argument("--no_robot_outline", action="store_true",
                         help="Record the command overlay without the robot's outline")
 

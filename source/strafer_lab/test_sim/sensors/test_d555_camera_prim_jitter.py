@@ -83,7 +83,7 @@ def _point(env, env_ids, angle_deg):
 
 
 def test_reset_points_every_camera_through_its_own_offset(env):
-    """End-to-end: the term is wired into the enriched events, so a plain reset
+    """End-to-end: the term is wired into the enclosed room's events, so a plain reset
     leaves each environment's camera on its own sampled misalignment."""
     quats = _camera_local_quats(env)
     # Signs are free (q and -q are one rotation), so compare on |components|.

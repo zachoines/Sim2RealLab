@@ -106,12 +106,12 @@ def test_procroom_reset_spawns_by_yaw_range(cfg):
 def test_procroom_managers_selected(cfg):
     assert type(cfg.commands).__name__ == "CommandsCfg_ProcRoom"
     assert type(cfg.terminations).__name__ == "TerminationsCfg_ProcRoom"
-    assert type(cfg.events).__name__ == "EventsCfg_ProcRoom_Realistic_Enriched"
+    assert type(cfg.events).__name__ == "EventsCfg_ProcRoom_Realistic_Enclosed"
 
 
 def test_the_room_is_enclosed(cfg):
     """A standalone ceiling entity (outside the collection) and a per-env RGB
-    fill light, with the generator fed the enrichment params."""
+    fill light, with the generator fed the enclosed room's arguments."""
     assert hasattr(cfg.scene, "ceiling")
     assert hasattr(cfg.scene, "ceiling_light")
     gen = cfg.events.generate_room.params

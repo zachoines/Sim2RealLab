@@ -28,13 +28,14 @@ Four axis configurations drive the composition:
   read whatever the active command term emits.
 
 The composition root selects among the *existing* MDP building blocks for the
-requested axes, so an RL variant composed here is structurally identical to
-the hand-written class it replaces — the observation tensor, action layout,
-DR sequence, and scene a trained policy depends on are preserved exactly. The
-selector keeps the capture-facing variants (teleop, bridge, scripted) free to
-render a narrower or wider camera set than any RL variant, since those
-consumers read camera data through scene handles rather than the policy
-observation tensor.
+requested axes; each RL variant's observation tensor, action layout, DR
+sequence and scene size are frozen by the contract test. On the ProcRoom source
+the sensor profile selects the room: a stack carrying the policy depth camera
+(depth/full) composes the enclosed room, and the camera-free profile the
+open-top one. The selector keeps the capture-facing variants (teleop, bridge,
+scripted) free to render a narrower or wider camera set than any RL variant,
+since those consumers read camera data through scene handles rather than the
+policy observation tensor.
 """
 
 from __future__ import annotations
@@ -62,9 +63,9 @@ from .strafer_env_cfg import (
     EventsCfg_Infinigen_Realistic,
     EventsCfg_Infinigen_Robust,
     EventsCfg_ProcRoom_Realistic,
-    EventsCfg_ProcRoom_Realistic_Enriched,
+    EventsCfg_ProcRoom_Realistic_Enclosed,
     EventsCfg_ProcRoom_Robust,
-    EventsCfg_ProcRoom_Robust_Enriched,
+    EventsCfg_ProcRoom_Robust_Enclosed,
     EventsCfg_Realistic,
     EventsCfg_Robust,
     ObsCfg_Depth_Ideal,
@@ -86,14 +87,14 @@ from .strafer_env_cfg import (
     StraferSceneCfg_NoCam,
     StraferSceneCfg_ProcRoom,
     StraferSceneCfg_ProcRoom_NoCam,
-    StraferSceneCfg_ProcRoomEnriched,
+    StraferSceneCfg_ProcRoomEnclosed,
     StraferSceneCfg_ProcRoomPerception,
-    StraferSceneCfg_ProcRoomPerceptionEnriched,
+    StraferSceneCfg_ProcRoomPerceptionEnclosed,
     TerminationsCfg,
     TerminationsCfg_ProcRoom,
     TerminationsCfg_ProcRoom_Subgoal,
     _apply_default_nav_runtime,
-    _apply_enrich_render_face_culling,
+    _apply_enclosed_render_face_culling,
     _apply_infinigen_scene_setup,
     _apply_play_num_envs,
     _apply_procroom_physx_buffers,
@@ -291,13 +292,14 @@ _EVENTS_BY_SOURCE_REALISM = {
     ("procroom", "robust"): EventsCfg_ProcRoom_Robust,
 }
 
-# Depth-enrichment events (un-pinned difficulty + enriched generation), keyed on
-# realism. Selected for a procroom variant that carries the policy depth camera
-# (profile depth/full): the enclosed room. NOCAM keeps the base events above,
+# The enclosed room's events (difficulty drawn on levels 4-7, the enclosed
+# room's generator arguments, the rendered camera pointed through the mount
+# offset), keyed on realism. Selected for a procroom variant that carries the
+# policy depth camera (profile depth/full). NOCAM keeps the base events above,
 # the open-top room. Mirrors the profile-keyed reward override below.
-_EVENTS_ENRICHED_BY_REALISM = {
-    "real": EventsCfg_ProcRoom_Realistic_Enriched,
-    "robust": EventsCfg_ProcRoom_Robust_Enriched,
+_EVENTS_ENCLOSED_BY_REALISM = {
+    "real": EventsCfg_ProcRoom_Realistic_Enclosed,
+    "robust": EventsCfg_ProcRoom_Robust_Enclosed,
 }
 
 _COMMANDS_BY_SOURCE = {
@@ -359,10 +361,11 @@ _CURRICULUM_BY_SOURCE = {
 def _select_scene(scene_source: SceneSourceCfg, sensors: SensorStackCfg):
     """Pick + size the scene class for the requested source and sensor stack.
 
-    For RL sources (plane / procroom / depth-only infinigen) this returns the
-    same scene class the hand-written variant used, so the composed env is
-    scene-identical. The Infinigen perception scene (both cameras) backs the
-    capture variants and is pruned to the requested stack afterwards.
+    On ProcRoom the profile selects the room: a depth/full stack gets the
+    enclosed scene (the perception or the depth one), and a camera-free stack
+    the open-top NoCam scene. The Infinigen perception scene (both cameras)
+    backs the capture variants and is pruned to the requested stack
+    afterwards.
     """
     kind = scene_source.kind
     has_policy_cam = sensors.has_policy_camera()
@@ -380,18 +383,19 @@ def _select_scene(scene_source: SceneSourceCfg, sensors: SensorStackCfg):
                 env_spacing=base._STANDARD_ENV_SPACING,
             )
     elif kind == "procroom":
-        # Enrichment adds enclosure + a ceiling slab, on a depth/full profile
-        # carrying the policy depth camera (the NOCAM scene is never enriched,
-        # so its palette stays byte-identical). Gate matches the events fork in
-        # ``__post_init__`` so scene and events never disagree.
-        enrich = sensors.obs_profile() in ("depth", "full")
+        # A depth/full profile carries the policy depth camera and gets the
+        # enclosed room's scene: tall walls and furniture, and the ceiling
+        # surface. Every other profile keeps the open-top scene, so the NOCAM
+        # palette stays byte-identical. The same gate selects the events in
+        # ``__post_init__``, so scene and events never disagree.
+        enclosed = sensors.obs_profile() in ("depth", "full")
         # Perception first: the bridge stack requests BOTH a policy and a
         # perception camera, so has_policy_cam is also true — check
         # has_perception_cam first so the perception scene wins.
         if has_perception_cam:
             perception_cls = (
-                StraferSceneCfg_ProcRoomPerceptionEnriched
-                if enrich
+                StraferSceneCfg_ProcRoomPerceptionEnclosed
+                if enclosed
                 else StraferSceneCfg_ProcRoomPerception
             )
             scene = perception_cls(
@@ -400,7 +404,7 @@ def _select_scene(scene_source: SceneSourceCfg, sensors: SensorStackCfg):
             )
         elif has_policy_cam:
             depth_cls = (
-                StraferSceneCfg_ProcRoomEnriched if enrich else StraferSceneCfg_ProcRoom
+                StraferSceneCfg_ProcRoomEnclosed if enclosed else StraferSceneCfg_ProcRoom
             )
             scene = depth_cls(
                 num_envs=base._PROCROOM_DEPTH_TRAIN_NUM_ENVS,
@@ -508,13 +512,14 @@ class _ComposedStraferNavEnvCfg(base._BaseStraferNavEnvCfg):
         # --- Managers (select shared building blocks) ---
         self.observations = _OBS_BY_REALISM_PROFILE[(level, profile)]()
         self.actions = _ACTIONS_BY_REALISM[level]()
-        # A procroom depth/full variant gets the enriched events (enclosure +
-        # un-pinned density); every other source, and the NOCAM profile, keeps
-        # the base source/realism events.
-        enrich = kind == "procroom" and profile in ("depth", "full")
+        # A procroom depth/full variant gets the enclosed room's events (its
+        # generator arguments, difficulty drawn on levels 4-7, the rendered
+        # camera's mount jitter); every other source, and the NOCAM profile,
+        # keeps the base source/realism events.
+        enclosed = kind == "procroom" and profile in ("depth", "full")
         try:
-            if enrich:
-                self.events = _EVENTS_ENRICHED_BY_REALISM[level]()
+            if enclosed:
+                self.events = _EVENTS_ENCLOSED_BY_REALISM[level]()
             else:
                 self.events = _EVENTS_BY_SOURCE_REALISM[(kind, level)]()
         except KeyError as exc:
@@ -582,8 +587,8 @@ class _ComposedStraferNavEnvCfg(base._BaseStraferNavEnvCfg):
             _apply_procroom_physx_buffers(self)
             # Same gate as the scene/events fork above: only the enclosed room
             # carries the one-sided ceiling the culling switch is for.
-            if enrich:
-                _apply_enrich_render_face_culling(self)
+            if enclosed:
+                _apply_enclosed_render_face_culling(self)
 
         # --- Play/eval shrink ---
         if self.play_num_envs is not None:
@@ -768,7 +773,7 @@ class StraferNavCfg_BridgeAutonomy_ProcRoom(_ComposedStraferNavEnvCfg):
     events. The stack carries the policy depth camera, so the room is the
     enclosed one the depth variants train in. Runs the deploy pipeline against
     a training-distribution scene — the scene axis of the drive-fault matrix.
-    A ``--sensors`` stack without ``depth_policy`` gets the open-top room.
+    Composed with a stack that lacks ``depth_policy``, it gets the open-top room.
     ``--mode bridge`` only: the procedural
     scene is event-generated, so there is no scene USD for ``--scene-usd`` /
     ``--mode harness`` to load."""

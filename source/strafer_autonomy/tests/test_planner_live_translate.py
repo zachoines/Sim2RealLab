@@ -45,7 +45,7 @@ def client() -> HttpPlannerClient:
             marks=pytest.mark.xfail(
                 strict=True,
                 raises=AssertionError,
-                reason="planner-translate-direction-schema: the planner returns this lateral sign wrong",
+                reason="known defect: the planner returns this lateral sign wrong",
             ),
         ),
     ],

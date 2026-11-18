@@ -17,7 +17,7 @@ widens corridors.
 Run with a python that carries numpy + torch + the package::
 
     <python> source/strafer_lab/scripts/measure_path_statistics.py \
-        --scene <scene>.usdc --arm vanilla --arm enriched \
+        --scene <scene>.usdc --arm vanilla --arm enclosed \
         --arm 'lowbias:clutter_wall_bias_prob=0.1'
 """
 from __future__ import annotations
@@ -62,9 +62,9 @@ class _StubScene:
         return self._entities[key]
 
 
-def _shipped_enriched_params():
+def _enclosed_room_params():
     """The generator kwargs and difficulty range the depth variants ship (the
-    enriched generator path)."""
+    enclosed room's generator path)."""
     from strafer_lab.tasks.navigation import composed_env_cfg as composed
 
     events = composed.StraferNavCfg_RLDepth_Real().events
@@ -118,7 +118,7 @@ def measure_procroom(*, vanilla, overrides, num_envs, resets, pairs_per_env,
     if vanilla:
         params, difficulty_range = {}, (7, 7)
     else:
-        params, difficulty_range = _shipped_enriched_params()
+        params, difficulty_range = _enclosed_room_params()
     params.update(overrides)
 
     rng = np.random.default_rng(seed)
@@ -248,7 +248,7 @@ def main(argv=None):
                    metavar="LABEL[:KEY=VALUE,...]",
                    help="one procroom leg (repeatable). LABEL 'vanilla' runs the "
                         "default generator path at difficulty 7; any other label "
-                        "runs the shipped enriched params with the listed kwargs "
+                        "runs the enclosed room's params with the listed kwargs "
                         "replaced")
     p.add_argument("--num-envs", type=int, default=64)
     p.add_argument("--resets", type=int, default=1)

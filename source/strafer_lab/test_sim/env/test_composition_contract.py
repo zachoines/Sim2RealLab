@@ -97,44 +97,43 @@ def _hash(obj):
     ).hexdigest()
 
 
-# Golden contract hashes captured from the legacy RL classes
-# (StraferNavEnvCfg_*_ProcRoom_*) before they were deleted. These are the
-# obs/action/DR contract a trained policy + the DEPTH inference package depend
-# on. Do not edit to make a test pass — a mismatch means the composition
-# drifted from the contract a checkpoint was trained against.
+# Golden contract hashes: the obs/action/DR contract a trained policy + the
+# DEPTH inference package depend on. Do not edit to make a test pass — a
+# mismatch means the composition drifted from the contract a checkpoint was
+# trained against.
 #
 # A randomization change moves every hash here, because the snapshot walks the
 # noise models, the event terms and the action term. That is correct — the
 # training distribution did change — and it is why the layout golden below
 # exists: it is the half a deployed checkpoint depends on, and it must not move.
 _CONTRACT_GOLDENS = {
-    "RLDepth_Real": "1b3f96117aac6a04fe1bf95bd049d87e1e805f3e00c6534c35fd0cc01baa05c5",
-    "RLDepth_Robust": "58531e8b30187103de8a6390adff4fff33fb75d65dae2e958d441f2709a80528",
+    "RLDepth_Real": "ffa96cb6f7cd3854ae72db5b8982dbfb344449875f5c8d5db755dbc1f7bef815",
+    "RLDepth_Robust": "0db961b6d9a65800821e9706b908f1764e2c38490e0a1740aea060c434a42fca",
     "RLNoCam": "08f4eb3691bc7d176f610ade7b92600c29d62a7daf122a75a53dd7cd7f3030d5",
-    "RLDepth_Real_PLAY": "08297f18ef7b9d2d54d02dcc6441314916297d092e31ecdc85fa5ab2397d0a9f",
-    "RLDepth_Robust_PLAY": "480bc0a9c6f626fef9ea61806b01b6c5f43d52543b193cb060eeec880270d9ae",
+    "RLDepth_Real_PLAY": "25649567ddbf22855dee36f8c830a75c5d0537c218deaf6927afb1b884ef0beb",
+    "RLDepth_Robust_PLAY": "0979eb603e32da9043e002925bb595fc8bb556426cbb2816f1054e0eeda181d2",
     "RLNoCam_PLAY": "9369ce4f169577c41ef9e929472acee4b8da2507461bf6fa4afd82d1bb382345",
     "RLNoCamSubgoal_Real": "5d81b96104814c0a4196bec35a1595a4445139559e6fe762f47403873f1ccb43",
     "RLNoCamSubgoal_Robust": "b8ef97978ca0b4113416059b8a0610fe2ad6002e6599d26fb5d9f4a73c2351a8",
     "RLNoCamSubgoal_Real_PLAY": "d760a7db199428e73e06d76f8e3956bf8c095bf3e6d33e6fa340bcdd37c4f358",
     "RLNoCamSubgoal_Robust_PLAY": "6b95966b5264791fa03beebe013525866cc99a5c31b04204b57d210f9d7e53f8",
-    "RLDepthSubgoal_Real": "a008efd5dd7529b3ee4e59db7774e471800dfe7cc79b820106e0852e15593c4f",
-    "RLDepthSubgoal_Robust": "8742e18218b6e1736514d533022148fe9abffdfc0029285e5216157ef6141d98",
-    "RLDepthSubgoal_Real_PLAY": "c1320390722de571cd2dfcfb8f498e30d90bd90fba57da1965ba6b4174580512",
-    "RLDepthSubgoal_Robust_PLAY": "bf7cfe7b68972228423ee69c83ff84e09b422433215e872a20e74978e4490683",
+    "RLDepthSubgoal_Real": "f39fd514729600e85e107e28f69aea9408acd01915cd6b537036ef00f850f27a",
+    "RLDepthSubgoal_Robust": "6a156f5a408379c9547ce7087e8500496e9de5bdaf690b3ad8bf3cc64e95b2c2",
+    "RLDepthSubgoal_Real_PLAY": "d11797b0e27e9f6c25f782dbdbe169127182b7701e75efcc1f2139fc78ffb919",
+    "RLDepthSubgoal_Robust_PLAY": "4de75fefcdfee810199d8629277701d1dde51bc68468e62424bc2c58aa5e4722",
 }
 
-# Frozen signature (slot name set + spawn sizes) of the pre-enrichment 44-object
+# Frozen signature (slot name set + spawn sizes) of the open-top room's 44-object
 # palette. The composition hash cannot see the rigid-object palette (it is on the
 # scene, not a hashed manager), so this pins the NOCAM promise: NOCAM keeps this
-# exact palette, and the enriched palette adds no NEW slot (only taller walls).
+# exact palette, and the enclosed room's palette adds no NEW slot (only taller
+# walls and taller tall-object slots).
 _PALETTE_GOLDEN = "cf3499bf212a50c571b1bda4980fbbf16c7ad743dc40c5e88b7b528de3d41832"
 
-# The depth observation a checkpoint consumes — captured identical across the
-# (now dropped) plane / Infinigen / ProcRoom depth variants, which justified
-# dropping them: any depth checkpoint stays valid regardless of which produced it.
-# This walks both observation groups, so a privileged-group change moves it; the
-# policy half is pinned separately by the layout golden below.
+# The realistic tier's depth observation, as a checkpoint consumes it, hashed
+# on RLDepth_Real. This walks both observation groups, so a privileged-group
+# change moves it; the policy half is pinned separately by the layout golden
+# below.
 _DEPTH_OBS_GOLDEN = "ba68b61eda5400552706061710dee1404ba2aa779a6c93241ef562f082a82533"
 
 # The policy tensor's *layout* — terms, order, params and scales, with every
@@ -416,7 +415,7 @@ def test_the_capture_variants_record_the_true_referent(factory):
 
 
 # =====================================================================
-# Depth-enrichment: NOCAM palette pinned, enrichment is depth-only + obs-neutral
+# The enclosed room: NOCAM's palette pinned; the room is depth-only and obs-neutral
 # =====================================================================
 
 
@@ -426,8 +425,8 @@ def _palette_sig(collection_cfg):
     The composition hash covers the manager cfgs + scene scalars, NOT the
     rigid-object palette, so a palette change slips past every contract golden.
     This is the explicit pin for the invariant that the open-top variants (the
-    camera-free NOCAM profile) keep the exact pre-enrichment palette, and no
-    enriched palette adds a new slot.
+    camera-free NOCAM profile) keep the open-top room's exact palette, and the
+    enclosed room's palette adds no new slot.
     """
     sig = {}
     for name, cfg in sorted(collection_cfg.rigid_objects.items()):
@@ -441,11 +440,11 @@ def _palette_sig(collection_cfg):
     return sig
 
 
-def test_open_top_variants_keep_pre_enrichment_palette_and_no_ceiling():
+def test_open_top_variants_keep_the_open_top_palette_and_no_ceiling():
     """Every open-top variant — NOCAM and NOCAM_SUBGOAL, the camera-free
-    profile — keeps the exact pre-enrichment palette and has no ceiling entity.
+    profile — keeps the open-top room's exact palette and has no ceiling entity.
 
-    Enrichment must not leak into the camera-free path: a ``_select_scene``
+    The enclosed room must not leak into the camera-free path: a ``_select_scene``
     regression handing it the enclosed (2.7 m wall + ceiling) scene would pass
     every contract golden (the hash excludes the scene) and is caught here. The
     other direction is ``test_the_depth_profile_composes_the_enclosed_room``."""
@@ -453,10 +452,10 @@ def test_open_top_variants_keep_pre_enrichment_palette_and_no_ceiling():
         scene = _COMPOSED_RL[name]().scene
         got = _hash(_palette_sig(scene.room_primitives))
         assert got == _PALETTE_GOLDEN, (
-            f"{name} palette diverged from the frozen pre-enrichment palette"
+            f"{name} palette diverged from the frozen open-top palette"
         )
         assert not hasattr(scene, "ceiling"), (
-            f"{name} is an open-top variant but got an enriched (ceiling) scene"
+            f"{name} is an open-top variant but got the enclosed (ceiling) scene"
         )
 
 
@@ -479,8 +478,8 @@ def test_open_top_variants_drive_the_generator_at_its_defaults():
         )
 
 
-def test_enriched_palette_adds_no_new_slot():
-    """The enriched depth palette has the SAME slot-name set as pre-enrichment —
+def test_enclosed_palette_adds_no_new_slot():
+    """The enclosed room's palette has the SAME slot-name set as the open-top one —
     only the walls and the tall-furniture/clutter slots grow taller. No new
     collection slot is ever added (the ceiling is a standalone entity outside the
     collection), so nothing new can be active on NOCAM."""
@@ -488,37 +487,37 @@ def test_enriched_palette_adds_no_new_slot():
         build_proc_room_collection_cfg,
     )
     from strafer_lab.tasks.navigation.strafer_env_cfg import (
-        _ENRICH_TALL_OBJECT_HEIGHTS,
+        _ENCLOSED_TALL_OBJECT_HEIGHTS,
     )
 
     base_names = set(build_proc_room_collection_cfg().keys())
-    enriched_scene = composed.StraferNavCfg_RLDepthSubgoal_Real().scene
-    enriched_names = set(enriched_scene.room_primitives.rigid_objects.keys())
-    assert enriched_names == base_names
+    enclosed_scene = composed.StraferNavCfg_RLDepthSubgoal_Real().scene
+    enclosed_names = set(enclosed_scene.room_primitives.rigid_objects.keys())
+    assert enclosed_names == base_names
     # Only the walls and the tall furniture/clutter differ, and only in Z.
     base_sig = _palette_sig(
-        type(enriched_scene.room_primitives)(
+        type(enclosed_scene.room_primitives)(
             rigid_objects=build_proc_room_collection_cfg()
         )
     )
-    enr_sig = _palette_sig(enriched_scene.room_primitives)
-    changed = {k for k in base_sig if base_sig[k] != enr_sig[k]}
+    enclosed_sig = _palette_sig(enclosed_scene.room_primitives)
+    changed = {k for k in base_sig if base_sig[k] != enclosed_sig[k]}
     tall_prefixes = ("furn_shelf_", "furn_cabinet_", "clutter_tall_cyl_")
     expected = {k for k in base_names if k.startswith("wall_")} | {
         k for k in base_names if k.startswith(tall_prefixes)
     }
     assert changed == expected
     # Geometry half of the palette/pose lockstep (the generator poses these at
-    # height/2, pinned in the CPU enrichment suite).
-    assert enr_sig["furn_shelf_0"]["size"][2] == _ENRICH_TALL_OBJECT_HEIGHTS["shelf"]
-    assert enr_sig["furn_cabinet_0"]["size"][2] == _ENRICH_TALL_OBJECT_HEIGHTS["cabinet"]
-    assert enr_sig["clutter_tall_cyl_0"]["height"] == _ENRICH_TALL_OBJECT_HEIGHTS["tall_cyl"]
+    # height/2, pinned in the CPU suite of the enclosed room's generator).
+    assert enclosed_sig["furn_shelf_0"]["size"][2] == _ENCLOSED_TALL_OBJECT_HEIGHTS["shelf"]
+    assert enclosed_sig["furn_cabinet_0"]["size"][2] == _ENCLOSED_TALL_OBJECT_HEIGHTS["cabinet"]
+    assert enclosed_sig["clutter_tall_cyl_0"]["height"] == _ENCLOSED_TALL_OBJECT_HEIGHTS["tall_cyl"]
     for k in changed:
         z_base = base_sig[k]["size"][2] if "size" in base_sig[k] else base_sig[k]["height"]
-        z_enr = enr_sig[k]["size"][2] if "size" in enr_sig[k] else enr_sig[k]["height"]
-        assert z_enr > z_base
+        z_enclosed = enclosed_sig[k]["size"][2] if "size" in enclosed_sig[k] else enclosed_sig[k]["height"]
+        assert z_enclosed > z_base
     # The ceiling is NOT part of the collection.
-    assert "ceiling" not in enriched_names
+    assert "ceiling" not in enclosed_names
 
 
 def test_the_room_never_reaches_the_observation():
@@ -538,7 +537,7 @@ def test_the_room_never_reaches_the_observation():
 def test_the_depth_profile_composes_the_enclosed_room():
     """On the procroom source the sensor profile alone selects the room: a
     stack carrying the policy depth camera gets the enclosed scene (with its
-    ceiling) and the enriched events, the camera-free one the open-top scene and
+    ceiling) and the enclosed room's events, the camera-free one the open-top scene and
     the base events, at every tier. The scene and the events must agree, and the
     two event blocks must differ, so the enclosure cannot silently no-op."""
     rows = [(name, _COMPOSED_RL[name]()) for name in sorted(_COMPOSED_RL)]
@@ -548,16 +547,16 @@ def test_the_depth_profile_composes_the_enclosed_room():
         level = cfg.realism.level
         if cfg.sensors.obs_profile() in ("depth", "full"):
             seen["enclosed"] += 1
-            assert type(cfg.events) is composed._EVENTS_ENRICHED_BY_REALISM[level], name
+            assert type(cfg.events) is composed._EVENTS_ENCLOSED_BY_REALISM[level], name
             assert hasattr(cfg.scene, "ceiling"), f"{name} carries the policy camera but no ceiling"
         else:
             seen["open_top"] += 1
             assert type(cfg.events) is composed._EVENTS_BY_SOURCE_REALISM[("procroom", level)], name
             assert not hasattr(cfg.scene, "ceiling"), f"{name} is camera-free but got a ceiling"
     assert seen["enclosed"] and seen["open_top"], seen
-    for level, enriched_cls in composed._EVENTS_ENRICHED_BY_REALISM.items():
+    for level, enclosed_cls in composed._EVENTS_ENCLOSED_BY_REALISM.items():
         open_top_cls = composed._EVENTS_BY_SOURCE_REALISM[("procroom", level)]
-        assert _hash(_canon(enriched_cls())) != _hash(_canon(open_top_cls())), level
+        assert _hash(_canon(enclosed_cls())) != _hash(_canon(open_top_cls())), level
 
 
 def _obs_term_names(obs_cfg):

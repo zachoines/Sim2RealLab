@@ -1,7 +1,7 @@
 """Round-trip + extension-tolerance tests for the scene-provider contract.
 
 Locks in the artifact contract documented in
-``docs/SCENE_PROVIDER_CONTRACT.md``: a conformant metadata dict flows
+``docs/guides/SCENE_PROVIDER_CONTRACT.md``: a conformant metadata dict flows
 through the mission picker and the LeRobot writer. A future refactor that
 accidentally tightens the field requirements breaks a test here rather
 than a downstream second-source author.
@@ -216,7 +216,7 @@ class TestExtensionTolerance:
     def _metadata_with_unknowns(self) -> dict:
         return {
             "objects": [
-                # Reserved namespace (mission-text-enrichment), not yet implemented.
+                # Reserved namespace (object descriptors), not yet implemented.
                 {"label": "bottle", "instance_id": 10, "position_3d": [1.0, 2.0, 0.8],
                  "prim_path": "/World/BottleFactory_10__spawn_asset_1_",
                  "descriptors": {"color_name": "red",

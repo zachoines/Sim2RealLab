@@ -1,6 +1,6 @@
 # Constraints for the Isaac Sim / Isaac Lab conda environment.
 #
-# Generated from the pip freeze deposited with isaac-lab-upgrade-stage3-2026-08-23:
+# Generated from a pip freeze of the environment this stack was validated in:
 # its `name==version` lines, minus the 17 editable installs and the one git-URL
 # requirement (a constraints file cannot pin either), minus four more named
 # below.

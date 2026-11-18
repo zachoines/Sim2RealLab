@@ -4,9 +4,8 @@
 Subscribes to ``/cmd_vel`` (Twist) and ``/strafer/odom`` (Odometry) for a
 configurable duration and emits a markdown summary of the captured
 velocities — peak instantaneous, best 1 s sustained, and median 1 s
-sustained — on each axis. The summary pastes directly into the per-pass
-run-table in the PR description for ``mppi-critic-tuning-for-sim-envelope``
-without further reshaping.
+sustained — on each axis. The summary pastes directly into a per-pass
+run-table without further reshaping.
 
 The harness is a passive observer. The operator triggers the mission
 separately (executor, rqt_robot_steering, etc.) any time after the

@@ -14,19 +14,19 @@ Isaac Sim without changing any Jetson-side code.
 
 <!-- TODO: Replace with the end-to-end demo (sim + real) once recorded.
      GitHub strips <video> in READMEs, so commit an animated GIF preview
-     (docs/artifacts/strafer_end_to_end_demo.gif) — make it from the mp4 with
+     (docs/media/strafer_end_to_end_demo.gif) — make it from the mp4 with
      ffmpeg palettegen/paletteuse — then uncomment this block and remove this TODO.
 
      <p align="center">
-       <img src="docs/artifacts/strafer_end_to_end_demo.gif" alt="End-to-end: go to the X in sim and on real hardware" width="66%"/>
+       <img src="docs/media/strafer_end_to_end_demo.gif" alt="End-to-end: go to the X in sim and on real hardware" width="66%"/>
        <br/>
        <em>End-to-end: "go to the X" running in sim and on real hardware.</em>
      </p>
 -->
 
 <p align="center">
-  <img src="docs/artifacts/strafer_top.jpeg" alt="Strafer robot, top view" width="31%"/>
-  <img src="docs/artifacts/strafer_side.jpeg" alt="Strafer robot, side view" width="55%"/>
+  <img src="docs/media/strafer_top.jpeg" alt="Strafer robot, top view" width="31%"/>
+  <img src="docs/media/strafer_side.jpeg" alt="Strafer robot, side view" width="55%"/>
 </p>
 
 ## What ships today
@@ -42,21 +42,21 @@ Isaac Sim without changing any Jetson-side code.
 - **Databricks Model Serving deployment path** — alternative to LAN HTTP for the planner + VLM services; executor swaps transport via env vars.
 
 <p align="center">
-  <img src="docs/artifacts/detections_overlay_hero.gif" alt="Harness detection ground truth — labeled bounding boxes over Infinigen furniture during a 360-degree camera spin" width="66%"/>
+  <img src="docs/media/detections_overlay_hero.gif" alt="Harness detection ground truth — labeled bounding boxes over Infinigen furniture during a 360-degree camera spin" width="66%"/>
   <br/>
   <em>Synthetic-data ground truth: the sim-in-the-loop harness boxing Infinigen furniture (chair, sofa, table, tv, microwave, …) via Replicator + USD semantics on a 360° camera spin. Structural surfaces (wall / floor / ceiling) are deliberately excluded so furniture isn't evicted from the truncated detections column.</em>
 </p>
 
 <p align="center">
-  <img src="docs/artifacts/strafer_isaac_lab_test_drive.gif" alt="Isaac Lab test drive on the Strafer USD" width="42%"/>
+  <img src="docs/media/strafer_isaac_lab_test_drive.gif" alt="Isaac Lab test drive on the Strafer USD" width="42%"/>
   &nbsp;
-  <img src="docs/artifacts/NOCAM_GOAL_FOLLOW.gif" alt="Trained NOCAM_SUBGOAL policy following a sim-planned path through a procedural room" width="42%"/>
+  <img src="docs/media/NOCAM_GOAL_FOLLOW.gif" alt="Trained NOCAM_SUBGOAL policy following a sim-planned path through a procedural room" width="42%"/>
   <br/>
-  <em>Left: Isaac Lab test drive on the Strafer USD. Right: a trained <code>NOCAM_SUBGOAL</code> RL policy tracking a sim-planned path, proprioception only (no camera). Looping previews; full clips in <code>docs/artifacts/</code>.</em>
+  <em>Left: Isaac Lab test drive on the Strafer USD. Right: a trained <code>NOCAM_SUBGOAL</code> RL policy tracking a sim-planned path, proprioception only (no camera). Looping previews; full clips in <code>docs/media/</code>.</em>
 </p>
 
 <p align="center">
-  <img src="docs/artifacts/strafer_infinitygen_thumbnail.png" alt="Overhead view of a procedurally generated Infinigen apartment" width="55%"/>
+  <img src="docs/media/strafer_infinitygen_thumbnail.png" alt="Overhead view of a procedurally generated Infinigen apartment" width="55%"/>
   <br/>
   <em>A procedurally generated Infinigen apartment — one of the synthetic scenes the pipeline turns into labeled training data.</em>
 </p>
@@ -108,11 +108,11 @@ Cross-host transport uses `rmw_cyclonedds_cpp` with `ROS_DOMAIN_ID=42`
 over LAN. HTTP goes over the same LAN (DGX `192.168.50.196`, Jetson
 `192.168.50.161` in the reference setup). The LAN hop is a real capacity
 limit for the bridged camera streams, not a free channel — see
-[`repo-topology.md`](docs/tasks/context/repo-topology.md#hosts).
+[`repo-topology.md`](docs/context/repo-topology.md#hosts).
 
 <p align="center">
-  <img src="docs/artifacts/hallway_grounding_example.png" alt="Hallway scene with a yucca plant at the end" width="35%"/>
-  <img src="docs/artifacts/hallway_grounding_example_postman.png" alt="Postman grounding request showing bbox output" width="44%"/>
+  <img src="docs/media/hallway_grounding_example.png" alt="Hallway scene with a yucca plant at the end" width="35%"/>
+  <img src="docs/media/hallway_grounding_example_postman.png" alt="Postman grounding request showing bbox output" width="44%"/>
   <br/>
   <em>VLM grounding in practice: "green yucca plant end of hall" — original scene (left) and the Postman <code>POST /ground</code> response with bbox overlay (right)</em>
 </p>
@@ -145,17 +145,28 @@ Sim2RealLab/
 │   ├── strafer_vlm/                  # VLM service + inference runtime + training tooling
 │   └── SImToRealLab.postman_collection.json
 └── docs/
-    ├── STRAFER_AUTONOMY_NEXT.md         # current-round design master (ground truth for intent)
-    ├── SYSTEM_FLOW_DIAGRAMS.md          # cross-package runtime flow reference
-    ├── SIM_TO_REAL_TUNING_GUIDE.md      # deep-dive actuator + sensor alignment
-    ├── WIRING_GUIDE.md                  # motor + encoder + RoboClaw + Jetson wiring
-    ├── D555_IMU_KERNEL_FIX.md           # Tegra kernel modules for the D555: IMU and per-frame metadata
-    ├── INTEGRATION_SIM_IN_THE_LOOP.md    # cross-host bridge runbook (DGX + Jetson)
-    ├── example_commands_cheatsheet.md   # one-liners operators copy-paste during ops
-    ├── tasks/                           # one-shot Jira-style task briefs for follow-on work
-    ├── measurements/                    # measurement records; evidence is deposited, see its README
-    └── artifacts/, reference/           # images, videos, product inserts
+    ├── guides/
+    │   ├── SYSTEM_FLOW_DIAGRAMS.md          # cross-package runtime flow reference
+    │   ├── SIM_TO_REAL_TUNING_GUIDE.md      # deep-dive actuator + sensor alignment
+    │   ├── WIRING_GUIDE.md                  # motor + encoder + RoboClaw + Jetson wiring
+    │   ├── D555_IMU_KERNEL_FIX.md           # Tegra kernel modules for the D555: IMU and per-frame metadata
+    │   └── example_commands_cheatsheet.md   # one-liners operators copy-paste during ops
+    ├── context/                         # stable facts about the system, read before working on it
+    ├── archived/                        # frozen documents kept for reference, not maintained
+    └── media/, reference/               # images, videos, product inserts
 ```
+
+This repository holds code and user-facing documentation. The work queue —
+briefs, the board and the deferred-work list — lives in `Sim2RealLab-Tasks`, and
+measurement records live beside their evidence in `Sim2RealLab-Artifacts`.
+Outside the documents under an INTERIM banner, which are frozen, nothing in this
+tree names a brief or a record; a pull request's `## References` block is the only
+cross-reference ([`docs/context/tasks-and-evidence.md`](docs/context/tasks-and-evidence.md)).
+`make docs-check` fails on a line naming the former in-tree homes of briefs and
+records, the board's or the deferred-work list's file, or a dated directory name;
+given clones of the two other repositories
+(`make docs-check TASKS_CLONE=<path> ARTIFACTS_CLONE=<path>`) it checks brief and
+record names too.
 
 ## Contracts
 
@@ -263,7 +274,7 @@ sudo udevadm control --reload-rules && sudo udevadm trigger
 
 From the repo root, `make build` runs the colcon build and `make udev` installs rules.
 
-**D555 on Tegra:** Jetson's Tegra kernel ships without `CONFIG_HID_SENSOR_HUB` and without a D555 entry in `uvcvideo`, so the D555's IMU is invisible and its per-frame metadata never reaches librealsense (frozen stamps, doubled depth, no aligned depth) until six modules are built out-of-tree: the five HID-sensor modules and a `uvcvideo` carrying librealsense's metadata patch. The recipe is in [`docs/D555_IMU_KERNEL_FIX.md`](docs/D555_IMU_KERNEL_FIX.md) — redo it on every kernel upgrade, and remove the old modules before one.
+**D555 on Tegra:** Jetson's Tegra kernel ships without `CONFIG_HID_SENSOR_HUB` and without a D555 entry in `uvcvideo`, so the D555's IMU is invisible and its per-frame metadata never reaches librealsense (frozen stamps, doubled depth, no aligned depth) until six modules are built out-of-tree: the five HID-sensor modules and a `uvcvideo` carrying librealsense's metadata patch. The recipe is in [`docs/guides/D555_IMU_KERNEL_FIX.md`](docs/guides/D555_IMU_KERNEL_FIX.md) — redo it on every kernel upgrade, and remove the old modules before one.
 
 ## Run
 
@@ -358,11 +369,11 @@ isaaclab -p source/strafer_lab/scripts/run_sim_in_the_loop.py \
     --output data/sim_in_the_loop/kitchen_01
 ```
 
-End-to-end runbook + troubleshooting:
-[`docs/INTEGRATION_SIM_IN_THE_LOOP.md`](docs/INTEGRATION_SIM_IN_THE_LOOP.md).
+End-to-end runbook + troubleshooting, as written for the bridge bring-up (archived, not maintained):
+[`docs/archived/INTEGRATION_SIM_IN_THE_LOOP.md`](docs/archived/INTEGRATION_SIM_IN_THE_LOOP.md).
 Operator one-liners (full sim-in-the-loop recipe with shell-by-shell
 commands across DGX / Jetson / operator workstation):
-[`docs/example_commands_cheatsheet.md`](docs/example_commands_cheatsheet.md).
+[`docs/guides/example_commands_cheatsheet.md`](docs/guides/example_commands_cheatsheet.md).
 
 ## Design
 
@@ -376,7 +387,7 @@ commands across DGX / Jetson / operator workstation):
 
 **The VLM stays narrow.** `strafer_vlm` does image-space grounding, description, and detection — nothing else. Depth projection, TF transforms, reachability, and motion execution remain robot-local. If any of those start accumulating inside `strafer_vlm`, the boundary has slipped.
 
-**Every navigation ends with a `verify_arrival` step in the compiled plan.** The skill executes a CLIP top-k ranking against the semantic map, ranking-based (are 3 of 5 top neighbors within the goal radius?) rather than threshold-based, so it survives model changes and environment shifts. The semantic-map kwargs that back this skill are not wired into the production executor's `main.py` today — `verify_arrival` returns `semantic_map_disabled` until that wiring lands. See [`docs/MISSION_VALIDATION_ARCHITECTURE.md`](docs/MISSION_VALIDATION_ARCHITECTURE.md) for the audit and the staged plan.
+**Every navigation ends with a `verify_arrival` step in the compiled plan.** The skill executes a CLIP top-k ranking against the semantic map, ranking-based (are 3 of 5 top neighbors within the goal radius?) rather than threshold-based, so it survives model changes and environment shifts. The semantic-map kwargs that back this skill are not wired into the production executor's `main.py` today — `verify_arrival` returns `semantic_map_disabled` until that wiring lands. See [`docs/guides/MISSION_VALIDATION_ARCHITECTURE.md`](docs/guides/MISSION_VALIDATION_ARCHITECTURE.md) for the audit and the staged plan.
 
 **Sim-in-the-loop preserves topic names.** The Isaac Sim ROS 2 bridge publishes on the same topic names the real robot's Jetson stack publishes. Nav2, RTAB-Map, and the executor run unchanged against the simulator. Testing the Jetson side against sim costs zero code changes.
 
@@ -392,21 +403,16 @@ make test-dgx        # DGX e2e: autonomy + vlm + lab  (SKIP_KIT=1 skips the ~40-
 make test-jetson     # Jetson e2e: autonomy + ros + driver
 ```
 
-Individual suites: `make test-autonomy` (planner/executor, host-agnostic), `make test-vlm` (VLM, `.venv_vlm`), `make test-lab` / `make test-lab-pure` (strafer_lab Kit + pure-Python, the Isaac Lab env), `make test-ros` / `make test-driver` (Jetson ROS packages / driver — run natively or in `strafer-cpu:humble`). Full list: [`docs/example_commands_cheatsheet.md`](docs/example_commands_cheatsheet.md#run-test-cases).
+Individual suites: `make test-autonomy` (planner/executor, host-agnostic), `make test-vlm` (VLM, `.venv_vlm`), `make test-lab` / `make test-lab-pure` (strafer_lab Kit + pure-Python, the Isaac Lab env), `make test-ros` / `make test-driver` (Jetson ROS packages / driver — run natively or in `strafer-cpu:humble`). Full list: [`docs/guides/example_commands_cheatsheet.md`](docs/guides/example_commands_cheatsheet.md#run-test-cases).
 
 The autonomy + VLM suites run 800+ tests without any service running; planner endpoint tests use an `autouse` fixture that points `PLANNER_MODEL` / `GROUNDING_MODEL` at `/nonexistent` to prevent model download during tests.
 
-End-to-end validation: [`docs/INTEGRATION_SIM_IN_THE_LOOP.md`](docs/INTEGRATION_SIM_IN_THE_LOOP.md) is the gating cross-host runbook after every DGX rebuild.
+End-to-end validation: [`docs/archived/INTEGRATION_SIM_IN_THE_LOOP.md`](docs/archived/INTEGRATION_SIM_IN_THE_LOOP.md) is the cross-host runbook the bridge was brought up with (archived, not maintained); the commands in use are in [`docs/guides/example_commands_cheatsheet.md`](docs/guides/example_commands_cheatsheet.md).
 
 ## Deferred / known limitations
 
-Tracked in [`docs/tasks/DEFERRED_WORK.md`](docs/tasks/DEFERRED_WORK.md). Items currently open:
-
-- **Electronics masses in the USD** — RoboClaws, Jetson, buck converter, D555 meshes + masses are TODO in `source/strafer_lab/scripts/asset_authoring/setup_physics.py`; current chassis inertia underestimates real.
-- **`orient_relative_to_target` skill + action** — drafted but commented out; reinstate when behavior is needed.
-- **`rotate_in_place` PID tuning** on real hardware — open-loop `cmd_vel` with odom feedback; may need tolerance adjustment.
-
-Deferred items roll into the next design round (continuation of `STRAFER_AUTONOMY_NEXT.md`).
+Open and deferred items are tracked in the task repository's deferred-work list
+([`docs/context/tasks-and-evidence.md`](docs/context/tasks-and-evidence.md)).
 
 ## References
 
@@ -419,14 +425,13 @@ Package deep dives:
 
 Cross-package docs:
 
-- [`docs/STRAFER_AUTONOMY_NEXT.md`](docs/STRAFER_AUTONOMY_NEXT.md) — current-round design master
-- [`docs/SYSTEM_FLOW_DIAGRAMS.md`](docs/SYSTEM_FLOW_DIAGRAMS.md) — end-to-end runtime flows with file-level hyperlinks
-- [`docs/INTEGRATION_SIM_IN_THE_LOOP.md`](docs/INTEGRATION_SIM_IN_THE_LOOP.md) — cross-host bridge runbook
-- [`docs/tasks/DEFERRED_WORK.md`](docs/tasks/DEFERRED_WORK.md) — open items queued for the next round
-- [`docs/tasks/`](docs/tasks/) — Jira-style work-brief queue + context modules
-- [`docs/SIM_TO_REAL_TUNING_GUIDE.md`](docs/SIM_TO_REAL_TUNING_GUIDE.md) — actuator / sensor alignment
-- [`docs/WIRING_GUIDE.md`](docs/WIRING_GUIDE.md) — hardware wiring reference
-- [`docs/D555_IMU_KERNEL_FIX.md`](docs/D555_IMU_KERNEL_FIX.md) — Tegra kernel module build for the D555: HID-sensor modules (IMU) and a `uvcvideo` with the D555 metadata entry
+- [`docs/archived/STRAFER_AUTONOMY_NEXT.md`](docs/archived/STRAFER_AUTONOMY_NEXT.md) — the design plan of an earlier round (archived, not maintained)
+- [`docs/guides/SYSTEM_FLOW_DIAGRAMS.md`](docs/guides/SYSTEM_FLOW_DIAGRAMS.md) — end-to-end runtime flows with file-level hyperlinks
+- [`docs/archived/INTEGRATION_SIM_IN_THE_LOOP.md`](docs/archived/INTEGRATION_SIM_IN_THE_LOOP.md) — cross-host bridge runbook (archived, not maintained)
+- [`docs/context/`](docs/context/) — context modules: stable facts about the system, conventions, branching and PRs
+- [`docs/guides/SIM_TO_REAL_TUNING_GUIDE.md`](docs/guides/SIM_TO_REAL_TUNING_GUIDE.md) — actuator / sensor alignment
+- [`docs/guides/WIRING_GUIDE.md`](docs/guides/WIRING_GUIDE.md) — hardware wiring reference
+- [`docs/guides/D555_IMU_KERNEL_FIX.md`](docs/guides/D555_IMU_KERNEL_FIX.md) — Tegra kernel module build for the D555: HID-sensor modules (IMU) and a `uvcvideo` with the D555 metadata entry
 
 External references:
 

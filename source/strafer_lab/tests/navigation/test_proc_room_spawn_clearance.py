@@ -1,7 +1,7 @@
 # Copyright (c) 2025, Strafer Lab Project
 # SPDX-License-Identifier: BSD-3-Clause
 
-"""Spawn-pool clearance for the enriched generator path.
+"""Spawn-pool clearance for the enclosed room's generator path.
 
 The pool the robot reset draws from must never offer a start pose already in
 contact range: reset yaw is drawn independently of the spawn point, so a
@@ -16,7 +16,7 @@ floor is the generous one.
 The pool's own obstacle inflation does *not* deliver that on its own — it is
 a disc rasterized on a 0.1 m grid and a spawn point is a cell centre, so the
 guarantee it actually gives is one grid cell short of its nominal radius.
-Only the extra erosion the enriched path applies closes the gap, and the
+Only the extra erosion the enclosed room's arguments apply closes the gap, and the
 gap it closes is measured here rather than assumed.
 
 No Kit, no GPU. Run with the pure-Python lab tests.
@@ -57,7 +57,7 @@ class _StubScene:
         return self._entities[key]
 
 
-def _enriched_params():
+def _enclosed_room_params():
     from strafer_lab.tasks.navigation import composed_env_cfg as composed
 
     events = composed.StraferNavCfg_RLDepth_Real().events
@@ -129,8 +129,8 @@ def _pool_clearances(params, difficulty_range, slots):
 
 
 @pytest.fixture(scope="module")
-def enriched():
-    params, difficulty_range = _enriched_params()
+def enclosed():
+    params, difficulty_range = _enclosed_room_params()
     obstacles = _proc_room.FURNITURE_SLOTS + _proc_room.CLUTTER_SLOTS
     return {
         "params": params,
@@ -140,50 +140,50 @@ def enriched():
     }
 
 
-def test_enriched_spawn_pool_never_offers_a_contact_start(enriched):
+def test_enclosed_spawn_pool_never_offers_a_contact_start(enclosed):
     """No candidate within the inflation radius of an object."""
-    clearances = enriched["object"]
+    clearances = enclosed["object"]
     assert len(clearances) > 1000
     worst = float(clearances.min())
     assert worst >= _proc_room.ROBOT_HALF_WIDTH, (
         f"{int((clearances < _proc_room.ROBOT_HALF_WIDTH).sum())} of "
-        f"{len(clearances)} enriched spawn candidates sit inside the "
+        f"{len(clearances)} enclosed-room spawn candidates sit inside the "
         f"{_proc_room.ROBOT_HALF_WIDTH} m footprint radius (worst {worst:.3f} m); "
         f"the robot would start in contact at some reset yaws"
     )
 
 
-def test_enriched_spawn_pool_clears_walls_too(enriched):
-    assert float(enriched["wall"].min()) >= _proc_room.ROBOT_HALF_WIDTH
+def test_enclosed_spawn_pool_clears_walls_too(enclosed):
+    assert float(enclosed["wall"].min()) >= _proc_room.ROBOT_HALF_WIDTH
 
 
-def test_the_shared_pool_alone_does_not_deliver_the_floor(enriched):
+def test_the_shared_pool_alone_does_not_deliver_the_floor(enclosed):
     """The erosion is load-bearing, not decorative.
 
     Reading the shared pool instead of the eroded one puts candidates inside
     the chassis radius — grid quantization spends most of the nominal 0.3 m
     disc inflation before the spawn point is placed at a cell centre.
     """
-    params = dict(enriched["params"])
+    params = dict(enclosed["params"])
     params["robot_spawn_inflation_cells"] = 0
     obstacles = _proc_room.FURNITURE_SLOTS + _proc_room.CLUTTER_SLOTS
-    clearances = _pool_clearances(params, enriched["difficulty_range"], obstacles)
+    clearances = _pool_clearances(params, enclosed["difficulty_range"], obstacles)
     assert float(clearances.min()) < _proc_room.ROBOT_HALF_WIDTH
 
 
-def test_erosion_is_the_smallest_that_holds_the_floor(enriched):
+def test_erosion_is_the_smallest_that_holds_the_floor(enclosed):
     """One cell is the smallest erosion that holds the floor.
 
     Pins the shipped value against the measurement rather than by fiat: zero
     cells breaches (asserted above), and the clearance one cell buys is
     reported so a future re-range can see what it is spending.
     """
-    assert enriched["params"]["robot_spawn_inflation_cells"] == 1
-    margin = float(enriched["object"].min()) - _proc_room.ROBOT_HALF_WIDTH
+    assert enclosed["params"]["robot_spawn_inflation_cells"] == 1
+    margin = float(enclosed["object"].min()) - _proc_room.ROBOT_HALF_WIDTH
     assert margin > 0.05, f"only {margin * 1000:.0f} mm above the floor"
 
 
-def test_no_env_falls_back_to_the_uneroded_pool(enriched):
+def test_no_env_falls_back_to_the_uneroded_pool(enclosed):
     """The floor is conditional on the erosion never emptying a room.
 
     ``generate_proc_room`` silently falls back per env to the shared pool when
@@ -197,13 +197,13 @@ def test_no_env_falls_back_to_the_uneroded_pool(enriched):
             num_envs=NUM_ENVS, device="cpu",
             scene=_StubScene(entities, torch.zeros(NUM_ENVS, 3)),
         )
-        lo, hi = enriched["difficulty_range"]
+        lo, hi = enclosed["difficulty_range"]
         env._proc_room_difficulty = torch.randint(
             lo, hi + 1, (NUM_ENVS,), generator=torch.Generator().manual_seed(DIFFICULTY_SEED)
         )
         torch.manual_seed(seed)
         _proc_room.generate_proc_room(
-            env, torch.arange(NUM_ENVS), **enriched["params"]
+            env, torch.arange(NUM_ENVS), **enclosed["params"]
         )
         # The fallback copies the shared pool verbatim, so an env that took it
         # has point-identical pools; two independent draws never do.
@@ -243,7 +243,7 @@ class _StubRobot:
         pass
 
 
-def test_the_reset_event_reads_the_eroded_pool(enriched, monkeypatch):
+def test_the_reset_event_reads_the_eroded_pool(enclosed, monkeypatch):
     """The clearance only reaches the robot if the reset event reads the pool
     the erosion built. That branch has no config flag behind it — it is a
     ``hasattr`` on a lazily created attribute — so it is asserted here through
@@ -259,12 +259,12 @@ def test_the_reset_event_reads_the_eroded_pool(enriched, monkeypatch):
         num_envs=NUM_ENVS, device="cpu",
         scene=_StubScene(entities, torch.zeros(NUM_ENVS, 3)),
     )
-    lo, hi = enriched["difficulty_range"]
+    lo, hi = enclosed["difficulty_range"]
     env._proc_room_difficulty = torch.randint(
         lo, hi + 1, (NUM_ENVS,), generator=torch.Generator().manual_seed(DIFFICULTY_SEED)
     )
     torch.manual_seed(SEEDS[0])
-    _proc_room.generate_proc_room(env, torch.arange(NUM_ENVS), **enriched["params"])
+    _proc_room.generate_proc_room(env, torch.arange(NUM_ENVS), **enclosed["params"])
     _events.reset_robot_proc_room(
         env, torch.arange(NUM_ENVS), yaw_range=(-math.pi, math.pi)
     )

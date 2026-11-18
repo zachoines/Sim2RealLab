@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""Measure whether the enriched rooms' ceiling is one-way. (Kit/GPU)
+"""Measure whether the enclosed rooms' ceiling is one-way. (Kit/GPU)
 
-The enriched ceiling is a single open quad whose one normal faces down, drawn
+The enclosed room's ceiling is a single open quad whose one normal faces down, drawn
 one-sided by RTX back-face culling: the robot's camera underneath must see a
 closed ceiling, an overhead camera above it must see straight through. Both
 halves are renderer-build-specific — RTX reads a *custom* ``singleSided``
@@ -71,7 +71,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--face-culling", choices=["on", "off"], default="on",
         help="the global RTX back-face-culling switch (default on, as the "
-             "enriched cfgs ship it)",
+             "enclosed room's cfgs ship it)",
     )
     parser.add_argument(
         "--ceiling_z", type=float, default=2.5,
@@ -215,8 +215,8 @@ def main() -> None:
         return float(inside.mean())
 
     cfg = parse_env_cfg(args.task, num_envs=args.num_envs)
-    # Every env enclosed at one known height, so the overhead range band counts
-    # ceiling pixels and nothing else.
+    # Every env gets a ceiling at one known height, so the overhead range band
+    # counts ceiling pixels and nothing else.
     cfg.events.generate_room.params["p_ceil"] = 1.0
     cfg.events.generate_room.params["ceiling_height_range"] = (args.ceiling_z, args.ceiling_z)
     setattr(cfg.scene, "probe_overhead_camera", overhead_camera_cfg(args.overhead_alt))

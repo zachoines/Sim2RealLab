@@ -87,10 +87,11 @@ class TimingCfg:
 
     # Action latency (policy → actuator)
     action_latency_steps: int = 0
-    """Fixed action command latency in physics steps."""
+    """Fixed action command latency in control steps."""
 
     action_latency_steps_range: tuple[int, int] = (0, 0)
-    """Random action latency range [min, max] steps. Sampled per reset."""
+    """Random action latency range [min, max] control steps, added to the fixed
+    latency. One latency per env, drawn when the action term is built."""
 
     # Command holds (policy → actuator): no new command this control step
     action_hold_fraction_range: tuple[float, float] = (0.0, 0.0)
@@ -118,9 +119,9 @@ class ActuatorModelCfg:
     enable_motor_dynamics: bool = False
     """Enable first-order motor response model (exponential smoothing)."""
     
-    motor_time_constant_s: float = 0.05
-    """Motor time constant in seconds. Controls response speed. 
-    Real GoBilda 5203 ~50ms under load."""
+    motor_time_constant_s: float = 0.2
+    """Time constant in seconds of the first-order wheel lag, which advances once
+    per control step. The real wheel's lag is not measured."""
     
     motor_time_constant_range: tuple[float, float] = (0.03, 0.08)
     """Range for randomized motor time constant [min, max] seconds."""
@@ -130,12 +131,12 @@ class ActuatorModelCfg:
     """Maximum motor velocity in rad/s. GoBilda 5203 = 312 RPM = 32.67 rad/s."""
     
     # Acceleration limits (slew rate)
-    max_acceleration_rad_s2: float = 900.0
-    """Maximum acceleration for velocity commands in rad/s².
-    GoBilda 5203 on 4S LiPo: ~900 rad/s² under light load (frame weight).
-    Near-instant response at 32.67 rad/s max → 0-to-full in ~36ms."""
+    max_acceleration_rad_s2: float = 225.0
+    """Maximum wheel acceleration in rad/s², applied once per control step.
+    At 225 rad/s² a wheel goes from 0 to its 32.67 rad/s limit in 0.145 s. The
+    real wheel's acceleration is not measured."""
 
-    max_acceleration_range: tuple[float, float] = (900.0, 900.0)
+    max_acceleration_range: tuple[float, float] = (225.0, 225.0)
     """Range for randomized max acceleration [min, max] rad/s².
     Models battery state (fresh 16.8V vs depleted 14.0V) and load variation."""
 
@@ -551,11 +552,11 @@ def create_real_robot_contract() -> SimRealContractCfg:
         ),
         actuator=ActuatorModelCfg(
             enable_motor_dynamics=True,
-            motor_time_constant_s=0.05,  # 50ms response
+            motor_time_constant_s=0.2,
             motor_time_constant_range=(0.03, 0.08),
             max_velocity_rad_s=32.67,  # 312 RPM
-            max_acceleration_rad_s2=900.0,
-            max_acceleration_range=(700.0, 1100.0),  # ±~20% for battery state
+            max_acceleration_rad_s2=225.0,
+            max_acceleration_range=(175.0, 275.0),  # ±~20% for battery state
         ),
         sensors=SensorNoiseCfg(
             imu=IMUNoiseCfg(
@@ -628,10 +629,10 @@ def create_robust_training_contract() -> SimRealContractCfg:
         ),
         actuator=ActuatorModelCfg(
             enable_motor_dynamics=True,
-            motor_time_constant_s=0.06,  # Slightly slower
+            motor_time_constant_s=0.24,  # Slightly slower
             motor_time_constant_range=(0.02, 0.10),  # Wide range
-            max_acceleration_rad_s2=900.0,
-            max_acceleration_range=(500.0, 1200.0),  # Wide: depleted+loaded → fresh+free
+            max_acceleration_rad_s2=225.0,
+            max_acceleration_range=(125.0, 300.0),  # Wide: depleted+loaded → fresh+free
             # 0.40 to 1.57 m/s on |vx| + |vy|, the deploy cap (s = 0.5) inside it.
             speed_scale_range=(0.255, 1.0),
         ),

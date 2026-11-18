@@ -362,7 +362,10 @@ def randomize_mass(
 ) -> None:
     """Randomize robot base mass for domain randomization.
 
-    A design spread on the robot's mass; not measured.
+    A design spread on the robot's mass; not measured. One factor per reset env
+    scales every body's mass and its inertia tensor together (a uniform-density
+    body's inertia scales with its mass), from the masses and inertias the first
+    call reads, so a payload added at startup is in both.
 
     Args:
         env: The environment instance.
@@ -402,6 +405,16 @@ def randomize_mass(
     masses_wp = wp.from_torch(body_masses)
     env_ids_cpu = env_ids_dev.cpu().int()
     robot.root_view.set_masses(masses_wp, wp.from_torch(env_ids_cpu))
+
+    # The inertia tensors scale with the same factor
+    inertias = robot.root_view.get_inertias()
+    if not isinstance(inertias, torch.Tensor):
+        inertias = wp.to_torch(inertias)
+    inertias_dev = env_ids.to(inertias.device)
+    if not hasattr(env, "_default_body_inertias"):
+        env._default_body_inertias = inertias.clone()
+    inertias[inertias_dev] = env._default_body_inertias[inertias_dev] * scales.to(inertias.device)[:, None, None]
+    robot.root_view.set_inertias(wp.from_torch(inertias), wp.from_torch(env_ids_cpu))
 
 
 def randomize_subgoal_drift(

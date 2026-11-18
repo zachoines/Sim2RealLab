@@ -185,3 +185,41 @@ def test_the_imu_per_sample_sigma_replaces_the_density_form_when_set(kind):
     sampled = getter(contract)
     assert sampled.noise_cfg.std == pytest.approx(0.123)
     assert getattr(sampled, f"{kind}_noise_std") == pytest.approx(0.123)
+
+
+class _MassView:
+    def __init__(self, n, bodies=5):
+        self.masses = torch.linspace(0.1, 2.0, bodies).repeat(n, 1)
+        self.inertias = torch.linspace(1e-4, 9e-3, bodies * 9).reshape(bodies, 9).repeat(n, 1, 1)
+
+    def get_masses(self):
+        return self.masses.clone()
+
+    def set_masses(self, m, ids):
+        import warp as wp
+
+        self.masses = wp.to_torch(m).clone()
+
+    def get_inertias(self):
+        return self.inertias.clone()
+
+    def set_inertias(self, m, ids):
+        import warp as wp
+
+        self.inertias = wp.to_torch(m).clone()
+
+
+def test_the_mass_factor_scales_each_bodys_inertia_with_its_mass():
+    from strafer_lab.tasks.navigation.mdp import events
+
+    view = _MassView(N)
+    env = SimpleNamespace(scene={"robot": SimpleNamespace(root_view=view)}, num_envs=N, device="cpu")
+    m0, i0 = view.masses.clone(), view.inertias.clone()
+    for ids in (torch.arange(N), torch.tensor([3, 7]), torch.arange(N)):
+        before = view.inertias.clone()
+        events.randomize_mass(env, ids, mass_range=(0.85, 1.15))
+        factor = view.masses / m0  # the env's factor, the same on every body
+        assert torch.allclose(factor, factor[:, :1].expand_as(factor))
+        assert torch.allclose(view.inertias, i0 * factor[:, :1, None], rtol=1e-6)
+        others = [e for e in range(N) if e not in ids.tolist()]
+        assert torch.equal(view.inertias[others], before[others])  # other envs untouched

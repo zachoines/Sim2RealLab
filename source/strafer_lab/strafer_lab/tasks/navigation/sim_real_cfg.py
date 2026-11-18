@@ -134,8 +134,8 @@ class ActuatorModelCfg:
     real wheel's acceleration is not measured."""
 
     max_acceleration_range: tuple[float, float] = (225.0, 225.0)
-    """Range for randomized max acceleration [min, max] rad/s².
-    Models battery state (fresh 16.8V vs depleted 14.0V) and load variation."""
+    """Range for randomized max acceleration [min, max] rad/s², drawn per env at each reset.
+    A design spread: the motor controllers run from a regulated 12 V supply, so it stands for no battery state."""
 
     # Command envelope
     speed_scale_range: tuple[float, float] | None = None
@@ -523,8 +523,8 @@ def create_real_robot_contract() -> SimRealContractCfg:
             depth_latency_steps=1,  # Stereo matching adds delay (~33ms)
             depth_latency_steps_range=(0, 2),  # mean-preserving spread of the above
             rgb_latency_steps=1,  # Image processing adds delay (~33ms)
-            # Command holds stay near zero: the residual after the deployed
-            # node's inference cadence, not the cadence itself.
+            # A held command stands for a node tick lost to its timer, or a driver
+            # stall; not measured.
             action_hold_fraction_range=(0.0, 0.05),
             action_hold_run_range=(1.0, 1.2),
         ),
@@ -533,7 +533,7 @@ def create_real_robot_contract() -> SimRealContractCfg:
             motor_time_constant_s=0.2,
             max_velocity_rad_s=32.67,  # 312 RPM
             max_acceleration_rad_s2=225.0,
-            max_acceleration_range=(175.0, 275.0),  # ±~20% for battery state
+            max_acceleration_range=(175.0, 275.0),  # a design spread
         ),
         sensors=SensorNoiseCfg(
             imu=IMUNoiseCfg(
@@ -607,7 +607,7 @@ def create_robust_training_contract() -> SimRealContractCfg:
             enable_motor_dynamics=True,
             motor_time_constant_s=0.24,  # Slightly slower
             max_acceleration_rad_s2=225.0,
-            max_acceleration_range=(125.0, 300.0),  # Wide: depleted+loaded → fresh+free
+            max_acceleration_range=(125.0, 300.0),  # a wider design spread
             # 0.40 to 1.57 m/s on |vx| + |vy|, the deploy cap (s = 0.5) inside it.
             speed_scale_range=(0.255, 1.0),
         ),

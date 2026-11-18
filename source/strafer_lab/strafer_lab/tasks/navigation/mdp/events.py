@@ -338,7 +338,7 @@ def randomize_mass(
 ) -> None:
     """Randomize robot base mass for domain randomization.
 
-    Simulates mass variation from battery charge, added payloads, etc.
+    A design spread on the robot's mass; not measured.
 
     Args:
         env: The environment instance.
@@ -435,7 +435,7 @@ def randomize_motor_strength(
     """Randomize per-wheel motor strength for domain randomization.
 
     Scales the joint effort limit for each wheel independently, simulating
-    motor-to-motor variation, degradation, or voltage sag. The scale is
+    motor-to-motor variation, a design spread (the controllers run from a regulated 12 V supply). The scale is
     sampled independently per wheel so one motor can be weaker than others.
 
     Args:

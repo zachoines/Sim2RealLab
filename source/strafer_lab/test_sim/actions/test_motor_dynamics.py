@@ -36,7 +36,7 @@ def test_time_to_63_percent(action_env):
     )
     cfg = action_env.cfg.actions.wheel_velocities
     configured_tau = cfg.motor_time_constant
-    physics_dt = action_env.physics_dt
+    step_dt = action_env.step_dt
 
     # Apply step input
     step_action = torch.tensor([[1.0, 0.0, 0.0]], device=action_env.device)
@@ -51,7 +51,7 @@ def test_time_to_63_percent(action_env):
     # Analyze first wheel of first env
     wheel_response = responses[:, 0, 0]
     v_final = wheel_response[-1]
-    times = np.arange(N_RESPONSE_STEPS) * physics_dt
+    times = np.arange(N_RESPONSE_STEPS) * step_dt
 
     # Find time to reach 63.21% of final value
     target_63 = 0.6321 * v_final
@@ -59,7 +59,7 @@ def test_time_to_63_percent(action_env):
     measured_t63 = times[idx_63]
 
     # Discretization error: +/-1 timestep
-    max_error = physics_dt
+    max_error = step_dt
 
     print(f"\n  Motor dynamics - time to 63.21%:")
     print(f"    Configured tau: {configured_tau*1000:.2f}ms")
@@ -84,7 +84,7 @@ def test_10_90_rise_time(action_env):
     )
     cfg = action_env.cfg.actions.wheel_velocities
     configured_tau = cfg.motor_time_constant
-    physics_dt = action_env.physics_dt
+    step_dt = action_env.step_dt
 
     # Exact analytical values
     LN_9 = np.log(9)  # ≈ 2.197
@@ -102,7 +102,7 @@ def test_10_90_rise_time(action_env):
 
     wheel_response = responses[:, 0, 0]
     v_final = wheel_response[-1]
-    times = np.arange(N_RESPONSE_STEPS) * physics_dt
+    times = np.arange(N_RESPONSE_STEPS) * step_dt
 
     # Find times to reach 10% and 90%
     target_10 = 0.10 * v_final
@@ -116,7 +116,7 @@ def test_10_90_rise_time(action_env):
     measured_rise_time = measured_t90 - measured_t10
 
     # Discretization error: +/-2 timesteps (one for each threshold crossing)
-    max_error = 2 * physics_dt
+    max_error = 2 * step_dt
 
     print(f"\n  Motor dynamics - 10-90% rise time:")
     print(f"    Configured tau: {configured_tau*1000:.2f}ms")
@@ -140,7 +140,7 @@ def test_exponential_fit_quality(action_env):
     action_term = configure_action_term_dynamics(
         action_env, enable_motor=True, enable_delay=False, enable_slew=False
     )
-    physics_dt = action_env.physics_dt
+    step_dt = action_env.step_dt
 
     step_action = torch.tensor([[1.0, 0.0, 0.0]], device=action_env.device)
     step_action = step_action.repeat(action_env.num_envs, 1)
@@ -153,7 +153,7 @@ def test_exponential_fit_quality(action_env):
 
     wheel_response = responses[:, 0, 0]
     v_final = wheel_response[-1]
-    times = np.arange(N_RESPONSE_STEPS) * physics_dt
+    times = np.arange(N_RESPONSE_STEPS) * step_dt
 
     fit_result = fit_first_order_response(times, wheel_response, v_final)
     r_squared = fit_result['r_squared']

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 from typing import TYPE_CHECKING
 
 import torch
@@ -159,3 +160,73 @@ def off_path_divergence(
     """
     term = env.command_manager.get_term(command_name)
     return term.cross_track_error > max_off_path_m
+
+
+def path_time_out_limit(
+    env: ManagerBasedEnv,
+    command_name: str,
+    action_name: str,
+    intercept_s: float,
+    time_per_m_s: float,
+    turn_rate_rad_s: float,
+    reference_speed_scale: float,
+    ceiling_s: float,
+) -> torch.Tensor:
+    """Each env's time-out limit in control steps, for the episode it is running.
+
+    The limit is ``intercept_s + time_per_m_s * L + K / turn_rate_rad_s`` seconds, L the installed path's arc in metres
+    and K its planned total turning in radians (an in-place turn at ``turn_rate_rad_s`` per radian), multiplied by
+    ``reference_speed_scale / s`` where the episode's command-envelope scale s is below the reference (s is 1 where the
+    action cfg has no envelope). It is never below the env's episode length; above that it is never past the larger of
+    the episode length and ``ceiling_s``.
+
+    Args: as :func:`path_time_out`.
+
+    Returns:
+        Long tensor of limits in control steps, shape (num_envs,).
+    """
+    base = env.max_episode_length
+    command = env.command_manager.get_term(command_name)
+    arc = command.path_cursor.total_arc
+    action_term = env.action_manager.get_term(action_name)
+    if getattr(action_term.cfg, "speed_scale_range", None) is None:
+        stretch = torch.ones_like(arc)
+    else:
+        stretch = (reference_speed_scale / action_term.speed_scale).clamp(min=1.0)
+    seconds = stretch * (intercept_s + time_per_m_s * arc + command.path_turning / turn_rate_rad_s)
+    top = max(base, math.ceil(round(ceiling_s / env.step_dt, 9)))
+    return torch.ceil(seconds / env.step_dt).long().clamp(base, top)
+
+
+def path_time_out(
+    env: ManagerBasedEnv,
+    command_name: str,
+    action_name: str,
+    intercept_s: float,
+    time_per_m_s: float,
+    turn_rate_rad_s: float,
+    reference_speed_scale: float,
+    ceiling_s: float,
+) -> torch.Tensor:
+    """Time out each env's episode at a limit scaled to its path and its speed cap (:func:`path_time_out_limit`).
+
+    Stateless: at ``compute()`` the arc, the turning and s are the ending episode's, since the action term redraws s
+    and the command installs the next path at the reset that follows.
+
+    Args:
+        env: The environment instance.
+        command_name: Name of the subgoal command term (its ``path_cursor.total_arc`` is L, its ``path_turning`` K).
+        action_name: Name of the action term (its ``speed_scale`` is s when its cfg sets ``speed_scale_range``).
+        intercept_s: Seconds the limit allows at zero arc and no turning.
+        time_per_m_s: Seconds the limit adds per metre of arc.
+        turn_rate_rad_s: The turn rate the limit allows for the path's turning, in rad/s.
+        reference_speed_scale: The envelope scale the bound holds at; a smaller s stretches it.
+        ceiling_s: The longest limit, in seconds, unless the env's episode length is longer.
+
+    Returns:
+        Boolean tensor indicating which environments have reached their limit.
+    """
+    limit = path_time_out_limit(
+        env, command_name, action_name, intercept_s, time_per_m_s, turn_rate_rad_s, reference_speed_scale, ceiling_s
+    )
+    return env.episode_length_buf >= limit

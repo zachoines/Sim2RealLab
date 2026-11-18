@@ -49,7 +49,7 @@ from . import mdp
 
 # Import robot configuration
 from strafer_lab.assets import STRAFER_CFG
-from strafer_shared.constants import GOAL_ARRIVAL_RADIUS_M
+from strafer_shared.constants import GOAL_ARRIVAL_RADIUS_M, POLICY_MISSION_TIMEOUT_S
 
 # Import sim-real contracts and helper functions
 from .sim_real_cfg import (
@@ -914,8 +914,8 @@ class TerminationsCfg:
 # Events: tiered domain randomization (Ideal / Realistic / Robust)
 #
 # Structural events (robot reset) are identical across tiers.
-# Domain randomization (friction, mass, motor strength, mount offset,
-# goal noise) scales with realism level.
+# Domain randomization (friction, mass, motor strength, mount offset)
+# scales with realism level.
 # ---------------------------------------------------------------------------
 
 # Structural event shared by all tiers
@@ -970,10 +970,6 @@ class EventsCfg_Realistic:
         func=mdp.randomize_d555_mount_offset, mode="reset",
         params={"max_angle_deg": _D555_MOUNT_ANGLE_REAL_DEG},
     )
-    randomize_goal_noise = EventTerm(
-        func=mdp.randomize_goal_noise, mode="reset",
-        params={"command_name": "goal_command", "noise_std": 0.15},
-    )
     randomize_subgoal_drift = _SUBGOAL_DRIFT_REAL
 
 
@@ -996,10 +992,6 @@ class EventsCfg_Robust:
     randomize_d555_mount = EventTerm(
         func=mdp.randomize_d555_mount_offset, mode="reset",
         params={"max_angle_deg": _D555_MOUNT_ANGLE_ROBUST_DEG},
-    )
-    randomize_goal_noise = EventTerm(
-        func=mdp.randomize_goal_noise, mode="reset",
-        params={"command_name": "goal_command", "noise_std": 0.35},
     )
     randomize_subgoal_drift = _SUBGOAL_DRIFT_ROBUST
 
@@ -1112,10 +1104,6 @@ class EventsCfg_Infinigen_Realistic:
         func=mdp.randomize_d555_mount_offset, mode="reset",
         params={"max_angle_deg": _D555_MOUNT_ANGLE_REAL_DEG},
     )
-    randomize_goal_noise = EventTerm(
-        func=mdp.randomize_goal_noise, mode="reset",
-        params={"command_name": "goal_command", "noise_std": 0.15},
-    )
     randomize_subgoal_drift = _SUBGOAL_DRIFT_REAL
 
 
@@ -1140,10 +1128,6 @@ class EventsCfg_Infinigen_Robust:
     randomize_d555_mount = EventTerm(
         func=mdp.randomize_d555_mount_offset, mode="reset",
         params={"max_angle_deg": _D555_MOUNT_ANGLE_ROBUST_DEG},
-    )
-    randomize_goal_noise = EventTerm(
-        func=mdp.randomize_goal_noise, mode="reset",
-        params={"command_name": "goal_command", "noise_std": 0.35},
     )
     randomize_subgoal_drift = _SUBGOAL_DRIFT_ROBUST
 
@@ -1731,8 +1715,6 @@ class EventsCfg_ProcRoom_Realistic:
         func=mdp.randomize_d555_mount_offset, mode="reset",
         params={"max_angle_deg": _D555_MOUNT_ANGLE_REAL_DEG},
     )
-    # Goal noise disabled for initial training (Phase 1).
-    # Re-enable with noise_std=0.15 for Phase 3 robustness hardening.
     randomize_subgoal_drift = _SUBGOAL_DRIFT_REAL
 
 
@@ -1757,10 +1739,6 @@ class EventsCfg_ProcRoom_Robust:
     randomize_d555_mount = EventTerm(
         func=mdp.randomize_d555_mount_offset, mode="reset",
         params={"max_angle_deg": _D555_MOUNT_ANGLE_ROBUST_DEG},
-    )
-    randomize_goal_noise = EventTerm(
-        func=mdp.randomize_goal_noise, mode="reset",
-        params={"command_name": "goal_command", "noise_std": 0.35},
     )
     randomize_subgoal_drift = _SUBGOAL_DRIFT_ROBUST
 
@@ -2000,13 +1978,42 @@ class RewardsCfg_ProcRoom_Subgoal_Depth(RewardsCfg_ProcRoom_Subgoal):
     )
 
 
+# The subgoal episode's time-out: 11.87 s + 1.53 s per metre of the installed path is the completion bound measured
+# under the deploy node's speed cap (envelope scale 0.5), plus the planned path's total turning taken as an in-place
+# turn at 2.0933 rad/s, the angular cap at that scale (0.5 x 4.1866 rad/s); below that scale the whole bound stretches
+# by 0.5 / s. The four constants are one measurement's, so none follows a later retune of the node's caps. The limit
+# is never below the env's episode length, and above it never past the larger of that and POLICY_MISSION_TIMEOUT_S,
+# the node's bound on one goal.
+_SUBGOAL_TIME_OUT_INTERCEPT_S = 11.87
+_SUBGOAL_TIME_OUT_PER_M_S = 1.53
+_SUBGOAL_TIME_OUT_TURN_RATE_RAD_S = 2.0933
+_SUBGOAL_TIME_OUT_REFERENCE_SCALE = 0.5
+
+
 @configclass
 class TerminationsCfg_ProcRoom_Subgoal(TerminationsCfg):
     """Terminations for the ProcRoom subgoal objective.
 
     Episodes end on path completion, off-path divergence, sustained
-    collision (ProcRoom-tight threshold), robot flip, or timeout.
+    collision (ProcRoom-tight threshold), robot flip, or a time-out scaled to
+    the path's length and turning and the episode's speed cap (``time_out``,
+    which replaces the inherited fixed one under the same name and stays a
+    time-out).
     """
+
+    time_out = DoneTerm(
+        func=mdp.path_time_out,
+        time_out=True,
+        params={
+            "command_name": "goal_command",
+            "action_name": "wheel_velocities",
+            "intercept_s": _SUBGOAL_TIME_OUT_INTERCEPT_S,
+            "time_per_m_s": _SUBGOAL_TIME_OUT_PER_M_S,
+            "turn_rate_rad_s": _SUBGOAL_TIME_OUT_TURN_RATE_RAD_S,
+            "reference_speed_scale": _SUBGOAL_TIME_OUT_REFERENCE_SCALE,
+            "ceiling_s": POLICY_MISSION_TIMEOUT_S,
+        },
+    )
 
     path_complete = DoneTerm(
         func=mdp.path_complete,

@@ -184,24 +184,22 @@ while True:
 **Sim**: Clamps the maximum velocity change per step.
 
 ```python
-# From REAL_ROBOT_CONTRACT (sim_real_cfg.py)
-max_acceleration_rad_s2 = 225.0           # rad/s^2, nominal
-max_acceleration_range = (175.0, 275.0)   # drawn per env at each reset
-# max_delta = accel x dt per control step (dt = 1/30 s)
+# From REAL_ROBOT_CONTRACT (sim_real_cfg.py:444)
+max_acceleration_rad_s2 = 100.0  # rad/s^2 -> max_delta = 100 x dt per step
 ```
 
 **Real-world source**: Motor + 19.2:1 gearbox inertia limits how fast velocity can change. The reflected inertia through the gearbox (J_reflected = J_motor x ratio^2) creates a natural slew rate.
 
 **How to measure**: Command an instantaneous velocity step (0 -> max speed) and record encoder velocity at high rate. The slope of the velocity ramp gives you the real acceleration limit.
 
-**Tuning**: The realistic tier draws the limit per env from 175-275 rad/s^2 (nominal 225), the robust tier from 125-300 rad/s^2; at 225 rad/s^2 a wheel goes from rest to its 32.67 rad/s limit in 0.145 s. Compare a measured ramp with these.
+**Tuning**: If the real acceleration is ~80-120 rad/s^2, the sim value is already well-matched. The `Robust` preset uses 80 rad/s^2 for extra conservatism.
 
 ### 2c. First-Order Motor Dynamics (Most Important)
 
 **Sim**: Exponential smoothing filter modeling combined motor response.
 
 ```python
-alpha = dt / (tau + dt)  # dt = the control step (1/30 s); tau = 0.2 s for Realistic
+alpha = dt / (tau + dt)  # tau = 0.05s (50ms) for Realistic
 smoothed = alpha x target + (1 - alpha) x smoothed
 ```
 
@@ -222,16 +220,17 @@ This is the **most critical parameter** for sim-to-real transfer. It determines 
 
 **Sim preset values**:
 
-| Preset | tau (one value per tier) |
-|--------|-----------|
-| Ideal | N/A (disabled) |
-| Realistic | 200ms |
-| Robust | 240ms |
+| Preset | tau nominal | tau range (randomized) |
+|--------|-----------|----------------------|
+| Ideal | N/A (disabled) | N/A |
+| Realistic | 50ms | 30-80ms |
+| Robust | 60ms | 20-100ms |
 
 **Tuning**:
-- The trained tau is the tier's `motor_time_constant_s` in `sim_real_cfg.py`, one value per tier (not randomized per env)
-- If the real tau differs from it, set `motor_time_constant_s` from the measurement and retrain, or tune the RoboClaw PID toward the trained value
-- RoboClaw PID tuning directly affects the effective tau
+- If real tau is 40ms -> within Realistic range, no change needed
+- If real tau is 15ms -> below Robust range, lower `motor_time_constant_range[0]` in sim
+- If real tau is 120ms -> above Robust range, either retrain with wider range or tune RoboClaw PID to reduce response time
+- RoboClaw PID tuning directly affects the effective tau -- a well-tuned PID can bring it to 30-50ms
 
 ---
 
@@ -378,7 +377,7 @@ Use `source/strafer_ros/tune_pid.py` to run a step-response sweep and verify:
 - Overshoot < 5%
 - Steady-state error < 2%
 
-**Pass criteria**: Step response resembles a first-order system; compare its tau with the trained one (200 ms Realistic, 240 ms Robust).
+**Pass criteria**: Step response resembles a first-order system with tau ~= 30-80ms.
 
 ### Step 2: Motor Time Constant (tau)
 
@@ -389,9 +388,9 @@ Extract tau from the step response measured in Step 1.
 3. Find time to reach 63.2% of target -> that's tau
 4. Repeat for each motor (they may differ slightly due to friction/wiring)
 
-**Pass criteria**: tau compared with the tier's `motor_time_constant_s` (200 ms Realistic, 240 ms Robust).
+**Pass criteria**: tau within [30ms, 80ms] (Realistic range) or [20ms, 100ms] (Robust range).
 
-**If tau differs**: Set `motor_time_constant_s` in `sim_real_cfg.py` from the measurement and retrain, or tune the RoboClaw PID toward the trained value.
+**If tau is outside range**: Adjust `motor_time_constant_range` in `sim_real_cfg.py` and retrain, or tune RoboClaw PID to bring tau into range.
 
 ### Step 3: Command Latency
 
@@ -485,9 +484,9 @@ Use this checklist before deploying a trained policy on hardware.
 
 | Parameter | Ideal | Realistic | Robust |
 |-----------|-------|-----------|--------|
-| Motor dynamics | Disabled | tau=200ms | tau=240ms |
+| Motor dynamics | Disabled | tau=50ms, range [30,80]ms | tau=60ms, range [20,100]ms |
 | Command delay | 0 steps | 1 step, range [0,2] | 1 step, range [0,4] |
-| Slew rate limit | infinity | 175-275 rad/s^2 per env (nominal 225) | 125-300 rad/s^2 per env |
+| Slew rate limit | infinity | 100 rad/s^2 | 80 rad/s^2 |
 | Control jitter | 0% | +/-5% | +/-10% |
 | IMU accel noise density | 0 | 0.0098 m/s^2/sqrtHz | 0.015 m/s^2/sqrtHz |
 | IMU gyro noise density | 0 | 0.00024 rad/s/sqrtHz | 0.00036 rad/s/sqrtHz |

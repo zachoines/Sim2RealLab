@@ -131,11 +131,11 @@ def test_scene_class_keeps_both_cameras_and_procroom_replication(cfg):
     """The bridge composes the enclosed perception scene; that class keeps both
     cameras and ProcRoom's per-env physics replication."""
     from strafer_lab.tasks.navigation.strafer_env_cfg import (
-        StraferSceneCfg_ProcRoomPerceptionEnriched,
+        StraferSceneCfg_ProcRoomPerceptionEnclosed,
     )
 
-    assert type(cfg.scene) is StraferSceneCfg_ProcRoomPerceptionEnriched
-    scene = StraferSceneCfg_ProcRoomPerceptionEnriched(num_envs=1, env_spacing=10.0)
+    assert type(cfg.scene) is StraferSceneCfg_ProcRoomPerceptionEnclosed
+    scene = StraferSceneCfg_ProcRoomPerceptionEnclosed(num_envs=1, env_spacing=10.0)
     # Both render the deploy resolution, so they are told apart by prim path,
     # not by size.
     assert scene.d555_camera.width == PERCEPTION_WIDTH

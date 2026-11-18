@@ -1,12 +1,14 @@
 # Copyright (c) 2025, Strafer Lab Project
 # SPDX-License-Identifier: BSD-3-Clause
 
-"""A failed sensor repeats its previous reading, as the deployed node does with a source that stops reporting.
+"""A failed sensor repeats its previous reading, as a held source does in the deployed node's cache.
 
 The IMU and encoder models, built from the composed robust cfg with their stuck rate raised, must re-emit the previous
 emitted reading bit for bit, never zeros; a reset forgets the previous reading, so an env's first step after one
 passes the current reading. The depth model has no failure mode: a failed frame is a dropped one, which repeats the
-previous frame and never reads all far. The composed cfgs carry the stated rates and none of the removed fields.
+previous frame and never reads all far. The composed cfgs carry the stated rates and none of the removed fields. The
+real tier's IMU and encoder models are pinned to main's bits, so an added random draw on that tier fails. (On the
+robot the IMU's two channels hold together, and the encoders with the body velocity; training draws them apart.)
 
 No Kit / GPU. Run with the pure-Python lab tests.
 """
@@ -15,12 +17,18 @@ from __future__ import annotations
 
 import dataclasses
 import functools
+import hashlib
 
 import pytest
 import torch
 
 N = 32
 ACC, GYR, ENC, DEPTH = "imu_linear_acceleration", "imu_angular_velocity", "wheel_encoder_velocities", "depth_image"
+
+
+@pytest.fixture(autouse=True)
+def _seeded():
+    torch.manual_seed(1)
 
 
 @functools.lru_cache(maxsize=None)
@@ -125,3 +133,30 @@ def test_the_removed_fields_are_gone():
     assert not failures & {"imu_failure_probability", "encoder_failure_probability"}
     assert {"imu_stuck_probability", "encoder_stuck_probability"} <= failures
     assert "hole_cluster_size" not in {f.name for f in dataclasses.fields(sim_real_cfg.DepthCameraNoiseCfg)}
+
+
+# The real tier's models over 40 steps with resets, and the RNG state after, as main's tree gives them.
+REAL_FINGERPRINTS = {
+    ACC: "db54579037b4b7dfd08f6e202731d1e7d02deaa1937468dba5ffec4f0a5e81fe",
+    GYR: "ebaf4fd31b20ea714c3a70885303f4c746e4ebecbb6f459975022f8098c3d4c3",
+    ENC: "819741b6b50fd10123ec59c40e661f39b78315837ed94baf013e340d43ab9ccc",
+}
+
+
+@pytest.mark.parametrize("term", [ACC, GYR, ENC])
+def test_the_real_tier_is_unchanged(term):
+    """The real tier takes no failure draw, so its noise is main's bit for bit; any added draw moves this."""
+    ncfg = _noise("Real", term)
+    torch.manual_seed(31)
+    model = ncfg.class_type(ncfg, 16, "cpu")
+    gen = torch.Generator().manual_seed(32)
+    torch.manual_seed(33)
+    width = {ACC: 3, GYR: 3, ENC: 4}[term]
+    rows = []
+    for k in range(40):
+        if k in (10, 25):
+            model.reset(torch.tensor([2, 7, 11]))
+        rows.append(model(0.5 + 4.0 * torch.rand(16, width, generator=gen)))
+    rows.append(torch.rand(4))
+    digest = hashlib.sha256(torch.cat([r.flatten() for r in rows]).numpy().tobytes()).hexdigest()
+    assert digest == REAL_FINGERPRINTS[term]

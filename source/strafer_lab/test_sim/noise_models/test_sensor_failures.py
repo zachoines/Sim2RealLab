@@ -3,10 +3,11 @@
 
 """Unit tests for sensor failure modes across all noise models.
 
-A failed IMU term or encoder repeats its previous reading (``stuck_probability``), as the deployed node does with a
-source that stops reporting; on an env's first step after a reset there is no previous reading and the current one
-passes. The depth model has no failure mode of its own: a failed frame is a dropped one, which repeats the previous
-frame. The RGB model returns a black frame (``failure_probability``); no registered ID observes RGB.
+A failed IMU term or encoder repeats its previous reading (``stuck_probability``), as a held source does in the
+deployed node's cache (each IMU term is drawn on its own, where the robot's one IMU message holds both); on an env's
+first step after a reset there is no previous reading and the current one passes. The rate cases are seeded, so a read
+is reproducible. The depth model has no failure mode of its own: a failed frame is a dropped one, which repeats the
+previous frame. The RGB model returns a black frame (``failure_probability``); no registered ID observes RGB.
 
 These tests validate:
 1. A stuck output equals the previous output bit for bit, and a reset forgets it.
@@ -95,6 +96,7 @@ def test_imu_reset_forgets_the_previous_reading():
 
 def test_imu_stuck_rate_matches_config():
     """Observed stuck rate should match stuck_probability (binomial test)."""
+    torch.manual_seed(7)
     model = _make_imu(stuck_prob=RATE_STUCK_PROB)
     stuck_count = 0
     total = 0
@@ -142,6 +144,7 @@ def test_encoder_stuck_returns_previous():
 
 def test_encoder_stuck_rate_matches_config():
     """Encoder stuck rate should match the configured probability."""
+    torch.manual_seed(7)
     model = _make_encoder(stuck_prob=RATE_STUCK_PROB)
     stuck_count = 0
     total = 0
@@ -211,6 +214,7 @@ def test_rgb_failure_returns_black():
 
 def test_rgb_failure_rate_matches_config():
     """RGB camera failure rate should match configured probability."""
+    torch.manual_seed(7)
     model = _make_rgb_with_failure(failure_prob=RATE_FAIL_PROB)
 
     n_pixels = DEPTH_HEIGHT * DEPTH_WIDTH

@@ -343,24 +343,23 @@ class RGBCameraNoiseCfg:
 
 @configclass 
 class SensorFailureCfg:
-    """Sensor failure modes for robustness training.
-    
-    Simulates catastrophic sensor failures to train robust policies.
-    """
+    """Sensor failure modes for robustness training: a sensor that stops reporting for a step."""
     
     enable_failures: bool = False
     """Enable random sensor failures."""
     
-    # A failed source repeats its previous reading, as the deployed node does with a source that stops reporting.
+    # A held source shows its previous reading, as the deployed node's cache does. Each IMU term is drawn on its own,
+    # where the robot's one IMU message holds both; the encoders are drawn apart from the body velocity, which the
+    # robot's odom holds with them.
     imu_stuck_probability: float = 0.0001
     """Probability per step that an IMU term repeats its previous reading."""
 
     encoder_stuck_probability: float = 0.0001
     """Probability per step that the encoders repeat their previous reading."""
 
-    # A failed depth frame is a dropped one (the depth camera's frame_drop_probability), which repeats the previous.
     camera_failure_probability: float = 0.001
-    """Probability per step of an RGB camera failure (a black frame). No registered ID observes RGB."""
+    """Probability per step of an RGB camera failure (a black frame). No registered ID observes RGB. A failed depth
+    frame is a dropped one instead (the depth camera's frame_drop_probability), which repeats the previous frame."""
 
 
 # =============================================================================
@@ -677,7 +676,7 @@ def create_robust_training_contract() -> SimRealContractCfg:
             ),
             failures=SensorFailureCfg(
                 enable_failures=True,
-                # 1e-4 stuck and 1e-4 failed, each now a repeat of the previous reading
+                # Two causes of a held IMU reading, 1e-4 each
                 imu_stuck_probability=0.0002,
                 encoder_stuck_probability=0.0001,
                 camera_failure_probability=0.001,

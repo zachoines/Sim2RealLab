@@ -73,7 +73,10 @@ def test_a_reset_forgets_the_previous_reading(term):
 
 @pytest.mark.parametrize("term", [ACC, ENC])
 def test_the_draw_is_per_env_and_holds_the_whole_reading(term):
-    model = _model("Robust", term, stuck_probability=0.5, latency_steps=0)
+    # Quantization off: a fresh encoder reading rounded to whole ticks can match the previous one in a component by
+    # chance, which would read as a partly held row.
+    extra = {"enable_quantization": False} if term == ENC else {}
+    model = _model("Robust", term, stuck_probability=0.5, latency_steps=0, **extra)
     gen = torch.Generator().manual_seed(7)
     prev = model(_reading(term, gen))
     stuck_rows = fresh_rows = 0

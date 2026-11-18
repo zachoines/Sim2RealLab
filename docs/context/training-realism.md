@@ -57,7 +57,7 @@ IMU noise and bias are 1.5× the realistic tier's.
 | [Re-render after reset](../../source/strafer_lab/strafer_lab/tasks/navigation/composed_env_cfg.py#L577) | 1 on every stack that reads a camera, 0 on the camera-free stack | same | same | a fresh frame at an episode's start | design |
 | [Mount misalignment](../../source/strafer_lab/strafer_lab/tasks/navigation/mdp/events.py#L505) | off | ±1° per axis per reset, shared by the IMU readings and the rendered camera | ±3° | the D555's mounting tolerance | design |
 | [Subgoal-frame drift](../../source/strafer_lab/strafer_lab/tasks/navigation/mdp/events.py#L407) | off | gain U(0, 0.5) per env × 0.166 m RMS and 6.7° heading, correlation time 2 s | same | the SLAM map frame drifting under the subgoal | the RMS and heading measured on the sim-in-the-loop rig's SLAM, not on the robot; the gain band and τ are design |
-| [Path and lookahead](../../source/strafer_lab/strafer_lab/tasks/navigation/mdp/commands.py#L522) | the goal objective has none | waypoint noise 0.025 m; lookahead U(0.9, 1.1) m | U(0.7, 1.3) m | the deployed planner's path and lookahead | design |
+| [Path and lookahead](../../source/strafer_lab/strafer_lab/tasks/navigation/mdp/commands.py#L656) | the goal objective has none | waypoint noise 0.025 m; lookahead U(0.9, 1.1) m | U(0.7, 1.3) m | the deployed planner's path and lookahead | design |
 
 Not applied on any tier: RGB noise (no registered ID observes RGB), depth quantization and temporal noise, lens
 distortion, body-velocity noise, wheel-odometry drift and TF staleness. Declared, not applied: the contract's IMU

@@ -60,6 +60,8 @@ from .noise_models import (
     IMUNoiseModelCfg,
     EncoderNoiseModel,
     EncoderNoiseModelCfg,
+    BodyVelocityNoiseModel,
+    BodyVelocityNoiseModelCfg,
     ReportedSpeedLag,
     DepthNoiseModel,
     DepthNoiseModelCfg,

@@ -587,16 +587,10 @@ def body_velocity_xy(env: ManagerBasedEnv) -> torch.Tensor:
     biased toward sim ground truth.
 
     Encoder noise: this function returns the clean FK of the raw joint
-    velocity tensor. The ``wheel_encoder_velocities`` policy obs term
-    applies its ``noise=`` (an ``EncoderNoiseModel``) via Isaac Lab's
-    obs-manager AFTER the function returns, so that noise sample does
-    NOT propagate into ``body_velocity_xy``. The two policy-side terms
-    therefore see independent encoder noise channels even though both
-    are derived from the same upstream joint velocities. On the real
-    robot encoder noise and odom noise are the SAME physical noise
-    (one signal chain); closing that gap requires a per-tick noised-
-    ticks cache plus a policy/critic obs-function split, tracked as a
-    separate follow-up.
+    velocity tensor, which the critic reads. On the policy side its
+    ``noise=`` is a ``BodyVelocityNoiseModel``, which replaces it with the
+    FK of the encoder term's noised reading of the same control step, so
+    the two terms carry one noise chain, as on the robot.
 
     Args:
         env: The environment instance.

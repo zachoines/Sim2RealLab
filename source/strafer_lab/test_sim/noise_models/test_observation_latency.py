@@ -69,8 +69,6 @@ def _make_encoder(latency_steps: int = 0) -> EncoderNoiseModel:
         enable_quantization=False,
         velocity_noise_std=0.0,
         max_velocity=3000.0,
-        missed_tick_prob=0.0,
-        extra_tick_prob=0.0,
         latency_steps=latency_steps,
         output_size=4,
     )

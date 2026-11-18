@@ -7,8 +7,9 @@ The IMU and encoder models, built from the composed robust cfg with their stuck 
 emitted reading bit for bit, never zeros; a reset forgets the previous reading, so an env's first step after one
 passes the current reading. The depth model has no failure mode: a failed frame is a dropped one, which repeats the
 previous frame and never reads all far. The composed cfgs carry the stated rates and none of the removed fields. The
-real tier's IMU and encoder models are pinned to main's bits, so an added random draw on that tier fails. (On the
-robot the IMU's two channels hold together, and the encoders with the body velocity; training draws them apart.)
+real tier's IMU and encoder models are pinned bit for bit, so an added random draw on that tier fails. (On the
+robot the IMU's two channels hold together, where training draws them apart; the encoders and the body velocity are
+one reading in both.)
 
 No Kit / GPU. Run with the pure-Python lab tests.
 """
@@ -135,17 +136,18 @@ def test_the_removed_fields_are_gone():
     assert "hole_cluster_size" not in {f.name for f in dataclasses.fields(sim_real_cfg.DepthCameraNoiseCfg)}
 
 
-# The real tier's models over 40 steps with resets, and the RNG state after, as main's tree gives them.
+# The real tier's models over 40 steps with resets, and the RNG state after. The IMU's are main's; the encoders' are
+# the model without its tick errors, which the shared wheel reading removed.
 REAL_FINGERPRINTS = {
     ACC: "db54579037b4b7dfd08f6e202731d1e7d02deaa1937468dba5ffec4f0a5e81fe",
     GYR: "ebaf4fd31b20ea714c3a70885303f4c746e4ebecbb6f459975022f8098c3d4c3",
-    ENC: "819741b6b50fd10123ec59c40e661f39b78315837ed94baf013e340d43ab9ccc",
+    ENC: "2080ec6f506f789d4f49aac076dd3e0936d78a8b9369aa56a78ce03e6bd4d1a4",
 }
 
 
 @pytest.mark.parametrize("term", [ACC, GYR, ENC])
 def test_the_real_tier_is_unchanged(term):
-    """The real tier takes no failure draw, so its noise is main's bit for bit; any added draw moves this."""
+    """The real tier takes no failure draw, so its noise is pinned bit for bit; any added draw moves this."""
     ncfg = _noise("Real", term)
     torch.manual_seed(31)
     model = ncfg.class_type(ncfg, 16, "cpu")

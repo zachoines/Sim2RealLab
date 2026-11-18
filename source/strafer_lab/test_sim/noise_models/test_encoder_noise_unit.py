@@ -20,7 +20,6 @@ import numpy as np
 from test_sim.common import (
     CONFIDENCE_LEVEL,
     chi_squared_variance_test,
-    binomial_test,
     DEVICE,
 )
 
@@ -39,8 +38,6 @@ N_ENVS = 32
 
 TEST_VEL_NOISE_FRACTION = 0.02
 TEST_MAX_VELOCITY = 3000.0
-TEST_TICKS_PER_RADIAN = 85.57
-TEST_MISSED_TICK_PROB = 0.02  # Elevated for testability
 
 
 # =============================================================================
@@ -60,9 +57,6 @@ def test_velocity_noise_std():
         velocity_noise_std=TEST_VEL_NOISE_FRACTION,
         max_velocity=TEST_MAX_VELOCITY,
         enable_quantization=False,
-        ticks_per_radian=TEST_TICKS_PER_RADIAN,
-        missed_tick_prob=0.0,
-        extra_tick_prob=0.0,
         output_size=4,
         latency_steps=0,
     )
@@ -103,9 +97,6 @@ def test_quantization_produces_integers():
         velocity_noise_std=TEST_VEL_NOISE_FRACTION,
         max_velocity=TEST_MAX_VELOCITY,
         enable_quantization=True,
-        ticks_per_radian=TEST_TICKS_PER_RADIAN,
-        missed_tick_prob=0.0,
-        extra_tick_prob=0.0,
         output_size=4,
         latency_steps=0,
     )
@@ -124,50 +115,4 @@ def test_quantization_produces_integers():
 
     assert max_residual < 1e-5, (
         f"Quantization did not produce integers: max residual = {max_residual:.8f}"
-    )
-
-
-def test_missed_tick_probability():
-    """Verify missed tick rate matches configured probability.
-
-    Uses binomial test to verify the proportion of samples where the
-    output differs from expected (input + noise, without quantization)
-    by exactly ±1 tick (missed or extra tick).
-    """
-    cfg = EncoderNoiseModelCfg(
-        velocity_noise_std=0.0,  # No Gaussian noise
-        max_velocity=TEST_MAX_VELOCITY,
-        enable_quantization=False,
-        ticks_per_radian=TEST_TICKS_PER_RADIAN,
-        missed_tick_prob=TEST_MISSED_TICK_PROB,
-        extra_tick_prob=0.0,  # Only test missed ticks
-        output_size=4,
-        latency_steps=0,
-    )
-    model = EncoderNoiseModel(cfg, N_ENVS, DEVICE)
-
-    # Constant input — any deviation is a missed tick
-    clean = torch.full((N_ENVS, 4), 500.0, device=DEVICE)
-
-    n_total = 0
-    n_missed = 0
-    for _ in range(N_SAMPLES):
-        noisy = model(clean.clone())
-        diff = (noisy - clean).abs()
-        # Missed tick → output changed by any amount
-        n_missed += int((diff > 0.5).sum().item())
-        n_total += N_ENVS * 4
-
-    result = binomial_test(n_missed, n_total, TEST_MISSED_TICK_PROB, confidence_level=0.99)
-
-    print(f"\n  Missed tick probability test:")
-    print(f"    Expected rate: {TEST_MISSED_TICK_PROB:.4f}")
-    print(f"    Observed rate: {n_missed / n_total:.4f}")
-    print(f"    n_total: {n_total}")
-    print(f"    Binomial p-value: {result.p_value:.4f}")
-
-    assert not result.reject_null, (
-        f"Missed tick rate doesn't match config. "
-        f"Expected {TEST_MISSED_TICK_PROB:.4f}, got {n_missed / n_total:.4f} "
-        f"(p={result.p_value:.4f})"
     )

@@ -435,10 +435,14 @@ def _():
             return OFF
         assert e.enable_quantization
         assert e.reported_speed_lag_s == 0.0, t  # the row says the lag is off
+        body = _noise(t, "body_velocity_xy")
+        assert type(body).__name__ == "BodyVelocityNoiseModelCfg", t  # the body velocity is this reading's kinematics
+        terms = list(vars(_c(t).observations.policy))
+        assert terms.index(ENC) < terms.index("body_velocity_xy"), t  # built after the encoder model it reads
         if t == "real":
-            return [e.velocity_noise_std, e.max_velocity, e.missed_tick_prob, e.extra_tick_prob]
+            return [e.velocity_noise_std, e.max_velocity]
         assert e.max_velocity == _noise("real", ENC).max_velocity
-        return [e.velocity_noise_std, e.missed_tick_prob, e.extra_tick_prob]
+        return [e.velocity_noise_std]
     return {**_tiers(cell), "models": [], "basis": []}
 
 
@@ -813,12 +817,12 @@ NOISE_FIELDS = {
         "stuck_probability": "Sensor dropouts", "latency_steps": "IMU and encoder latency"},
     "EncoderNoiseModelCfg": {
         "class_type": CHECKED, "func": STRUCTURAL, "noise_cfg": STRUCTURAL, "output_size": STRUCTURAL,
-        "enable_quantization": "Wheel encoder noise", "ticks_per_radian": NOT_APPLIED,
-        "velocity_noise_std": "Wheel encoder noise", "max_velocity": "Wheel encoder noise",
-        "missed_tick_prob": "Wheel encoder noise", "extra_tick_prob": "Wheel encoder noise",
+        "enable_quantization": "Wheel encoder noise",
         "reported_speed_form": "Wheel encoder noise", "reported_speed_lag_s": "Wheel encoder noise",
+        "velocity_noise_std": "Wheel encoder noise", "max_velocity": "Wheel encoder noise",
         "control_frequency_hz": "Wheel encoder noise",
         "stuck_probability": "Sensor dropouts", "latency_steps": "IMU and encoder latency"},
+    "BodyVelocityNoiseModelCfg": {"class_type": CHECKED, "func": STRUCTURAL, "noise_cfg": STRUCTURAL},
     "DepthNoiseModelCfg": {
         "class_type": CHECKED, "func": STRUCTURAL, "noise_cfg": STRUCTURAL, "baseline_m": "Depth disparity noise",
         "focal_length_px": "Depth disparity noise", "disparity_noise_px": "Depth disparity noise",
@@ -831,8 +835,10 @@ NOISE_FIELDS = {
         "latency_steps": "Depth latency", "latency_steps_range": "Depth latency"},
 }
 NOISY_TERMS = {ACC: "IMUNoiseModelCfg", GYR: "IMUNoiseModelCfg", ENC: "EncoderNoiseModelCfg",
+               "body_velocity_xy": "BodyVelocityNoiseModelCfg",
                DEPTH: "DepthNoiseModelCfg"}
 NOISE_MODELS = {"IMUNoiseModelCfg": "IMUNoiseModel", "EncoderNoiseModelCfg": "EncoderNoiseModel",
+                "BodyVelocityNoiseModelCfg": "BodyVelocityNoiseModel",
                 "DepthNoiseModelCfg": "DepthNoiseModel"}
 SENSOR_TYPES = {ACC: "accel", GYR: "gyro"}
 
@@ -917,7 +923,7 @@ def test_every_noise_field_is_documented():
                 assert noise.too_close_fill == "near", name
 
 
-DECLARED_NOT_APPLIED = {"EncoderNoiseCfg.velocity_quantization_ticks_per_step"}
+DECLARED_NOT_APPLIED = set()
 RGB_NOT_APPLIED = "RGBCameraNoiseCfg."  # "Not applied on any tier: RGB noise (no registered ID observes RGB)"
 
 
@@ -959,12 +965,11 @@ ANCHORS = {
     "events.py#L401": "def randomize_motor_strength", "events.py#L452": "def randomize_d555_mount_offset",
     "events.py#L354": "def randomize_subgoal_drift", "events.py#L170": "def randomize_friction",
     "events.py#L305": "def randomize_mass", "events.py#L569": "def reset_robot_proc_room",
-    "noise_models.py#L184": "class IMUNoiseModel(", "noise_models.py#L344": "class EncoderNoiseModel(",
-    "noise_models.py#L493": "class DepthNoiseModel(",
+    "noise_models.py#L185": "class IMUNoiseModel(", "noise_models.py#L345": "class EncoderNoiseModel(",
+    "noise_models.py#L471": "class DepthNoiseModel(",
     "observations.py#L45": "def reduce_depth_to_policy_grid", "d555_cfg.py#L145": "focal_length=",
     "composed_env_cfg.py#L572": "num_rerenders_on_reset = 1", "commands.py#L668": "perturb_waypoints(",
-    "proc_room.py#L981": "def generate_proc_room", "sim_real_cfg.py#L699": "IDEAL_SIM_CONTRACT",
-    "sim_real_cfg.py#L225": "velocity_quantization_ticks_per_step",
+    "proc_room.py#L981": "def generate_proc_room", "sim_real_cfg.py#L687": "IDEAL_SIM_CONTRACT",
 }
 
 

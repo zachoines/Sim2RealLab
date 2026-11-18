@@ -59,6 +59,7 @@ from .sim_real_cfg import (
     ROBUST_TRAINING_CONTRACT,
     get_imu_accel_noise,
     get_imu_gyro_noise,
+    get_body_velocity_noise,
     get_encoder_noise,
     get_depth_noise,
     get_rgb_noise,
@@ -617,6 +618,7 @@ class ObsCfg_NoCam_Ideal:
 _REAL_ACCEL_NOISE = get_imu_accel_noise(REAL_ROBOT_CONTRACT)
 _REAL_GYRO_NOISE = get_imu_gyro_noise(REAL_ROBOT_CONTRACT)
 _REAL_ENCODER_NOISE = get_encoder_noise(REAL_ROBOT_CONTRACT)
+_REAL_BODY_VEL_NOISE = get_body_velocity_noise(REAL_ROBOT_CONTRACT)
 _REAL_DEPTH_NOISE = get_depth_noise(REAL_ROBOT_CONTRACT)
 _REAL_RGB_NOISE = get_rgb_noise(REAL_ROBOT_CONTRACT)
 
@@ -632,7 +634,7 @@ class ObsCfg_Full_Realistic:
         goal_position = ObsTerm(func=mdp.goal_position_relative, params={"command_name": "goal_command"}, scale=_GOAL_DIST_SCALE)
         goal_distance = ObsTerm(func=mdp.goal_distance, params={"command_name": "goal_command"}, scale=_GOAL_DIST_SCALE)
         goal_heading_to_goal = ObsTerm(func=mdp.goal_heading_to_goal, params={"command_name": "goal_command"}, scale=_HEADING_SCALE)
-        body_velocity_xy = ObsTerm(func=mdp.body_velocity_xy, scale=_BODY_VEL_SCALE)
+        body_velocity_xy = ObsTerm(func=mdp.body_velocity_xy, noise=_REAL_BODY_VEL_NOISE, scale=_BODY_VEL_SCALE)
         last_action = ObsTerm(func=mdp.last_action)
         depth_image = ObsTerm(func=mdp.depth_image, params=_DEPTH_PARAMS, noise=_REAL_DEPTH_NOISE, scale=_DEPTH_SCALE)
         rgb_image = ObsTerm(func=mdp.rgb_image, params=_RGB_PARAMS, noise=_REAL_RGB_NOISE)
@@ -671,7 +673,7 @@ class ObsCfg_Depth_Realistic:
         goal_position = ObsTerm(func=mdp.goal_position_relative, params={"command_name": "goal_command"}, scale=_GOAL_DIST_SCALE)
         goal_distance = ObsTerm(func=mdp.goal_distance, params={"command_name": "goal_command"}, scale=_GOAL_DIST_SCALE)
         goal_heading_to_goal = ObsTerm(func=mdp.goal_heading_to_goal, params={"command_name": "goal_command"}, scale=_HEADING_SCALE)
-        body_velocity_xy = ObsTerm(func=mdp.body_velocity_xy, scale=_BODY_VEL_SCALE)
+        body_velocity_xy = ObsTerm(func=mdp.body_velocity_xy, noise=_REAL_BODY_VEL_NOISE, scale=_BODY_VEL_SCALE)
         last_action = ObsTerm(func=mdp.last_action)
         depth_image = ObsTerm(func=mdp.depth_image, params=_DEPTH_PARAMS, noise=_REAL_DEPTH_NOISE, scale=_DEPTH_SCALE)
         def __post_init__(self):
@@ -708,7 +710,7 @@ class ObsCfg_NoCam_Realistic:
         goal_position = ObsTerm(func=mdp.goal_position_relative, params={"command_name": "goal_command"}, scale=_GOAL_DIST_SCALE)
         goal_distance = ObsTerm(func=mdp.goal_distance, params={"command_name": "goal_command"}, scale=_GOAL_DIST_SCALE)
         goal_heading_to_goal = ObsTerm(func=mdp.goal_heading_to_goal, params={"command_name": "goal_command"}, scale=_HEADING_SCALE)
-        body_velocity_xy = ObsTerm(func=mdp.body_velocity_xy, scale=_BODY_VEL_SCALE)
+        body_velocity_xy = ObsTerm(func=mdp.body_velocity_xy, noise=_REAL_BODY_VEL_NOISE, scale=_BODY_VEL_SCALE)
         last_action = ObsTerm(func=mdp.last_action)
         def __post_init__(self):
             self.enable_corruption = True
@@ -740,6 +742,7 @@ class ObsCfg_NoCam_Realistic:
 _ROBUST_ACCEL_NOISE = get_imu_accel_noise(ROBUST_TRAINING_CONTRACT)
 _ROBUST_GYRO_NOISE = get_imu_gyro_noise(ROBUST_TRAINING_CONTRACT)
 _ROBUST_ENCODER_NOISE = get_encoder_noise(ROBUST_TRAINING_CONTRACT)
+_ROBUST_BODY_VEL_NOISE = get_body_velocity_noise(ROBUST_TRAINING_CONTRACT)
 _ROBUST_DEPTH_NOISE = get_depth_noise(ROBUST_TRAINING_CONTRACT)
 _ROBUST_RGB_NOISE = get_rgb_noise(ROBUST_TRAINING_CONTRACT)
 
@@ -755,7 +758,7 @@ class ObsCfg_Full_Robust:
         goal_position = ObsTerm(func=mdp.goal_position_relative, params={"command_name": "goal_command"}, scale=_GOAL_DIST_SCALE)
         goal_distance = ObsTerm(func=mdp.goal_distance, params={"command_name": "goal_command"}, scale=_GOAL_DIST_SCALE)
         goal_heading_to_goal = ObsTerm(func=mdp.goal_heading_to_goal, params={"command_name": "goal_command"}, scale=_HEADING_SCALE)
-        body_velocity_xy = ObsTerm(func=mdp.body_velocity_xy, scale=_BODY_VEL_SCALE)
+        body_velocity_xy = ObsTerm(func=mdp.body_velocity_xy, noise=_ROBUST_BODY_VEL_NOISE, scale=_BODY_VEL_SCALE)
         last_action = ObsTerm(func=mdp.last_action)
         depth_image = ObsTerm(func=mdp.depth_image, params=_DEPTH_PARAMS, noise=_ROBUST_DEPTH_NOISE, scale=_DEPTH_SCALE)
         rgb_image = ObsTerm(func=mdp.rgb_image, params=_RGB_PARAMS, noise=_ROBUST_RGB_NOISE)
@@ -794,7 +797,7 @@ class ObsCfg_Depth_Robust:
         goal_position = ObsTerm(func=mdp.goal_position_relative, params={"command_name": "goal_command"}, scale=_GOAL_DIST_SCALE)
         goal_distance = ObsTerm(func=mdp.goal_distance, params={"command_name": "goal_command"}, scale=_GOAL_DIST_SCALE)
         goal_heading_to_goal = ObsTerm(func=mdp.goal_heading_to_goal, params={"command_name": "goal_command"}, scale=_HEADING_SCALE)
-        body_velocity_xy = ObsTerm(func=mdp.body_velocity_xy, scale=_BODY_VEL_SCALE)
+        body_velocity_xy = ObsTerm(func=mdp.body_velocity_xy, noise=_ROBUST_BODY_VEL_NOISE, scale=_BODY_VEL_SCALE)
         last_action = ObsTerm(func=mdp.last_action)
         depth_image = ObsTerm(func=mdp.depth_image, params=_DEPTH_PARAMS, noise=_ROBUST_DEPTH_NOISE, scale=_DEPTH_SCALE)
         def __post_init__(self):
@@ -831,7 +834,7 @@ class ObsCfg_NoCam_Robust:
         goal_position = ObsTerm(func=mdp.goal_position_relative, params={"command_name": "goal_command"}, scale=_GOAL_DIST_SCALE)
         goal_distance = ObsTerm(func=mdp.goal_distance, params={"command_name": "goal_command"}, scale=_GOAL_DIST_SCALE)
         goal_heading_to_goal = ObsTerm(func=mdp.goal_heading_to_goal, params={"command_name": "goal_command"}, scale=_HEADING_SCALE)
-        body_velocity_xy = ObsTerm(func=mdp.body_velocity_xy, scale=_BODY_VEL_SCALE)
+        body_velocity_xy = ObsTerm(func=mdp.body_velocity_xy, noise=_ROBUST_BODY_VEL_NOISE, scale=_BODY_VEL_SCALE)
         last_action = ObsTerm(func=mdp.last_action)
         def __post_init__(self):
             self.enable_corruption = True

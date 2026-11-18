@@ -1,12 +1,14 @@
 # Copyright (c) 2025, Strafer Lab Project
 # SPDX-License-Identifier: BSD-3-Clause
 
-"""The reported speed's lag in the encoder noise model: three forms, a parameter in seconds, off at 0.
+"""The policy's encoder and body-velocity terms carry one wheel-speed reading per control step.
 
-On the robot the wheel speed in ``joint_states`` and odom is the motor controller's reported speed, which trails the
-wheel. The encoder noise model applies that lag before its noise, in one of three forms (a first-order filter, a pure
-delay, a moving average); the parameter is in seconds, converted at the control step, so it means the same at any
-decimation; 0, the default, is the identity.
+On the robot ``joint_states`` and odom carry the same reported wheel speeds, so their noise is one chain. In training
+the policy's ``wheel_encoder_velocities`` term keeps its ``EncoderNoiseModel``, which applies the reported speed's lag
+and then the noise and keeps its output; the ``body_velocity_xy`` term's ``BodyVelocityNoiseModel``, built after it in
+the same group, returns the mecanum kinematics of that output. The terms' functions and the critic stay clean, so the
+policy tensor's layout is unchanged. The lag's three forms (a first-order filter, a pure delay, a moving average) take
+their parameter in seconds; 0 is the identity.
 
 No Kit / GPU. Run with the pure-Python lab tests.
 """
@@ -20,22 +22,99 @@ import pytest
 import torch
 
 N = 64
-ENC = "wheel_encoder_velocities"
+ENC, BODY = "wheel_encoder_velocities", "body_velocity_xy"
+
+
+CLASSES = [f"StraferNavCfg_{obj}_{tier}{play}" for obj in ("RLDepthSubgoal", "RLNoCamSubgoal", "RLDepth")
+           for tier in ("Real", "Robust") for play in ("", "_PLAY")]
 
 
 @functools.lru_cache(maxsize=None)
-def _cfg(tier):
+def _composed():
     from strafer_lab.tasks.navigation import composed_env_cfg as composed
 
-    return getattr(composed, f"StraferNavCfg_RLDepthSubgoal_{tier}")()
+    return {n: getattr(composed, n)() for n in CLASSES}
 
 
-def _encoder(tier="Real", num_envs=N, **overrides):
-    """The tier's policy encoder noise model, with overrides."""
-    enc_cfg = getattr(_cfg(tier).observations.policy, ENC).noise.copy()
+def _cfg(tier):
+    return _composed()[f"StraferNavCfg_RLDepthSubgoal_{tier}"]
+
+
+def _pair(tier="Real", num_envs=N, **overrides):
+    """The tier's encoder model and the body-velocity model built after it, as the observation manager builds them."""
+    policy = _cfg(tier).observations.policy
+    enc_cfg = getattr(policy, ENC).noise.copy()
     for k, v in overrides.items():
         setattr(enc_cfg, k, v)
-    return enc_cfg.class_type(enc_cfg, num_envs, "cpu")
+    body_cfg = getattr(policy, BODY).noise
+    enc = enc_cfg.class_type(enc_cfg, num_envs, "cpu")
+    body = body_cfg.class_type(body_cfg, num_envs, "cpu")
+    return enc, body
+
+
+def _fk(ticks):
+    from strafer_lab.tasks.navigation.mdp import observations as o
+
+    return o._get_inverse_kinematic_matrix_torch(ticks.device, ticks.dtype), o.ENCODER_TICKS_TO_RADIANS
+
+
+@pytest.mark.parametrize("tier", ["Real", "Robust"])
+def test_the_body_velocity_is_the_kinematics_of_the_same_encoder_reading(tier):
+    from strafer_lab.tasks.navigation.mdp import observations as o
+
+    enc, body = _pair(tier)
+    gen = torch.Generator().manual_seed(1)
+    for k in range(25):
+        rad = 30.0 * torch.rand(N, 4, generator=gen) - 15.0
+        ticks = rad * o.RADIANS_TO_ENCODER_TICKS
+        noisy = enc(ticks)
+        clean_body = (rad @ o._get_inverse_kinematic_matrix_torch(rad.device, rad.dtype).T)[:, :2]
+        out = body(clean_body)
+        inv, k_rad = _fk(noisy)
+        assert torch.allclose(out, ((noisy * k_rad) @ inv.T)[:, :2], atol=1e-6), (tier, k)  # one chain, not two
+        if k == 12:
+            enc.reset(torch.tensor([3, 9]))
+            body.reset(torch.tensor([3, 9]))
+
+
+def test_a_body_velocity_model_needs_an_encoder_model_before_it():
+    from strafer_lab.tasks.navigation.mdp import noise_models as nm
+
+    nm._OFFERED_WHEEL_READING.clear()
+    cfg = nm.BodyVelocityNoiseModelCfg()
+    with pytest.raises(RuntimeError):
+        cfg.class_type(cfg, N, "cpu")
+    _pair()  # an encoder model then a body model: builds
+    with pytest.raises(RuntimeError):  # the offer is taken once
+        cfg.class_type(cfg, N, "cpu")
+
+
+def test_the_noise_is_applied_once_at_the_tiers_sigma():
+    torch.manual_seed(2)
+    for tier, sigma in (("Real", 60.0), ("Robust", 150.0)):
+        enc, _ = _pair(tier, num_envs=512, latency_steps=0, stuck_probability=0.0)
+        clean = torch.full((512, 4), 800.0)
+        residuals = torch.cat([enc(clean) - clean for _ in range(20)])
+        assert float(residuals.std()) == pytest.approx(math.sqrt(sigma ** 2 + 1.0 / 12.0), rel=0.03), tier
+
+
+def test_the_composed_groups_pair_the_two_models_and_leave_the_critic_clean():
+    from strafer_lab.tasks.navigation.mdp import noise_models as nm
+
+    for name, cfg in _composed().items():
+        policy = getattr(cfg.observations, "policy", None)
+        if policy is None or not hasattr(policy, BODY):
+            continue
+        enc, body = getattr(policy, ENC).noise, getattr(policy, BODY).noise
+        assert (enc is None) == (body is None), name  # paired, or both off
+        if body is not None:
+            assert isinstance(enc, nm.EncoderNoiseModelCfg) and isinstance(body, nm.BodyVelocityNoiseModelCfg), name
+            terms = list(vars(policy))
+            assert terms.index(ENC) < terms.index(BODY), name
+        critic = getattr(cfg.observations, "critic", None)
+        for term in (ENC, BODY):
+            if critic is not None and hasattr(critic, term):
+                assert getattr(critic, term).noise is None, (name, term)
 
 
 def _lagged(form, lag_s, steps=40, hz=30.0):
@@ -82,8 +161,8 @@ def test_every_form_at_zero_is_the_identity(form):
 
 
 def test_a_reset_seeds_the_lag_from_the_wheels_speed():
-    enc = _encoder(velocity_noise_std=0.0, enable_quantization=False, latency_steps=0, stuck_probability=0.0,
-                   missed_tick_prob=0.0, extra_tick_prob=0.0, reported_speed_lag_s=0.5)
+    enc, _ = _pair(velocity_noise_std=0.0, enable_quantization=False, latency_steps=0, stuck_probability=0.0,
+                   reported_speed_lag_s=0.5)
     first = enc(torch.full((N, 4), 900.0))
     assert torch.allclose(first, torch.full((N, 4), 900.0))  # seeded at the first reading, not rising from zero
     enc.reset(torch.tensor([7]))

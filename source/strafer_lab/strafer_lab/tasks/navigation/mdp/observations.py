@@ -31,6 +31,7 @@ from strafer_shared.constants import (
 )
 from strafer_shared.mecanum_kinematics import INVERSE_KINEMATIC_MATRIX
 
+from .d555_sensor import sensor_frame
 from .subgoal_drift import drift_referent
 
 # XYZW quaternion component indices (Isaac Lab 3.0 convention)
@@ -693,6 +694,7 @@ def depth_image(
     max_depth: float = DEPTH_MAX,
     nearfield_clip: float = DEPTH_MIN,
     nearfield_fill: float = DEPTH_NEARFIELD_FILL,
+    perceived: bool = True,
 ) -> torch.Tensor:
     """Get flattened depth image from D555 camera in RAW meters.
 
@@ -724,6 +726,11 @@ def depth_image(
         nearfield_clip: Distance (m) below which depth is unreliable (D555 min range).
         nearfield_fill: Replacement value (m) for nearfield pixels. Should be small
             but nonzero so the policy distinguishes "close object" from "nothing".
+        perceived: Read the frame through the D555's stereo validity where the env
+            has a sensor process (``mdp.d555_sensor``): its invalid pixels are
+            written as the far clamp before the block median, as the deploy node
+            writes them. The privileged critic passes False and reads the clean
+            render.
 
     Returns:
         Flattened depth image in meters. Shape: (num_envs, height * width)
@@ -740,6 +747,16 @@ def depth_image(
         torch.full_like(depth, max_depth),
         depth
     )
+
+    # The sensor's invalid pixels, at render resolution, before the reduction
+    process = getattr(env, "_d555_sensor", None)
+    if perceived and process is not None:
+        if tuple(depth.shape[1:3]) != (PERCEPTION_HEIGHT, PERCEPTION_WIDTH):
+            raise ValueError(
+                f"the stereo validity is computed at {PERCEPTION_HEIGHT}x{PERCEPTION_WIDTH}; "
+                f"the camera renders {depth.shape[1]}x{depth.shape[2]}"
+            )
+        depth, _ = sensor_frame(depth, process)
 
     # Ordered as obs_pipeline.downsample_depth has it: after the non-finite
     # rescue, before the nearfield fill.

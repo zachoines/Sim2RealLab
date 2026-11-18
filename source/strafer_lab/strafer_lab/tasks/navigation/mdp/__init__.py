@@ -75,6 +75,7 @@ from .noise_models import (
 from .subgoal_drift import SubgoalDriftProcess, drift_referent
 from .tf_age import TfAgeProcess
 from .sensor_outage import OutageProcess, current_outage
+from .d555_sensor import D555SensorCfg, D555SensorProcess, sensor_frame, stereo_validity
 
 # Custom actions
 from .actions import MecanumWheelActionCfg
@@ -123,6 +124,7 @@ from .events import (
     randomize_wheel_grip,
     randomize_tf_age,
     randomize_sensor_outages,
+    randomize_d555_sensor,
     randomize_obstacles,
     randomize_mass,
     randomize_subgoal_drift,

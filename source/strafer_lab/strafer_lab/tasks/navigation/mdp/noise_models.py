@@ -735,6 +735,9 @@ class DepthNoiseModel(NoiseModel):
         coeff = (self._stereo_coeff if self._env_coeff is None
                  else self._env_coeff.to(noisy_data.dtype))
         noise_std = noisy_data.square() * coeff
+        if self.cfg.noise_free_at_max_range:
+            # A cell at the clamp is the sensor's invalid reading, not a measured depth
+            noise_std = torch.where(noisy_data >= max_range, torch.zeros_like(noise_std), noise_std)
         depth_noise = torch.randn_like(noisy_data) * noise_std
         noisy_data = noisy_data + depth_noise
 
@@ -769,13 +772,13 @@ class DepthNoiseModel(NoiseModel):
                 held = held & self._has_prev_frame
                 noisy_data[held] = self._prev_frame[held]
 
-        # Store for next frame
         # A depth source in an outage repeats its previous frame
         outage = current_outage(self._num_envs, self._device)
         if outage is not None and self._prev_frame is not None:
             out = outage.stale("depth") & self._has_prev_frame
             noisy_data[out] = self._prev_frame[out]
 
+        # Store for next frame
         self._prev_frame = noisy_data.clone()
         self._has_prev_frame.fill_(True)
 
@@ -831,6 +834,11 @@ class DepthNoiseModelCfg(NoiseModelCfg):
     """Per-env subpixel disparity noise band [min, max], drawn log-uniformly at
     reset. Both ends must be positive. None keeps the fixed
     ``disparity_noise_px`` for every env."""
+
+    noise_free_at_max_range: bool = False
+    """Leave cells at ``max_range`` without disparity noise: where the stereo
+    validity writes its invalid pixels as the far clamp, a cell there is no
+    measured depth. The normal draws are the same either way."""
 
     # Holes (invalid pixels from stereo matching failures)
     hole_probability: float = 0.01

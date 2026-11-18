@@ -843,7 +843,8 @@ NOISE_FIELDS = {
     "DepthNoiseModelCfg": {
         "class_type": CHECKED, "func": STRUCTURAL, "noise_cfg": STRUCTURAL, "baseline_m": "Depth disparity noise",
         "focal_length_px": "Depth disparity noise", "disparity_noise_px": "Depth disparity noise",
-        "disparity_noise_px_range": "Depth disparity noise", "hole_probability": "Depth holes and lost frames",
+        "disparity_noise_px_range": "Depth disparity noise", "noise_free_at_max_range": "Depth disparity noise",
+        "hole_probability": "Depth holes and lost frames",
         "hole_fill": "Depth holes and lost frames", "frame_drop_prob": "Depth holes and lost frames",
         "min_range": "Depth range and grid", "max_range": "Depth range and grid", "too_close_fill": STRUCTURAL,
         "height": "Depth range and grid", "width": "Depth range and grid", "hold_fraction_range": "Depth stream hold",
@@ -980,14 +981,14 @@ ANCHORS = {
     "actions.py#L220": "torch.randint", "actions.py#L231": "HoldProcess(", "actions.py#L254": "_max_delta_per_step",
     "actions.py#L395": "torch.expm1(", "actions.py#L276": "_draw_speed_scale",
     "actions.py#L458": "l1_clamp_twist_batched(", "actions.py#L579": "max_wheel_angular_vel",
-    "events.py#L526": "def randomize_motor_strength", "events.py#L577": "def randomize_d555_mount_offset",
-    "events.py#L422": "def randomize_subgoal_drift", "events.py#L177": "class randomize_wheel_grip(",
-    "events.py#L360": "def randomize_mass", "events.py#L715": "def reset_robot_proc_room",
+    "events.py#L569": "def randomize_motor_strength", "events.py#L620": "def randomize_d555_mount_offset",
+    "events.py#L423": "def randomize_subgoal_drift", "events.py#L178": "class randomize_wheel_grip(",
+    "events.py#L361": "def randomize_mass", "events.py#L758": "def reset_robot_proc_room",
     "noise_models.py#L186": "class IMUNoiseModel(", "noise_models.py#L358": "class EncoderNoiseModel(",
     "noise_models.py#L490": "class DepthNoiseModel(",
-    "observations.py#L45": "def reduce_depth_to_policy_grid", "d555_cfg.py#L145": "focal_length=",
-    "composed_env_cfg.py#L576": "num_rerenders_on_reset = 1", "commands.py#L683": "perturb_waypoints(",
-    "proc_room.py#L981": "def generate_proc_room", "sim_real_cfg.py#L771": "IDEAL_SIM_CONTRACT",
+    "observations.py#L46": "def reduce_depth_to_policy_grid", "d555_cfg.py#L145": "focal_length=",
+    "composed_env_cfg.py#L579": "num_rerenders_on_reset = 1", "commands.py#L683": "perturb_waypoints(",
+    "proc_room.py#L981": "def generate_proc_room", "sim_real_cfg.py#L792": "IDEAL_SIM_CONTRACT",
 }
 
 

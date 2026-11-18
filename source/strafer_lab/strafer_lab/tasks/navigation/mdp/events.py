@@ -380,30 +380,6 @@ def randomize_mass(
     robot.root_view.set_masses(masses_wp, wp.from_torch(env_ids_cpu))
 
 
-def randomize_goal_noise(
-    env: ManagerBasedEnv,
-    env_ids: torch.Tensor,
-    command_name: str,
-    noise_std: float = 0.25,
-) -> None:
-    """Add Gaussian noise to goal positions (simulates VLM localization error).
-
-    Args:
-        env: The environment instance.
-        env_ids: Indices of environments to apply noise to.
-        command_name: Name of the command term to perturb.
-        noise_std: Standard deviation of position noise in meters.
-    """
-    if len(env_ids) == 0:
-        return
-
-    command_term = env.command_manager.get_term(command_name)
-    device = env.device
-
-    noise = torch.randn(len(env_ids), 2, device=device) * noise_std
-    command_term._goal[env_ids, :2] += noise
-
-
 def randomize_subgoal_drift(
     env: ManagerBasedEnv,
     env_ids: torch.Tensor,

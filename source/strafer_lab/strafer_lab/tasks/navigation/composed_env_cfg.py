@@ -548,11 +548,6 @@ class _ComposedStraferNavEnvCfg(base._BaseStraferNavEnvCfg):
                     f"scene_source={kind!r}; valid: "
                     f"{sorted(_COMMANDS_BY_SOURCE_SUBGOAL)}",
                 ) from exc
-            # Goal-pose reset noise targets the fixed-goal command's state;
-            # the subgoal task's deployment-noise analog is the planner's
-            # per-waypoint perturbation, configured on the command term.
-            if hasattr(self.events, "randomize_goal_noise"):
-                self.events.randomize_goal_noise = None
             # Randomize the lookahead distance per the realistic-vs-robust DR
             # convention (both tiers range; robust is wider), so the policy is
             # not brittle to the deployed selector's exact lookahead.

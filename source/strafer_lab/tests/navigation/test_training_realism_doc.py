@@ -318,6 +318,7 @@ def _():
             return OFF
         band = _trained_band(t)
         assert all(abs(b - f) < 1e-3 * f for b, f in zip(band, a.max_acceleration_range)), (t, band)  # field = trained
+        assert math.isinf(a.accel_falloff_speed), t  # flat in the wheel's speed
         return list(band)
     nominal = _act("real").max_acceleration_rad_s2
     assert _act("robust").max_acceleration_rad_s2 == nominal
@@ -327,8 +328,9 @@ def _():
 
 
 def _lag(t):
-    alpha, dt = _term(t)[0]._motor_alpha, _step_dt(t)
-    return -dt / math.log(1.0 - alpha), dt * (1.0 - alpha) / alpha
+    """The 63 % rise time of each env's lag, from the built term's alpha: -dt / ln(1 - alpha)."""
+    alpha, dt = _term(t)[0]._motor_alpha.double().flatten(), _step_dt(t)
+    return [float(-dt / math.log(1.0 - a)) for a in alpha]
 
 
 @row("Motor lag", {"unknown"})
@@ -337,11 +339,13 @@ def _():
         a = _act(t)
         if not a.enable_motor_dynamics:
             return OFF
+        rise = _lag(t)
+        band = a.motor_time_constant_range
+        assert band is None or band[0] == band[1] == a.motor_time_constant, (t, band)  # the band at the nominal
+        assert all(math.isclose(r, a.motor_time_constant, rel_tol=1e-6) for r in rise), (t, rise)  # field = rise time
         lead = [100.0 * (1.0 - math.exp(-1.0))] if t == "real" else []
-        return lead + [_lag(t)[0], a.motor_time_constant]
-    backward = [_lag(t)[1] for t in ("real", "robust")]
-    assert all(math.isclose(b, _act(t).motor_time_constant) for b, t in zip(backward, ("real", "robust"))), backward
-    return {**_tiers(cell), "models": [], "basis": backward}
+        return lead + [rise[0]]
+    return {**_tiers(cell), "models": [], "basis": []}
 
 
 @row("Command envelope", {"design"})
@@ -370,7 +374,9 @@ def _():
     def cell(t):
         drive = _c(t).scene.robot.actuators["wheel_drives"]
         assert type(drive).__name__ == "ImplicitActuatorCfg"  # a velocity drive with a flat effort cap
-        return [_act(t).max_wheel_angular_vel, drive.effort_limit_sim]
+        limit = _term(t)[0]._wheel_speed_limit
+        assert limit == _act(t).max_wheel_angular_vel, (t, limit)  # the per-wheel limit at the rated speed
+        return [limit, drive.effort_limit_sim]
     drive = _c("ideal").scene.robot.actuators["wheel_drives"]
     rpm = _act("ideal").max_wheel_angular_vel * 60.0 / (2.0 * math.pi)
     return {**_tiers(cell), "models": [rpm, drive.damping], "basis": []}
@@ -743,7 +749,7 @@ def test_with_every_documented_stage_off_the_term_is_the_clamp_and_the_kinematic
                                       vel_cap_linear_m_s=term._max_linear_vel,
                                       vel_cap_angular_rad_s=term._max_angular_vel)
         wheels = (body @ term._kinematic_matrix.T * term._wheel_axis_signs).clamp(
-            -term._max_wheel_angular_vel, term._max_wheel_angular_vel)[:, term._joint_reorder]
+            -term._wheel_speed_limit, term._wheel_speed_limit)[:, term._joint_reorder]
         assert torch.allclose(term.processed_actions, wheels, atol=1e-6), t
 
 
@@ -773,7 +779,9 @@ ACTION_FIELDS = {
     "joint_names": STRUCTURAL, "wheel_axis_signs": STRUCTURAL, "wheel_radius": "Twist clamp",
     "wheel_base": "Twist clamp", "track_width": "Twist clamp", "motor_rpm": STRUCTURAL,
     "max_wheel_angular_vel": "Wheel speed and torque", "enable_motor_dynamics": "Motor lag",
-    "motor_time_constant": "Motor lag", "min_delay_steps": "Command delay", "max_delay_steps": "Command delay",
+    "motor_time_constant": "Motor lag", "motor_time_constant_range": "Motor lag",
+    "wheel_speed_limit": "Wheel speed and torque", "accel_falloff_speed": "Acceleration limit",
+    "min_delay_steps": "Command delay", "max_delay_steps": "Command delay",
     "hold_fraction_range": "Command hold", "hold_run_range": "Command hold", "speed_scale_range": "Command envelope",
     "max_acceleration_rad_s2": "Acceleration limit", "max_acceleration_range": "Acceleration limit",
 }
@@ -942,9 +950,9 @@ def test_the_fields_nothing_reads_are_the_modules_declared_list():
 
 
 ANCHORS = {
-    "actions.py#L199": "torch.randint", "actions.py#L215": "HoldProcess(", "actions.py#L238": "_max_delta_per_step",
-    "actions.py#L186": "_motor_alpha", "actions.py#L273": "_draw_speed_scale",
-    "actions.py#L369": "l1_clamp_twist_batched(", "actions.py#L463": "max_wheel_angular_vel",
+    "actions.py#L207": "torch.randint", "actions.py#L223": "HoldProcess(", "actions.py#L246": "_max_delta_per_step",
+    "actions.py#L344": "torch.expm1(", "actions.py#L287": "_draw_speed_scale",
+    "actions.py#L400": "l1_clamp_twist_batched(", "actions.py#L496": "max_wheel_angular_vel",
     "events.py#L401": "def randomize_motor_strength", "events.py#L452": "def randomize_d555_mount_offset",
     "events.py#L354": "def randomize_subgoal_drift", "events.py#L170": "def randomize_friction",
     "events.py#L305": "def randomize_mass", "events.py#L569": "def reset_robot_proc_room",
@@ -952,8 +960,8 @@ ANCHORS = {
     "noise_models.py#L476": "class DepthNoiseModel(",
     "observations.py#L45": "def reduce_depth_to_policy_grid", "d555_cfg.py#L145": "focal_length=",
     "composed_env_cfg.py#L572": "num_rerenders_on_reset = 1", "commands.py#L668": "perturb_waypoints(",
-    "proc_room.py#L981": "def generate_proc_room", "sim_real_cfg.py#L676": "IDEAL_SIM_CONTRACT",
-    "sim_real_cfg.py#L213": "velocity_quantization_ticks_per_step",
+    "proc_room.py#L981": "def generate_proc_room", "sim_real_cfg.py#L692": "IDEAL_SIM_CONTRACT",
+    "sim_real_cfg.py#L225": "velocity_quantization_ticks_per_step",
 }
 
 

@@ -121,6 +121,10 @@ class MecanumWheelAction(ActionTerm):
         # Motor limits (5203 Yellow Jacket 19.2:1 + 1:1 miter gears)
         # 312 RPM = 312 * 2π / 60 = 32.67 rad/s max wheel angular velocity
         self._max_wheel_angular_vel = cfg.max_wheel_angular_vel  # rad/s
+        # The per-wheel limit on the targets; it moves apart from the action scale and the caps
+        self._wheel_speed_limit = (
+            cfg.max_wheel_angular_vel if cfg.wheel_speed_limit is None else cfg.wheel_speed_limit
+        )
         
         # Derived velocity limits
         # Max linear velocity = wheel_radius * max_angular_vel
@@ -180,10 +184,14 @@ class MecanumWheelAction(ActionTerm):
         # Motor dynamics (first-order low-pass filter)
         self._enable_motor_dynamics = cfg.enable_motor_dynamics
         if self._enable_motor_dynamics:
-            # Low-pass filter coefficient: alpha = dt / (tau + dt), with dt the
-            # control step: the filter advances once per process_actions call
-            control_dt = env.step_dt
-            self._motor_alpha = control_dt / (cfg.motor_time_constant + control_dt)
+            # alpha = 1 - exp(-dt / tau) per env, dt the control step: the filter advances once per
+            # process_actions call and a step reaches 63.2 % of its target after tau at any step
+            self._motor_dt = env.step_dt
+            band = cfg.motor_time_constant_range
+            self._tau_range = tuple(band) if band is not None and band[0] < band[1] else None
+            self._motor_alpha = torch.empty(env.num_envs, 1, device=env.device)
+            self._motor_keep = torch.empty(env.num_envs, 1, device=env.device)
+            self._set_motor_tau(torch.full((env.num_envs,), cfg.motor_time_constant, dtype=torch.float64))
             self._smoothed_wheel_vels = torch.zeros(env.num_envs, 4, device=env.device)
         
         # Command delay buffer
@@ -237,6 +245,12 @@ class MecanumWheelAction(ActionTerm):
             # Shape (num_envs, 1) for broadcasting with (num_envs, 4) wheel vels
             self._max_delta_per_step = (accel_per_env * env.step_dt).unsqueeze(-1)
             self._prev_wheel_vels = torch.zeros(env.num_envs, 4, device=env.device)
+            # Speed fall-off of the limit: a(w) = a0 (1 - |w| / w_nl); inf leaves it flat
+            self._accel_falloff_speed = cfg.accel_falloff_speed
+
+        # Per-env time-constant draw, after the draws above so a band leaves their order alone
+        if self._enable_motor_dynamics and self._tau_range is not None:
+            self._set_motor_tau(self._draw_tau(env.num_envs, env.device))
         
         # ============================================================
         # Command envelope (per-env scale on both caps, clamp only)
@@ -315,6 +329,23 @@ class MecanumWheelAction(ActionTerm):
                 new_accel = lo + (hi - lo) * torch.rand(n, device=self._prev_wheel_vels.device)
                 self._max_delta_per_step[env_ids] = (new_accel * self._control_dt).unsqueeze(-1)
 
+        # Redraw the per-env time constant, the reset's last draw
+        if self._enable_motor_dynamics and self._tau_range is not None:
+            n = self._motor_alpha.shape[0] if all_envs else env_ids.shape[0]
+            self._set_motor_tau(self._draw_tau(n, self._motor_alpha.device), None if all_envs else env_ids)
+
+    def _draw_tau(self, n: int, device) -> torch.Tensor:
+        lo, hi = self._tau_range
+        return lo + (hi - lo) * torch.rand(n, device=device).double()
+
+    def _set_motor_tau(self, tau: torch.Tensor, env_ids: torch.Tensor | None = None) -> None:
+        """Set alpha = 1 - exp(-dt / tau) and its complement for the given envs, computed in double."""
+        tau = tau.double().cpu()
+        alpha = -torch.expm1(-self._motor_dt / tau)
+        rows = slice(None) if env_ids is None else env_ids
+        self._motor_alpha[rows] = alpha.to(self._motor_alpha.dtype).to(self._motor_alpha.device).unsqueeze(-1)
+        self._motor_keep[rows] = (1.0 - alpha).to(self._motor_keep.dtype).to(self._motor_keep.device).unsqueeze(-1)
+
     @property
     def action_dim(self) -> int:
         """Dimension of the action space: [vx, vy, omega]."""
@@ -378,10 +409,8 @@ class MecanumWheelAction(ActionTerm):
         # Apply per-wheel sign correction (joint axis direction)
         wheel_vels_kinematic = wheel_vels_kinematic * self._wheel_axis_signs
         
-        # Clamp wheel velocities to motor limits
-        wheel_vels = torch.clamp(wheel_vels_kinematic, 
-                                  -self._max_wheel_angular_vel, 
-                                  self._max_wheel_angular_vel)
+        # Clamp wheel velocities to the per-wheel limit
+        wheel_vels = torch.clamp(wheel_vels_kinematic, -self._wheel_speed_limit, self._wheel_speed_limit)
         
         # Reorder from kinematic order to USD joint order
         wheel_vels = wheel_vels[:, self._joint_reorder]
@@ -403,15 +432,19 @@ class MecanumWheelAction(ActionTerm):
         # 2. Slew rate limiting (max acceleration)
         if self._enable_slew_rate:
             delta = wheel_vels - self._prev_wheel_vels
-            delta = torch.clamp(delta, -self._max_delta_per_step, self._max_delta_per_step)
+            max_delta = self._max_delta_per_step
+            if self._accel_falloff_speed < float('inf'):
+                speed_share = self._prev_wheel_vels.abs() / self._accel_falloff_speed
+                max_delta = max_delta * torch.clamp(1.0 - speed_share, min=0.0)
+            delta = torch.clamp(delta, -max_delta, max_delta)
             wheel_vels = self._prev_wheel_vels + delta
             self._prev_wheel_vels = wheel_vels.clone()
         
         # 3. Motor dynamics (first-order low-pass filter)
         if self._enable_motor_dynamics:
             self._smoothed_wheel_vels = (
-                self._motor_alpha * wheel_vels + 
-                (1 - self._motor_alpha) * self._smoothed_wheel_vels
+                self._motor_alpha * wheel_vels +
+                self._motor_keep * self._smoothed_wheel_vels
             )
             wheel_vels = self._smoothed_wheel_vels
         
@@ -462,6 +495,11 @@ class MecanumWheelActionCfg(ActionTermCfg):
     
     max_wheel_angular_vel: float = 32.67
     """Maximum wheel angular velocity in rad/s. Default: 312 RPM = 32.67 rad/s."""
+
+    wheel_speed_limit: float | None = None
+    """Per-wheel limit in rad/s on the wheel targets after the kinematics. None uses
+    ``max_wheel_angular_vel``, which also sets the action scale and the twist caps;
+    this field moves the limit alone."""
     
     # ============================================================
     # Sim-to-Real: Motor dynamics
@@ -471,9 +509,13 @@ class MecanumWheelActionCfg(ActionTermCfg):
     """Enable first-order motor response model. Default: False (ideal response)."""
     
     motor_time_constant: float = 0.2
-    """Time constant in seconds of the first-order wheel lag, which advances once
-    per control step (alpha = dt / (tau + dt), dt the control step). Default:
-    0.2 s."""
+    """Time constant in seconds of the first-order wheel lag: a step reaches 63.2 % of
+    its target after it, at any control step (alpha = 1 - exp(-dt / tau) per control
+    step, dt the control step). Default: 0.2 s."""
+
+    motor_time_constant_range: tuple[float, float] | None = None
+    """Per-env band [min, max] for the time constant, drawn at each reset. None, or
+    min == max, fixes it at ``motor_time_constant``."""
     
     # ============================================================
     # Sim-to-Real: Command latency
@@ -522,3 +564,8 @@ class MecanumWheelActionCfg(ActionTermCfg):
     max_acceleration_range: tuple[float, float] = (float('inf'), float('inf'))
     """Range for per-env randomization of max acceleration [min, max] rad/s².
     A design spread: the motor controllers run from a regulated 12 V supply."""
+
+    accel_falloff_speed: float = float('inf')
+    """Wheel speed in rad/s at which the acceleration limit falls to zero, linearly in
+    the wheel's speed (a(w) = a0 (1 - |w| / accel_falloff_speed)); it acts only where
+    the limit is set. Default: inf (no fall-off)."""

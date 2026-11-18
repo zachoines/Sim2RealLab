@@ -119,13 +119,21 @@ class ActuatorModelCfg:
     enable_motor_dynamics: bool = False
     """Enable first-order motor response model (exponential smoothing)."""
     
-    motor_time_constant_s: float = 0.2
-    """Time constant in seconds of the first-order wheel lag, which advances once
-    per control step. The real wheel's lag is not measured."""
+    motor_time_constant_s: float = 0.21623864
+    """Time constant in seconds of the first-order wheel lag: a step reaches 63.2 % of its
+    target after it, at any control step. The real wheel's lag is not measured."""
+
+    motor_time_constant_range: tuple[float, float] | None = None
+    """Per-env band [min, max] for the time constant, drawn at each reset. None, or
+    min == max, fixes it at ``motor_time_constant_s``."""
     
     # Velocity limits
     max_velocity_rad_s: float = 32.67
     """Maximum motor velocity in rad/s. GoBilda 5203 = 312 RPM = 32.67 rad/s."""
+
+    wheel_speed_limit_rad_s: float | None = None
+    """Per-wheel limit in rad/s on the wheel targets. None uses ``max_velocity_rad_s``,
+    which also sets the action scale and the twist caps."""
     
     # Acceleration limits (slew rate)
     max_acceleration_rad_s2: float = 225.0
@@ -136,6 +144,10 @@ class ActuatorModelCfg:
     max_acceleration_range: tuple[float, float] = (225.0, 225.0)
     """Range for randomized max acceleration [min, max] rad/s², drawn per env at each reset.
     A design spread: the motor controllers run from a regulated 12 V supply, so it stands for no battery state."""
+
+    accel_falloff_speed_rad_s: float = float("inf")
+    """Wheel speed in rad/s at which the acceleration limit falls to zero, linearly in the
+    wheel's speed. Default: inf (no fall-off)."""
 
     # Command envelope
     speed_scale_range: tuple[float, float] | None = None
@@ -522,7 +534,9 @@ def create_real_robot_contract() -> SimRealContractCfg:
         ),
         actuator=ActuatorModelCfg(
             enable_motor_dynamics=True,
-            motor_time_constant_s=0.2,
+            motor_time_constant_s=0.21623864,  # alpha = 1/7 at the 1/30 s control step
+            motor_time_constant_range=(0.21623864, 0.21623864),
+            wheel_speed_limit_rad_s=32.67,
             max_velocity_rad_s=32.67,  # 312 RPM
             max_acceleration_rad_s2=225.0,
             max_acceleration_range=(175.0, 275.0),  # a design spread
@@ -597,7 +611,9 @@ def create_robust_training_contract() -> SimRealContractCfg:
         ),
         actuator=ActuatorModelCfg(
             enable_motor_dynamics=True,
-            motor_time_constant_s=0.24,  # Slightly slower
+            motor_time_constant_s=0.25630551,  # alpha = 1/8.2 at the 1/30 s control step
+            motor_time_constant_range=(0.25630551, 0.25630551),
+            wheel_speed_limit_rad_s=32.67,
             max_acceleration_rad_s2=225.0,
             max_acceleration_range=(125.0, 300.0),  # a wider design spread
             # 0.40 to 1.57 m/s on |vx| + |vy|, the deploy cap (s = 0.5) inside it.
@@ -848,6 +864,9 @@ def get_action_config_params(contract: SimRealContractCfg) -> dict:
         "max_wheel_angular_vel": contract.actuator.max_velocity_rad_s,
         "enable_motor_dynamics": contract.actuator.enable_motor_dynamics,
         "motor_time_constant": contract.actuator.motor_time_constant_s,
+        "motor_time_constant_range": contract.actuator.motor_time_constant_range,
+        "wheel_speed_limit": contract.actuator.wheel_speed_limit_rad_s,
+        "accel_falloff_speed": contract.actuator.accel_falloff_speed_rad_s,
         "min_delay_steps": min_delay,
         "max_delay_steps": max_delay,
         "hold_fraction_range": contract.timing.action_hold_fraction_range,

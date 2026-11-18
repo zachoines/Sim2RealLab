@@ -49,7 +49,7 @@ from . import mdp
 
 # Import robot configuration
 from strafer_lab.assets import STRAFER_CFG
-from strafer_shared.constants import GOAL_ARRIVAL_RADIUS_M
+from strafer_shared.constants import GOAL_ARRIVAL_RADIUS_M, POLICY_MISSION_TIMEOUT_S
 
 # Import sim-real contracts and helper functions
 from .sim_real_cfg import (
@@ -2000,13 +2000,38 @@ class RewardsCfg_ProcRoom_Subgoal_Depth(RewardsCfg_ProcRoom_Subgoal):
     )
 
 
+# The subgoal episode's time-out: 11.87 s + 1.53 s per metre of the installed path is the completion bound measured
+# under the deploy node's speed cap (envelope scale 0.5); below that scale the whole bound stretches by 0.5 / s. The
+# limit never falls below the env's episode length and never exceeds POLICY_MISSION_TIMEOUT_S, the node's bound on
+# one goal. Path curvature carries no weight: at the speeds the bound assumes, the per-wheel limit lets the robot take
+# a corner on a 0.375 m arc at no cost.
+_SUBGOAL_TIME_OUT_INTERCEPT_S = 11.87
+_SUBGOAL_TIME_OUT_PER_M_S = 1.53
+_SUBGOAL_TIME_OUT_REFERENCE_SCALE = 0.5
+
+
 @configclass
 class TerminationsCfg_ProcRoom_Subgoal(TerminationsCfg):
     """Terminations for the ProcRoom subgoal objective.
 
     Episodes end on path completion, off-path divergence, sustained
-    collision (ProcRoom-tight threshold), robot flip, or timeout.
+    collision (ProcRoom-tight threshold), robot flip, or a time-out scaled to
+    the path and the episode's speed cap (``time_out``, which replaces the
+    inherited fixed one under the same name and stays a time-out).
     """
+
+    time_out = DoneTerm(
+        func=mdp.path_time_out,
+        time_out=True,
+        params={
+            "command_name": "goal_command",
+            "action_name": "wheel_velocities",
+            "intercept_s": _SUBGOAL_TIME_OUT_INTERCEPT_S,
+            "time_per_m_s": _SUBGOAL_TIME_OUT_PER_M_S,
+            "reference_speed_scale": _SUBGOAL_TIME_OUT_REFERENCE_SCALE,
+            "ceiling_s": POLICY_MISSION_TIMEOUT_S,
+        },
+    )
 
     path_complete = DoneTerm(
         func=mdp.path_complete,

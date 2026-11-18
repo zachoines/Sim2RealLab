@@ -6,12 +6,22 @@
 The module's three tables are parsed into cells (a cell reading "same" stands for the cell on its left plus what
 follows the word). For each row, every number a cell holds is computed here from the code — the composed cfgs of one
 class per tier, the built action term on a stand-in env, the noise cfgs, the event params, the robot's USD — and the
-cell's numbers must equal them in order, each to the precision the cell prints. An inactive perturbation is the cell
-"off" (or "none"). No value is written here as a literal, so a change on either side fails until the other follows.
+cell's numbers must equal them in order: exactly where the code's value is a whole number, and otherwise to the
+precision the cell prints, with at least the significant digits the value has (up to three). An inactive perturbation
+is the cell "off" (or "none"). No expected cell number is written here as a literal.
 
-Completeness: every event term, action-cfg field and noise-cfg field of every composed class must map to a row, a
-not-applied line, or a structural field; the action term with every documented stage off must be the clamp and the
-kinematics alone; and the contract fields nothing reads must be the module's "declared, not applied" list.
+Completeness: every event term, curriculum term, action-cfg field, command-cfg field and noise-cfg field of every
+composed class must map to a row, a not-applied line, or a structural field; every policy group's corruption switch
+must be on exactly off the ideal tier; every noise cfg must name its documented model class (and the IMU's its sensor);
+no policy term may carry a clip or a modifier, and each term's scale must be one value across the compositions; the
+action term with every documented stage off must be the clamp and the kinematics alone; and the contract fields
+nothing reads must be the module's "declared, not applied" list.
+
+Not pinned (a change here passes this test): the arithmetic inside the noise models (the IMU bias clamp, the encoder's
+tick handling, the depth fill), inside the observation functions (the depth term's reduction and range handling) and
+inside the action term's `apply_actions`; the room generator's built-in draws (the 4 m span and 0.8 m door floors); the
+Infinigen capture classes, which need the scene corpus to build; and the words of a cell beyond its numbers, its
+off/none state and its basis kind.
 
 No Kit / GPU. Run with the pure-Python lab tests.
 """
@@ -91,12 +101,30 @@ def _numbers(text):
     return _NUMBER.findall(text)
 
 
+def _significant(value):
+    """The fewest significant digits that state `value` to 1e-6 of itself (at most 12)."""
+    for n in range(1, 13):
+        if abs(float(f"{value:.{n}g}") - value) <= 1e-6 * abs(value):
+            return n
+    return 12
+
+
+def _printed_significant(printed):
+    digits = printed.partition("e")[0].replace(".", "").lstrip("0")
+    return max(len(digits), 1)
+
+
 def _close(printed, value):
-    """`value` rounds to the number as the cell prints it."""
+    """The cell's number states `value`: exactly when the value is a whole number; otherwise rounded to the precision
+    the cell prints, with at least the significant digits the value has, up to three."""
+    value = float(value)
+    if abs(value - round(value)) <= 1e-6 * max(1.0, abs(value)):
+        return float(printed) == round(value)
     mantissa, _, exponent = printed.partition("e")
     decimals = len(mantissa.partition(".")[2])
     step = 10.0 ** (-decimals + (int(exponent) if exponent else 0))
-    return abs(float(printed) - float(value)) <= step / 2 + 1e-12
+    enough = _printed_significant(printed) >= min(_significant(value), 3)
+    return enough and abs(float(printed) - value) <= step / 2 + 1e-12
 
 
 # --- the code --------------------------------------------------------------------------------------------------------
@@ -205,6 +233,18 @@ def _usd_shapes():
     return [bound(p) for p in stage.Traverse() if p.HasAPI(UsdPhysics.CollisionAPI)]
 
 
+@functools.lru_cache(maxsize=None)
+def _usd_mass():
+    """kg: the masses the robot's USD authors on its rigid bodies."""
+    from pxr import Usd, UsdPhysics
+
+    from strafer_lab.assets import strafer
+
+    stage = Usd.Stage.Open(strafer._STRAFER_USD_PATH, load=Usd.Stage.LoadAll)
+    return sum(UsdPhysics.MassAPI(p).GetMassAttr().Get() or 0.0 for p in stage.Traverse()
+               if p.HasAPI(UsdPhysics.RigidBodyAPI) and p.HasAPI(UsdPhysics.MassAPI))
+
+
 def _friction_run(t):
     """randomize_friction on a stand-in robot whose shapes carry the USD's materials (the unbound ones the sim's
     default); returns the dynamic / static ratio it writes on the shapes it draws, after checking it keeps the rest."""
@@ -256,7 +296,7 @@ def row(label, basis_words):
     return register
 
 
-@row("Command delay", {"design", "measured"})
+@row("Command delay", {"design"})
 def _():
     def cell(t):
         a = _act(t)
@@ -264,7 +304,7 @@ def _():
     return {**_tiers(cell), "models": [], "basis": []}
 
 
-@row("Command hold", {"design", "measured"})
+@row("Command hold", {"design"})
 def _():
     def cell(t):
         a = _act(t)
@@ -288,7 +328,7 @@ def _lag(t):
     return -dt / math.log(1.0 - alpha), dt * (1.0 - alpha) / alpha
 
 
-@row("Motor lag", {"unknown", "measured"})
+@row("Motor lag", {"unknown"})
 def _():
     def cell(t):
         a = _act(t)
@@ -324,8 +364,12 @@ def _():
 @row("Wheel speed and torque", {"datasheet"})
 def _():
     def cell(t):
-        return [_act(t).max_wheel_angular_vel, _c(t).scene.robot.actuators["wheel_drives"].effort_limit_sim]
-    return {**_tiers(cell), "models": [_act("ideal").max_wheel_angular_vel * 60.0 / (2.0 * math.pi)], "basis": []}
+        drive = _c(t).scene.robot.actuators["wheel_drives"]
+        assert type(drive).__name__ == "ImplicitActuatorCfg"  # a velocity drive with a flat effort cap
+        return [_act(t).max_wheel_angular_vel, drive.effort_limit_sim]
+    drive = _c("ideal").scene.robot.actuators["wheel_drives"]
+    rpm = _act("ideal").max_wheel_angular_vel * 60.0 / (2.0 * math.pi)
+    return {**_tiers(cell), "models": [rpm, drive.damping], "basis": []}
 
 
 @row("Motor strength", {"design"})
@@ -441,7 +485,7 @@ def _():
     return {**_tiers(cell), "models": [1.0 / _step_dt("real")], "basis": []}
 
 
-@row("Depth latency", {"design", "measured"})
+@row("Depth latency", {"design"})
 def _():
     def cell(t):
         d = _noise(t, DEPTH)
@@ -548,7 +592,7 @@ def _():
     def cell(t):
         p = _event(t, "randomize_mass")
         return OFF if p is None else list(p["mass_range"])
-    return {**_tiers(cell), "models": [], "basis": []}
+    return {**_tiers(cell), "models": [_usd_mass()], "basis": []}
 
 
 @row("Spawn and goal", {"design"})
@@ -560,8 +604,10 @@ def _():
             pose = _event(t, "reset_robot")["pose_range"]
             g = _c(t).commands.goal_command
             assert pose["x"] == pose["y"] == (-pose["x"][1], pose["x"][1]) and pose["yaw"] == (-math.pi, math.pi)
-            assert g.goal_range.pos_x == g.goal_range.pos_y == (-g.goal_range.pos_x[1], g.goal_range.pos_x[1])
-            return [pose["x"][1], g.goal_range.pos_x[1], g.min_goal_distance, *g.resampling_time_range]
+            curriculum = _c(t).curriculum.goal_distance.params  # it rewrites goal_range at every reset
+            assert curriculum["command_name"] == "goal_command"
+            return [pose["x"][1], curriculum["initial_range"], curriculum["step_size"], curriculum["success_threshold"],
+                    curriculum["max_range"], g.min_goal_distance, *g.resampling_time_range]
         assert _event(t, "reset_robot")["yaw_range"] == (-math.pi, math.pi)
         free = _event(t, "generate_room", _cfg(CAMERA_FREE[t])).get("robot_spawn_inflation_cells", 0)
         assert free == 0
@@ -619,7 +665,7 @@ def test_the_cell_holds_the_codes_numbers(label, column):
 @pytest.mark.parametrize("label", sorted(ROWS))
 def test_the_basis_names_its_kind(label):
     basis = _rows()[label][0]["basis"]
-    words = {w for w in LEGEND if re.search(rf"\b{w}\b", basis)}
+    words = {w for w in LEGEND if re.search(rf"(?<!\bnot )\b{w}\b", basis)}
     assert words == ROWS[label][1], (label, basis)
 
 
@@ -704,8 +750,9 @@ def test_every_event_term_has_a_row():
 
 
 STRUCTURAL = "structural"
+CHECKED = "checked by a test below"
 ACTION_FIELDS = {
-    "asset_name": STRUCTURAL, "class_type": STRUCTURAL, "clip": STRUCTURAL, "debug_vis": STRUCTURAL,
+    "asset_name": STRUCTURAL, "class_type": CHECKED, "clip": STRUCTURAL, "debug_vis": STRUCTURAL,
     "joint_names": STRUCTURAL, "wheel_axis_signs": STRUCTURAL, "wheel_radius": "Twist clamp",
     "wheel_base": "Twist clamp", "track_width": "Twist clamp", "motor_rpm": STRUCTURAL,
     "max_wheel_angular_vel": "Wheel speed and torque", "enable_motor_dynamics": "Motor lag",
@@ -723,25 +770,29 @@ def test_every_action_field_is_documented():
     for name, cfg in _composed().items():
         assert type(cfg.actions.wheel_velocities) is MecanumWheelActionCfg, name
         assert [n for n, v in vars(cfg.actions).items() if hasattr(v, "class_type")] == ["wheel_velocities"], name
-    assert {v for v in ACTION_FIELDS.values() if v != STRUCTURAL} <= set(_rows())
+    assert {v for v in ACTION_FIELDS.values() if v not in (STRUCTURAL, CHECKED)} <= set(_rows())
+    from strafer_lab.tasks.navigation.mdp.actions import MecanumWheelAction
+
+    for name, cfg in _composed().items():
+        assert cfg.actions.wheel_velocities.class_type is MecanumWheelAction, name
 
 
 NOT_APPLIED = "declared, not applied"
 NOISE_FIELDS = {
     "IMUNoiseModelCfg": {
-        "class_type": STRUCTURAL, "func": STRUCTURAL, "noise_cfg": STRUCTURAL, "sensor_type": STRUCTURAL,
+        "class_type": CHECKED, "func": STRUCTURAL, "noise_cfg": STRUCTURAL, "sensor_type": CHECKED,
         "output_size": STRUCTURAL, "control_frequency_hz": "IMU noise", "accel_noise_std": "IMU noise",
         "accel_bias_range": "IMU noise", "accel_bias_drift_rate": "IMU noise", "gyro_noise_std": "IMU noise",
         "gyro_bias_range": "IMU noise", "gyro_bias_drift_rate": "IMU noise", "failure_probability": "Sensor dropouts",
         "stuck_probability": "Sensor dropouts", "latency_steps": "IMU and encoder latency"},
     "EncoderNoiseModelCfg": {
-        "class_type": STRUCTURAL, "func": STRUCTURAL, "noise_cfg": STRUCTURAL, "output_size": STRUCTURAL,
+        "class_type": CHECKED, "func": STRUCTURAL, "noise_cfg": STRUCTURAL, "output_size": STRUCTURAL,
         "enable_quantization": "Wheel encoder noise", "ticks_per_radian": NOT_APPLIED,
         "velocity_noise_std": "Wheel encoder noise", "max_velocity": "Wheel encoder noise",
         "missed_tick_prob": "Wheel encoder noise", "extra_tick_prob": "Wheel encoder noise",
         "failure_probability": "Sensor dropouts", "latency_steps": "IMU and encoder latency"},
     "DepthNoiseModelCfg": {
-        "class_type": STRUCTURAL, "func": STRUCTURAL, "noise_cfg": STRUCTURAL, "baseline_m": "Depth disparity noise",
+        "class_type": CHECKED, "func": STRUCTURAL, "noise_cfg": STRUCTURAL, "baseline_m": "Depth disparity noise",
         "focal_length_px": "Depth disparity noise", "disparity_noise_px": "Depth disparity noise",
         "disparity_noise_px_range": "Depth disparity noise", "hole_probability": "Depth holes and lost frames",
         "hole_fill": "Depth holes and lost frames", "frame_drop_prob": "Depth holes and lost frames",
@@ -753,6 +804,68 @@ NOISE_FIELDS = {
 }
 NOISY_TERMS = {ACC: "IMUNoiseModelCfg", GYR: "IMUNoiseModelCfg", ENC: "EncoderNoiseModelCfg",
                DEPTH: "DepthNoiseModelCfg"}
+NOISE_MODELS = {"IMUNoiseModelCfg": "IMUNoiseModel", "EncoderNoiseModelCfg": "EncoderNoiseModel",
+                "DepthNoiseModelCfg": "DepthNoiseModel"}
+SENSOR_TYPES = {ACC: "accel", GYR: "gyro"}
+
+
+def test_policy_corruption_is_on_exactly_off_the_ideal_tier():
+    """Isaac Lab drops every policy noise model of a group whose corruption switch is off."""
+    for name, cfg in _composed().items():
+        assert cfg.observations.policy.enable_corruption == (cfg.realism.level != "ideal"), name
+
+
+def test_no_policy_term_is_clipped_or_modified_and_each_scale_is_one_value():
+    scales = {}
+    for name, cfg in _composed().items():
+        for term_name, term in vars(cfg.observations.policy).items():
+            if not hasattr(term, "func"):
+                continue
+            assert term.clip is None and not term.modifiers, (name, term_name)
+            scales.setdefault(term_name, set()).add(term.scale)
+    assert all(len(v) == 1 for v in scales.values()), {k: v for k, v in scales.items() if len(v) > 1}
+
+
+CURRICULUM_ROWS = {"goal_distance": "Spawn and goal"}
+
+
+def test_every_curriculum_term_has_a_row():
+    for name, cfg in _composed().items():
+        terms = {k: v for k, v in vars(getattr(cfg, "curriculum", None) or SimpleNamespace()).items()
+                 if v is not None and hasattr(v, "func")}
+        for term_name in terms:
+            assert term_name in CURRICULUM_ROWS, f"{name}: curriculum term {term_name!r} has no row in the module"
+            assert cfg.realism.level == "ideal" and cfg.objective.kind == "goal", (name, term_name)  # the row's cell
+    assert set(CURRICULUM_ROWS.values()) <= set(_rows())
+
+
+COMMAND_FIELDS = {
+    "class_type": CHECKED, "cmd_kind": STRUCTURAL, "debug_vis": STRUCTURAL, "element_names": STRUCTURAL,
+    "resampling_time_range": "Spawn and goal", "asset_name": STRUCTURAL, "min_goal_distance": "Spawn and goal",
+    "multi_goal": STRUCTURAL, "goal_reach_threshold": STRUCTURAL, "goal_reach_cooldown_s": STRUCTURAL,
+    "spawn_points_xy": STRUCTURAL, "goal_sphere_visualizer_cfg": STRUCTURAL, "goal_heading_visualizer_cfg": STRUCTURAL,
+    "goal_range": "Spawn and goal", "lookahead_m": "Path and lookahead",
+    "lookahead_randomization_m": "Path and lookahead", "max_goal_attempts": STRUCTURAL, "path_spacing_m": STRUCTURAL,
+    "waypoint_noise_std_m": "Path and lookahead", "dwell_radius_m": STRUCTURAL, "dwell_speed_max_m_s": STRUCTURAL,
+    "dwell_steps": STRUCTURAL, "max_path_points": STRUCTURAL, "subgoal_sphere_visualizer_cfg": STRUCTURAL,
+    "subgoal_heading_visualizer_cfg": STRUCTURAL, "path_points_visualizer_cfg": STRUCTURAL,
+}
+COMMAND_TERMS = {"GoalCommandCfg": "GoalCommand", "GoalCommandProcRoomCfg": "GoalCommandProcRoom",
+                 "SubgoalCommandCfg": "SubgoalCommand"}
+
+
+def test_every_command_field_is_documented():
+    from strafer_lab.tasks.navigation.mdp import commands
+
+    for cfg_name, term_name in COMMAND_TERMS.items():
+        fields = {f.name for f in dataclasses.fields(getattr(commands, cfg_name))}
+        assert fields <= set(COMMAND_FIELDS), (cfg_name, sorted(fields - set(COMMAND_FIELDS)))
+    assert {v for v in COMMAND_FIELDS.values() if v not in (STRUCTURAL, CHECKED)} <= set(_rows())
+    for name, cfg in _composed().items():
+        g = cfg.commands.goal_command
+        assert type(g).__name__ in COMMAND_TERMS, (name, type(g).__name__)
+        assert g.class_type is getattr(commands, COMMAND_TERMS[type(g).__name__]), name
+        assert [n for n, v in vars(cfg.commands).items() if hasattr(v, "class_type")] == ["goal_command"], name
 
 
 def test_every_noise_field_is_documented():
@@ -761,13 +874,16 @@ def test_every_noise_field_is_documented():
     for cls_name, mapping in NOISE_FIELDS.items():
         fields = {f.name for f in dataclasses.fields(getattr(noise_models, cls_name))}
         assert fields == set(mapping), (cls_name, sorted(fields ^ set(mapping)))
-        assert {v for v in mapping.values() if v not in (STRUCTURAL, NOT_APPLIED)} <= set(_rows())
+        assert {v for v in mapping.values() if v not in (STRUCTURAL, NOT_APPLIED, CHECKED)} <= set(_rows())
     for name, cfg in _composed().items():
         for term_name, term in vars(cfg.observations.policy).items():
             noise = getattr(term, "noise", None)
             if noise is None:
                 continue
             assert NOISY_TERMS.get(term_name) == type(noise).__name__, f"{name}: noisy term {term_name!r} has no row"
+            assert noise.class_type is getattr(noise_models, NOISE_MODELS[type(noise).__name__]), (name, term_name)
+            if term_name in SENSOR_TYPES:
+                assert noise.sensor_type == SENSOR_TYPES[term_name], (name, term_name, noise.sensor_type)
             if isinstance(noise, noise_models.DepthNoiseModelCfg):
                 assert noise.latency_steps_range is not None, name  # the row reads the range
                 assert noise.too_close_fill == "near", name
@@ -841,6 +957,7 @@ ANCHORS = {
     "proc_room.py#L981": "def generate_proc_room", "sim_real_cfg.py#L707": "IDEAL_SIM_CONTRACT",
     "sim_real_cfg.py#L125": "motor_time_constant_range", "sim_real_cfg.py#L492": "domain_randomization_scale",
     "sim_real_cfg.py#L186": "enable_temp_effects", "sim_real_cfg.py#L303": "enable_temporal_noise",
+    "sim_real_cfg.py#L269": "hole_cluster_size", "sim_real_cfg.py#L222": "velocity_quantization_ticks_per_step",
 }
 
 

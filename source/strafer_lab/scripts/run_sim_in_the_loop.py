@@ -890,7 +890,6 @@ def _run_bridge_mode(simulation_app, env, args, config) -> None:
 
     from strafer_lab.bridge.async_camera_publisher import StraferCameraAsyncPublisher
     from strafer_lab.bridge.async_publisher import StraferAsyncPublisher
-    from strafer_shared.constants import D555_FOCAL_LENGTH_MM, D555_HORIZONTAL_APERTURE_MM
 
     unwrapped = env.unwrapped
     env.reset()
@@ -974,8 +973,10 @@ def _run_bridge_mode(simulation_app, env, args, config) -> None:
             camera_sensor=unwrapped.scene["d555_camera_perception"],
             color_stream=config.color_camera,
             depth_stream=config.depth_camera,
-            focal_length_mm=D555_FOCAL_LENGTH_MM,
-            horizontal_aperture_mm=D555_HORIZONTAL_APERTURE_MM,
+            # CameraInfo carries the intrinsics the camera renders at: a variant
+            # may override the focal length on top of the shared constants.
+            focal_length_mm=unwrapped.scene["d555_camera_perception"].cfg.spawn.focal_length,
+            horizontal_aperture_mm=unwrapped.scene["d555_camera_perception"].cfg.spawn.horizontal_aperture,
             frame_skip=config.camera_frame_skip,
             on_readback_ms=readback_cb,
             on_publish_ms=publish_cb,
@@ -1203,7 +1204,6 @@ def _run_harness_mode(simulation_app, env, args, config, cameras_required) -> No
     from strafer_lab.tools.lerobot_detections import DETECTIONS_MAX_DEFAULT
     from strafer_lab.tools.lerobot_writer import StraferLeRobotWriter, hash_scene_metadata
     from strafer_lab.tools.scene_paths import resolve_scene_usd_path
-    from strafer_shared.constants import D555_FOCAL_LENGTH_MM, D555_HORIZONTAL_APERTURE_MM
 
     # --- mission stream -------------------------------------------------
     scene_usd_path = resolve_scene_usd_path(
@@ -1258,8 +1258,10 @@ def _run_harness_mode(simulation_app, env, args, config, cameras_required) -> No
             camera_sensor=unwrapped.scene["d555_camera_perception"],
             color_stream=config.color_camera,
             depth_stream=config.depth_camera,
-            focal_length_mm=D555_FOCAL_LENGTH_MM,
-            horizontal_aperture_mm=D555_HORIZONTAL_APERTURE_MM,
+            # CameraInfo carries the intrinsics the camera renders at: a variant
+            # may override the focal length on top of the shared constants.
+            focal_length_mm=unwrapped.scene["d555_camera_perception"].cfg.spawn.focal_length,
+            horizontal_aperture_mm=unwrapped.scene["d555_camera_perception"].cfg.spawn.horizontal_aperture,
             frame_skip=config.camera_frame_skip,
         )
         print(

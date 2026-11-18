@@ -21,8 +21,8 @@ import pytest
 
 from strafer_shared.constants import (
     CAMERA_UPDATE_PERIOD_S,
-    D555_FOCAL_LENGTH_MM,
     D555_HORIZONTAL_APERTURE_MM,
+    D555_MEASURED_FOCAL_LENGTH_MM,
     PERCEPTION_HEIGHT,
     PERCEPTION_WIDTH,
 )
@@ -121,7 +121,7 @@ class TestPerceptionCameraPhysicalParams:
 
     def test_focal_length_matches_policy(self, perception_cfg, policy_cfg):
         assert perception_cfg.spawn.focal_length == policy_cfg.spawn.focal_length
-        assert perception_cfg.spawn.focal_length == D555_FOCAL_LENGTH_MM
+        assert perception_cfg.spawn.focal_length == D555_MEASURED_FOCAL_LENGTH_MM
 
     def test_horizontal_aperture_matches_policy(self, perception_cfg, policy_cfg):
         assert (

@@ -7,7 +7,8 @@ image (80×45, DEPTH_WIDTH×DEPTH_HEIGHT) into compact embeddings:
         Frozen DeFM (Depth Foundation Model) backbone + trainable linear
         projection.  DeFM is a ViT/CNN pretrained on 60M depth images via
         DINOv2-style self-distillation (ETH Zurich, Jan 2026).  Only the
-        projection head (~164K params) trains.
+        projection head trains (24,704 parameters for EfficientNet-B0 at 128
+        outputs).
 
     "cnn" (fallback):
         Custom BN+residual CNN with SpatialSoftArgmax, trained from scratch.
@@ -80,17 +81,41 @@ class SpatialSoftArgmax(nn.Module):
 
 _DEFM_INPUT_SIZE = 224
 
+# The DeFM code and weights the depth policies carry, both pinned (each
+# repository's main moves): the GitHub commit torch.hub loads the model code
+# from, and the Hugging Face revision of the weights. A cached commit resolves
+# without a network request.
+_DEFM_CODE_REPO = "leggedrobotics/defm"
+_DEFM_CODE_COMMIT = "d987df5c93b5b056b8c97b59fef18fce8d1af9cd"
+_DEFM_WEIGHTS_REPO = "leggedrobotics/defm"
+_DEFM_WEIGHTS_REVISION = "b6c9eb68ac833ccd93bf2571279235cb9b065251"
+
 
 def _load_defm_backbone(model_name: str) -> tuple[nn.Module, int]:
-    """Load a frozen DeFM backbone via torch.hub.
+    """Load a frozen DeFM backbone via torch.hub, with the pinned weights.
 
     Returns (backbone_module, feature_dim).
     """
-    print(f"[DeFMDepthEncoder] Loading DeFM backbone: {model_name}")
+    from huggingface_hub import hf_hub_download
+
+    print(
+        f"[DeFMDepthEncoder] Loading DeFM backbone: {model_name} "
+        f"(code {_DEFM_CODE_COMMIT[:8]}, weights {_DEFM_WEIGHTS_REVISION[:8]})"
+    )
+    weights_path = hf_hub_download(
+        repo_id=_DEFM_WEIGHTS_REPO,
+        filename=f"defm_{model_name}.pth",
+        revision=_DEFM_WEIGHTS_REVISION,
+    )
+    # torch.hub validates a ref only as a branch or tag tip, so a pinned commit
+    # skips it; trust_repo avoids the interactive prompt on a fresh machine.
     model = torch.hub.load(
-        "leggedrobotics/defm:main",
+        f"{_DEFM_CODE_REPO}:{_DEFM_CODE_COMMIT}",
         f"defm_{model_name}",
         pretrained=True,
+        pretrained_path=weights_path,
+        skip_validation=True,
+        trust_repo=True,
     )
     model.eval()
     for p in model.parameters():
@@ -107,11 +132,11 @@ def _load_defm_backbone(model_name: str) -> tuple[nn.Module, int]:
 
 
 def _get_defm_preprocess():
-    """Import DeFM's vectorized depth preprocessing from the torch.hub cache."""
+    """Import DeFM's vectorized depth preprocessing from the pinned commit's torch.hub cache."""
     import sys
     from pathlib import Path
 
-    hub_dir = Path(torch.hub.get_dir()) / "leggedrobotics_defm_main"
+    hub_dir = Path(torch.hub.get_dir()) / "_".join(_DEFM_CODE_REPO.split("/") + [_DEFM_CODE_COMMIT])
     if hub_dir.is_dir() and str(hub_dir) not in sys.path:
         sys.path.insert(0, str(hub_dir))
 
@@ -124,7 +149,14 @@ class DeFMDepthEncoder(nn.Module):
 
     Uses DeFM's native ``preprocess_depth_batch()`` to convert raw metric
     depth into the 3-channel log-normalized representation the backbone was
-    pretrained on.  Only the projection layer trains (~164K params).
+    pretrained on.  Only the projection layer trains (192 x 128 + 128 = 24,704
+    params for EfficientNet-B0 at 128 outputs).
+
+    The backbone is frozen in its mode too: it stays in eval whatever mode the
+    encoder is put in, so its stochastic-depth blocks never drop a branch in a
+    training forward pass, as in deployment. ``train`` keeps it there, and so
+    does a ``copy.deepcopy``, which would otherwise rebuild torchvision's
+    feature extractor in train mode.
 
     Input scale: the policy observation contract delivers depth normalized to
     [0, 1] (raw meters × ``DEPTH_SCALE`` applied exactly once), but DeFM's
@@ -149,6 +181,16 @@ class DeFMDepthEncoder(nn.Module):
             nn.Linear(backbone_dim, output_dim),
             nn.ELU(),
         )
+
+    def train(self, mode: bool = True) -> "DeFMDepthEncoder":
+        super().train(mode)
+        self.backbone.eval()
+        return self
+
+    def __setstate__(self, state: dict) -> None:
+        super().__setstate__(state)
+        if "backbone" in self._modules:
+            self.backbone.eval()
 
     def forward(self, depth_flat: torch.Tensor) -> torch.Tensor:
         # Obs-normalized [0, 1] -> metric meters (see class docstring).

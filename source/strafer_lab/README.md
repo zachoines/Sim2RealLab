@@ -94,6 +94,7 @@ room's generator arguments), and a camera-free stack the open-top room.
 | Motor dynamics | Disabled | τ=50ms, range [30, 80]ms | τ=60ms, range [20, 100]ms |
 | Command delay | 0 steps | 1 step, range [0, 2] | 1 step, range [0, 4] |
 | Slew rate limit | ∞ | 100 rad/s² | 80 rad/s² |
+| Command envelope (both caps) | off | off | s ~ U[0.255, 1.0] per env, drawn at each reset |
 | Control jitter | 0 % | ±5 % | ±10 % |
 | IMU accel noise density | 0 | 0.0098 m/s²/√Hz | 0.015 m/s²/√Hz |
 | IMU gyro noise density | 0 | 0.00024 rad/s/√Hz | 0.00036 rad/s/√Hz |

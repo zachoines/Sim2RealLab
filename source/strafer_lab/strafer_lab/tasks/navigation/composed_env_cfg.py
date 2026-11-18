@@ -570,6 +570,15 @@ class _ComposedStraferNavEnvCfg(base._BaseStraferNavEnvCfg):
 
         # --- Shared runtime defaults (dt / decimation / render / episode) ---
         _apply_default_nav_runtime(self)
+        # One render after each reset on a stack whose policy reads a camera, so
+        # an env's first observation shows the new episode rather than the frame
+        # rendered before it. Outside the hashed contract; pinned by its own test.
+        if profile in ("depth", "full"):
+            self.num_rerenders_on_reset = 1
+        else:
+            # Set on every composition, so re-composing a stack to camera-free
+            # (capture.py --sensors) does not keep a camera stack's re-render.
+            self.num_rerenders_on_reset = 0
 
         # --- Per-source structural setup ---
         if kind == "infinigen":

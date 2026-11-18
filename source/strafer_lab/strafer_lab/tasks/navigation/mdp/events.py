@@ -753,12 +753,13 @@ def stamp_d555_perception_opencv_pinhole(
             both the SceneCfg attribute lookup and the leaf name of the USD
             prim. Defaults to ``d555_camera_perception``.
         width / height / focal_length_mm / horizontal_aperture_mm: Optional
-            overrides; defaults pull from ``strafer_shared.constants`` so
-            the stamped intrinsics match the real D555 spec.
+            overrides; the defaults are the camera cfg's own resolution and
+            lens, so the stamped intrinsics are the ones it renders at.
     """
     del env_ids  # event signature only; the prim list is global per stage
 
-    if not hasattr(env.scene.cfg, camera_attr):
+    cam_cfg = getattr(env.scene.cfg, camera_attr, None)
+    if cam_cfg is None:
         logger.debug(
             "[stamp_d555_perception_opencv_pinhole] scene has no '%s'; skipping",
             camera_attr,
@@ -767,18 +768,11 @@ def stamp_d555_perception_opencv_pinhole(
 
     from pxr import Gf, Sdf  # type: ignore
 
-    from strafer_shared.constants import (
-        D555_FOCAL_LENGTH_MM,
-        D555_HORIZONTAL_APERTURE_MM,
-        PERCEPTION_HEIGHT,
-        PERCEPTION_WIDTH,
-    )
-
-    width = int(width if width is not None else PERCEPTION_WIDTH)
-    height = int(height if height is not None else PERCEPTION_HEIGHT)
-    f_mm = float(focal_length_mm if focal_length_mm is not None else D555_FOCAL_LENGTH_MM)
+    width = int(width if width is not None else cam_cfg.width)
+    height = int(height if height is not None else cam_cfg.height)
+    f_mm = float(focal_length_mm if focal_length_mm is not None else cam_cfg.spawn.focal_length)
     h_aperture_mm = float(
-        horizontal_aperture_mm if horizontal_aperture_mm is not None else D555_HORIZONTAL_APERTURE_MM
+        horizontal_aperture_mm if horizontal_aperture_mm is not None else cam_cfg.spawn.horizontal_aperture
     )
     fx = fy = width * f_mm / h_aperture_mm
     cx = width / 2.0

@@ -23,16 +23,16 @@ Both render at the deploy stream's resolution, which is 16:9 like the
 Source of truth for real hardware specs: :mod:`strafer_shared.constants`.
 Every value that mirrors a real-world D555 property — native capture
 resolution (``PERCEPTION_WIDTH`` / ``PERCEPTION_HEIGHT``), lens specs
-(``D555_FOCAL_LENGTH_MM`` / ``D555_HORIZONTAL_APERTURE_MM``), frame rate
+(``D555_MEASURED_FOCAL_LENGTH_MM`` / ``D555_HORIZONTAL_APERTURE_MM``), frame rate
 (``CAMERA_HZ`` / ``CAMERA_UPDATE_PERIOD_S``), IMU rate (``IMU_HZ`` /
 ``IMU_UPDATE_PERIOD_S``), depth-sensor saturation limits
 (``DEPTH_CLIP_NEAR``, ``DEPTH_CLIP_FAR`` — applied in software in
 ``observations.depth_image``), and mount offset (``CAMERA_OFFSET_X/Y/Z``)
 — lives in ``strafer_shared`` so the Jetson real-robot driver and the
-Isaac Sim cameras share one specification. The lens constants are the
-datasheet's, and both factories build from them; the real unit's measured
-focal length (fx = fy = 321.522 px at 640x360) sits beside them as
-``D555_MEASURED_FX_PX`` / ``D555_MEASURED_FOCAL_LENGTH_MM``. The renderer
+Isaac Sim cameras share one specification. Both factories build from the real
+unit's measured focal length (``D555_MEASURED_FOCAL_LENGTH_MM``: fx = fy =
+321.522 px at 640x360) over the datasheet aperture; the datasheet focal length
+(``D555_FOCAL_LENGTH_MM``, 335.652 px) stays beside it. The renderer
 frustum clip (``D555_RENDER_FAR_CLIP_M``) is sim-only and intentionally
 decoupled from the depth-sensor limit so RGB and other render-product
 channels extend through the full scene.
@@ -54,8 +54,8 @@ from strafer_shared.constants import (
     CAMERA_OFFSET_Y,
     CAMERA_OFFSET_Z,
     CAMERA_UPDATE_PERIOD_S,
-    D555_FOCAL_LENGTH_MM,
     D555_HORIZONTAL_APERTURE_MM,
+    D555_MEASURED_FOCAL_LENGTH_MM,
     D555_RENDER_FAR_CLIP_M,
     DEPTH_SIM_CLIP_NEAR,
     IMU_UPDATE_PERIOD_S,
@@ -127,11 +127,12 @@ def make_d555_camera_cfg(*, data_types: tuple[str, ...]) -> TiledCameraCfg:
     is the deploy field rather than a separately rendered one.
 
     640x360 and 80x45 are both 16:9, so Isaac Sim's resolution-derived
-    (square-pixel) vertical FOV is the same either way: 56.4 deg at this
-    focal length (fx = 335.652 px at 640x360). The real unit measures
-    fx = fy = 321.522 px (58.5 deg). (RTX ignores the authored
-    ``vertical_aperture``; the aspect comes from the resolution — see
-    ``strafer_shared.constants.DEPTH_HEIGHT``.)
+    (square-pixel) vertical FOV is the same either way: 58.5 deg at this
+    focal length, the real unit's measured fx = fy = 321.522 px at 640x360
+    (the datasheet's 1.93 mm gives 335.652 px, 56.4 deg). The principal point
+    stays at the image centre; the unit measures (318.441, 180.322). (RTX
+    ignores the authored ``vertical_aperture``; the aspect comes from the
+    resolution — see ``strafer_shared.constants.DEPTH_HEIGHT``.)
     """
 
     return TiledCameraCfg(
@@ -141,7 +142,7 @@ def make_d555_camera_cfg(*, data_types: tuple[str, ...]) -> TiledCameraCfg:
         width=PERCEPTION_WIDTH,
         data_types=list(data_types),
         spawn=sim_utils.PinholeCameraCfg(
-            focal_length=D555_FOCAL_LENGTH_MM,
+            focal_length=D555_MEASURED_FOCAL_LENGTH_MM,
             horizontal_aperture=D555_HORIZONTAL_APERTURE_MM,
             clipping_range=D555_CAMERA_CLIPPING_RANGE,
         ),
@@ -172,7 +173,7 @@ def make_d555_perception_camera_cfg() -> TiledCameraCfg:
         width=PERCEPTION_WIDTH,
         data_types=list(D555_PERCEPTION_DATA_TYPES),
         spawn=sim_utils.PinholeCameraCfg(
-            focal_length=D555_FOCAL_LENGTH_MM,
+            focal_length=D555_MEASURED_FOCAL_LENGTH_MM,
             horizontal_aperture=D555_HORIZONTAL_APERTURE_MM,
             clipping_range=D555_CAMERA_CLIPPING_RANGE,
         ),

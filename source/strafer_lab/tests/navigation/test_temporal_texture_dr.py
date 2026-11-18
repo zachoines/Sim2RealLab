@@ -217,7 +217,7 @@ class TestHoldProcess:
         process = HoldProcess(
             512, DEVICE,
             hold_fraction_range=timing.action_hold_fraction_range,
-            hold_run_range=timing.action_hold_run_range,
+            hold_run_range=tuple(round(s * timing.control_frequency_hz, 9) for s in timing.action_hold_run_range_s),
         )
         for _ in range(20):
             process.reset(None)
@@ -674,10 +674,13 @@ class TestContractTiers:
             "depth_latency_steps",
             "depth_latency_steps_range",
             "rgb_latency_steps",
-            "action_latency_steps",
-            "action_latency_steps_range",
+            "imu_latency_steps_range",
+            "action_latency_s",
+            "action_latency_range_s",
+            "action_latency_redraw_on_reset",
+            "action_substep_latency_range_s",
             "action_hold_fraction_range",
-            "action_hold_run_range",
+            "action_hold_run_range_s",
         }
 
     def test_both_tiers_range_and_robust_holds_the_realistic_stream_law(self):
@@ -716,7 +719,7 @@ class TestContractTiers:
         real_timing = REAL_ROBOT_CONTRACT.timing
         robust_timing = ROBUST_TRAINING_CONTRACT.timing
         assert robust_timing.action_hold_fraction_range == real_timing.action_hold_fraction_range
-        assert robust_timing.action_hold_run_range == real_timing.action_hold_run_range
+        assert robust_timing.action_hold_run_range_s == real_timing.action_hold_run_range_s
 
     @pytest.mark.parametrize(
         "contract", [REAL_ROBOT_CONTRACT, ROBUST_TRAINING_CONTRACT], ids=["real", "robust"]
@@ -755,4 +758,4 @@ class TestContractTiers:
     def test_the_contract_reaches_the_action_term(self, contract):
         params = get_action_config_params(contract)
         assert params["hold_fraction_range"] == contract.timing.action_hold_fraction_range
-        assert params["hold_run_range"] == contract.timing.action_hold_run_range
+        assert params["hold_run_range_s"] == contract.timing.action_hold_run_range_s

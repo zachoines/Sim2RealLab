@@ -298,7 +298,11 @@ def row(label, basis_words):
 def _():
     def cell(t):
         a = _act(t)
-        return OFF if a.max_delay_steps == 0 else [a.min_delay_steps, a.max_delay_steps]
+        assert not a.delay_redraw_on_reset and tuple(a.substep_delay_range_s) == (0.0, 0.0), t  # the row: both off
+        if a.delay_range_s[1] == 0:
+            return OFF
+        lo, hi = a.delay_range_s
+        return [1000 * lo, 1000 * hi, lo / _step_dt(t), hi / _step_dt(t)]
     return {**_tiers(cell), "models": [], "basis": []}
 
 
@@ -306,7 +310,7 @@ def _():
 def _():
     def cell(t):
         a = _act(t)
-        return OFF if a.hold_fraction_range[1] == 0 else [*a.hold_fraction_range, *a.hold_run_range]
+        return OFF if a.hold_fraction_range[1] == 0 else [*a.hold_fraction_range, *(1000 * s for s in a.hold_run_range_s)]
     return {**_tiers(cell), "models": [], "basis": []}
 
 
@@ -726,7 +730,7 @@ def _full_forward(term, scale):
 
 
 def test_the_envelope_scales_both_caps_where_the_row_says_so():
-    stages_off = dict(min_delay_steps=0, max_delay_steps=0, hold_fraction_range=(0.0, 0.0),
+    stages_off = dict(delay_range_s=(0.0, 0.0), hold_fraction_range=(0.0, 0.0),
                       enable_motor_dynamics=False, max_acceleration_rad_s2=math.inf,
                       max_acceleration_range=(math.inf, math.inf))
     for t in TIERS:
@@ -743,7 +747,7 @@ def test_with_every_documented_stage_off_the_term_is_the_clamp_and_the_kinematic
     """A stage with no row would show here: the term with delay, hold, envelope, acceleration limit and lag off."""
     from strafer_lab.tasks.navigation.mdp.actions import l1_clamp_twist_batched
 
-    term = _term(t, num_envs=64, min_delay_steps=0, max_delay_steps=0, hold_fraction_range=(0.0, 0.0),
+    term = _term(t, num_envs=64, delay_range_s=(0.0, 0.0), hold_fraction_range=(0.0, 0.0),
                  speed_scale_range=None, enable_motor_dynamics=False, max_acceleration_rad_s2=math.inf,
                  max_acceleration_range=(math.inf, math.inf))[0]
     gen = torch.Generator().manual_seed(7)
@@ -786,8 +790,8 @@ ACTION_FIELDS = {
     "max_wheel_angular_vel": "Wheel speed and torque", "enable_motor_dynamics": "Motor lag",
     "motor_time_constant": "Motor lag", "motor_time_constant_range": "Motor lag",
     "wheel_speed_limit": "Wheel speed and torque", "accel_falloff_speed": "Acceleration limit",
-    "min_delay_steps": "Command delay", "max_delay_steps": "Command delay",
-    "hold_fraction_range": "Command hold", "hold_run_range": "Command hold", "speed_scale_range": "Command envelope",
+    "delay_range_s": "Command delay", "delay_redraw_on_reset": "Command delay", "substep_delay_range_s": "Command delay",
+    "hold_fraction_range": "Command hold", "hold_run_range_s": "Command hold", "speed_scale_range": "Command envelope",
     "max_acceleration_rad_s2": "Acceleration limit", "max_acceleration_range": "Acceleration limit",
 }
 
@@ -814,7 +818,8 @@ NOISE_FIELDS = {
         "output_size": STRUCTURAL, "control_frequency_hz": "IMU noise", "accel_noise_std": "IMU noise",
         "accel_bias_range": "IMU noise", "accel_bias_drift_rate": "IMU noise", "gyro_noise_std": "IMU noise",
         "gyro_bias_range": "IMU noise", "gyro_bias_drift_rate": "IMU noise",
-        "stuck_probability": "Sensor dropouts", "latency_steps": "IMU and encoder latency"},
+        "stuck_probability": "Sensor dropouts", "latency_steps": "IMU and encoder latency",
+        "latency_steps_range": "IMU and encoder latency"},
     "EncoderNoiseModelCfg": {
         "class_type": CHECKED, "func": STRUCTURAL, "noise_cfg": STRUCTURAL, "output_size": STRUCTURAL,
         "enable_quantization": "Wheel encoder noise",
@@ -959,17 +964,17 @@ def test_the_fields_nothing_reads_are_the_modules_declared_list():
 
 
 ANCHORS = {
-    "actions.py#L207": "torch.randint", "actions.py#L223": "HoldProcess(", "actions.py#L246": "_max_delta_per_step",
-    "actions.py#L344": "torch.expm1(", "actions.py#L287": "_draw_speed_scale",
-    "actions.py#L400": "l1_clamp_twist_batched(", "actions.py#L496": "max_wheel_angular_vel",
+    "actions.py#L220": "torch.randint", "actions.py#L231": "HoldProcess(", "actions.py#L254": "_max_delta_per_step",
+    "actions.py#L395": "torch.expm1(", "actions.py#L276": "_draw_speed_scale",
+    "actions.py#L451": "l1_clamp_twist_batched(", "actions.py#L572": "max_wheel_angular_vel",
     "events.py#L401": "def randomize_motor_strength", "events.py#L452": "def randomize_d555_mount_offset",
     "events.py#L354": "def randomize_subgoal_drift", "events.py#L170": "def randomize_friction",
     "events.py#L305": "def randomize_mass", "events.py#L569": "def reset_robot_proc_room",
-    "noise_models.py#L185": "class IMUNoiseModel(", "noise_models.py#L345": "class EncoderNoiseModel(",
-    "noise_models.py#L471": "class DepthNoiseModel(",
+    "noise_models.py#L185": "class IMUNoiseModel(", "noise_models.py#L352": "class EncoderNoiseModel(",
+    "noise_models.py#L478": "class DepthNoiseModel(",
     "observations.py#L45": "def reduce_depth_to_policy_grid", "d555_cfg.py#L145": "focal_length=",
     "composed_env_cfg.py#L572": "num_rerenders_on_reset = 1", "commands.py#L668": "perturb_waypoints(",
-    "proc_room.py#L981": "def generate_proc_room", "sim_real_cfg.py#L687": "IDEAL_SIM_CONTRACT",
+    "proc_room.py#L981": "def generate_proc_room", "sim_real_cfg.py#L713": "IDEAL_SIM_CONTRACT",
 }
 
 

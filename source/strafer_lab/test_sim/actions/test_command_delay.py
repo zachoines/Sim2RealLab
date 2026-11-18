@@ -43,14 +43,15 @@ def test_exact_step_shift(action_env):
     step_action = torch.tensor([[1.0, 0.0, 0.0]], device=action_env.device).repeat(action_env.num_envs, 1)
 
     # Fill buffer with zeros
-    for _ in range(cfg.max_delay_steps + 5):
+    max_delay = action_term._delay_steps_range[1]
+    for _ in range(max_delay + 5):
         action_term.process_actions(zero_action)
 
     baseline = action_term.processed_actions[0, 0].cpu().item()
 
     # Now apply step and track when output changes
     responses = []
-    for i in range(cfg.max_delay_steps + 10):
+    for i in range(max_delay + 10):
         action_term.process_actions(step_action)
         responses.append(action_term.processed_actions[0, 0].cpu().item())
 
@@ -61,7 +62,7 @@ def test_exact_step_shift(action_env):
     first_change_idx = np.argmax(np.abs(responses - baseline) > threshold)
 
     print(f"\n  Command delay - exact step shift:")
-    print(f"    Configured max delay: {cfg.max_delay_steps} steps")
+    print(f"    Configured max delay: {max_delay} steps")
     print(f"    Actual delay (env 0): {actual_delay} steps")
     print(f"    First output change at step: {first_change_idx}")
     print(f"    Expected: {actual_delay} steps")
@@ -88,7 +89,7 @@ def test_signal_shape_preservation(action_env):
         actual_delay = 0
 
     # Create ramp input
-    n_steps = 50 + cfg.max_delay_steps
+    n_steps = 50 + action_term._delay_steps_range[1]
     ramp_values = np.linspace(0, 1, n_steps)
 
     responses = []

@@ -41,7 +41,7 @@ def _term(tier="realistic", num_envs=N, *, lag=True, accel=None, **overrides):
     """The tier's term with the delay, the hold and the envelope off; the lag on or off; the slew at `accel` or off."""
     cfg = _cfg(tier)
     t = cfg.actions.wheel_velocities.copy()
-    t.min_delay_steps = t.max_delay_steps = 0
+    t.delay_range_s = (0.0, 0.0)
     t.hold_fraction_range = (0.0, 0.0)
     t.speed_scale_range = None
     t.enable_motor_dynamics = lag

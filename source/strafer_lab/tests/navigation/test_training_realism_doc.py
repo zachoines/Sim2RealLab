@@ -1,49 +1,148 @@
 # Copyright (c) 2025, Strafer Lab Project
 # SPDX-License-Identifier: BSD-3-Clause
 
-"""The realism tiers' values, pinned against `docs/context/training-realism.md`.
+"""`docs/context/training-realism.md` against the code.
 
-Reads the composed cfgs of one class per tier (`StraferNavCfg_Depth_Ideal`, `StraferNavCfg_RLDepthSubgoal_Real`,
-`StraferNavCfg_RLDepthSubgoal_Robust`, and `StraferNavCfg_RLNoCamSubgoal_Real` for the camera-free stack), the tier
-contracts in `sim_real_cfg.py` for the IMU noise densities, and the built action term (on a stand-in env at the
-composed cfg's physics and control steps) for the trained motor lag, acceleration limit and twist caps. Each case
-checks the code's value and that the module's row for that perturbation states it, so a value that changes on either
-side fails until the other follows.
+The module's three tables are parsed into cells (a cell reading "same" stands for the cell on its left plus what
+follows the word). For each row, every number a cell holds is computed here from the code — the composed cfgs of one
+class per tier, the built action term on a stand-in env, the noise cfgs, the event params, the robot's USD — and the
+cell's numbers must equal them in order, each to the precision the cell prints. An inactive perturbation is the cell
+"off" (or "none"). No value is written here as a literal, so a change on either side fails until the other follows.
+
+Completeness: every event term, action-cfg field and noise-cfg field of every composed class must map to a row, a
+not-applied line, or a structural field; the action term with every documented stage off must be the clamp and the
+kinematics alone; and the contract fields nothing reads must be the module's "declared, not applied" list.
 
 No Kit / GPU. Run with the pure-Python lab tests.
 """
 
 from __future__ import annotations
 
+import dataclasses
 import functools
+import inspect
 import math
+import re
 from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
 import torch
 
-MODULE = Path(__file__).resolve().parents[4] / "docs" / "context" / "training-realism.md"
-CLASSES = {
-    "ideal": "StraferNavCfg_Depth_Ideal",
-    "realistic": "StraferNavCfg_RLDepthSubgoal_Real",
-    "robust": "StraferNavCfg_RLDepthSubgoal_Robust",
-    "camera-free": "StraferNavCfg_RLNoCamSubgoal_Real",
-}
-CONTRACTS = {"realistic": "REAL_ROBOT_CONTRACT", "robust": "ROBUST_TRAINING_CONTRACT"}
+REPO = Path(__file__).resolve().parents[4]
+MODULE = REPO / "docs" / "context" / "training-realism.md"
+PACKAGE = REPO / "source" / "strafer_lab" / "strafer_lab"
+NAV = PACKAGE / "tasks" / "navigation"
+TIERS = ("ideal", "real", "robust")
+COLUMNS = ("ideal", "real", "robust", "models", "basis")
+CAMERA = {"ideal": "StraferNavCfg_Depth_Ideal", "real": "StraferNavCfg_RLDepthSubgoal_Real",
+          "robust": "StraferNavCfg_RLDepthSubgoal_Robust"}
+CAMERA_FREE = {"ideal": "StraferNavCfg_NoCam_Ideal", "real": "StraferNavCfg_RLNoCamSubgoal_Real",
+               "robust": "StraferNavCfg_RLNoCamSubgoal_Robust"}
+CONTRACT = {"ideal": "IDEAL_SIM_CONTRACT", "real": "REAL_ROBOT_CONTRACT", "robust": "ROBUST_TRAINING_CONTRACT"}
+LEGEND = ("measured", "datasheet", "derived", "design", "unknown")
+ACC, GYR, ENC, DEPTH = "imu_linear_acceleration", "imu_angular_velocity", "wheel_encoder_velocities", "depth_image"
+
+
+# --- the module ------------------------------------------------------------------------------------------------------
+
+def _text():
+    return MODULE.read_text(encoding="utf-8")
+
+
+def _cells(line):
+    return [c.strip() for c in re.split(r"(?<!\\)\|", line)[1:-1]]
 
 
 @functools.lru_cache(maxsize=None)
-def _cfg(tier):
+def _rows():
+    """{label: ({column: text}, the label cell)} for every row of the three tables."""
+    rows = {}
+    for line in _text().splitlines():
+        if not line.startswith("| ") or line.startswith("|---"):
+            continue
+        cells = _cells(line)
+        if cells[0] == "perturbation":
+            assert tuple(cells[1:]) == COLUMNS, cells
+            continue
+        label = re.sub(r"\[([^\]]*)\]\([^)]*\)", r"\1", cells[0])
+        assert label not in rows, label
+        assert len(cells) == 1 + len(COLUMNS), (label, len(cells))
+        rows[label] = (dict(zip(COLUMNS, cells[1:])), cells[0])
+    return rows
+
+
+def _effective(label, column):
+    """A cell's text, with a leading "same" replaced by the cell on its left."""
+    cols = _rows()[label][0]
+    text = cols[column]
+    if column in TIERS and text.startswith("same"):
+        left = TIERS[TIERS.index(column) - 1]
+        return _effective(label, left) + text[len("same"):]
+    return text
+
+
+_NUMBER = re.compile(r"(?<![\w.])\d+(?:\.\d+)?(?:e-\d+)?")
+
+
+def _numbers(text):
+    text = re.sub(r"`[^`]*`", "", text)
+    text = re.sub(r"\[([^\]]*)\]\([^)]*\)", r"\1", text)
+    return _NUMBER.findall(text)
+
+
+def _close(printed, value):
+    """`value` rounds to the number as the cell prints it."""
+    mantissa, _, exponent = printed.partition("e")
+    decimals = len(mantissa.partition(".")[2])
+    step = 10.0 ** (-decimals + (int(exponent) if exponent else 0))
+    return abs(float(printed) - float(value)) <= step / 2 + 1e-12
+
+
+# --- the code --------------------------------------------------------------------------------------------------------
+
+@functools.lru_cache(maxsize=None)
+def _cfg(name):
     from strafer_lab.tasks.navigation import composed_env_cfg as composed
 
-    return getattr(composed, CLASSES[tier])()
+    return getattr(composed, name)()
 
 
-def _contract(tier):
+@functools.lru_cache(maxsize=None)
+def _composed():
+    """Every composed class that builds without the scene corpus, by name."""
+    from strafer_lab.tasks.navigation import composed_env_cfg as composed
+
+    out = {}
+    for name in sorted(n for n in dir(composed) if n.startswith("StraferNavCfg_")):
+        cls = getattr(composed, name)
+        if [f.default_factory().kind for f in dataclasses.fields(cls) if f.name == "scene_source"] == ["infinigen"]:
+            continue
+        out[name] = _cfg(name)
+    return out
+
+
+def _c(t):
+    return _cfg(CAMERA[t])
+
+
+def _act(t):
+    return _c(t).actions.wheel_velocities
+
+
+def _noise(t, term):
+    return getattr(_c(t).observations.policy, term).noise
+
+
+def _event(t, name, cls=None):
+    term = getattr((cls or _c(t)).events, name, None)
+    return None if term is None else term.params
+
+
+def _contract(t):
     from strafer_lab.tasks.navigation import sim_real_cfg
 
-    return getattr(sim_real_cfg, CONTRACTS[tier])
+    return getattr(sim_real_cfg, CONTRACT[t])
 
 
 class _Asset:
@@ -51,200 +150,707 @@ class _Asset:
         return [0, 1, 2, 3], ["wheel_1_drive", "wheel_2_drive", "wheel_3_drive", "wheel_4_drive"]
 
 
-def _term(tier, **overrides):
-    """The tier's action term on a stand-in env stepping at the composed cfg's physics and control periods."""
-    cfg = _cfg(tier)
+def _term(t, num_envs=4, **overrides):
+    """The tier's action term on a stand-in env at the composed cfg's physics and control steps."""
+    cfg = _c(t)
     term_cfg = cfg.actions.wheel_velocities.copy()
     for k, v in overrides.items():
         setattr(term_cfg, k, v)
-    env = SimpleNamespace(
-        scene={term_cfg.asset_name: _Asset()}, device="cpu", num_envs=4,
-        physics_dt=cfg.sim.dt, step_dt=cfg.sim.dt * cfg.decimation,
-    )
+    env = SimpleNamespace(scene={term_cfg.asset_name: _Asset()}, device="cpu", num_envs=num_envs,
+                          physics_dt=cfg.sim.dt, step_dt=cfg.sim.dt * cfg.decimation)
     return term_cfg.class_type(term_cfg, env), env
 
 
-def _rise_63_s(tier):
-    """Seconds for the motor lag to reach 63 % of a step, from the term's own per-control-step coefficient."""
-    term, env = _term(tier)
-    steps = math.log(math.exp(-1.0)) / math.log(1.0 - term._motor_alpha)
-    return steps * env.step_dt
+def _step_dt(t):
+    return _c(t).sim.dt * _c(t).decimation
 
 
-def _trained_accel(tier, accel):
-    """rad/s² the acceleration limit allows per control step, for a band pinned at one value."""
-    term, env = _term(tier, max_acceleration_range=(accel, accel), max_acceleration_rad_s2=accel)
+def _trained_band(t, n=20000):
+    """rad/s² the acceleration limit allows, at the ends of the per-env draw, through the reset that training uses;
+    the build-time draw must agree."""
+    term, env = _term(t, num_envs=n)
+    built = term._max_delta_per_step.flatten() / env.step_dt
+    term.reset(None)
+    drawn = term._max_delta_per_step.flatten() / env.step_dt
+    assert abs(float(built.min()) - float(drawn.min())) < 1.0 and abs(float(built.max()) - float(drawn.max())) < 1.0
+    return float(drawn.min()), float(drawn.max())
+
+
+def _trained_fixed(t, accel):
+    term, env = _term(t, max_acceleration_range=(accel, accel), max_acceleration_rad_s2=accel)
     return float(term._max_delta_per_step.max()) / env.step_dt
 
 
-def W(tier, *names):
-    """The tier's action-term fields."""
-    wv = _cfg(tier).actions.wheel_velocities
-    return tuple(getattr(wv, n) for n in names) if len(names) > 1 else getattr(wv, names[0])
+@functools.lru_cache(maxsize=None)
+def _usd_shapes():
+    """(static, dynamic) friction of the physics material bound to each collision prim of the robot's USD."""
+    from pxr import Usd, UsdPhysics
 
+    from strafer_lab.assets import strafer
 
-def NZ(tier, term, *names):
-    """Fields of one observation term's noise model (None when the term has no noise)."""
-    noise = getattr(_cfg(tier).observations.policy, term).noise
-    if not names:
-        return noise
-    return tuple(getattr(noise, n) for n in names) if len(names) > 1 else getattr(noise, names[0])
+    stage = Usd.Stage.Open(strafer._STRAFER_USD_PATH, load=Usd.Stage.LoadAll)
 
-
-def EV(tier, name, *keys):
-    """Params of one event term (None when the tier has no such term)."""
-    term = getattr(_cfg(tier).events, name, None)
-    if term is None:
+    def bound(prim):
+        while prim and prim.IsValid():
+            for rel_name in ("material:binding:physics", "material:binding"):
+                rel = prim.GetRelationship(rel_name)
+                if rel and rel.GetTargets():
+                    mat = stage.GetPrimAtPath(rel.GetTargets()[0])
+                    if mat and mat.HasAPI(UsdPhysics.MaterialAPI):
+                        api = UsdPhysics.MaterialAPI(mat)
+                        return api.GetStaticFrictionAttr().Get(), api.GetDynamicFrictionAttr().Get()
+            prim = prim.GetParent()
         return None
-    return tuple(term.params[k] for k in keys) if len(keys) > 1 else term.params[keys[0]]
+
+    return [bound(p) for p in stage.Traverse() if p.HasAPI(UsdPhysics.CollisionAPI)]
 
 
-def IMU(tier, *names):
-    """The tier contract's IMU fields."""
-    return tuple(getattr(_contract(tier).sensors.imu, n) for n in names)
+def _friction_run(t):
+    """randomize_friction on a stand-in robot whose shapes carry the USD's materials (the unbound ones the sim's
+    default); returns the dynamic / static ratio it writes on the shapes it draws, after checking it keeps the rest."""
+    import warp as wp
+
+    from strafer_lab.tasks.navigation.mdp import events
+
+    params = _event(t, "randomize_friction")
+    threshold = inspect.signature(events.randomize_friction).parameters["roller_friction_threshold"].default
+    default = _c(t).sim.physics_material
+    shapes = [s if s is not None else (default.static_friction, default.dynamic_friction) for s in _usd_shapes()]
+    table = torch.tensor([[s, d, 0.0] for s, d in shapes], dtype=torch.float32).repeat(8, 1, 1)
+    written = {}
+    view = SimpleNamespace(get_material_properties=lambda: table.clone(),
+                           set_material_properties=lambda m, ids: written.setdefault("m", wp.to_torch(m).clone()))
+    env = SimpleNamespace(scene={"robot": SimpleNamespace(root_view=view)})
+    events.randomize_friction(env, torch.arange(8), **params)
+    out = written["m"]
+    keep = table[0, :, 0] >= threshold
+    assert torch.equal(out[:, keep], table[:, keep])
+    lo, hi = params["friction_range"]
+    drawn = out[:, ~keep]
+    assert bool(((drawn[..., 0] >= lo) & (drawn[..., 0] <= hi)).all())
+    ratio = drawn[..., 1] / drawn[..., 0]
+    assert float(ratio.max() - ratio.min()) < 1e-6
+    return float(ratio.mean()), int((~keep).sum()), int(keep.sum()), threshold
 
 
-def _accel_band(tier):
-    return tuple(round(_trained_accel(tier, a)) for a in W(tier, "max_acceleration_range"))
+def _signature_default(func, name):
+    return inspect.signature(func).parameters[name].default
 
 
-def _caps(tier):
-    term = _term(tier)[0]
-    return round(term._max_linear_vel, 3), round(term._max_angular_vel, 3)
+OFF = "off"
 
 
-def _fx(tier):
-    spawn = _cfg(tier).scene.d555_camera.spawn
-    return round(640 * spawn.focal_length / spawn.horizontal_aperture, 3)
+def _tiers(f):
+    return {t: f(t) for t in TIERS}
 
 
-ENC, DEPTH = "wheel_encoder_velocities", "depth_image"
-ACC, GYR = "imu_linear_acceleration", "imu_angular_velocity"
-DRIFT = ("gain_range", "position_rms_m", "heading_sigma_deg", "tau_s")
+# --- the rows: what every cell must hold -----------------------------------------------------------------------------
 
-# (module row, tier, the code's value, its expected value, the text the row states)
-ROWS = [
-    ("Command delay", "ideal", lambda: W("ideal", "min_delay_steps", "max_delay_steps"), (0, 0), "| off |"),
-    ("Command delay", "realistic", lambda: W("realistic", "min_delay_steps", "max_delay_steps"), (1, 3),
-     "1–3 control steps"),
-    ("Command delay", "robust", lambda: W("robust", "min_delay_steps", "max_delay_steps"), (1, 5),
-     "1–5 control steps"),
-    ("Command hold", "realistic", lambda: W("realistic", "hold_fraction_range", "hold_run_range"),
-     ((0.0, 0.05), (1.0, 1.2)), "U(0, 0.05) of ticks per env, runs of 1–1.2"),
-    ("Command hold", "robust", lambda: W("robust", "hold_fraction_range", "hold_run_range"),
-     ((0.0, 0.05), (1.0, 1.2)), "| same |"),
-    ("Acceleration limit", "ideal", lambda: W("ideal", "max_acceleration_rad_s2"), math.inf, "| off |"),
-    ("Acceleration limit", "realistic", lambda: W("realistic", "max_acceleration_range"), (700.0, 1100.0),
-     "(field: 700–1100)"),
-    ("Acceleration limit", "realistic", lambda: _accel_band("realistic"), (175, 275), "175–275 rad/s²"),
-    ("Acceleration limit", "robust", lambda: W("robust", "max_acceleration_range"), (500.0, 1200.0),
-     "(field: 500–1200)"),
-    ("Acceleration limit", "robust", lambda: _accel_band("robust"), (125, 300), "125–300 rad/s²"),
-    ("Acceleration limit", "realistic",
-     lambda: round(_trained_accel("realistic", W("realistic", "max_acceleration_rad_s2"))),
-     225, "nominal 225 (field: 900)"),
-    ("Motor lag", "ideal", lambda: W("ideal", "enable_motor_dynamics"), False, "| off |"),
-    ("Motor lag", "realistic", lambda: (W("realistic", "motor_time_constant"), round(_rise_63_s("realistic"), 3)),
-     (0.05, 0.216), "63 % rise in 0.216 s (field τ 0.05 s)"),
-    ("Motor lag", "robust", lambda: (W("robust", "motor_time_constant"), round(_rise_63_s("robust"), 3)),
-     (0.06, 0.256), "0.256 s (field τ 0.06 s)"),
-    ("Command envelope", "realistic", lambda: W("realistic", "speed_scale_range"), None, "| off | off |"),
-    ("Command envelope", "robust", lambda: W("robust", "speed_scale_range"), (0.255, 1.0), "s ~ U(0.255, 1.0)"),
-    ("Twist clamp", "realistic", lambda: _caps("realistic"), (1.568, 4.186),
-     "\\|vx\\| + \\|vy\\| ≤ 1.568 m/s, \\|ω\\| ≤ 4.186 rad/s"),
-    ("Wheel speed and torque", "realistic",
-     lambda: (W("realistic", "max_wheel_angular_vel"),
-              round(_cfg("realistic").scene.robot.actuators["wheel_drives"].effort_limit_sim, 3)),
-     (32.67, 2.383), "32.67 rad/s; 2.383 N·m"),
-    ("Motor strength", "ideal", lambda: EV("ideal", "randomize_motor_strength", "strength_range"), None, "| off |"),
-    ("Motor strength", "realistic", lambda: EV("realistic", "randomize_motor_strength", "strength_range"),
-     (0.92, 1.08), "× U(0.92, 1.08)"),
-    ("Motor strength", "robust", lambda: EV("robust", "randomize_motor_strength", "strength_range"), (0.8, 1.2),
-     "× U(0.8, 1.2)"),
-    ("Control period", "robust", lambda: round(_cfg("robust").sim.dt * _cfg("robust").decimation, 9),
-     round(1 / 30, 9), "| 1/30 s |"),
-    ("IMU noise", "ideal", lambda: NZ("ideal", ACC), None, "| off |"),
-    ("IMU noise", "realistic", lambda: IMU("realistic", "accel_noise_density", "gyro_noise_density"),
-     (0.0098, 0.00024), "white 0.0098 m/s²/√Hz and 0.00024 rad/s/√Hz"),
-    ("IMU noise", "realistic",
-     lambda: (NZ("realistic", ACC, "accel_bias_range"), NZ("realistic", GYR, "gyro_bias_range")),
-     ((-0.04, 0.04), (-0.0017, 0.0017)), "±0.04 m/s², ±0.0017 rad/s"),
-    ("IMU noise", "robust", lambda: IMU("robust", "accel_noise_density", "gyro_noise_density"), (0.015, 0.00036),
-     "0.015, 0.00036"),
-    ("IMU noise", "robust", lambda: (NZ("robust", ACC, "accel_bias_range"), NZ("robust", GYR, "gyro_bias_range")),
-     ((-0.06, 0.06), (-0.0025, 0.0025)), "±0.06, ±0.0025"),
-    ("IMU and encoder latency", "realistic",
-     lambda: (NZ("realistic", ACC, "latency_steps"), NZ("realistic", ENC, "latency_steps")),
-     (0, 0), "| none |"),
-    ("IMU and encoder latency", "robust",
-     lambda: (NZ("robust", GYR, "latency_steps"), NZ("robust", ENC, "latency_steps")),
-     (1, 1), "1 control step"),
-    ("Wheel encoder noise", "realistic",
-     lambda: NZ("realistic", ENC, "velocity_noise_std", "max_velocity", "missed_tick_prob", "extra_tick_prob"),
-     (0.02, 3000.0, 0.001, 0.0005), "σ 0.02 of 3000 ticks/s; a missed tick 0.001, an extra 0.0005"),
-    ("Wheel encoder noise", "robust", lambda: NZ("robust", ENC, "velocity_noise_std", "missed_tick_prob"),
-     (0.05, 0.005), "σ 0.05; missed 0.005"),
-    ("Sensor dropouts", "realistic",
-     lambda: tuple(NZ("realistic", t, "failure_probability") for t in (ACC, ENC, DEPTH)), (0.0, 0.0, 0.0), "| none |"),
-    ("Sensor dropouts", "robust",
-     lambda: (NZ("robust", ACC, "failure_probability"), NZ("robust", ACC, "stuck_probability"),
-              NZ("robust", ENC, "failure_probability"), NZ("robust", DEPTH, "failure_probability")),
-     (1e-4, 1e-4, 1e-4, 1e-3),
-     "the IMU reads zero or repeats 1e-4; the encoders read zero 1e-4; the depth frame reads far 1e-3"),
-    ("Depth disparity noise", "realistic",
-     lambda: NZ("realistic", DEPTH, "disparity_noise_px", "disparity_noise_px_range"),
-     (0.08, None), "σ_d 0.08 px"),
-    ("Depth disparity noise", "robust", lambda: NZ("robust", DEPTH, "disparity_noise_px_range"), (0.002, 0.16),
-     "log-uniform on [0.002, 0.16] px"),
-    ("Depth holes and lost frames", "realistic", lambda: NZ("realistic", DEPTH, "hole_probability", "frame_drop_prob"),
-     (0.01, 0.001), "holes 0.01 of cells; a frame lost 0.001"),
-    ("Depth holes and lost frames", "robust", lambda: NZ("robust", DEPTH, "hole_probability", "frame_drop_prob"),
-     (0.03, 0.01), "| 0.03; 0.01 |"),
-    ("Depth stream hold", "robust", lambda: NZ("robust", DEPTH, "hold_fraction_range", "hold_run_range"),
-     ((0.0, 0.35), (1.0, 1.6)), "U(0, 0.35) of ticks per env, runs of 1–1.6"),
-    ("Depth latency", "realistic", lambda: NZ("realistic", DEPTH, "latency_steps_range"), (0, 2), "0–2 control steps"),
-    ("Depth latency", "robust", lambda: NZ("robust", DEPTH, "latency_steps_range"), (1, 3), "| 1–3 |"),
-    ("Camera lens", "robust", lambda: _fx("robust"), 321.522, "fx = fy = 321.522 px at 640×360"),
-    ("Re-render after reset", "realistic",
-     lambda: (_cfg("realistic").num_rerenders_on_reset, _cfg("camera-free").num_rerenders_on_reset), (1, 0),
-     "1 on every stack that reads a camera, 0 on the camera-free stack"),
-    ("Mount misalignment", "realistic", lambda: EV("realistic", "randomize_d555_mount", "max_angle_deg"), 1.0,
-     "±1° per axis"),
-    ("Mount misalignment", "robust", lambda: EV("robust", "randomize_d555_mount", "max_angle_deg"), 3.0, "| ±3° |"),
-    ("Subgoal-frame drift", "robust", lambda: EV("robust", "randomize_subgoal_drift", *DRIFT),
-     ((0.0, 0.5), 0.166, 6.7, 2.0), "gain U(0, 0.5) per env × 0.166 m RMS and 6.7° heading, correlation time 2 s"),
-    ("Path and lookahead", "realistic",
-     lambda: (_cfg("realistic").commands.goal_command.waypoint_noise_std_m,
-              _cfg("realistic").commands.goal_command.lookahead_randomization_m),
-     (0.025, (0.9, 1.1)), "waypoint noise 0.025 m; lookahead U(0.9, 1.1) m"),
-    ("Path and lookahead", "robust", lambda: _cfg("robust").commands.goal_command.lookahead_randomization_m,
-     (0.7, 1.3), "U(0.7, 1.3) m"),
-    ("Friction", "realistic", lambda: EV("realistic", "randomize_friction", "friction_range"), (0.6, 1.2),
-     "static U(0.6, 1.2)"),
-    ("Friction", "robust", lambda: EV("robust", "randomize_friction", "friction_range"), (0.3, 1.5), "| U(0.3, 1.5) |"),
-    ("Mass", "realistic", lambda: EV("realistic", "randomize_mass", "mass_range"), (0.95, 1.05), "× U(0.95, 1.05)"),
-    ("Mass", "robust", lambda: EV("robust", "randomize_mass", "mass_range"), (0.85, 1.15), "× U(0.85, 1.15)"),
-    ("Room", "realistic",
-     lambda: (EV("realistic", "randomize_difficulty", "min_level", "max_level"),
-              EV("realistic", "generate_room", "p_ceil")),
-     ((4, 7), 0.7), "difficulty U{4…7}, a ceiling on 70 % of episodes"),
-]
+ROWS = {}
 
 
-def _module_row(label):
-    """The module's table row for a perturbation (its first cell names it, linked or not)."""
-    rows = [line for line in MODULE.read_text(encoding="utf-8").splitlines()
-            if line.startswith("| ") and (line.startswith(f"| [{label}]") or line.startswith(f"| {label} |"))]
-    assert len(rows) == 1, f"{label!r}: {len(rows)} rows in {MODULE.name}"
-    return rows[0]
+def row(label, basis_words):
+    def register(fn):
+        ROWS[label] = (fn, frozenset(basis_words))
+        return fn
+    return register
 
 
-@pytest.mark.parametrize("label, tier, value, expected, stated", ROWS,
-                         ids=[f"{r[0]}-{r[1]}-{i}" for i, r in enumerate(ROWS)])
-def test_the_module_states_the_tiers_values(label, tier, value, expected, stated):
-    got = value()
-    if isinstance(expected, float) and not math.isinf(expected):
-        assert got == pytest.approx(expected), (label, tier, got)
-    else:
-        assert got == expected, (label, tier, got)
-    assert stated in _module_row(label), f"{label} ({tier}): the module's row does not state {stated!r}"
+@row("Command delay", {"design", "measured"})
+def _():
+    def cell(t):
+        a = _act(t)
+        return OFF if a.max_delay_steps == 0 else [a.min_delay_steps, a.max_delay_steps]
+    return {**_tiers(cell), "models": [], "basis": []}
+
+
+@row("Command hold", {"design", "measured"})
+def _():
+    def cell(t):
+        a = _act(t)
+        return OFF if a.hold_fraction_range[1] == 0 else [*a.hold_fraction_range, *a.hold_run_range]
+    return {**_tiers(cell), "models": [], "basis": []}
+
+
+@row("Acceleration limit", {"unknown", "design"})
+def _():
+    def cell(t):
+        a = _act(t)
+        return OFF if math.isinf(a.max_acceleration_rad_s2) else [*_trained_band(t), *a.max_acceleration_range]
+    nominal = _act("real").max_acceleration_rad_s2
+    assert _act("robust").max_acceleration_rad_s2 == nominal
+    trained = _trained_fixed("real", nominal)
+    return {**_tiers(cell), "models": [], "basis": [trained, nominal, nominal / trained]}
+
+
+def _lag(t):
+    alpha, dt = _term(t)[0]._motor_alpha, _step_dt(t)
+    return -dt / math.log(1.0 - alpha), dt * (1.0 - alpha) / alpha
+
+
+@row("Motor lag", {"unknown", "measured"})
+def _():
+    def cell(t):
+        a = _act(t)
+        if not a.enable_motor_dynamics:
+            return OFF
+        lead = [100.0 * (1.0 - math.exp(-1.0))] if t == "real" else []
+        return lead + [_lag(t)[0], a.motor_time_constant]
+    backward = [_lag(t)[1] for t in ("real", "robust")]
+    return {**_tiers(cell), "models": [], "basis": [*backward, backward[0] / _act("real").motor_time_constant]}
+
+
+@row("Command envelope", {"design"})
+def _():
+    from strafer_shared import constants as k
+
+    assert k.NAV_LINEAR_VEL == pytest.approx(k.MAX_LINEAR_VEL * k.NAV_VEL_SCALE, abs=1e-4)
+    assert k.NAV_ANGULAR_VEL == pytest.approx(k.MAX_ANGULAR_VEL * k.NAV_VEL_SCALE, abs=1e-4)
+
+    def cell(t):
+        r = _act(t).speed_scale_range
+        return OFF if r is None else list(r)
+    return {**_tiers(cell), "models": [k.NAV_VEL_SCALE], "basis": []}
+
+
+@row("Twist clamp", {"derived"})
+def _():
+    def cell(t):
+        term = _term(t)[0]
+        return [term._max_linear_vel, term._max_angular_vel]
+    return {**_tiers(cell), "models": [], "basis": []}
+
+
+@row("Wheel speed and torque", {"datasheet"})
+def _():
+    def cell(t):
+        return [_act(t).max_wheel_angular_vel, _c(t).scene.robot.actuators["wheel_drives"].effort_limit_sim]
+    return {**_tiers(cell), "models": [_act("ideal").max_wheel_angular_vel * 60.0 / (2.0 * math.pi)], "basis": []}
+
+
+@row("Motor strength", {"design"})
+def _():
+    def cell(t):
+        p = _event(t, "randomize_motor_strength")
+        return OFF if p is None else list(p["strength_range"])
+    return {**_tiers(cell), "models": [], "basis": []}
+
+
+@row("Control period", {"design"})
+def _():
+    from strafer_shared import constants as k
+
+    def cell(t):
+        return [1, 1.0 / _step_dt(t), 1, 1.0 / _c(t).sim.dt]
+    return {**_tiers(cell), "models": [1.0 / k.POLICY_PERIOD_S, k.CAMERA_HZ], "basis": []}
+
+
+@row("IMU noise", {"unknown"})
+def _():
+    def cell(t):
+        acc, gyr = _noise(t, ACC), _noise(t, GYR)
+        if acc is None:
+            assert gyr is None
+            return OFF
+        imu = _contract(t).sensors.imu
+        assert acc.accel_bias_range[0] == -acc.accel_bias_range[1] and gyr.gyro_bias_range[0] == -gyr.gyro_bias_range[1]
+        sigma = [acc.accel_noise_std, gyr.gyro_noise_std, imu.accel_noise_density, imu.gyro_noise_density]
+        rate = [acc.control_frequency_hz] if t == "real" else []
+        bias = [acc.accel_bias_range[1], gyr.gyro_bias_range[1], acc.accel_bias_drift_rate, gyr.gyro_bias_drift_rate]
+        return sigma + rate + bias
+    return {**_tiers(cell), "models": [], "basis": []}
+
+
+@row("IMU and encoder latency", {"design"})
+def _():
+    def cell(t):
+        if _noise(t, ACC) is None:
+            return OFF
+        steps = {_noise(t, n).latency_steps for n in (ACC, GYR, ENC)}
+        assert len(steps) == 1, (t, steps)
+        (v,) = steps
+        return "none" if v == 0 else [v]
+    return {**_tiers(cell), "models": [], "basis": []}
+
+
+@row("Wheel encoder noise", {"design"})
+def _():
+    def cell(t):
+        e = _noise(t, ENC)
+        if e is None:
+            return OFF
+        assert e.enable_quantization
+        if t == "real":
+            return [e.velocity_noise_std, e.max_velocity, e.missed_tick_prob, e.extra_tick_prob]
+        assert e.max_velocity == _noise("real", ENC).max_velocity
+        return [e.velocity_noise_std, e.missed_tick_prob, e.extra_tick_prob]
+    return {**_tiers(cell), "models": [], "basis": []}
+
+
+@row("Sensor dropouts", {"design"})
+def _():
+    def cell(t):
+        if _noise(t, ACC) is None:
+            return OFF
+        fail = {_noise(t, n).failure_probability for n in (ACC, GYR)}
+        stuck = {_noise(t, n).stuck_probability for n in (ACC, GYR)}
+        assert len(fail) == 1 and len(stuck) == 1, (t, fail, stuck)  # the row speaks of "the IMU"
+        vals = [fail.pop(), stuck.pop(), _noise(t, ENC).failure_probability, _noise(t, DEPTH).failure_probability]
+        return "none" if not any(vals) else vals
+    return {**_tiers(cell), "models": [], "basis": []}
+
+
+@row("Depth disparity noise", {"design"})
+def _():
+    def cell(t):
+        d = _noise(t, DEPTH)
+        if d is None:
+            return OFF
+        if d.disparity_noise_px_range is not None:
+            return list(d.disparity_noise_px_range)
+        f, b = d.focal_length_px, d.baseline_m
+
+        def mm(z):
+            return 1000.0 * z * z * d.disparity_noise_px / (f * b)
+        return [d.disparity_noise_px, d.width, d.height, f, b, mm(1.0), 1, mm(2.0), 2, mm(d.max_range), d.max_range]
+    return {**_tiers(cell), "models": [], "basis": []}
+
+
+@row("Depth holes and lost frames", {"design"})
+def _():
+    from strafer_shared import constants as k
+
+    def cell(t):
+        d = _noise(t, DEPTH)
+        if d is None:
+            return OFF
+        assert d.hole_fill == "median"
+        return [d.hole_probability, d.frame_drop_prob]
+    blocks = [k.PERCEPTION_HEIGHT // k.DEPTH_HEIGHT, k.PERCEPTION_WIDTH // k.DEPTH_WIDTH]
+    return {**_tiers(cell), "models": blocks, "basis": []}
+
+
+@row("Depth stream hold", {"design"})
+def _():
+    def cell(t):
+        d = _noise(t, DEPTH)
+        if d is None or d.hold_fraction_range[1] == 0:
+            return OFF
+        assert d.hold_burst_weight == 0.0  # the row describes no burst component
+        return [*d.hold_fraction_range, *d.hold_run_range]
+    return {**_tiers(cell), "models": [1.0 / _step_dt("real")], "basis": []}
+
+
+@row("Depth latency", {"design", "measured"})
+def _():
+    def cell(t):
+        d = _noise(t, DEPTH)
+        return OFF if d is None else list(d.latency_steps_range)
+    return {**_tiers(cell), "models": [], "basis": []}
+
+
+@row("Depth range and grid", {"design"})
+def _():
+    from strafer_shared import constants as k
+
+    from strafer_lab.tasks.navigation.mdp import observations
+
+    def cell(t):
+        term = _c(t).observations.policy.depth_image
+        params = {n: term.params.get(n, _signature_default(observations.depth_image, n))
+                  for n in ("nearfield_clip", "nearfield_fill", "max_depth")}
+        cam = _c(t).scene.d555_camera
+        d = _noise(t, DEPTH)
+        if d is not None:
+            assert (d.min_range, d.max_range) == (params["nearfield_fill"], params["max_depth"])
+            assert (d.width, d.height) == (k.DEPTH_WIDTH, k.DEPTH_HEIGHT)
+        return [params["nearfield_clip"], params["nearfield_fill"], params["max_depth"], cam.width, cam.height,
+                k.DEPTH_WIDTH, k.DEPTH_HEIGHT]
+    return {**_tiers(cell), "models": [], "basis": []}
+
+
+@row("Camera lens", {"measured"})
+def _():
+    def cell(t):
+        cam = _c(t).scene.d555_camera
+        spawn = cam.spawn
+        fx = cam.width * spawn.focal_length / spawn.horizontal_aperture
+        vertical = getattr(spawn, "vertical_aperture", None)
+        if vertical is not None:
+            assert cam.height * spawn.focal_length / vertical == pytest.approx(fx)
+        return [fx, cam.width, cam.height]
+    return {**_tiers(cell), "models": [], "basis": []}
+
+
+@row("Re-render after reset", {"design"})
+def _():
+    def cell(t):
+        return [_c(t).num_rerenders_on_reset, _cfg(CAMERA_FREE[t]).num_rerenders_on_reset]
+    return {**_tiers(cell), "models": [], "basis": []}
+
+
+@row("Mount misalignment", {"design"})
+def _():
+    def cell(t):
+        p = _event(t, "randomize_d555_mount")
+        if p is None:
+            return OFF
+        assert getattr(_c(t).events, "jitter_d555_camera_prim", None) is not None  # the rendered camera follows it
+        return [p["max_angle_deg"]]
+    return {**_tiers(cell), "models": [], "basis": []}
+
+
+@row("Subgoal-frame drift", {"measured", "design"})
+def _():
+    def cell(t):
+        p = _event(t, "randomize_subgoal_drift")
+        if p is None:
+            return OFF
+        assert p["jump_rate_hz"] == 0.0  # the row describes no jumps
+        return [*p["gain_range"], p["position_rms_m"], p["heading_sigma_deg"], p["tau_s"]]
+    for name, cfg in _composed().items():  # "on the goal-objective IDs it moves the goal"
+        if name.startswith("StraferNavCfg_RL") and cfg.objective.kind == "goal":
+            assert getattr(cfg.events, "randomize_subgoal_drift", None) is not None, name
+    return {**_tiers(cell), "models": [], "basis": []}
+
+
+@row("Path and lookahead", {"design"})
+def _():
+    def cell(t):
+        if t == "ideal":
+            ideal = [c for c in _composed().values() if c.realism.level == "ideal"]
+            assert ideal and not [c for c in ideal if c.objective.kind == "subgoal"]
+            return "no subgoal ID"
+        g = _c(t).commands.goal_command
+        return [g.waypoint_noise_std_m, *g.lookahead_randomization_m]
+    for name, cfg in _composed().items():  # "subgoal IDs only"
+        if cfg.objective.kind != "subgoal":
+            assert getattr(cfg.commands.goal_command, "lookahead_randomization_m", None) is None, name
+    return {**_tiers(cell), "models": [], "basis": []}
+
+
+@row("Friction", {"design"})
+def _():
+    def cell(t):
+        p = _event(t, "randomize_friction")
+        if p is None:
+            return OFF
+        ratio, drawn, kept, _ = _friction_run(t)
+        return [*p["friction_range"], ratio, drawn] if t == "real" else list(p["friction_range"])
+    _, _, kept, threshold = _friction_run("real")
+    rollers = {s for s in _usd_shapes() if s is not None and s[0] >= threshold}
+    assert len(rollers) == 1, rollers
+    return {**_tiers(cell), "models": [kept, *rollers.pop()], "basis": []}
+
+
+@row("Mass", {"design"})
+def _():
+    def cell(t):
+        p = _event(t, "randomize_mass")
+        return OFF if p is None else list(p["mass_range"])
+    return {**_tiers(cell), "models": [], "basis": []}
+
+
+@row("Spawn and goal", {"design"})
+def _():
+    from strafer_lab.tasks.navigation.mdp import proc_room
+
+    def cell(t):
+        if t == "ideal":
+            pose = _event(t, "reset_robot")["pose_range"]
+            g = _c(t).commands.goal_command
+            assert pose["x"] == pose["y"] == (-pose["x"][1], pose["x"][1]) and pose["yaw"] == (-math.pi, math.pi)
+            assert g.goal_range.pos_x == g.goal_range.pos_y == (-g.goal_range.pos_x[1], g.goal_range.pos_x[1])
+            return [pose["x"][1], g.goal_range.pos_x[1], g.min_goal_distance, *g.resampling_time_range]
+        assert _event(t, "reset_robot")["yaw_range"] == (-math.pi, math.pi)
+        free = _event(t, "generate_room", _cfg(CAMERA_FREE[t])).get("robot_spawn_inflation_cells", 0)
+        assert free == 0
+        return [_event(t, "generate_room")["robot_spawn_inflation_cells"], proc_room.GRID_RES]
+    return {**_tiers(cell), "models": [], "basis": []}
+
+
+@row("Room", {"design"})
+def _():
+    from strafer_lab.tasks.navigation.mdp import proc_room
+
+    def cell(t):
+        p = _event(t, "generate_room")
+        if p is None:
+            return "a plane"
+        level = _event(t, "randomize_difficulty")
+        place = p["placement"]
+        free_cfg = _cfg(CAMERA_FREE[t])
+        free, free_level = _event(t, "generate_room", free_cfg), _event(t, "randomize_difficulty", free_cfg)
+        assert free_level["min_level"] == free_level["max_level"]
+        assert free.get("p_ceil", _signature_default(proc_room.generate_proc_room, "p_ceil")) == 0.0  # open top
+        free_wall = free.get("wall_height", _signature_default(proc_room.generate_proc_room, "wall_height"))
+        return [level["min_level"], level["max_level"], p["wall_height"], p["span_max"], p["max_span_sum"],
+                p["door_width_max"], place.column_count, 100 * place.column_prob, 100 * p["clutter_wall_bias_prob"],
+                100 * p["p_ceil"], *p["ceiling_height_range"], free_level["min_level"], free_wall]
+    return {**_tiers(cell), "models": [], "basis": []}
+
+
+# --- the tests -------------------------------------------------------------------------------------------------------
+
+CASES = [(label, column) for label in ROWS for column in COLUMNS]
+
+
+def test_every_row_of_the_module_is_checked():
+    assert sorted(_rows()) == sorted(ROWS)
+
+
+@functools.lru_cache(maxsize=None)
+def _expected(label):
+    return ROWS[label][0]()
+
+
+@pytest.mark.parametrize("label, column", CASES, ids=[f"{label}-{column}" for label, column in CASES])
+def test_the_cell_holds_the_codes_numbers(label, column):
+    want = _expected(label)[column]
+    text = _effective(label, column)
+    if isinstance(want, str):
+        assert text == want, f"{label} ({column}): the code reads {want!r}; the cell reads {text!r}"
+        return
+    got = _numbers(text)
+    assert len(got) == len(want) and all(_close(g, w) for g, w in zip(got, want)), (
+        f"{label} ({column}): the cell's numbers {got} against the code's {[round(float(w), 6) for w in want]}")
+
+
+@pytest.mark.parametrize("label", sorted(ROWS))
+def test_the_basis_names_its_kind(label):
+    basis = _rows()[label][0]["basis"]
+    words = {w for w in LEGEND if re.search(rf"\b{w}\b", basis)}
+    assert words == ROWS[label][1], (label, basis)
+
+
+def test_the_depth_latency_basis_names_the_centre():
+    words = {1: "one", 2: "two", 3: "three"}
+    centre = {t: sum(_noise(t, DEPTH).latency_steps_range) / 2 for t in ("real", "robust")}
+    basis = _rows()["Depth latency"][0]["basis"]
+    assert f"centred on {words[int(centre['real'])]} control step ({words[int(centre['robust'])]} on `robust`)" in basis
+
+
+def test_the_pipeline_runs_in_the_stated_order():
+    from strafer_lab.tasks.navigation.mdp import actions
+
+    source = inspect.getsource(actions.MecanumWheelAction.process_actions)
+    marks = ["l1_clamp_twist_batched(", "torch.clamp(wheel_vels_kinematic", "self._action_delay_buffer.compute(",
+             "self._hold.step()", "self._max_delta_per_step", "self._motor_alpha *"]
+    at = [source.index(m) for m in marks]
+    assert at == sorted(at), dict(zip(marks, at))
+    sentence = re.search(r"runs once\s+per control step: (.*?)\n\n", _text(), re.S).group(1).replace("\n", " ")
+    stages = ["twist clamp", "per-wheel speed clamp", "the delay", "the hold", "the acceleration limit",
+              "the motor lag"]
+    at = [sentence.index(s) for s in stages]
+    assert at == sorted(at), sentence
+
+
+def _full_forward(term, scale):
+    term._speed_scale[:] = scale
+    term.process_actions(torch.tensor([[1.0, 0.0, 0.0]]).repeat(term._speed_scale.shape[0], 1))
+    return term.processed_actions.abs().max()
+
+
+def test_the_envelope_scales_both_caps_where_the_row_says_so():
+    stages_off = dict(min_delay_steps=0, max_delay_steps=0, hold_fraction_range=(0.0, 0.0),
+                      enable_motor_dynamics=False, max_acceleration_rad_s2=math.inf,
+                      max_acceleration_range=(math.inf, math.inf))
+    for t in TIERS:
+        scaled = "× s" in _effective("Twist clamp", t)
+        assert scaled == (_act(t).speed_scale_range is not None), t
+        if scaled:
+            term = _term(t, **stages_off)[0]
+            assert float(_full_forward(term, 0.5)) == pytest.approx(0.5 * float(_full_forward(term, 1.0)))
+            assert float(term._max_angular_vel) > 0
+
+
+@pytest.mark.parametrize("t", TIERS)
+def test_with_every_documented_stage_off_the_term_is_the_clamp_and_the_kinematics(t):
+    """A stage with no row would show here: the term with delay, hold, envelope, acceleration limit and lag off."""
+    from strafer_lab.tasks.navigation.mdp.actions import l1_clamp_twist_batched
+
+    term = _term(t, num_envs=64, min_delay_steps=0, max_delay_steps=0, hold_fraction_range=(0.0, 0.0),
+                 speed_scale_range=None, enable_motor_dynamics=False, max_acceleration_rad_s2=math.inf,
+                 max_acceleration_range=(math.inf, math.inf))[0]
+    gen = torch.Generator().manual_seed(7)
+    for _ in range(5):
+        actions = 2.4 * torch.rand(64, 3, generator=gen) - 1.2
+        term.process_actions(actions)
+        body = l1_clamp_twist_batched(actions.clamp(-1.0, 1.0) * term._velocity_scale,
+                                      vel_cap_linear_m_s=term._max_linear_vel,
+                                      vel_cap_angular_rad_s=term._max_angular_vel)
+        wheels = (body @ term._kinematic_matrix.T * term._wheel_axis_signs).clamp(
+            -term._max_wheel_angular_vel, term._max_wheel_angular_vel)[:, term._joint_reorder]
+        assert torch.allclose(term.processed_actions, wheels, atol=1e-6), t
+
+
+EVENT_ROWS = {
+    "randomize_difficulty": "Room", "generate_room": "Room", "reset_robot": "Spawn and goal",
+    "randomize_friction": "Friction", "randomize_mass": "Mass", "randomize_motor_strength": "Motor strength",
+    "randomize_d555_mount": "Mount misalignment", "jitter_d555_camera_prim": "Mount misalignment",
+    "randomize_subgoal_drift": "Subgoal-frame drift", "randomize_goal_noise": None,  # declared, not applied
+}
+
+
+def test_every_event_term_has_a_row():
+    for name, cfg in _composed().items():
+        for term_name, term in vars(cfg.events).items():
+            if term is None or not hasattr(term, "func"):
+                continue
+            assert term_name in EVENT_ROWS, f"{name}: event {term_name!r} has no row in the module"
+            assert term.mode == "reset", (name, term_name, term.mode)
+            label = EVENT_ROWS[term_name]
+            assert label is None or label in _rows(), label
+
+
+STRUCTURAL = "structural"
+ACTION_FIELDS = {
+    "asset_name": STRUCTURAL, "class_type": STRUCTURAL, "clip": STRUCTURAL, "debug_vis": STRUCTURAL,
+    "joint_names": STRUCTURAL, "wheel_axis_signs": STRUCTURAL, "wheel_radius": "Twist clamp",
+    "wheel_base": "Twist clamp", "track_width": "Twist clamp", "motor_rpm": STRUCTURAL,
+    "max_wheel_angular_vel": "Wheel speed and torque", "enable_motor_dynamics": "Motor lag",
+    "motor_time_constant": "Motor lag", "min_delay_steps": "Command delay", "max_delay_steps": "Command delay",
+    "hold_fraction_range": "Command hold", "hold_run_range": "Command hold", "speed_scale_range": "Command envelope",
+    "max_acceleration_rad_s2": "Acceleration limit", "max_acceleration_range": "Acceleration limit",
+}
+
+
+def test_every_action_field_is_documented():
+    from strafer_lab.tasks.navigation.mdp.actions import MecanumWheelActionCfg
+
+    fields = {f.name for f in dataclasses.fields(MecanumWheelActionCfg)}
+    assert fields == set(ACTION_FIELDS), sorted(fields ^ set(ACTION_FIELDS))
+    for name, cfg in _composed().items():
+        assert type(cfg.actions.wheel_velocities) is MecanumWheelActionCfg, name
+        assert [n for n, v in vars(cfg.actions).items() if hasattr(v, "class_type")] == ["wheel_velocities"], name
+    assert {v for v in ACTION_FIELDS.values() if v != STRUCTURAL} <= set(_rows())
+
+
+NOT_APPLIED = "declared, not applied"
+NOISE_FIELDS = {
+    "IMUNoiseModelCfg": {
+        "class_type": STRUCTURAL, "func": STRUCTURAL, "noise_cfg": STRUCTURAL, "sensor_type": STRUCTURAL,
+        "output_size": STRUCTURAL, "control_frequency_hz": "IMU noise", "accel_noise_std": "IMU noise",
+        "accel_bias_range": "IMU noise", "accel_bias_drift_rate": "IMU noise", "gyro_noise_std": "IMU noise",
+        "gyro_bias_range": "IMU noise", "gyro_bias_drift_rate": "IMU noise", "failure_probability": "Sensor dropouts",
+        "stuck_probability": "Sensor dropouts", "latency_steps": "IMU and encoder latency"},
+    "EncoderNoiseModelCfg": {
+        "class_type": STRUCTURAL, "func": STRUCTURAL, "noise_cfg": STRUCTURAL, "output_size": STRUCTURAL,
+        "enable_quantization": "Wheel encoder noise", "ticks_per_radian": NOT_APPLIED,
+        "velocity_noise_std": "Wheel encoder noise", "max_velocity": "Wheel encoder noise",
+        "missed_tick_prob": "Wheel encoder noise", "extra_tick_prob": "Wheel encoder noise",
+        "failure_probability": "Sensor dropouts", "latency_steps": "IMU and encoder latency"},
+    "DepthNoiseModelCfg": {
+        "class_type": STRUCTURAL, "func": STRUCTURAL, "noise_cfg": STRUCTURAL, "baseline_m": "Depth disparity noise",
+        "focal_length_px": "Depth disparity noise", "disparity_noise_px": "Depth disparity noise",
+        "disparity_noise_px_range": "Depth disparity noise", "hole_probability": "Depth holes and lost frames",
+        "hole_fill": "Depth holes and lost frames", "frame_drop_prob": "Depth holes and lost frames",
+        "min_range": "Depth range and grid", "max_range": "Depth range and grid", "too_close_fill": STRUCTURAL,
+        "height": "Depth range and grid", "width": "Depth range and grid", "hold_fraction_range": "Depth stream hold",
+        "hold_run_range": "Depth stream hold", "hold_burst_weight": "Depth stream hold",
+        "hold_burst_run_steps": "Depth stream hold", "failure_probability": "Sensor dropouts",
+        "latency_steps": "Depth latency", "latency_steps_range": "Depth latency"},
+}
+NOISY_TERMS = {ACC: "IMUNoiseModelCfg", GYR: "IMUNoiseModelCfg", ENC: "EncoderNoiseModelCfg",
+               DEPTH: "DepthNoiseModelCfg"}
+
+
+def test_every_noise_field_is_documented():
+    from strafer_lab.tasks.navigation.mdp import noise_models
+
+    for cls_name, mapping in NOISE_FIELDS.items():
+        fields = {f.name for f in dataclasses.fields(getattr(noise_models, cls_name))}
+        assert fields == set(mapping), (cls_name, sorted(fields ^ set(mapping)))
+        assert {v for v in mapping.values() if v not in (STRUCTURAL, NOT_APPLIED)} <= set(_rows())
+    for name, cfg in _composed().items():
+        for term_name, term in vars(cfg.observations.policy).items():
+            noise = getattr(term, "noise", None)
+            if noise is None:
+                continue
+            assert NOISY_TERMS.get(term_name) == type(noise).__name__, f"{name}: noisy term {term_name!r} has no row"
+            if isinstance(noise, noise_models.DepthNoiseModelCfg):
+                assert noise.latency_steps_range is not None, name  # the row reads the range
+                assert noise.too_close_fill == "near", name
+
+
+DECLARED_NOT_APPLIED = {
+    "ActuatorModelCfg.motor_time_constant_range", "SimRealContractCfg.domain_randomization_scale",
+    "IMUNoiseCfg.enable_temp_effects", "IMUNoiseCfg.temp_coefficient", "DepthCameraNoiseCfg.enable_temporal_noise",
+    "DepthCameraNoiseCfg.temporal_noise_std", "DepthCameraNoiseCfg.hole_cluster_size",
+    "EncoderNoiseCfg.velocity_quantization_ticks_per_step",
+}
+RGB_NOT_APPLIED = "RGBCameraNoiseCfg."  # "Not applied on any tier: RGB noise (no registered ID observes RGB)"
+
+
+def _readers(name):
+    source = "\n".join(p.read_text(encoding="utf-8") for p in PACKAGE.rglob("*.py"))
+    return len(re.findall(rf"\.{name}\b|[\"']{name}[\"']", source))
+
+
+def test_the_fields_nothing_reads_are_the_modules_declared_list():
+    from strafer_lab.tasks.navigation import sim_real_cfg
+
+    unread, seen = set(), set()
+
+    def walk(cls):
+        if cls in seen:
+            return
+        seen.add(cls)
+        for f in dataclasses.fields(cls):
+            if _readers(f.name) == 0:
+                unread.add(f"{cls.__name__}.{f.name}")
+            sub = getattr(sim_real_cfg, f.type.split("|")[0].strip(), None) if isinstance(f.type, str) else f.type
+            if isinstance(sub, type) and dataclasses.is_dataclass(sub):
+                walk(sub)
+
+    walk(type(sim_real_cfg.REAL_ROBOT_CONTRACT))
+    assert {u for u in unread if not u.startswith(RGB_NOT_APPLIED)} == DECLARED_NOT_APPLIED
+    named = set(re.findall(r"`(\w+)`", " ".join(re.findall(r"Declared, not applied:(.*?)(?:\n\n|\Z)", _text(), re.S))))
+    field_names = {d.split(".")[1] for d in DECLARED_NOT_APPLIED}
+    noise_unread = {f for c, m in NOISE_FIELDS.items() for f, v in m.items() if v == NOT_APPLIED}
+    assert field_names | noise_unread <= named, sorted((field_names | noise_unread) - named)
+    for f in noise_unread:
+        assert _readers(f) == 0, f
+
+
+def test_the_goal_pose_noise_is_where_the_module_says():
+    from strafer_lab.tasks.navigation import strafer_env_cfg
+
+    installed = {n for n, c in _composed().items() if getattr(c.events, "randomize_goal_noise", None) is not None}
+    for n in installed:
+        assert _composed()[n].realism.level == "robust" and _composed()[n].objective.kind == "goal", n
+    assert installed
+    robust = {_composed()[n].events.randomize_goal_noise.params["noise_std"] for n in installed}
+    infinigen = strafer_env_cfg.EventsCfg_Infinigen_Realistic().randomize_goal_noise.params["noise_std"]
+    sentence = re.search(r"the goal-pose noise term.*?\n\n", _text() + "\n\n", re.S).group(0)
+    got = _numbers(sentence)
+    assert len(robust) == 1 and len(got) == 2 and _close(got[0], robust.pop()) and _close(got[1], infinigen), got
+
+
+ANCHORS = {
+    "actions.py#L199": "torch.randint", "actions.py#L215": "HoldProcess(", "actions.py#L237": "_max_delta_per_step",
+    "actions.py#L186": "_motor_alpha", "actions.py#L272": "_draw_speed_scale",
+    "actions.py#L362": "l1_clamp_twist_batched(", "actions.py#L456": "max_wheel_angular_vel",
+    "events.py#L454": "def randomize_motor_strength", "events.py#L505": "def randomize_d555_mount_offset",
+    "events.py#L407": "def randomize_subgoal_drift", "events.py#L170": "def randomize_friction",
+    "events.py#L334": "def randomize_mass", "events.py#L622": "def reset_robot_proc_room",
+    "events.py#L383": "def randomize_goal_noise", "noise_models.py#L182": "class IMUNoiseModel(",
+    "noise_models.py#L356": "class EncoderNoiseModel(", "noise_models.py#L479": "class DepthNoiseModel(",
+    "observations.py#L45": "def reduce_depth_to_policy_grid", "d555_cfg.py#L145": "focal_length=",
+    "composed_env_cfg.py#L577": "num_rerenders_on_reset = 1", "commands.py#L656": "perturb_waypoints(",
+    "proc_room.py#L981": "def generate_proc_room", "sim_real_cfg.py#L707": "IDEAL_SIM_CONTRACT",
+    "sim_real_cfg.py#L125": "motor_time_constant_range", "sim_real_cfg.py#L492": "domain_randomization_scale",
+    "sim_real_cfg.py#L186": "enable_temp_effects", "sim_real_cfg.py#L303": "enable_temporal_noise",
+}
+
+
+def test_every_line_link_lands_on_its_symbol():
+    links = re.findall(r"\]\(([^)#]+)#L(\d+)\)", _text())
+    seen = set()
+    for path, line in links:
+        target = (MODULE.parent / path).resolve()
+        key = f"{target.name}#L{line}"
+        assert key in ANCHORS, f"{key}: a line link with no pinned symbol"
+        assert ANCHORS[key] in target.read_text(encoding="utf-8").splitlines()[int(line) - 1], key
+        seen.add(key)
+    assert seen == set(ANCHORS), sorted(set(ANCHORS) - seen)

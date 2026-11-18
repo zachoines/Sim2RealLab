@@ -33,7 +33,7 @@ Sibling packages it interacts with:
 
 - **Composed Gym environments** over three orthogonal axes — sensor stack × scene source × realism — registered as a small set of named variants (RL training: depth / no-cam, realistic / robust; capture: teleop / bridge / coverage). Capture variants take an operator-selectable sensor stack via `capture.py --sensors`. See Contracts below.
 - **Sim-to-real contract presets** (`tasks/navigation/sim_real_cfg.py`) — `IDEAL_SIM_CONTRACT`, `REAL_ROBOT_CONTRACT`, `ROBUST_TRAINING_CONTRACT` covering motor time constant, command delay, slew rate, IMU / encoder / depth noise, the temporal texture of the depth and command streams (holds and per-env observation age), and the drift of the SLAM frame the goal-shaped observations are read through.
-- **Mecanum motor model** (`assets/strafer.py`) — `DCMotorCfg` with torque-speed curve, paired with the three-layer action pipeline (command delay → slew rate limit → first-order motor dynamics filter) in `tasks/navigation/mdp/actions.py`.
+- **Mecanum motor model** (`assets/strafer.py`) — `DCMotorCfg` with torque-speed curve, paired with the action pipeline in `tasks/navigation/mdp/actions.py` (the twist and wheel-speed clamps, then command delay → command hold → slew rate limit → first-order motor lag).
 - **Synthetic-data pipeline** — Infinigen scene generation orchestrator, scene metadata extractor, and the harness capture drivers writing the canonical LeRobot v3 training corpus (the legacy description / SFT-prep / CLIP-CSV scripts are retired under `scripts/retired/`).
 - **Isaac Sim ROS 2 bridge** (`bridge/`) — config + OmniGraph builder that wires simulated sensors onto the real robot's ROS topic names. Runs inside Kit via `isaacsim.ros2.bridge`.
 - **Sim-in-the-loop harness** (`sim_in_the_loop/`) — pure-Python orchestrator with injectable env / mission-API / recorder adapters. Submits Jetson missions and records one LeRobot v3 episode per mission (RGB video, depth sidecars, normalized `/cmd_vel` actions, Replicator detections columns, outcome + hard-negative metadata) via `BridgeLeRobotRecorder` → `StraferLeRobotWriter`.
@@ -89,8 +89,10 @@ room's generator arguments), and a camera-free stack the open-top room.
 
 ### Sim-to-real contract presets
 
-The realism tier, `ideal` (nothing), `realistic` or `robust`, sets every perturbation training applies to the actuation,
-the sensors and the world; the tiers are built from the contracts in `tasks/navigation/sim_real_cfg.py`. What each
+The realism tier, `ideal` (nothing), `real` (the realistic tier) or `robust`, sets every perturbation training applies to
+the actuation, the sensors and the world. The action term, the sensor noise and the subgoal-frame drift come from the
+contracts in `tasks/navigation/sim_real_cfg.py`; the world's draws, the motor strength, the mount angle and the
+lookahead bands are per-tier values in `tasks/navigation/strafer_env_cfg.py`. What each
 perturbation models on the deployed robot, its value per tier and its basis are in
 [`docs/context/training-realism.md`](../../docs/context/training-realism.md).
 

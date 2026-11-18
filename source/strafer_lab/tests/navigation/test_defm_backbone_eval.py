@@ -132,6 +132,7 @@ def test_eval_mode_is_unchanged(hub):
     encoder = DeFMDepthEncoder(output_dim=16)
     x = _batch()
     encoder.eval()
+    assert not encoder.projection.training
     a = encoder(x)
     encoder.train()
     assert torch.equal(encoder(x), a)

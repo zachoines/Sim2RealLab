@@ -7,7 +7,8 @@ image (80×45, DEPTH_WIDTH×DEPTH_HEIGHT) into compact embeddings:
         Frozen DeFM (Depth Foundation Model) backbone + trainable linear
         projection.  DeFM is a ViT/CNN pretrained on 60M depth images via
         DINOv2-style self-distillation (ETH Zurich, Jan 2026).  Only the
-        projection head (~164K params) trains.
+        projection head trains (24,704 parameters for EfficientNet-B0 at 128
+        outputs).
 
     "cnn" (fallback):
         Custom BN+residual CNN with SpatialSoftArgmax, trained from scratch.

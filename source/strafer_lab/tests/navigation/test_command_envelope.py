@@ -31,7 +31,9 @@ def _term(speed_scale_range):
 
     cfg = tiers.ActionsCfg_Ideal().wheel_velocities
     cfg.speed_scale_range = speed_scale_range
-    env = SimpleNamespace(scene={cfg.asset_name: _Asset()}, device="cpu", num_envs=N, physics_dt=1 / 120, step_dt=1 / 30)
+    env = SimpleNamespace(
+        scene={cfg.asset_name: _Asset()}, device="cpu", num_envs=N, physics_dt=1 / 120, step_dt=1 / 30
+    )
     return cfg.class_type(cfg, env)
 
 
@@ -60,6 +62,30 @@ def test_scales_draw_in_range_and_reset_redraws_only_its_envs():
     term.reset(ids)
     moved = (term._speed_scale != s0).nonzero().flatten().tolist()
     assert set(moved) <= set(ids.tolist()) and moved, moved
+
+
+def test_the_scale_is_uniform_on_its_range():
+    """Over many resets the scales follow U[low, high]: their Kolmogorov-Smirnov distance to the uniform CDF stays
+    under its critical value at alpha = 1e-6, the share under the deploy cap s = 0.5 is the uniform's within 6
+    standard errors, and the extremes reach both ends. A log-uniform draw, or one from part of the range, fails."""
+    lo, hi = 0.255, 1.0
+    torch.manual_seed(20261118)
+    term = _term((lo, hi))
+    ids = torch.arange(N)
+    draws = [term._speed_scale.clone()]
+    for _ in range(300):
+        term.reset(ids)
+        draws.append(term._speed_scale.clone())
+    s = torch.cat(draws).double().sort().values
+    n = s.numel()
+    cdf = (s - lo) / (hi - lo)
+    i = torch.arange(1, n + 1, dtype=torch.float64)
+    ks = torch.max(torch.maximum(i / n - cdf, cdf - (i - 1) / n)).item()
+    assert ks < np.sqrt(-0.5 * np.log(1e-6 / 2)) / np.sqrt(n), ks
+    p = (0.5 - lo) / (hi - lo)
+    share = (s < 0.5).double().mean().item()
+    assert abs(share - p) < 6 * np.sqrt(p * (1 - p) / n), share
+    assert s[0].item() < lo + 0.01 and s[-1].item() > hi - 0.01, (s[0].item(), s[-1].item())
 
 
 def test_the_clamp_applies_each_envs_scale():
@@ -124,10 +150,13 @@ def test_the_range_reaches_the_action_term():
     from strafer_lab.tasks.navigation import strafer_env_cfg as tiers
 
     assert sim_real_cfg.ROBUST_TRAINING_CONTRACT.actuator.speed_scale_range == (0.255, 1.0)
-    assert sim_real_cfg.get_action_config_params(sim_real_cfg.ROBUST_TRAINING_CONTRACT)["speed_scale_range"] == (0.255, 1.0)
+    params = sim_real_cfg.get_action_config_params(sim_real_cfg.ROBUST_TRAINING_CONTRACT)
+    assert params["speed_scale_range"] == (0.255, 1.0)
     cfg = tiers.ActionsCfg_Robust().wheel_velocities
     assert cfg.speed_scale_range == (0.255, 1.0)
-    env = SimpleNamespace(scene={cfg.asset_name: _Asset()}, device="cpu", num_envs=N, physics_dt=1 / 120, step_dt=1 / 30)
+    env = SimpleNamespace(
+        scene={cfg.asset_name: _Asset()}, device="cpu", num_envs=N, physics_dt=1 / 120, step_dt=1 / 30
+    )
     term = cfg.class_type(cfg, env)
     s = term._speed_scale
     assert torch.all((s >= 0.255) & (s <= 1.0)) and s.std() > 0.05

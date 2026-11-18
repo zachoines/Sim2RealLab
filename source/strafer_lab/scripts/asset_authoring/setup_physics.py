@@ -486,8 +486,11 @@ def apply_rubber_physics_material(
     """Apply a rubber-like physics material to a collision mesh.
 
     Used for mecanum roller covers which are grippy rubber in the real
-    robot.  The material is bound directly to the mesh prim so PhysX
-    uses it instead of the default (low-friction) material.
+    robot.  The material prim is defined without a type
+    (``stage.DefinePrim``), and a binding to a typeless prim does not
+    resolve as a physics material, so the covers take the scene's default
+    material; training's friction event sets every shape's friction at each
+    reset.
 
     Restitution is 0: a nonzero value made the 40 passive rollers return
     energy on every ground contact, and under PhysX's default 'average'

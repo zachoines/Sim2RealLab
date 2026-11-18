@@ -6,7 +6,7 @@
 Functions under test (``strafer_lab.tasks.navigation.mdp.events``):
 
 * ``reset_robot_state``            — reset robot pose at episode start.
-* ``randomize_friction``           — per-env wheel friction randomization.
+* ``randomize_friction``           — per-env friction on every robot collision shape.
 * ``randomize_mass``               — per-env body mass randomization.
 * ``randomize_motor_strength``     — per-joint effort limit randomization.
 * ``randomize_d555_mount_offset``  — D555 mounting angle randomization.

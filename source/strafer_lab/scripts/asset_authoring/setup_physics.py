@@ -486,23 +486,20 @@ def apply_rubber_physics_material(
     """Apply a rubber-like physics material to a collision mesh.
 
     Used for mecanum roller covers which are grippy rubber in the real
-    robot.  The material is bound directly to the mesh prim so PhysX
-    uses it instead of the default (low-friction) material.
-
-    Restitution is 0: a nonzero value made the 40 passive rollers return
-    energy on every ground contact, and under PhysX's default 'average'
-    combine mode (against the restitution-0 ground plane) the chassis
-    accumulated that energy into a growing bounce at high body-rotation
-    rates. Real mecanum rollers do not trampoline, so restitution stays 0;
-    the combine mode is pinned to 'min' as well so the lower of the two
-    contacting surfaces' restitution always wins.
+    robot.  The prim authors static friction 1.0, dynamic 0.9, restitution 0
+    and a 'min' restitution combine, but it is defined without a type
+    (``stage.DefinePrim``), and a binding to a typeless prim does not resolve
+    as a physics material: none of these values reaches PhysX, and the covers
+    take the scene's default material. Where a tier installs the friction
+    event (real and robust), it sets every shape's friction at each reset; on
+    the ideal tier every shape keeps the default.
 
     Args:
         stage: USD stage.
         mesh_path: Prim path of the collision mesh.
         static_friction: Static friction coefficient (rubber on floor ~1.0).
         dynamic_friction: Dynamic friction coefficient (slightly below static).
-        restitution: Bounciness. Keep 0 — see note above.
+        restitution: Bounciness (authored; inert while the prim is typeless).
     """
     prim = stage.GetPrimAtPath(mesh_path)
     if not prim:
@@ -515,9 +512,8 @@ def apply_rubber_physics_material(
     mat_api.CreateStaticFrictionAttr(static_friction)
     mat_api.CreateDynamicFrictionAttr(dynamic_friction)
     mat_api.CreateRestitutionAttr(restitution)
-    # Pin restitution combine to 'min' so the lower of the two contacting
-    # surfaces' restitution wins, instead of PhysX's default 'average'
-    # (which would re-introduce a bounce against any nonzero partner).
+    # A 'min' restitution combine, authored for a typed material; inert on
+    # this typeless prim.
     mat_prim.CreateAttribute(
         "physxMaterial:restitutionCombineMode", Sdf.ValueTypeNames.Token
     ).Set("min")

@@ -87,10 +87,11 @@ class TimingCfg:
 
     # Action latency (policy → actuator)
     action_latency_steps: int = 0
-    """Fixed action command latency in physics steps."""
+    """Fixed action command latency in control steps."""
 
     action_latency_steps_range: tuple[int, int] = (0, 0)
-    """Random action latency range [min, max] steps. Sampled per reset."""
+    """Random action latency range [min, max] control steps, added to the fixed
+    latency. One latency per env, drawn when the action term is built."""
 
     # Command holds (policy → actuator): no new command this control step
     action_hold_fraction_range: tuple[float, float] = (0.0, 0.0)
@@ -118,24 +119,21 @@ class ActuatorModelCfg:
     enable_motor_dynamics: bool = False
     """Enable first-order motor response model (exponential smoothing)."""
     
-    motor_time_constant_s: float = 0.05
-    """Motor time constant in seconds. Controls response speed. 
-    Real GoBilda 5203 ~50ms under load."""
-    
-    motor_time_constant_range: tuple[float, float] = (0.03, 0.08)
-    """Range for randomized motor time constant [min, max] seconds."""
+    motor_time_constant_s: float = 0.2
+    """Time constant in seconds of the first-order wheel lag, which advances once
+    per control step. The real wheel's lag is not measured."""
     
     # Velocity limits
     max_velocity_rad_s: float = 32.67
     """Maximum motor velocity in rad/s. GoBilda 5203 = 312 RPM = 32.67 rad/s."""
     
     # Acceleration limits (slew rate)
-    max_acceleration_rad_s2: float = 900.0
-    """Maximum acceleration for velocity commands in rad/s².
-    GoBilda 5203 on 4S LiPo: ~900 rad/s² under light load (frame weight).
-    Near-instant response at 32.67 rad/s max → 0-to-full in ~36ms."""
+    max_acceleration_rad_s2: float = 225.0
+    """Maximum wheel acceleration in rad/s², applied once per control step.
+    At 225 rad/s² a wheel goes from 0 to its 32.67 rad/s limit in 0.145 s. The
+    real wheel's acceleration is not measured."""
 
-    max_acceleration_range: tuple[float, float] = (900.0, 900.0)
+    max_acceleration_range: tuple[float, float] = (225.0, 225.0)
     """Range for randomized max acceleration [min, max] rad/s².
     Models battery state (fresh 16.8V vs depleted 14.0V) and load variation."""
 
@@ -181,13 +179,6 @@ class IMUNoiseCfg:
     
     gyro_random_walk: float = 0.0001
     """Gyroscope random walk (bias drift rate)."""
-    
-    # Temperature effects (optional)
-    enable_temp_effects: bool = False
-    """Enable temperature-dependent bias drift."""
-    
-    temp_coefficient: float = 0.015
-    """Temperature coefficient for bias drift (per °C from 25°C)."""
 
 
 @configclass
@@ -266,9 +257,6 @@ class DepthCameraNoiseCfg:
     hole_probability: float = 0.01
     """Probability of a pixel the stereo match could not resolve."""
 
-    hole_cluster_size: int = 3
-    """Average size of hole clusters in pixels."""
-
     # Range limits
     min_range_m: float = DEPTH_NEARFIELD_FILL
     """Depth in meters below which a reading is treated as unresolvable, and the
@@ -298,13 +286,6 @@ class DepthCameraNoiseCfg:
 
     hold_burst_run_steps: float = 1.0
     """Mean length of a burst hold run, in control steps."""
-
-    # Temporal noise (flickering)
-    enable_temporal_noise: bool = False
-    """Enable frame-to-frame temporal noise (flickering)."""
-    
-    temporal_noise_std: float = 0.005
-    """Temporal noise standard deviation in meters."""
 
 
 @configclass
@@ -346,28 +327,23 @@ class RGBCameraNoiseCfg:
 
 @configclass 
 class SensorFailureCfg:
-    """Sensor failure modes for robustness training.
-    
-    Simulates catastrophic sensor failures to train robust policies.
-    """
+    """Sensor failure modes for robustness training: a sensor that stops reporting for a step."""
     
     enable_failures: bool = False
     """Enable random sensor failures."""
     
-    # IMU failures
-    imu_failure_probability: float = 0.0001
-    """Probability of IMU failure per step (returns zeros)."""
-    
+    # A held source shows its previous reading, as the deployed node's cache does. Each IMU term is drawn on its own,
+    # where the robot's one IMU message holds both; the encoders are drawn apart from the body velocity, which the
+    # robot's odom holds with them.
     imu_stuck_probability: float = 0.0001
-    """Probability of IMU getting stuck (returns last value)."""
-    
-    # Encoder failures
-    encoder_failure_probability: float = 0.0001
-    """Probability of encoder failure per step (returns zeros)."""
-    
-    # Camera failures
+    """Probability per step that an IMU term repeats its previous reading."""
+
+    encoder_stuck_probability: float = 0.0001
+    """Probability per step that the encoders repeat their previous reading."""
+
     camera_failure_probability: float = 0.001
-    """Probability of camera failure (returns black/max depth)."""
+    """Probability per step of an RGB camera failure (a black frame). No registered ID observes RGB. A failed depth
+    frame is a dropped one instead (the depth camera's frame_drop_probability), which repeats the previous frame."""
 
 
 # =============================================================================
@@ -488,10 +464,6 @@ class SimRealContractCfg:
     """Referent-frame drift configuration. Not a sensor: the depth image and
     the encoders are unaffected by where the map frame thinks the robot is."""
 
-    # Domain randomization scale
-    domain_randomization_scale: float = 1.0
-    """Scale factor for all domain randomization. 0.0 = none, 1.0 = full."""
-
 
 # =============================================================================
 # Preset Configurations
@@ -523,7 +495,6 @@ def create_ideal_contract() -> SimRealContractCfg:
             failures=SensorFailureCfg(enable_failures=False),
         ),
         localization=LocalizationDriftCfg(enable_drift=False),
-        domain_randomization_scale=0.0,
     )
 
 
@@ -551,11 +522,10 @@ def create_real_robot_contract() -> SimRealContractCfg:
         ),
         actuator=ActuatorModelCfg(
             enable_motor_dynamics=True,
-            motor_time_constant_s=0.05,  # 50ms response
-            motor_time_constant_range=(0.03, 0.08),
+            motor_time_constant_s=0.2,
             max_velocity_rad_s=32.67,  # 312 RPM
-            max_acceleration_rad_s2=900.0,
-            max_acceleration_range=(700.0, 1100.0),  # ±~20% for battery state
+            max_acceleration_rad_s2=225.0,
+            max_acceleration_range=(175.0, 275.0),  # ±~20% for battery state
         ),
         sensors=SensorNoiseCfg(
             imu=IMUNoiseCfg(
@@ -599,7 +569,6 @@ def create_real_robot_contract() -> SimRealContractCfg:
             # localization to a fraction of what the rig recorded.
             gain_range=(0.0, 0.5),
         ),
-        domain_randomization_scale=1.0,
     )
 
 
@@ -628,10 +597,9 @@ def create_robust_training_contract() -> SimRealContractCfg:
         ),
         actuator=ActuatorModelCfg(
             enable_motor_dynamics=True,
-            motor_time_constant_s=0.06,  # Slightly slower
-            motor_time_constant_range=(0.02, 0.10),  # Wide range
-            max_acceleration_rad_s2=900.0,
-            max_acceleration_range=(500.0, 1200.0),  # Wide: depleted+loaded → fresh+free
+            motor_time_constant_s=0.24,  # Slightly slower
+            max_acceleration_rad_s2=225.0,
+            max_acceleration_range=(125.0, 300.0),  # Wide: depleted+loaded → fresh+free
             # 0.40 to 1.57 m/s on |vx| + |vy|, the deploy cap (s = 0.5) inside it.
             speed_scale_range=(0.255, 1.0),
         ),
@@ -661,7 +629,8 @@ def create_robust_training_contract() -> SimRealContractCfg:
                 # cover rather than picking one of them.
                 disparity_noise_px_range=(0.002, 0.16),
                 hole_probability=0.03,  # 3x typical
-                frame_drop_probability=0.01,  # 10x typical
+                # 10x typical, plus the 0.001 of a failed frame, which repeats the previous one as a drop does
+                frame_drop_probability=0.011,
                 # Held to the realistic tier's law entirely, burst included.
                 # The fraction is drawn per env at reset, so the top of the
                 # band is the worst arrival rate a training episode can draw:
@@ -683,8 +652,9 @@ def create_robust_training_contract() -> SimRealContractCfg:
             ),
             failures=SensorFailureCfg(
                 enable_failures=True,
-                imu_failure_probability=0.0001,
-                encoder_failure_probability=0.0001,
+                # Two causes of a held IMU reading, 1e-4 each
+                imu_stuck_probability=0.0002,
+                encoder_stuck_probability=0.0001,
                 camera_failure_probability=0.001,
             ),
         ),
@@ -699,7 +669,6 @@ def create_robust_training_contract() -> SimRealContractCfg:
             # rig measures the steady-state sigma and tau directly.
             gain_range=(0.0, 0.5),
         ),
-        domain_randomization_scale=1.5,  # Extra randomization
     )
 
 
@@ -730,9 +699,8 @@ def get_imu_accel_noise(contract: SimRealContractCfg) -> IMUNoiseModelCfg | None
     sample_rate = contract.timing.control_frequency_hz
     std = contract.sensors.imu.accel_noise_density * math.sqrt(sample_rate)
 
-    # Get failure probabilities from SensorFailureCfg
+    # Get the stuck probability from SensorFailureCfg
     failures = contract.sensors.failures
-    failure_prob = failures.imu_failure_probability if failures.enable_failures else 0.0
     stuck_prob = failures.imu_stuck_probability if failures.enable_failures else 0.0
 
     return IMUNoiseModelCfg(
@@ -744,7 +712,6 @@ def get_imu_accel_noise(contract: SimRealContractCfg) -> IMUNoiseModelCfg | None
                           contract.sensors.imu.accel_bias_stability),
         accel_bias_drift_rate=contract.sensors.imu.accel_random_walk,
         output_size=3,
-        failure_probability=failure_prob,
         stuck_probability=stuck_prob,
         latency_steps=contract.timing.imu_latency_steps,
     )
@@ -767,9 +734,8 @@ def get_imu_gyro_noise(contract: SimRealContractCfg) -> IMUNoiseModelCfg | None:
     sample_rate = contract.timing.control_frequency_hz
     std = contract.sensors.imu.gyro_noise_density * math.sqrt(sample_rate)
 
-    # Get failure probabilities from SensorFailureCfg
+    # Get the stuck probability from SensorFailureCfg
     failures = contract.sensors.failures
-    failure_prob = failures.imu_failure_probability if failures.enable_failures else 0.0
     stuck_prob = failures.imu_stuck_probability if failures.enable_failures else 0.0
 
     return IMUNoiseModelCfg(
@@ -781,7 +747,6 @@ def get_imu_gyro_noise(contract: SimRealContractCfg) -> IMUNoiseModelCfg | None:
                          contract.sensors.imu.gyro_bias_stability),
         gyro_bias_drift_rate=contract.sensors.imu.gyro_random_walk,
         output_size=3,
-        failure_probability=failure_prob,
         stuck_probability=stuck_prob,
         latency_steps=contract.timing.imu_latency_steps,
     )
@@ -796,9 +761,9 @@ def get_encoder_noise(contract: SimRealContractCfg) -> EncoderNoiseModelCfg | No
     if not contract.sensors.encoders.enable_noise:
         return None
 
-    # Get failure probability from SensorFailureCfg
+    # Get the stuck probability from SensorFailureCfg
     failures = contract.sensors.failures
-    failure_prob = failures.encoder_failure_probability if failures.enable_failures else 0.0
+    stuck_prob = failures.encoder_stuck_probability if failures.enable_failures else 0.0
 
     return EncoderNoiseModelCfg(
         noise_cfg=GaussianNoiseCfg(std=contract.sensors.encoders.velocity_noise_std),
@@ -806,7 +771,7 @@ def get_encoder_noise(contract: SimRealContractCfg) -> EncoderNoiseModelCfg | No
         velocity_noise_std=contract.sensors.encoders.velocity_noise_std,
         missed_tick_prob=contract.sensors.encoders.missed_tick_probability,
         extra_tick_prob=contract.sensors.encoders.extra_tick_probability,
-        failure_probability=failure_prob,
+        stuck_probability=stuck_prob,
         latency_steps=contract.timing.encoder_latency_steps,
     )
 
@@ -826,10 +791,6 @@ def get_depth_noise(contract: SimRealContractCfg) -> DepthNoiseModelCfg | None:
     cfg = contract.sensors.depth_camera
     noise_at_1m = cfg.disparity_noise_px / (cfg.focal_length_px * cfg.baseline_m)
 
-    # Get failure probability from SensorFailureCfg
-    failures = contract.sensors.failures
-    failure_prob = failures.camera_failure_probability if failures.enable_failures else 0.0
-
     return DepthNoiseModelCfg(
         noise_cfg=GaussianNoiseCfg(std=noise_at_1m),
         baseline_m=cfg.baseline_m,
@@ -844,7 +805,6 @@ def get_depth_noise(contract: SimRealContractCfg) -> DepthNoiseModelCfg | None:
         hold_run_range=cfg.hold_run_range,
         hold_burst_weight=cfg.hold_burst_weight,
         hold_burst_run_steps=cfg.hold_burst_run_steps,
-        failure_probability=failure_prob,
         latency_steps=contract.timing.depth_latency_steps,
         latency_steps_range=contract.timing.depth_latency_steps_range,
     )

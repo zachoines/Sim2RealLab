@@ -107,20 +107,20 @@ def _hash(obj):
 # training distribution did change — and it is why the layout golden below
 # exists: it is the half a deployed checkpoint depends on, and it must not move.
 _CONTRACT_GOLDENS = {
-    "RLDepth_Real": "ffa96cb6f7cd3854ae72db5b8982dbfb344449875f5c8d5db755dbc1f7bef815",
-    "RLDepth_Robust": "0db961b6d9a65800821e9706b908f1764e2c38490e0a1740aea060c434a42fca",
-    "RLNoCam": "08f4eb3691bc7d176f610ade7b92600c29d62a7daf122a75a53dd7cd7f3030d5",
-    "RLDepth_Real_PLAY": "25649567ddbf22855dee36f8c830a75c5d0537c218deaf6927afb1b884ef0beb",
-    "RLDepth_Robust_PLAY": "0979eb603e32da9043e002925bb595fc8bb556426cbb2816f1054e0eeda181d2",
-    "RLNoCam_PLAY": "9369ce4f169577c41ef9e929472acee4b8da2507461bf6fa4afd82d1bb382345",
-    "RLNoCamSubgoal_Real": "5d81b96104814c0a4196bec35a1595a4445139559e6fe762f47403873f1ccb43",
-    "RLNoCamSubgoal_Robust": "b8ef97978ca0b4113416059b8a0610fe2ad6002e6599d26fb5d9f4a73c2351a8",
-    "RLNoCamSubgoal_Real_PLAY": "d760a7db199428e73e06d76f8e3956bf8c095bf3e6d33e6fa340bcdd37c4f358",
-    "RLNoCamSubgoal_Robust_PLAY": "6b95966b5264791fa03beebe013525866cc99a5c31b04204b57d210f9d7e53f8",
-    "RLDepthSubgoal_Real": "f39fd514729600e85e107e28f69aea9408acd01915cd6b537036ef00f850f27a",
-    "RLDepthSubgoal_Robust": "6a156f5a408379c9547ce7087e8500496e9de5bdaf690b3ad8bf3cc64e95b2c2",
-    "RLDepthSubgoal_Real_PLAY": "d11797b0e27e9f6c25f782dbdbe169127182b7701e75efcc1f2139fc78ffb919",
-    "RLDepthSubgoal_Robust_PLAY": "4de75fefcdfee810199d8629277701d1dde51bc68468e62424bc2c58aa5e4722",
+    "RLDepth_Real": "740deec59255928a9c3ca41b456f24505c32a0d0345f6517f54554c6b2e73a87",
+    "RLDepth_Robust": "32f2d28e1bd9be6042614d5d63c44aa07e1c81822a68c9bc8451a2eafc05ab38",
+    "RLNoCam": "54c37487759064f45ef242f218193c60ba5c445311ba148a79b8bea94992c4ce",
+    "RLDepth_Real_PLAY": "1db8abd8ded6301ceb69c9f1f0c9cafa8a39d6fea8477659d46e3b19f743359e",
+    "RLDepth_Robust_PLAY": "aa0005bb4e469d48352ba5f02cf81464ff669332cb85f4c8279f960e466f2189",
+    "RLNoCam_PLAY": "3548dc2809bb3f5b5f05b9bf8cb8bfb1a918674ce00a86bc293c578979af226c",
+    "RLNoCamSubgoal_Real": "246631c340f0568fceb586966d325b1879c89ea183e67c02c2caa819ffb63ece",
+    "RLNoCamSubgoal_Robust": "9d052d09c573a59dcd282e534d568dc1a41d1b7b28a02bacd0bf771d27fab30a",
+    "RLNoCamSubgoal_Real_PLAY": "68578d71bf713d95a97b208f358e1afaf1271635730ab441d9a04b7874cfcd41",
+    "RLNoCamSubgoal_Robust_PLAY": "35ad7f493814a5bda4d73215973097b74431e324259ec9c1a710ad5823f0baf8",
+    "RLDepthSubgoal_Real": "a26a950f730634b43f0c33988f7264d7be8588cc34e91ab29d2d20b360f00fda",
+    "RLDepthSubgoal_Robust": "27f0b2a8b2bb68375116770a66d39badfa3c7545cc216914f62b77606edf8ee8",
+    "RLDepthSubgoal_Real_PLAY": "14e6c02295095a34259e4dbfa13120a3229215b7d22cb1d0ec3200b5a9d3ed05",
+    "RLDepthSubgoal_Robust_PLAY": "25923c76c944e9f3fe116322149da3685bb03c884901f0dce175ee20c9c40c69",
 }
 
 # Frozen signature (slot name set + spawn sizes) of the open-top room's 44-object
@@ -134,7 +134,7 @@ _PALETTE_GOLDEN = "cf3499bf212a50c571b1bda4980fbbf16c7ad743dc40c5e88b7b528de3d41
 # on RLDepth_Real. This walks both observation groups, so a privileged-group
 # change moves it; the policy half is pinned separately by the layout golden
 # below.
-_DEPTH_OBS_GOLDEN = "ba68b61eda5400552706061710dee1404ba2aa779a6c93241ef562f082a82533"
+_DEPTH_OBS_GOLDEN = "6128cf234a0cb5aded9be6e22f005e208decc45a45721c87987a337ee605ffe8"
 
 # The policy tensor's *layout* — terms, order, params and scales, with every
 # noise model dropped. This is the half of the observation contract a deployed
@@ -658,14 +658,6 @@ def test_subgoal_observations_match_nocam_baseline():
     sub = composed.StraferNavCfg_RLNoCamSubgoal_Real()
     baseline = composed.StraferNavCfg_RLNoCam()
     assert _hash(_canon(sub.observations)) == _hash(_canon(baseline.observations))
-
-
-def test_subgoal_robust_drops_goal_pose_noise_event():
-    """Goal-pose reset noise targets the fixed-goal command's state; the
-    subgoal composition disables it (waypoint noise on the command term is
-    the deployment-noise analog)."""
-    cfg = composed.StraferNavCfg_RLNoCamSubgoal_Robust()
-    assert cfg.events.randomize_goal_noise is None
 
 
 def test_subgoal_lookahead_band_centered_on_shared_constant():

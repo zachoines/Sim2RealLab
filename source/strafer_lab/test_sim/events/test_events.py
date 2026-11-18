@@ -6,11 +6,10 @@
 Functions under test (``strafer_lab.tasks.navigation.mdp.events``):
 
 * ``reset_robot_state``            — reset robot pose at episode start.
-* ``randomize_friction``           — per-env wheel friction randomization.
+* ``randomize_friction``           — per-env friction on every robot collision shape.
 * ``randomize_mass``               — per-env body mass randomization.
 * ``randomize_motor_strength``     — per-joint effort limit randomization.
 * ``randomize_d555_mount_offset``  — D555 mounting angle randomization.
-* ``randomize_goal_noise``         — Gaussian noise on goal position.
 
 Usage:
     cd source/strafer_lab
@@ -32,7 +31,6 @@ from strafer_lab.tasks.navigation.mdp.events import (
     randomize_mass,
     randomize_motor_strength,
     randomize_d555_mount_offset,
-    randomize_goal_noise,
 )
 
 
@@ -374,40 +372,3 @@ def test_d555_mount_offset_small_angles(env):
         f"Mount offset too large for 2° max: "
         f"w_min = {w_component.min().item():.6f}"
     )
-
-
-# =====================================================================
-# randomize_goal_noise — Tests
-# =====================================================================
-
-
-def test_randomize_goal_noise_perturbs_goals(env):
-    """Goal positions should change after applying noise."""
-    env.reset()
-
-    # Capture original goal
-    command_term = env.command_manager.get_term("goal_command")
-    goal_before = command_term.command[:, :2].clone()
-
-    env_ids = torch.arange(env.num_envs, device=env.device)
-    randomize_goal_noise(env, env_ids, command_name="goal_command", noise_std=0.5)
-
-    goal_after = command_term.command[:, :2]
-    diff = (goal_after - goal_before).abs()
-    max_diff = diff.max().item()
-
-    print(f"\n  randomize_goal_noise:")
-    print(f"    Max position change: {max_diff:.4f} m")
-
-    assert max_diff > 0.0, (
-        "Goal noise did not change any goal positions"
-    )
-
-
-def test_randomize_goal_noise_empty_env_ids(env):
-    """Passing empty env_ids should be a no-op."""
-    env.reset()
-    empty_ids = torch.tensor([], dtype=torch.long, device=env.device)
-
-    # Should not raise
-    randomize_goal_noise(env, empty_ids, command_name="goal_command", noise_std=0.5)

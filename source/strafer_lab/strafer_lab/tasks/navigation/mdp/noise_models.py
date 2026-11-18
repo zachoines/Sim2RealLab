@@ -30,6 +30,7 @@ from strafer_shared.constants import DEPTH_HEIGHT, DEPTH_NEARFIELD_FILL, DEPTH_W
 from strafer_shared.mecanum_kinematics import INVERSE_KINEMATIC_MATRIX
 
 from .hold_process import HoldProcess
+from .sensor_outage import current_outage
 
 if TYPE_CHECKING:
     from .sim_real_cfg import (
@@ -281,11 +282,17 @@ class IMUNoiseModel(NoiseModel):
         noise = torch.randn_like(data) * self._noise_std
         noisy_data = data + self._bias + noise
 
-        # A stuck sensor repeats its previous reading
-        if self.cfg.stuck_probability > 0:
+        # A stuck sensor repeats its previous reading, as does a source in an outage
+        outage = current_outage(self._num_envs, self._device)
+        if self.cfg.stuck_probability > 0 or outage is not None:
             if self._prev_output is None:
                 self._prev_output = noisy_data.clone()
-            stuck = torch.rand(self._num_envs, device=self._device) < self.cfg.stuck_probability
+            if self.cfg.stuck_probability > 0:
+                stuck = torch.rand(self._num_envs, device=self._device) < self.cfg.stuck_probability
+            else:
+                stuck = torch.zeros(self._num_envs, dtype=torch.bool, device=self._device)
+            if outage is not None:
+                stuck = stuck | outage.stale("imu")
             stuck &= self._has_prev
             noisy_data[stuck] = self._prev_output[stuck]
             self._prev_output = noisy_data.clone()
@@ -411,11 +418,17 @@ class EncoderNoiseModel(NoiseModel):
         if self.cfg.enable_quantization:
             noisy_data = torch.round(noisy_data)
 
-        # A stuck encoder repeats its previous reading
-        if self.cfg.stuck_probability > 0:
+        # A stuck encoder repeats its previous reading, as does a source in an outage
+        outage = current_outage(self._num_envs, self._device)
+        if self.cfg.stuck_probability > 0 or outage is not None:
             if self._prev_output is None:
                 self._prev_output = noisy_data.clone()
-            stuck = torch.rand(self._num_envs, device=self._device) < self.cfg.stuck_probability
+            if self.cfg.stuck_probability > 0:
+                stuck = torch.rand(self._num_envs, device=self._device) < self.cfg.stuck_probability
+            else:
+                stuck = torch.zeros(self._num_envs, dtype=torch.bool, device=self._device)
+            if outage is not None:
+                stuck = stuck | outage.stale("driver")
             stuck &= self._has_prev
             noisy_data[stuck] = self._prev_output[stuck]
             self._prev_output = noisy_data.clone()
@@ -757,6 +770,12 @@ class DepthNoiseModel(NoiseModel):
                 noisy_data[held] = self._prev_frame[held]
 
         # Store for next frame
+        # A depth source in an outage repeats its previous frame
+        outage = current_outage(self._num_envs, self._device)
+        if outage is not None and self._prev_frame is not None:
+            out = outage.stale("depth") & self._has_prev_frame
+            noisy_data[out] = self._prev_frame[out]
+
         self._prev_frame = noisy_data.clone()
         self._has_prev_frame.fill_(True)
 
@@ -866,6 +885,43 @@ class DepthNoiseModelCfg(NoiseModelCfg):
 # =============================================================================
 # RGB Camera Noise Model  
 # =============================================================================
+
+class HeldLastActionNoiseModel(NoiseModel):
+    """The policy's ``last_action`` as the deployed node holds it while stopped on a stale source.
+
+    The node publishes a zero twist without stepping the policy, so the last action it feeds back is the one from before
+    the stop. While the env's outage process (:mod:`.sensor_outage`) has it stopped, this returns the value from the last
+    step it was not; otherwise it passes the action through and keeps it.
+    """
+
+    def __init__(self, noise_model_cfg, num_envs: int, device: str):
+        super().__init__(noise_model_cfg, num_envs, device)
+        self._held = None
+
+    def reset(self, env_ids: Sequence[int] | None = None):
+        if self._held is not None:
+            self._held[slice(None) if env_ids is None else env_ids] = 0.0
+
+    def __call__(self, data: torch.Tensor) -> torch.Tensor:
+        outage = current_outage(self._num_envs, self._device)
+        if self._held is None:
+            self._held = data.clone()
+        if outage is None:
+            self._held = data.clone()
+            return data
+        stopped = outage.stopped.unsqueeze(-1)
+        out = torch.where(stopped, self._held, data)
+        self._held = out.clone()
+        return out
+
+
+@configclass
+class HeldLastActionNoiseModelCfg(NoiseModelCfg):
+    """Configuration for the held ``last_action`` (no noise of its own)."""
+
+    class_type: type = HeldLastActionNoiseModel
+    noise_cfg: GaussianNoiseCfg = GaussianNoiseCfg(std=0.0)
+
 
 class RGBNoiseModel(NoiseModel):
     """RGB camera noise model with failure modes.

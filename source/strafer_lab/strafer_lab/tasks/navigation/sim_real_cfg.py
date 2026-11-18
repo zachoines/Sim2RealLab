@@ -38,6 +38,7 @@ from strafer_shared.constants import DEPTH_NEARFIELD_FILL
 from strafer_lab.tasks.navigation.mdp.noise_models import (
     IMUNoiseModelCfg,
     BodyVelocityNoiseModelCfg,
+    HeldLastActionNoiseModelCfg,
     EncoderNoiseModelCfg,
     DepthNoiseModelCfg,
     RGBNoiseModelCfg,
@@ -386,6 +387,35 @@ class SensorFailureCfg:
     camera_failure_probability: float = 0.001
     """Probability per step of an RGB camera failure (a black frame). No registered ID observes RGB. A failed depth
     frame is a dropped one instead (the depth camera's frame_drop_probability), which repeats the previous frame."""
+
+    # Per-source outages and the node's stale-source stop (off by default). The rates and lengths are design values
+    # until the robot session measures stale-source stops over its inferring time.
+    outage_enable: bool = False
+    """Draw per-source outages (the source repeats) and stop the chassis, as the node does, past each timeout."""
+
+    imu_outage_rate_hz: float = 0.0
+    """Rate of an IMU-only outage, in Hz. Design."""
+
+    driver_outage_rate_hz: float = 1.0 / 1800.0
+    """Rate of a driver outage (the encoders and the body velocity together), in Hz. Design."""
+
+    depth_outage_rate_hz: float = 0.0
+    """Rate of a depth-only outage, in Hz. Design."""
+
+    usb_stall_rate_hz: float = 1.0 / 600.0
+    """Rate of a D555 USB stall, which stalls the IMU and the depth together, in Hz. Design."""
+
+    outage_length_s_range: tuple[float, float] = (0.1, 1.0)
+    """Outage length band [min, max], in seconds. Design."""
+
+    imu_timeout_s: float = 0.2
+    """The node's staleness timeout for the IMU, in seconds."""
+
+    driver_timeout_s: float = 0.2
+    """The node's staleness timeout for the joint states and odom, in seconds."""
+
+    depth_timeout_s: float = 0.5
+    """The node's staleness timeout for the depth, in seconds."""
 
 
 # =============================================================================
@@ -938,6 +968,24 @@ def get_action_config_params(contract: SimRealContractCfg) -> dict:
         "max_acceleration_range": contract.actuator.max_acceleration_range,
         "speed_scale_range": contract.actuator.speed_scale_range,
     }
+
+
+def get_outage_params(contract: SimRealContractCfg) -> dict | None:
+    """The ``randomize_sensor_outages`` event's params, or None where outages are off (the caller omits the term)."""
+    f = contract.sensors.failures
+    if not f.outage_enable:
+        return None
+    return {
+        "start_rate_hz": {"imu": f.imu_outage_rate_hz, "driver": f.driver_outage_rate_hz, "depth": f.depth_outage_rate_hz},
+        "usb_stall_rate_hz": f.usb_stall_rate_hz,
+        "length_s_range": f.outage_length_s_range,
+        "timeout_s": {"imu": f.imu_timeout_s, "driver": f.driver_timeout_s, "depth": f.depth_timeout_s},
+    }
+
+
+def get_last_action_hold(contract: SimRealContractCfg) -> HeldLastActionNoiseModelCfg | None:
+    """The policy's held ``last_action`` where outages are on; None (the term's default) where they are off."""
+    return HeldLastActionNoiseModelCfg() if contract.sensors.failures.outage_enable else None
 
 
 def get_tf_age_params(contract: SimRealContractCfg) -> dict | None:

@@ -3,9 +3,9 @@
 
 """``randomize_friction`` on a stand-in robot: one draw per reset env sets every collision shape.
 
-The stand-in's material table has the robot USD's 57 collision shapes. A shape that started at a rubber friction
-(1.0 / 0.9) takes the draw like every other, so a material that came to resolve on the roller covers could not hold
-their grip fixed.
+The stand-in's material table has 57 rows, the robot USD's collision-shape count. A shape that started at a rubber
+friction (1.0 / 0.9) takes the draw like every other, so a material that came to resolve on the roller covers could not
+hold their grip fixed.
 
 No Kit / GPU. Run with the pure-Python lab tests.
 """
@@ -90,6 +90,8 @@ def test_shapes_that_start_at_rubber_still_take_the_draw():
     events.randomize_friction(env, torch.arange(NUM_ENVS), friction_range=(0.3, 1.5))
     out = view.written
     assert torch.equal(out[:, :40, 0], out[:, 40:41, 0].expand(-1, 40))  # covers and chassis share each env's draw
+    assert torch.equal(out[:, :40, 1], out[:, 40:41, 1].expand(-1, 40))  # the dynamic column too
+    assert torch.equal(out[:, :, 1], out[:, :, 0] * 0.9)
     assert bool((out[:, :, 0] != 1.0).all())
 
 

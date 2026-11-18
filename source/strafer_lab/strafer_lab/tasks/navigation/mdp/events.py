@@ -176,11 +176,11 @@ def randomize_friction(
 
     One draw d per reset env, uniform in ``friction_range``, sets the static
     friction of every robot collision shape to d and its dynamic friction to
-    0.9 d; restitution is left as it is. The roller covers, the robot's only
-    floor contact, take the draw with the rest, so under PhysX's default
-    ``average`` combine mode the wheel-floor static grip is (d + floor) / 2,
-    with the floor's own static friction; the same draw sets the chassis's
-    friction against walls and furniture.
+    0.9 d; restitution is left as it is. The roller covers, the only floor
+    contact on a level floor, take the draw with the rest, so under PhysX's
+    default ``average`` combine mode the wheel-floor static grip is
+    (d + floor) / 2, with the floor's own static friction; the same draw sets
+    the chassis's friction against walls and furniture.
 
     Args:
         env: The environment instance.

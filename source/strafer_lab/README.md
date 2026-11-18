@@ -89,19 +89,10 @@ room's generator arguments), and a camera-free stack the open-top room.
 
 ### Sim-to-real contract presets
 
-| Parameter | Ideal | Realistic | Robust |
-|---|---|---|---|
-| Motor dynamics | Disabled | τ=50ms, range [30, 80]ms | τ=60ms, range [20, 100]ms |
-| Command delay | 0 steps | 1 step, range [0, 2] | 1 step, range [0, 4] |
-| Slew rate limit | ∞ | 100 rad/s² | 80 rad/s² |
-| Command envelope (both caps) | off | off | s ~ U[0.255, 1.0] per env, drawn at each reset |
-| Control jitter | 0 % | ±5 % | ±10 % |
-| IMU accel noise density | 0 | 0.0098 m/s²/√Hz | 0.015 m/s²/√Hz |
-| IMU gyro noise density | 0 | 0.00024 rad/s/√Hz | 0.00036 rad/s/√Hz |
-| Encoder velocity noise σ | 0 | 0.02 | 0.05 |
-| Depth disparity noise | 0 | 0.08 px | 0.16 px |
-| Sensor failure events | Disabled | Disabled | Enabled |
-| Domain randomization | 0× | 1× | 1.5× |
+The realism tier, `ideal` (nothing), `realistic` or `robust`, sets every perturbation training applies to the actuation,
+the sensors and the world; the tiers are built from the contracts in `tasks/navigation/sim_real_cfg.py`. What each
+perturbation models on the deployed robot, its value per tier and its basis are in
+[`docs/context/training-realism.md`](../../docs/context/training-realism.md).
 
 Full actuator and sensor tuning methodology is in [`docs/guides/SIM_TO_REAL_TUNING_GUIDE.md`](../../docs/guides/SIM_TO_REAL_TUNING_GUIDE.md).
 
@@ -545,7 +536,7 @@ Jetson side (either mode) launches `bringup_sim_in_the_loop.launch.py` from [`st
 
 **Simulation is the source of truth for physics, noise, and observation layout.** Every constant the real robot uses (wheel radius, PID, encoder PPR, velocity limits) lives in `strafer_shared.constants` and is imported by both sides. The sim-to-real "envelope" is the `Realistic` / `Robust` preset — if the real hardware falls within that envelope, the policy transfers.
 
-**Four-layer actuator pipeline models real-world imperfections.** Command delay (USB serial latency) → command hold (a control step that publishes nothing, so the chassis re-executes its last command) → slew rate limiting (motor + gearbox inertia) → first-order motor dynamics filter (combined electrical + mechanical τ). The filter's time constant is the single most important sim-to-real parameter; target real τ in `[20, 100]` ms to stay inside the Robust envelope. Delay and hold are different failure modes: a delay shifts a command in time, a hold repeats it.
+**Four-layer actuator pipeline models real-world imperfections.** Command delay (USB serial latency) → command hold (a control step that publishes nothing, so the chassis re-executes its last command) → slew rate limiting (motor + gearbox inertia) → first-order motor dynamics filter (combined electrical + mechanical τ). The motor lag is the single most important sim-to-real parameter; its trained value per tier is in [`docs/context/training-realism.md`](../../docs/context/training-realism.md). Delay and hold are different failure modes: a delay shifts a command in time, a hold repeats it.
 
 **The policy contract is hermetic.** `strafer_shared.policy_interface.assemble_observation()` and `interpret_action()` are the only places observations and actions cross the boundary between Python / NumPy and the policy's `[-1, 1]` tensor space. The gym environment and the ROS inference node both go through them, never around them.
 

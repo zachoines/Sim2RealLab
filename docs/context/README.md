@@ -210,6 +210,10 @@ accurate.
 - [`recurrent-policy-contract.md`](recurrent-policy-contract.md) — the
   DEPTH policy's recurrent hidden-state seam across train → export →
   inference (tensor shape, reset semantics, ownership at each layer).
+- [`training-realism.md`](training-realism.md) — every perturbation the
+  navigation training applies on the `ideal` / `realistic` / `robust` tiers
+  (timing and actuation, sensing, the world): what it models on the deployed
+  robot, its value per tier and its basis, pinned to the code by a test.
 - [`nav2-config-parity.md`](nav2-config-parity.md) — Nav2's config is
   byte-identical on both lanes by construction (`_patch_params` injects
   only physical constants); the lifecycle for introducing a lane

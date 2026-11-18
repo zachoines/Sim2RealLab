@@ -113,14 +113,14 @@ _CONTRACT_GOLDENS = {
     "RLDepth_Real_PLAY": "555fcbed4c051438b1fd41c005deb7c792e0f3416e78a3201aa30e2db453cdda",
     "RLDepth_Robust_PLAY": "f781391b7c470fffbce58ac7261353356a93e13005f92730df5208b738db4f37",
     "RLNoCam_PLAY": "6879b94459b889d21b2d3d5e6e50e1b3e7119e20569f43581483ea4afe62603f",
-    "RLNoCamSubgoal_Real": "8bf0d1259e6167cea9bb908495dc5b5876a02923982c6c8b296394fd5527f5d1",
-    "RLNoCamSubgoal_Robust": "8496bdc41b9029376d53494fd00d0bf6493935f66f8c8593785c1f355e556cb9",
-    "RLNoCamSubgoal_Real_PLAY": "3a227efa9a5f4f23edd72ff65fd7e9f8b5a72bf984a643696f5661bcf631f2b2",
-    "RLNoCamSubgoal_Robust_PLAY": "55ec45bddca7d98d647998c411bf115a6220adc34b8b33908a05acefef8e7357",
-    "RLDepthSubgoal_Real": "dc637a5a649607eb6f2b0e127dea3cad10e6b9b2608868f95e5e948b96bccc2d",
-    "RLDepthSubgoal_Robust": "4bd28d891acef3706ccc3008aad6923068ca7ab1a7f0bb1b34ce578f032f1c88",
-    "RLDepthSubgoal_Real_PLAY": "5e24ec5a37ef7918ddf42f1a9b767584c6b9b8c3fe76e4ee9e300b1a6e12fc22",
-    "RLDepthSubgoal_Robust_PLAY": "135d0df8601c5a424ffceae297169900e0cdc6f70cf9380e17635e6adbe45c1e",
+    "RLNoCamSubgoal_Real": "8921659fea74e6ba9fc38c63d53ebeaadc9bd925059f4a92aa00d619151757c7",
+    "RLNoCamSubgoal_Robust": "6fe90719ee71aeb4bdf6c19ab7bc3f018ddf454ac110295c20e712ea0e75ec40",
+    "RLNoCamSubgoal_Real_PLAY": "57ce5d724532ec04d5f8385ef6fa67da5e379093320211c9cb54a1ae05603986",
+    "RLNoCamSubgoal_Robust_PLAY": "503e40090ae93cd9e85435b957849c7c566fd0062ff49518c7a5d745ab5995d9",
+    "RLDepthSubgoal_Real": "9eea5006721fec3cb7a24c79f7238af614a41450fc97e7ae0648d734fe9a4e2a",
+    "RLDepthSubgoal_Robust": "16b73bf76ae8f0ad1c7881ec9f5e732d8b71d6784b0c1021447a2b9fefc39305",
+    "RLDepthSubgoal_Real_PLAY": "115eb27fb3b5ec6a76ed5158dcfd20453998451ea7205bde3cfd31df33496a1a",
+    "RLDepthSubgoal_Robust_PLAY": "03bdfe5fe51e130478ee559b66b4b900e224e65d5c1b27bdf5a3c4e4c0707857",
 }
 
 # Frozen signature (slot name set + spawn sizes) of the open-top room's 44-object

@@ -330,6 +330,12 @@ class MecanumWheelAction(ActionTerm):
         """Processed wheel angular velocity commands (rad/s)."""
         return self._processed_actions
 
+    @property
+    def speed_scale(self) -> torch.Tensor:
+        """Each env's command-envelope scale s, shape (num_envs,). Exists only when the cfg sets
+        ``speed_scale_range``; reading it otherwise raises AttributeError."""
+        return self._speed_scale
+
     def process_actions(self, actions: torch.Tensor):
         """Convert normalized [vx, vy, omega] actions to wheel angular velocities.
         

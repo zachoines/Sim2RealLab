@@ -21,7 +21,7 @@ from strafer_shared.constants import (
     SUBGOAL_LOOKAHEAD_M,
 )
 
-from ..path_planner import PathCursor, PathPlanningError, perturb_waypoints, plan_path
+from ..path_planner import PathCursor, PathPlanningError, perturb_waypoints, plan_path, total_turning
 from .proc_room import GRID_RES, GRID_SIZE
 
 if TYPE_CHECKING:
@@ -553,6 +553,11 @@ class SubgoalCommand(CommandTerm):
         self._distance_to_subgoal = torch.zeros(env.num_envs, device=device)
         # 1.0 on envs whose last plan fell back to a straight segment.
         self._path_fallback = torch.zeros(env.num_envs, device=device)
+        # Total turning (rad) of each env's planned path, measured before the
+        # waypoint perturbation on the part the cursor installs; 0 on a
+        # straight-segment fallback. A plain buffer, not a metric: it is state
+        # the time-out term reads, not a logged statistic.
+        self._path_turning = torch.zeros(env.num_envs, device=device)
 
         # Per-env lookahead distance. Constant at ``lookahead_m`` unless
         # ``lookahead_randomization_m`` is set, in which case it is resampled
@@ -587,6 +592,11 @@ class SubgoalCommand(CommandTerm):
     def path_cursor(self) -> PathCursor:
         """The underlying per-env path buffers (read-only consumers only)."""
         return self._path_cursor
+
+    @property
+    def path_turning(self) -> torch.Tensor:
+        """Each env's planned path's total turning in radians, shape (num_envs,)."""
+        return self._path_turning
 
     """
     Implementation of abstract methods
@@ -651,8 +661,10 @@ class SubgoalCommand(CommandTerm):
                 # Straight-segment fallback; flagged for monitoring.
                 path = np.stack([start_local[k], goal]).astype(np.float32)
                 self._path_fallback[env_idx] = 1.0
+                self._path_turning[env_idx] = 0.0
             else:
                 self._path_fallback[env_idx] = 0.0
+                self._path_turning[env_idx] = total_turning(path[: self.cfg.max_path_points])
                 path = perturb_waypoints(
                     path,
                     self.cfg.waypoint_noise_std_m,

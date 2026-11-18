@@ -555,8 +555,8 @@ class SubgoalCommand(CommandTerm):
         self._path_fallback = torch.zeros(env.num_envs, device=device)
         # Total turning (rad) of each env's planned path, measured before the
         # waypoint perturbation on the part the cursor installs; 0 on a
-        # straight-segment fallback. A plain buffer, not a metric, for the
-        # same reason as the lookahead below.
+        # straight-segment fallback. A plain buffer, not a metric: it is state
+        # the time-out term reads, not a logged statistic.
         self._path_turning = torch.zeros(env.num_envs, device=device)
 
         # Per-env lookahead distance. Constant at ``lookahead_m`` unless

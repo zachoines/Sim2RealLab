@@ -24,10 +24,11 @@ import pytest
 import torch
 import warp as wp
 
-from strafer_shared.constants import NAV_ANGULAR_VEL, POLICY_MISSION_TIMEOUT_S
+from strafer_shared.constants import POLICY_MISSION_TIMEOUT_S
 
+TURN_RATE = 2.0933  # rad/s, the angular cap at the reference scale (0.5 x 4.1866), fixed with 11.87 and 1.53
 PARAMS = dict(command_name="goal_command", action_name="wheel_velocities", intercept_s=11.87, time_per_m_s=1.53,
-              turn_rate_rad_s=NAV_ANGULAR_VEL, reference_speed_scale=0.5, ceiling_s=POLICY_MISSION_TIMEOUT_S)
+              turn_rate_rad_s=TURN_RATE, reference_speed_scale=0.5, ceiling_s=POLICY_MISSION_TIMEOUT_S)
 ENVELOPE = (0.255, 1.0)
 PI = math.pi
 # (L m, s, K rad) -> limit in control steps at 30 Hz with a 600-step base
@@ -93,7 +94,7 @@ def test_off_envelope_short_straight_paths_equal_the_stock_time_out():
 def test_wherever_the_rule_gives_the_base_the_term_is_the_stock_one():
     arc, s, k = torch.meshgrid(torch.linspace(0.0, 25.55, 40), torch.linspace(0.255, 1.0, 30),
                                torch.tensor([0.0, PI / 2, 2 * PI]), indexing="ij")
-    seconds = torch.clamp(0.5 / s, min=1.0) * (11.87 + 1.53 * arc + k / NAV_ANGULAR_VEL)
+    seconds = torch.clamp(0.5 / s, min=1.0) * (11.87 + 1.53 * arc + k / TURN_RATE)
     at_base = seconds <= 600 / 30
     assert at_base.any() and not at_base.all()
     env = _env(arc[at_base], s[at_base], k[at_base])
@@ -116,8 +117,8 @@ def test_a_right_angle_adds_an_in_place_turn_at_the_deploy_caps_angular_speed():
         env = _env([10.0, 10.0], [s, s], [0.0, PI / 2])
         straight, turned = _mdp().path_time_out_limit(env, **PARAMS).tolist()
         assert abs((turned - straight) / 30 - extra_s) <= 1 / 30, (s, straight, turned)
-    assert (PI / 2) / NAV_ANGULAR_VEL == pytest.approx(0.75, abs=0.001)
-    assert (PI / 2) / NAV_ANGULAR_VEL * 0.5 / 0.255 == pytest.approx(1.47, abs=0.002)
+    assert (PI / 2) / TURN_RATE == pytest.approx(0.75, abs=0.001)
+    assert (PI / 2) / TURN_RATE * 0.5 / 0.255 == pytest.approx(1.47, abs=0.002)
 
 
 def test_each_env_has_its_own_limit_and_no_state():
@@ -225,6 +226,46 @@ def test_only_the_installed_part_of_the_path_counts(monkeypatch, corner_at, turn
     assert float(term.path_turning[0]) == pytest.approx(turning, abs=1e-5)
 
 
+def _legs(n_turns, spacing=0.05, leg=20):
+    """A polyline of n_turns right angles, alternating left and right, each leg `leg` points."""
+    pts, heading, p = [np.zeros(2)], 0.0, np.zeros(2)
+    for i in range(n_turns + 1):
+        d = np.array([math.cos(heading), math.sin(heading)])
+        for _ in range(leg):
+            p = p + spacing * d
+            pts.append(p.copy())
+        heading += (PI / 2) * (1 if i % 2 == 0 else -1)
+    return np.asarray(pts, dtype=np.float32)
+
+
+def test_a_subset_reset_writes_only_its_envs_turning(monkeypatch):
+    queue = []
+    term = _command(monkeypatch, lambda *a, **k: queue.pop(0), perturb=lambda p, *a, **k: p, num_envs=3)
+    queue[:] = [_legs(0), _legs(0), _legs(0)]
+    term.reset(env_ids=[0, 1, 2])
+    assert term.path_turning.tolist() == [0.0, 0.0, 0.0]
+    queue[:] = [_legs(1)]
+    term.reset(env_ids=[2])
+    assert term.path_turning.tolist() == pytest.approx([0.0, 0.0, PI / 2], abs=1e-5)
+    queue[:] = [_legs(3), _legs(2)]
+    term.reset(env_ids=[1, 0])
+    assert term.path_turning.tolist() == pytest.approx([PI, 3 * PI / 2, PI / 2], abs=1e-5)
+    assert term.path_turning.dtype == torch.float32 and term.path_turning.device == term.path_cursor.total_arc.device
+
+
+@pytest.mark.parametrize("n_before, turning", [(511, PI / 2), (512, 0.0)])
+def test_a_corner_at_the_last_installed_vertex_turns_nothing(monkeypatch, n_before, turning):
+    """A corner at vertex 510 is inside the 512 installed points; at vertex 511, the last, it has no installed
+    outgoing segment."""
+    from strafer_lab.tasks.navigation.path_planner import total_turning
+
+    term = _command(monkeypatch, lambda *a, **k: _corner(n_before, 700 - n_before), perturb=lambda p, *a, **k: p)
+    term.reset(env_ids=[0])
+    installed = term.path_cursor.paths[0, : int(term.path_cursor.path_len[0])].numpy()
+    assert total_turning(installed) == pytest.approx(turning, abs=1e-5)
+    assert float(term.path_turning[0]) == pytest.approx(turning, abs=1e-5)
+
+
 def test_the_turning_sum_is_the_path_statistics_one():
     from strafer_lab.tasks.navigation.path_planner import total_turning
     from strafer_lab.tools import path_statistics
@@ -261,7 +302,7 @@ def test_every_subgoal_composition_carries_the_term_and_every_goal_one_the_stock
             subgoal += 1
             assert term.func is _mdp().path_time_out and term.params == PARAMS, name
             assert term.params["ceiling_s"] == POLICY_MISSION_TIMEOUT_S
-            assert term.params["turn_rate_rad_s"] == NAV_ANGULAR_VEL
+            assert term.params["turn_rate_rad_s"] == 2.0933  # a literal: no retune of the node's caps moves it
         else:
             goal += 1
             assert term.func is _mdp().time_out and not term.params, name
@@ -273,10 +314,10 @@ class _Asset:
         return [0, 1, 2, 3], ["wheel_1_drive", "wheel_2_drive", "wheel_3_drive", "wheel_4_drive"]
 
 
-def _action_term(name, num_envs=16):
+def _action_term(name):
     cfg = _composed()[name]
     wv = cfg.actions.wheel_velocities
-    env = SimpleNamespace(scene={wv.asset_name: _Asset()}, device="cpu", num_envs=num_envs,
+    env = SimpleNamespace(scene={wv.asset_name: _Asset()}, device="cpu", num_envs=16,
                           physics_dt=cfg.sim.dt, step_dt=cfg.sim.dt * cfg.decimation)
     return wv, wv.class_type(wv, env)
 

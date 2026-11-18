@@ -248,14 +248,13 @@ def _usd_mass():
 
 def _friction_run(t):
     """randomize_friction on a stand-in robot whose shapes carry the physics materials their USD resolves (the sim's
-    default where none resolves, as PhysX applies it); returns the dynamic / static ratio it writes on the shapes it
-    draws, after checking it keeps the rest."""
+    default where none resolves, as PhysX applies it); returns the dynamic / static ratio it writes, and the number of
+    shapes it writes, after checking it writes every one within the draw's range."""
     import warp as wp
 
     from strafer_lab.tasks.navigation.mdp import events
 
     params = _event(t, "randomize_friction")
-    threshold = inspect.signature(events.randomize_friction).parameters["roller_friction_threshold"].default
     default = _c(t).sim.physics_material
     shapes = [r if r is not None else (default.static_friction, default.dynamic_friction) for r, _ in _usd_shapes()]
     table = torch.tensor([[s, d, 0.0] for s, d in shapes], dtype=torch.float32).repeat(8, 1, 1)
@@ -265,14 +264,11 @@ def _friction_run(t):
     env = SimpleNamespace(scene={"robot": SimpleNamespace(root_view=view)})
     events.randomize_friction(env, torch.arange(8), **params)
     out = written["m"]
-    keep = table[0, :, 0] >= threshold
-    assert torch.equal(out[:, keep], table[:, keep])
     lo, hi = params["friction_range"]
-    drawn = out[:, ~keep]
-    assert bool(((drawn[..., 0] >= lo) & (drawn[..., 0] <= hi)).all())
-    ratio = drawn[..., 1] / drawn[..., 0]
+    assert bool(((out[..., 0] >= lo) & (out[..., 0] <= hi)).all())  # every shape takes the draw
+    ratio = out[..., 1] / out[..., 0]
     assert float(ratio.max() - ratio.min()) < 1e-6
-    return float(ratio.mean()), int((~keep).sum()), int(keep.sum()), threshold
+    return float(ratio.mean()), out.shape[1]
 
 
 def _signature_default(func, name):
@@ -318,11 +314,16 @@ def _():
 def _():
     def cell(t):
         a = _act(t)
-        return OFF if math.isinf(a.max_acceleration_rad_s2) else [*_trained_band(t), *a.max_acceleration_range]
+        if math.isinf(a.max_acceleration_rad_s2):
+            return OFF
+        band = _trained_band(t)
+        assert all(abs(b - f) < 1e-3 * f for b, f in zip(band, a.max_acceleration_range)), (t, band)  # field = trained
+        return list(band)
     nominal = _act("real").max_acceleration_rad_s2
     assert _act("robust").max_acceleration_rad_s2 == nominal
     trained = _trained_fixed("real", nominal)
-    return {**_tiers(cell), "models": [], "basis": [trained, nominal, nominal / trained]}
+    assert abs(trained - nominal) < 1e-3 * nominal, (trained, nominal)
+    return {**_tiers(cell), "models": [], "basis": [trained]}
 
 
 def _lag(t):
@@ -339,7 +340,8 @@ def _():
         lead = [100.0 * (1.0 - math.exp(-1.0))] if t == "real" else []
         return lead + [_lag(t)[0], a.motor_time_constant]
     backward = [_lag(t)[1] for t in ("real", "robust")]
-    return {**_tiers(cell), "models": [], "basis": [*backward, backward[0] / _act("real").motor_time_constant]}
+    assert all(math.isclose(b, _act(t).motor_time_constant) for b, t in zip(backward, ("real", "robust"))), backward
+    return {**_tiers(cell), "models": [], "basis": backward}
 
 
 @row("Command envelope", {"design"})
@@ -438,10 +440,9 @@ def _():
     def cell(t):
         if _noise(t, ACC) is None:
             return OFF
-        fail = {_noise(t, n).failure_probability for n in (ACC, GYR)}
         stuck = {_noise(t, n).stuck_probability for n in (ACC, GYR)}
-        assert len(fail) == 1 and len(stuck) == 1, (t, fail, stuck)  # the row speaks of "the IMU"
-        vals = [fail.pop(), stuck.pop(), _noise(t, ENC).failure_probability, _noise(t, DEPTH).failure_probability]
+        assert len(stuck) == 1, (t, stuck)  # the row speaks of "each IMU channel" at one rate
+        vals = [stuck.pop(), _noise(t, ENC).stuck_probability]
         return "none" if not any(vals) else vals
     return {**_tiers(cell), "models": [], "basis": []}
 
@@ -581,8 +582,7 @@ def _():
         p = _event(t, "randomize_friction")
         if p is None:
             return OFF
-        ratio, drawn, kept, _ = _friction_run(t)
-        assert kept == 0  # no shape reads rubber, so the draw reaches every one
+        ratio, drawn = _friction_run(t)
         floor = _floor_static(t)
         lo, hi = p["friction_range"]
         grip = [(lo + floor) / 2.0, (hi + floor) / 2.0]  # PhysX averages the two materials' coefficients
@@ -590,8 +590,8 @@ def _():
             covers = sum(authored for _, authored in _usd_shapes())
             return [lo, hi, ratio, drawn, covers, floor, *grip]
         return [lo, hi, *grip]
-    # The flip guard: the covers author a rubber material that resolves as no physics material, so the term's rubber
-    # exception matches no shape. A cover whose material resolved would hold its grip fixed and fail here first.
+    # The covers author a rubber material that resolves as no physics material, so where no draw runs (the ideal
+    # tier) every shape keeps the sim's default. A cover whose material resolved would change that grip.
     assert not [r for r, _ in _usd_shapes() if r is not None], "a collision shape now resolves a physics material"
     still = (_c("ideal").sim.physics_material.static_friction + _floor_static("ideal")) / 2.0
     return {**_tiers(cell), "models": [still], "basis": []}
@@ -751,7 +751,7 @@ EVENT_ROWS = {
     "randomize_difficulty": "Room", "generate_room": "Room", "reset_robot": "Spawn and goal",
     "randomize_friction": "Friction", "randomize_mass": "Mass", "randomize_motor_strength": "Motor strength",
     "randomize_d555_mount": "Mount misalignment", "jitter_d555_camera_prim": "Mount misalignment",
-    "randomize_subgoal_drift": "Subgoal-frame drift", "randomize_goal_noise": None,  # declared, not applied
+    "randomize_subgoal_drift": "Subgoal-frame drift",
 }
 
 
@@ -800,14 +800,14 @@ NOISE_FIELDS = {
         "class_type": CHECKED, "func": STRUCTURAL, "noise_cfg": STRUCTURAL, "sensor_type": CHECKED,
         "output_size": STRUCTURAL, "control_frequency_hz": "IMU noise", "accel_noise_std": "IMU noise",
         "accel_bias_range": "IMU noise", "accel_bias_drift_rate": "IMU noise", "gyro_noise_std": "IMU noise",
-        "gyro_bias_range": "IMU noise", "gyro_bias_drift_rate": "IMU noise", "failure_probability": "Sensor dropouts",
+        "gyro_bias_range": "IMU noise", "gyro_bias_drift_rate": "IMU noise",
         "stuck_probability": "Sensor dropouts", "latency_steps": "IMU and encoder latency"},
     "EncoderNoiseModelCfg": {
         "class_type": CHECKED, "func": STRUCTURAL, "noise_cfg": STRUCTURAL, "output_size": STRUCTURAL,
         "enable_quantization": "Wheel encoder noise", "ticks_per_radian": NOT_APPLIED,
         "velocity_noise_std": "Wheel encoder noise", "max_velocity": "Wheel encoder noise",
         "missed_tick_prob": "Wheel encoder noise", "extra_tick_prob": "Wheel encoder noise",
-        "failure_probability": "Sensor dropouts", "latency_steps": "IMU and encoder latency"},
+        "stuck_probability": "Sensor dropouts", "latency_steps": "IMU and encoder latency"},
     "DepthNoiseModelCfg": {
         "class_type": CHECKED, "func": STRUCTURAL, "noise_cfg": STRUCTURAL, "baseline_m": "Depth disparity noise",
         "focal_length_px": "Depth disparity noise", "disparity_noise_px": "Depth disparity noise",
@@ -816,7 +816,7 @@ NOISE_FIELDS = {
         "min_range": "Depth range and grid", "max_range": "Depth range and grid", "too_close_fill": STRUCTURAL,
         "height": "Depth range and grid", "width": "Depth range and grid", "hold_fraction_range": "Depth stream hold",
         "hold_run_range": "Depth stream hold", "hold_burst_weight": "Depth stream hold",
-        "hold_burst_run_steps": "Depth stream hold", "failure_probability": "Sensor dropouts",
+        "hold_burst_run_steps": "Depth stream hold",
         "latency_steps": "Depth latency", "latency_steps_range": "Depth latency"},
 }
 NOISY_TERMS = {ACC: "IMUNoiseModelCfg", GYR: "IMUNoiseModelCfg", ENC: "EncoderNoiseModelCfg",
@@ -906,12 +906,7 @@ def test_every_noise_field_is_documented():
                 assert noise.too_close_fill == "near", name
 
 
-DECLARED_NOT_APPLIED = {
-    "ActuatorModelCfg.motor_time_constant_range", "SimRealContractCfg.domain_randomization_scale",
-    "IMUNoiseCfg.enable_temp_effects", "IMUNoiseCfg.temp_coefficient", "DepthCameraNoiseCfg.enable_temporal_noise",
-    "DepthCameraNoiseCfg.temporal_noise_std", "DepthCameraNoiseCfg.hole_cluster_size",
-    "EncoderNoiseCfg.velocity_quantization_ticks_per_step",
-}
+DECLARED_NOT_APPLIED = {"EncoderNoiseCfg.velocity_quantization_ticks_per_step"}
 RGB_NOT_APPLIED = "RGBCameraNoiseCfg."  # "Not applied on any tier: RGB noise (no registered ID observes RGB)"
 
 
@@ -946,35 +941,19 @@ def test_the_fields_nothing_reads_are_the_modules_declared_list():
         assert _readers(f) == 0, f
 
 
-def test_the_goal_pose_noise_is_where_the_module_says():
-    from strafer_lab.tasks.navigation import strafer_env_cfg
-
-    installed = {n for n, c in _composed().items() if getattr(c.events, "randomize_goal_noise", None) is not None}
-    for n in installed:
-        assert _composed()[n].realism.level == "robust" and _composed()[n].objective.kind == "goal", n
-    assert installed
-    robust = {_composed()[n].events.randomize_goal_noise.params["noise_std"] for n in installed}
-    infinigen = strafer_env_cfg.EventsCfg_Infinigen_Realistic().randomize_goal_noise.params["noise_std"]
-    sentence = re.search(r"the goal-pose noise term.*?\n\n", _text() + "\n\n", re.S).group(0)
-    got = _numbers(sentence)
-    assert len(robust) == 1 and len(got) == 2 and _close(got[0], robust.pop()) and _close(got[1], infinigen), got
-
-
 ANCHORS = {
-    "actions.py#L199": "torch.randint", "actions.py#L215": "HoldProcess(", "actions.py#L237": "_max_delta_per_step",
-    "actions.py#L186": "_motor_alpha", "actions.py#L272": "_draw_speed_scale",
-    "actions.py#L362": "l1_clamp_twist_batched(", "actions.py#L456": "max_wheel_angular_vel",
-    "events.py#L454": "def randomize_motor_strength", "events.py#L505": "def randomize_d555_mount_offset",
-    "events.py#L407": "def randomize_subgoal_drift", "events.py#L170": "def randomize_friction",
-    "events.py#L334": "def randomize_mass", "events.py#L622": "def reset_robot_proc_room",
-    "events.py#L383": "def randomize_goal_noise", "noise_models.py#L182": "class IMUNoiseModel(",
-    "noise_models.py#L356": "class EncoderNoiseModel(", "noise_models.py#L479": "class DepthNoiseModel(",
+    "actions.py#L199": "torch.randint", "actions.py#L215": "HoldProcess(", "actions.py#L238": "_max_delta_per_step",
+    "actions.py#L186": "_motor_alpha", "actions.py#L273": "_draw_speed_scale",
+    "actions.py#L369": "l1_clamp_twist_batched(", "actions.py#L463": "max_wheel_angular_vel",
+    "events.py#L401": "def randomize_motor_strength", "events.py#L452": "def randomize_d555_mount_offset",
+    "events.py#L354": "def randomize_subgoal_drift", "events.py#L170": "def randomize_friction",
+    "events.py#L305": "def randomize_mass", "events.py#L569": "def reset_robot_proc_room",
+    "noise_models.py#L182": "class IMUNoiseModel(", "noise_models.py#L342": "class EncoderNoiseModel(",
+    "noise_models.py#L476": "class DepthNoiseModel(",
     "observations.py#L45": "def reduce_depth_to_policy_grid", "d555_cfg.py#L145": "focal_length=",
-    "composed_env_cfg.py#L577": "num_rerenders_on_reset = 1", "commands.py#L656": "perturb_waypoints(",
-    "proc_room.py#L981": "def generate_proc_room", "sim_real_cfg.py#L707": "IDEAL_SIM_CONTRACT",
-    "sim_real_cfg.py#L125": "motor_time_constant_range", "sim_real_cfg.py#L492": "domain_randomization_scale",
-    "sim_real_cfg.py#L186": "enable_temp_effects", "sim_real_cfg.py#L303": "enable_temporal_noise",
-    "sim_real_cfg.py#L269": "hole_cluster_size", "sim_real_cfg.py#L222": "velocity_quantization_ticks_per_step",
+    "composed_env_cfg.py#L572": "num_rerenders_on_reset = 1", "commands.py#L668": "perturb_waypoints(",
+    "proc_room.py#L981": "def generate_proc_room", "sim_real_cfg.py#L676": "IDEAL_SIM_CONTRACT",
+    "sim_real_cfg.py#L213": "velocity_quantization_ticks_per_step",
 }
 
 

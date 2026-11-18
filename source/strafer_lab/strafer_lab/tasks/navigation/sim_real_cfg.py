@@ -281,7 +281,8 @@ class DepthCameraNoiseCfg:
     """Stereo baseline in meters (95mm for D555)."""
 
     focal_length_px: float = 673.0
-    """Focal length in pixels at native 1280x720 resolution."""
+    """Focal length in px at 1280 wide, the 80×45 disparity noise's constant; the unit's measured lens reads 643 px
+    there (321.522 at 640 wide). It enters nothing where the sensor noise is on."""
 
     disparity_noise_px: float = 0.08
     """Subpixel disparity noise (typical: 0.05-0.1 pixels)."""
@@ -685,7 +686,7 @@ def create_real_robot_contract() -> SimRealContractCfg:
                 # Intel D555 stereo parameters (default values)
                 baseline_m=0.095,
                 focal_length_px=673.0,
-                disparity_noise_px=0.08,
+                disparity_noise_px=0.0,  # retired: the sensor noise below replaces the 80x45 disparity noise
                 # The sensor's stereo validity on the rendered frame, fitted on the robot's frames at mount height:
                 # the left band f·B/z + 6.5 px with no core, the occlusion shadows at 0.5 px. It replaces the cell
                 # holes. The 0.244 m minimum is the bench sensor's nearest finite return, where a 126-disparity
@@ -695,6 +696,9 @@ def create_real_robot_contract() -> SimRealContractCfg:
                 stereo_margin_px=6.5,
                 stereo_core_px=0.0,
                 stereo_min_depth_m=0.244,
+                # The sensor's depth noise on the rendered frame, at its centres: fitted to one unit, one glossy
+                # floor and static poses (the temporal and static fields, the lattice, the invalid blobs)
+                stereo_noise_enable=True,
                 hole_probability=0.0,
                 frame_drop_probability=0.001,
                 # Design. The band was sized from the sim-in-the-loop rig's 23 Hz
@@ -772,12 +776,7 @@ def create_robust_training_contract() -> SimRealContractCfg:
                 # Intel D555 stereo parameters with increased disparity noise
                 baseline_m=0.095,
                 focal_length_px=673.0,
-                disparity_noise_px=0.16,  # 2x typical for robust training
-                # Drawn per env at reset, log-uniform over the band. No
-                # single sigma matches the deploy field's texture at every
-                # depth, so the tier spans the range the per-band matches
-                # cover rather than picking one of them.
-                disparity_noise_px_range=(0.002, 0.16),
+                disparity_noise_px=0.0,  # retired with its band: the sensor noise below replaces them
                 # The sensor's stereo validity on the rendered frame, fitted on the robot's frames at mount height:
                 # the left band f·B/z + 6.5 px with no core, the occlusion shadows at 0.5 px. It replaces the cell
                 # holes. The 0.244 m minimum is the bench sensor's nearest finite return, where a 126-disparity
@@ -790,6 +789,19 @@ def create_robust_training_contract() -> SimRealContractCfg:
                 # Design: f·B scaled per env around the nominal 30.545 px m, bracketing the band's fitted slope
                 # (about 31.8) and the depth lattice's estimate (31.2-32.2)
                 stereo_fb_scale_range=(0.98, 1.06),
+                # The sensor's depth noise on the rendered frame, at its centres: fitted to one unit, one glossy
+                # floor and static poses (the temporal and static fields, the lattice, the invalid blobs)
+                stereo_noise_enable=True,
+                # Design, until the robot session reads the noise elsewhere: the two fields scaled per env over
+                # [0.5, 2] each, a tenth of envs at zero; the static field held in the image for half the envs and
+                # decaying over 1-10 s for the rest; a per-episode invalid patch field on up to 4 % of the pixels,
+                # none for a quarter of the envs
+                stereo_noise_amp_range=(0.5, 2.0),
+                stereo_noise_clean_fraction=0.1,
+                stereo_noise_s_static_probability=0.5,
+                stereo_noise_s_tau_range_s=(1.0, 10.0),
+                stereo_noise_patch_share_range=(0.0, 0.04),
+                stereo_noise_patch_zero_probability=0.25,
                 hole_probability=0.0,
                 # 10x typical, plus the 0.001 of a failed frame, which repeats the previous one as a drop does
                 frame_drop_probability=0.011,

@@ -191,29 +191,35 @@ def test_the_critic_reads_the_clean_render_with_the_noise_on():
     assert not torch.equal(depth_image(env, SceneEntityCfg("cam")), clean)
 
 
-def test_the_contract_carries_the_spread_and_refuses_a_second_disparity_noise():
+def test_the_contract_refuses_a_second_disparity_noise_and_the_noise_without_the_mask():
     from strafer_lab.tasks.navigation import sim_real_cfg as src
 
     contract = copy.deepcopy(src.ROBUST_TRAINING_CONTRACT)
     d = contract.sensors.depth_camera
-    if "noise" in (src.get_d555_sensor_params(contract) or {}):
-        pytest.skip("the noise is on at this tier")
-    d.stereo_noise_enable = True
-    d.stereo_noise_amp_range = (0.5, 2.0)
     params = src.get_d555_sensor_params(contract)
-    assert params["noise"]["amp_t_range"] == (0.5, 2.0) and params["noise"]["amp_s_range"] == (0.5, 2.0)
     assert set(params["noise"]) <= {f.name for f in dataclasses.fields(D555NoiseCfg)}
+    assert src.get_depth_noise(contract).disparity_noise_px == 0.0
+    d.disparity_noise_px = 0.08
     with pytest.raises(ValueError, match="replaces the 80x45 disparity noise"):
         src.get_depth_noise(contract)
-    d.disparity_noise_px, d.disparity_noise_px_range = 0.0, None
-    assert src.get_depth_noise(contract) is not None
     d.stereo_mask_enable = False
     with pytest.raises(ValueError, match="enable the mask"):
         src.get_d555_sensor_params(contract)
 
 
-def test_off_on_every_composition_the_event_carries_no_noise():
+def test_on_at_the_centres_on_the_realistic_tier_and_with_the_spread_on_the_robust_one():
     from strafer_lab.tasks.navigation import composed_env_cfg as composed
 
+    real = composed.StraferNavCfg_RLDepthSubgoal_Real().events.randomize_d555_sensor.params["noise"]
+    assert real["amp_t_range"] == real["amp_s_range"] == (1.0, 1.0) and real["clean_fraction"] == 0.0
+    assert real["s_static_probability"] == 1.0 and real["patch_share_range"] == (0.0, 0.0)
+    robust = composed.StraferNavCfg_RLDepthSubgoal_Robust().events.randomize_d555_sensor.params["noise"]
+    assert robust["amp_t_range"] == robust["amp_s_range"] == (0.5, 2.0) and robust["clean_fraction"] == 0.1
+    assert robust["s_static_probability"] == 0.5 and robust["s_tau_range_s"] == (1.0, 10.0)
+    assert robust["patch_share_range"] == (0.0, 0.04) and robust["patch_zero_probability"] == 0.25
     for name in ("StraferNavCfg_RLDepthSubgoal_Real", "StraferNavCfg_RLDepthSubgoal_Robust"):
-        assert "noise" not in getattr(composed, name)().events.randomize_d555_sensor.params, name
+        cfg = getattr(composed, name)()
+        noise = cfg.observations.policy.depth_image.noise
+        assert noise.disparity_noise_px == 0.0 and noise.disparity_noise_px_range is None, name  # the 80x45 term retired
+        assert cfg.observations.critic.depth_image.params["perceived"] is False, name
+    assert getattr(composed.StraferNavCfg_Depth_Ideal().events, "randomize_d555_sensor", None) is None

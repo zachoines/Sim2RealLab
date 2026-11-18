@@ -519,6 +519,10 @@ class DepthNoiseModel(NoiseModel):
     correlation of real sensor depth, which no capture has measured; both
     readings are consistent with the shipped value.
 
+    Where the sensor noise at render resolution is on (``mdp.d555_noise``,
+    in the stereo validity's function), this σ_z is off
+    (``disparity_noise_px`` 0): the correlated noise is the sensor's there.
+
     Reference: Intel RealSense documentation on depth quality and error propagation
     https://openaccess.thecvf.com/content_cvpr_2017_workshops/w15/papers/Keselman_Intel_RealSense_Stereoscopic_CVPR_2017_paper.pdf
     """
@@ -815,7 +819,7 @@ class DepthNoiseModelCfg(NoiseModelCfg):
         - Baseline: 95mm (0.095m)
         - Native resolution: 1280x720
         - Horizontal FOV: ~87°
-        - Focal length: ~673 pixels (at 1280 width)
+        - Focal length: ~673 pixels at 1280 width (the unit's measured lens: 643)
         - Typical disparity noise: 0.05-0.1 pixels
 
     At 2.0m depth with default D555 values:

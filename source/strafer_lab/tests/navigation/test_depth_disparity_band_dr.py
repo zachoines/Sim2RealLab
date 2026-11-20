@@ -49,10 +49,20 @@ TIERS = {"realistic": REAL_ROBOT_CONTRACT, "robust": ROBUST_TRAINING_CONTRACT}
 # the tier ran before it carried one. Frozen literals, because a tier that
 # ships a band has no live fixed arm to compare against. Re-freeze by name when
 # a depth-noise parameter on that tier changes deliberately.
+# One literal per CPU normal-fill kernel family: the AVX2/AVX-512 kernel and the
+# scalar one round a few float32 draws an ulp apart. One x86 machine re-freezes
+# both: "avx2" run natively, "scalar" under ATEN_CPU_CAPABILITY=default.
 _FIXED_PATH_FINGERPRINTS = {
-    "realistic": "3d0d224c8e2fb5411a8472bd549cd05eeaa15af17c64761d986a894e56fdd3a7",
-    "robust": "9401dc6518c944fe56f4f810cd5161b742094b379859f8594116e4016127ead1",
+    ("realistic", "scalar"): "3d0d224c8e2fb5411a8472bd549cd05eeaa15af17c64761d986a894e56fdd3a7",
+    ("realistic", "avx2"): "32c0c59c02f7a6558576da5fce0d25a1e911df68dd8e2896cd6f4a511c952089",
+    ("robust", "scalar"): "9401dc6518c944fe56f4f810cd5161b742094b379859f8594116e4016127ead1",
+    ("robust", "avx2"): "f95bcff5383cb134f7a5a5dd0d0a54fef2442fe1d4e991a358d52882c8602d80",
 }
+
+
+def _normal_fill_family() -> str:
+    """The CPU normal-fill kernel family this process dispatches to."""
+    return "avx2" if torch.backends.cpu.get_cpu_capability() in ("AVX2", "AVX512") else "scalar"
 
 
 def _cfg(contract, **overrides) -> DepthNoiseModelCfg:
@@ -124,7 +134,7 @@ class TestTheNeutralPath:
         digest = hashlib.sha256(
             _emit(_cfg_fixed(TIERS[tier]), data=_frames()).numpy().tobytes()
         ).hexdigest()
-        assert digest == _FIXED_PATH_FINGERPRINTS[tier], (
+        assert digest == _FIXED_PATH_FINGERPRINTS[tier, _normal_fill_family()], (
             f"the {tier} tier's cleared-band output moved; if a depth-noise "
             f"parameter changed deliberately, re-freeze this fingerprint"
         )

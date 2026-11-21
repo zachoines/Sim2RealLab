@@ -33,7 +33,7 @@ Sibling packages it interacts with:
 
 - **Composed Gym environments** over three orthogonal axes — sensor stack × scene source × realism — registered as a small set of named variants (RL training: depth / no-cam, realistic / robust; capture: teleop / bridge / coverage). Capture variants take an operator-selectable sensor stack via `capture.py --sensors`. See Contracts below.
 - **Sim-to-real contract presets** (`tasks/navigation/sim_real_cfg.py`) — `IDEAL_SIM_CONTRACT`, `REAL_ROBOT_CONTRACT`, `ROBUST_TRAINING_CONTRACT` covering motor time constant, command delay, slew rate, IMU / encoder / depth noise, the temporal texture of the depth and command streams (holds and per-env observation age), and the drift of the SLAM frame the goal-shaped observations are read through.
-- **Mecanum motor model** (`assets/strafer.py`) — `DCMotorCfg` with torque-speed curve, paired with the three-layer action pipeline (command delay → slew rate limit → first-order motor dynamics filter) in `tasks/navigation/mdp/actions.py`.
+- **Mecanum motor model** (`assets/strafer.py`) — an `ImplicitActuatorCfg` velocity drive (damping 1000, effort capped flat at the stall torque; no torque-speed curve), paired with the action pipeline in `tasks/navigation/mdp/actions.py` (the twist and wheel-speed clamps, then command delay → command hold → slew rate limit → first-order motor lag).
 - **Synthetic-data pipeline** — Infinigen scene generation orchestrator, scene metadata extractor, and the harness capture drivers writing the canonical LeRobot v3 training corpus (the legacy description / SFT-prep / CLIP-CSV scripts are retired under `scripts/retired/`).
 - **Isaac Sim ROS 2 bridge** (`bridge/`) — config + OmniGraph builder that wires simulated sensors onto the real robot's ROS topic names. Runs inside Kit via `isaacsim.ros2.bridge`.
 - **Sim-in-the-loop harness** (`sim_in_the_loop/`) — pure-Python orchestrator with injectable env / mission-API / recorder adapters. Submits Jetson missions and records one LeRobot v3 episode per mission (RGB video, depth sidecars, normalized `/cmd_vel` actions, Replicator detections columns, outcome + hard-negative metadata) via `BridgeLeRobotRecorder` → `StraferLeRobotWriter`.
@@ -89,21 +89,14 @@ room's generator arguments), and a camera-free stack the open-top room.
 
 ### Sim-to-real contract presets
 
-| Parameter | Ideal | Realistic | Robust |
-|---|---|---|---|
-| Motor dynamics | Disabled | τ=50ms, range [30, 80]ms | τ=60ms, range [20, 100]ms |
-| Command delay | 0 steps | 1 step, range [0, 2] | 1 step, range [0, 4] |
-| Slew rate limit | ∞ | 100 rad/s² | 80 rad/s² |
-| Command envelope (both caps) | off | off | s ~ U[0.255, 1.0] per env, drawn at each reset |
-| Control jitter | 0 % | ±5 % | ±10 % |
-| IMU accel noise density | 0 | 0.0098 m/s²/√Hz | 0.015 m/s²/√Hz |
-| IMU gyro noise density | 0 | 0.00024 rad/s/√Hz | 0.00036 rad/s/√Hz |
-| Encoder velocity noise σ | 0 | 0.02 | 0.05 |
-| Depth disparity noise | 0 | 0.08 px | 0.16 px |
-| Sensor failure events | Disabled | Disabled | Enabled |
-| Domain randomization | 0× | 1× | 1.5× |
+The realism tier, `ideal` (nothing), `real` (the realistic tier) or `robust`, sets every perturbation training applies to
+the actuation, the sensors and the world. The action term, the sensor noise and the subgoal-frame drift come from the
+contracts in `tasks/navigation/sim_real_cfg.py`; the world's draws, the motor strength, the mount angle and the
+lookahead bands are per-tier values in `tasks/navigation/strafer_env_cfg.py`. What each
+perturbation models on the deployed robot, its value per tier and its basis are in
+[`docs/context/training-realism.md`](../../docs/context/training-realism.md).
 
-Full actuator and sensor tuning methodology is in [`docs/guides/SIM_TO_REAL_TUNING_GUIDE.md`](../../docs/guides/SIM_TO_REAL_TUNING_GUIDE.md).
+The interim actuator and sensor tuning guide is [`docs/guides/SIM_TO_REAL_TUNING_GUIDE.md`](../../docs/guides/SIM_TO_REAL_TUNING_GUIDE.md).
 
 ### Policy I/O contract
 
@@ -545,7 +538,7 @@ Jetson side (either mode) launches `bringup_sim_in_the_loop.launch.py` from [`st
 
 **Simulation is the source of truth for physics, noise, and observation layout.** Every constant the real robot uses (wheel radius, PID, encoder PPR, velocity limits) lives in `strafer_shared.constants` and is imported by both sides. The sim-to-real "envelope" is the `Realistic` / `Robust` preset — if the real hardware falls within that envelope, the policy transfers.
 
-**Four-layer actuator pipeline models real-world imperfections.** Command delay (USB serial latency) → command hold (a control step that publishes nothing, so the chassis re-executes its last command) → slew rate limiting (motor + gearbox inertia) → first-order motor dynamics filter (combined electrical + mechanical τ). The filter's time constant is the single most important sim-to-real parameter; target real τ in `[20, 100]` ms to stay inside the Robust envelope. Delay and hold are different failure modes: a delay shifts a command in time, a hold repeats it.
+**Four-layer actuator pipeline models real-world imperfections.** Command delay (USB serial latency) → command hold (a control step that publishes nothing, so the chassis re-executes its last command) → slew rate limiting (motor + gearbox inertia) → first-order motor dynamics filter (combined electrical + mechanical τ). The motor lag is the single most important sim-to-real parameter; its trained value per tier is in [`docs/context/training-realism.md`](../../docs/context/training-realism.md). Delay and hold are different failure modes: a delay shifts a command in time, a hold repeats it.
 
 **The policy contract is hermetic.** `strafer_shared.policy_interface.assemble_observation()` and `interpret_action()` are the only places observations and actions cross the boundary between Python / NumPy and the policy's `[-1, 1]` tensor space. The gym environment and the ROS inference node both go through them, never around them.
 

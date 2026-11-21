@@ -971,7 +971,7 @@ ANCHORS = {
     "noise_models.py#L356": "class EncoderNoiseModel(", "noise_models.py#L479": "class DepthNoiseModel(",
     "observations.py#L45": "def reduce_depth_to_policy_grid", "d555_cfg.py#L145": "focal_length=",
     "composed_env_cfg.py#L577": "num_rerenders_on_reset = 1", "commands.py#L656": "perturb_waypoints(",
-    "proc_room.py#L981": "def generate_proc_room", "sim_real_cfg.py#L707": "IDEAL_SIM_CONTRACT",
+    "proc_room.py#L990": "def generate_proc_room", "sim_real_cfg.py#L707": "IDEAL_SIM_CONTRACT",
     "sim_real_cfg.py#L125": "motor_time_constant_range", "sim_real_cfg.py#L492": "domain_randomization_scale",
     "sim_real_cfg.py#L186": "enable_temp_effects", "sim_real_cfg.py#L303": "enable_temporal_noise",
     "sim_real_cfg.py#L269": "hole_cluster_size", "sim_real_cfg.py#L222": "velocity_quantization_ticks_per_step",

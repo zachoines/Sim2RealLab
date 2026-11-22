@@ -18,9 +18,10 @@ functions return clean values; Isaac Lab injects observation noise only in the
 ``enable_corruption`` is set). Calling the terms directly bypasses the manager,
 so no domain-randomization noise is applied — matching the deployment contract,
 where the node adds none (``strafer_inference`` ``obs_pipeline``: "inference
-adds none"). No term function injects noise internally (each returns raw
-sensor/FK output and defers ``.noise`` / ``.scale`` to the manager), so there is
-nothing to disable here.
+adds none"). One term applies a model of its own: the depth term reads the frame
+through the D555's sensor function (its stereo validity and noise) wherever the
+env has one, so the dump calls it with ``perceived=False``. The other terms
+return raw sensor/FK output and defer ``.noise`` / ``.scale`` to the manager.
 
 The Isaac Lab / mdp imports are deferred to :func:`evaluate_obs_terms`, so this
 module itself imports Kit-free — only the actual evaluation needs a live env.
@@ -81,9 +82,9 @@ def evaluate_obs_terms(env, variant: PolicyVariant) -> dict[str, np.ndarray]:
     if any(f.key == "depth_image" for f in variant.fields):
         # max_depth from the shared constant, matching the training term's wired
         # param; nearfield clip/fill keep the term defaults (which the training
-        # wiring also leaves untouched).
+        # wiring also leaves untouched); the clean render, not the sensor's frame.
         values["depth_image"] = _term_to_numpy(
-            depth_image(env, SceneEntityCfg("d555_camera"), max_depth=DEPTH_MAX)
+            depth_image(env, SceneEntityCfg("d555_camera"), max_depth=DEPTH_MAX, perceived=False)
         )
     return values
 

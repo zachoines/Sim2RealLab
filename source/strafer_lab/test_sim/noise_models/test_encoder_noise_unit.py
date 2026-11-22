@@ -22,6 +22,7 @@ from test_sim.common import (
     chi_squared_variance_test,
     DEVICE,
 )
+from test_sim.noise_models.seeded_stream import CASE_CONFIDENCE, seeded_stream
 
 # -- imports resolved after AppLauncher (root conftest) --
 from strafer_lab.tasks.navigation.mdp.noise_models import (
@@ -45,17 +46,18 @@ TEST_MAX_VELOCITY = 3000.0
 # =============================================================================
 
 
+@seeded_stream(42)
 def test_velocity_noise_std():
     """Verify encoder noise variance matches configured std.
 
     The actual noise std = velocity_noise_std × max_velocity.
     With quantization disabled, model(zeros) gives pure Gaussian noise.
-    Single wheel tested to avoid inflated N. Seeded, and the variance
-    ratio's interval is its chi-squared sampling interval at the sample
-    size, two-sided at alpha = 1e-6, so a correct model does not fail by
-    chance.
+    Single wheel tested to avoid inflated N. It runs on its own seeded
+    stream, restored after it, so it fixes no later case's draws; the
+    variance ratio's interval is its chi-squared sampling interval at the
+    sample size, two-sided at alpha 1e-6, so a correct model does not fail
+    by chance. At 5 000 samples a sigma off by 6 % still fails (power 0.9).
     """
-    torch.manual_seed(42)
     expected_std = TEST_VEL_NOISE_FRACTION * TEST_MAX_VELOCITY
     cfg = EncoderNoiseModelCfg(
         velocity_noise_std=TEST_VEL_NOISE_FRACTION,
@@ -76,7 +78,7 @@ def test_velocity_noise_std():
         samples.append(noisy[0, 0].cpu().item())
 
     samples = np.array(samples)
-    result = chi_squared_variance_test(samples, expected_std**2, confidence_level=1.0 - 1e-6)
+    result = chi_squared_variance_test(samples, expected_std**2, confidence_level=CASE_CONFIDENCE)
 
     print(f"\n  Encoder velocity noise test:")
     print(f"    Expected std: {expected_std:.2f} ticks/s")

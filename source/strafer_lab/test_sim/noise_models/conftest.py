@@ -177,7 +177,7 @@ def reset_observation_noise_models(env, debug: bool = False) -> int:
     return reset_count
 
 
-def collect_stationary_observations(env, n_steps: int, freeze_robot: bool = True) -> torch.Tensor:
+def collect_stationary_observations(env, n_steps: int, freeze_robot: bool = True, on_step=None) -> torch.Tensor:
     """Collect observations from a stationary robot over multiple steps.
 
     With zero actions and settled physics, any observation variance
@@ -189,6 +189,9 @@ def collect_stationary_observations(env, n_steps: int, freeze_robot: bool = True
         freeze_robot: If True (default), continuously zero out robot velocities
                       to eliminate physics settling noise. This ensures measured
                       variance comes purely from sensor noise.
+        on_step: Called with the env after each collected step, before the
+                 freeze moves the state: a term evaluated there reads the
+                 state the step's observation was computed on.
 
     Returns:
         Tensor of shape (n_steps, num_envs, obs_dim)
@@ -220,6 +223,8 @@ def collect_stationary_observations(env, n_steps: int, freeze_robot: bool = True
     for _ in range(n_steps):
         obs_dict, _, _, _, _ = env.step(zero_action)
         observations.append(obs_dict["policy"].clone())
+        if on_step is not None:
+            on_step(env)
         if freeze_robot:
             freeze_robot_in_place(env)
 

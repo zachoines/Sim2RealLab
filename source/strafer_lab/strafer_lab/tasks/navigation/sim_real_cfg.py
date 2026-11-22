@@ -32,7 +32,7 @@ from __future__ import annotations
 from isaaclab.utils.configclass import configclass
 from isaaclab.utils.noise import GaussianNoiseCfg
 
-from strafer_shared.constants import DEPTH_NEARFIELD_FILL
+from strafer_shared.constants import DEPTH_NEARFIELD_FILL, MAX_WHEEL_ANGULAR_VEL, POLICY_PERIOD_S
 
 # Import custom noise models that generate independent per-environment noise
 from strafer_lab.tasks.navigation.mdp.noise_models import (
@@ -42,9 +42,6 @@ from strafer_lab.tasks.navigation.mdp.noise_models import (
     DepthNoiseModelCfg,
     RGBNoiseModelCfg,
 )
-
-# The policy's control period (30 Hz). The tiers' command timing is in seconds, as whole multiples of it.
-_CONTROL_PERIOD_S = 1.0 / 30.0
 
 
 # =============================================================================
@@ -87,9 +84,7 @@ class TimingCfg:
     """Encoder observation latency in control steps. Encoders are fast (~5ms)."""
 
     depth_latency_steps: int = 1
-    """Depth camera latency in control steps; design, not measured on the robot (the one
-    figure is the stationary stream's receive minus its stamp, the stamp the paired colour
-    frame's)."""
+    """Depth camera latency in control steps; design, not measured on the robot."""
 
     depth_latency_steps_range: tuple[int, int] | None = None
     """Absolute per-env depth latency band [min, max] in control steps, drawn
@@ -571,8 +566,8 @@ def create_real_robot_contract() -> SimRealContractCfg:
     return SimRealContractCfg(
         timing=TimingCfg(
             control_frequency_hz=30.0,
-            action_latency_s=_CONTROL_PERIOD_S,  # one control step
-            action_latency_range_s=(0.0, 2 * _CONTROL_PERIOD_S),  # 0-2 control steps more
+            action_latency_s=POLICY_PERIOD_S,  # one control step
+            action_latency_range_s=(0.0, 2 * POLICY_PERIOD_S),  # 0-2 control steps more
             # Per-sensor latency (realistic values)
             imu_latency_steps=0,  # IMU is very fast (~1-2ms)
             encoder_latency_steps=0,  # Encoders are fast (~5ms)
@@ -582,13 +577,13 @@ def create_real_robot_contract() -> SimRealContractCfg:
             # A held command stands for a node tick lost to its timer, or a driver
             # stall; not measured.
             action_hold_fraction_range=(0.0, 0.05),
-            action_hold_run_range_s=(_CONTROL_PERIOD_S, 1.2 * _CONTROL_PERIOD_S),
+            action_hold_run_range_s=(POLICY_PERIOD_S, 1.2 * POLICY_PERIOD_S),
         ),
         actuator=ActuatorModelCfg(
             enable_motor_dynamics=True,
             motor_time_constant_s=0.21623864,  # alpha = 1/7 at the 1/30 s control step
             motor_time_constant_range=(0.21623864, 0.21623864),
-            wheel_speed_limit_rad_s=32.67,
+            wheel_speed_limit_rad_s=MAX_WHEEL_ANGULAR_VEL,
             max_velocity_rad_s=32.67,  # 312 RPM
             max_acceleration_rad_s2=225.0,
             max_acceleration_range=(175.0, 275.0),  # a design spread
@@ -614,11 +609,9 @@ def create_real_robot_contract() -> SimRealContractCfg:
                 disparity_noise_px=0.08,
                 hole_probability=0.01,
                 frame_drop_probability=0.001,
-                # Design. The band was sized from the sim-in-the-loop rig's 23 Hz
-                # effective arrival rate (a 0.22 hold fraction against a 30 Hz
-                # tick), clean to somewhat worse; the robot's raw depth arrives at
-                # 30.05 Hz stationary, and its reuse share while it drives is not
-                # measured. The run length is not measured either.
+                # Design: a band around the sim-in-the-loop bridge's depth
+                # arrival rate, from clean to somewhat worse, not a robot-side
+                # statistic; the run length is not measured.
                 hold_fraction_range=(0.0, 0.35),
                 hold_run_range=(1.0, 1.6),
             ),
@@ -647,8 +640,8 @@ def create_robust_training_contract() -> SimRealContractCfg:
     return SimRealContractCfg(
         timing=TimingCfg(
             control_frequency_hz=30.0,
-            action_latency_s=_CONTROL_PERIOD_S,
-            action_latency_range_s=(0.0, 4 * _CONTROL_PERIOD_S),  # up to 4 control steps more
+            action_latency_s=POLICY_PERIOD_S,
+            action_latency_range_s=(0.0, 4 * POLICY_PERIOD_S),  # up to 4 control steps more
             # Per-sensor latency (aggressive values for robustness)
             imu_latency_steps=1,  # Add slight delay to IMU
             encoder_latency_steps=1,  # Add slight delay to encoders
@@ -659,13 +652,13 @@ def create_robust_training_contract() -> SimRealContractCfg:
             # two compose on the same episode, so widening one is widening the
             # share of steps whose outcome the policy did not choose.
             action_hold_fraction_range=(0.0, 0.05),
-            action_hold_run_range_s=(_CONTROL_PERIOD_S, 1.2 * _CONTROL_PERIOD_S),
+            action_hold_run_range_s=(POLICY_PERIOD_S, 1.2 * POLICY_PERIOD_S),
         ),
         actuator=ActuatorModelCfg(
             enable_motor_dynamics=True,
             motor_time_constant_s=0.25630551,  # alpha = 1/8.2 at the 1/30 s control step
             motor_time_constant_range=(0.25630551, 0.25630551),
-            wheel_speed_limit_rad_s=32.67,
+            wheel_speed_limit_rad_s=MAX_WHEEL_ANGULAR_VEL,
             max_acceleration_rad_s2=225.0,
             max_acceleration_range=(125.0, 300.0),  # a wider design spread
             # 0.40 to 1.57 m/s on |vx| + |vy|, the deploy cap (s = 0.5) inside it.

@@ -1268,7 +1268,7 @@ class CurriculumCfg_Infinigen:
 # =============================================================================
 
 _DEFAULT_NAV_SIM_DT = POLICY_SIM_DT
-# The renderer's cadence knob, not the policy step rate: it stays here, not in the shared constants.
+# The renderer's cadence, a sim-only knob, not the policy step rate.
 _DEFAULT_NAV_RENDER_INTERVAL = 4
 _DEFAULT_NAV_DECIMATION = POLICY_DECIMATION
 _DEFAULT_NAV_EPISODE_LENGTH_S = 20.0

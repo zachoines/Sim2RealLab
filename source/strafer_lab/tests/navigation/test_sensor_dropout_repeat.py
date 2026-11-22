@@ -138,11 +138,22 @@ def test_the_removed_fields_are_gone():
 
 # The real tier's models over 40 steps with resets, and the RNG state after. The IMU's are main's; the encoders' are
 # the model without its tick errors, which the shared wheel reading removed.
+# One literal per CPU normal-fill kernel family: the AVX2/AVX-512 kernel and the
+# scalar one round a few float32 draws an ulp apart. One x86 machine re-freezes
+# both: "avx2" run natively, "scalar" under ATEN_CPU_CAPABILITY=default.
 REAL_FINGERPRINTS = {
-    ACC: "db54579037b4b7dfd08f6e202731d1e7d02deaa1937468dba5ffec4f0a5e81fe",
-    GYR: "ebaf4fd31b20ea714c3a70885303f4c746e4ebecbb6f459975022f8098c3d4c3",
-    ENC: "2080ec6f506f789d4f49aac076dd3e0936d78a8b9369aa56a78ce03e6bd4d1a4",
+    (ACC, "scalar"): "db54579037b4b7dfd08f6e202731d1e7d02deaa1937468dba5ffec4f0a5e81fe",
+    (ACC, "avx2"): "bedd48d007eace53f40b0173e7317c8104fded739f60d4050d1b3c20c140494e",
+    (GYR, "scalar"): "ebaf4fd31b20ea714c3a70885303f4c746e4ebecbb6f459975022f8098c3d4c3",
+    (GYR, "avx2"): "ebaf4fd31b20ea714c3a70885303f4c746e4ebecbb6f459975022f8098c3d4c3",
+    (ENC, "scalar"): "2080ec6f506f789d4f49aac076dd3e0936d78a8b9369aa56a78ce03e6bd4d1a4",
+    (ENC, "avx2"): "2080ec6f506f789d4f49aac076dd3e0936d78a8b9369aa56a78ce03e6bd4d1a4",
 }
+
+
+def _normal_fill_family() -> str:
+    """The CPU normal-fill kernel family this process dispatches to."""
+    return "avx2" if torch.backends.cpu.get_cpu_capability() in ("AVX2", "AVX512") else "scalar"
 
 
 @pytest.mark.parametrize("term", [ACC, GYR, ENC])
@@ -161,4 +172,4 @@ def test_the_real_tier_is_unchanged(term):
         rows.append(model(0.5 + 4.0 * torch.rand(16, width, generator=gen)))
     rows.append(torch.rand(4))
     digest = hashlib.sha256(torch.cat([r.flatten() for r in rows]).numpy().tobytes()).hexdigest()
-    assert digest == REAL_FINGERPRINTS[term]
+    assert digest == REAL_FINGERPRINTS[term, _normal_fill_family()]

@@ -83,10 +83,10 @@ class D555NoiseCfg:
     t_tail_sigma_px: float = 16.0
     """The scale field's correlation (Gaussian sigma), in px."""
 
-    s_sigma0_px: float = 0.041
+    s_sigma0_px: float = 0.022
     """S's amplitude on a surface with no disparity gradient, in px."""
 
-    s_slope_gain: float = 0.608
+    s_slope_gain: float = 0.64
     """S's growth with the disparity gradient, px per (px per px)."""
 
     s_sigma_max_px: float = 0.60

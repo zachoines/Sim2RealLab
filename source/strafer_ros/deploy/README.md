@@ -246,7 +246,7 @@ lever — no tracked compose file to edit.
 There is no separate dump-variant knob: the node stamps each record with its
 loaded `policy_variant`, so a dump cannot disagree with the artifact running.
 
-### SLAM: the map is keyed to the scene
+### SLAM: the map is keyed to the scene and the camera mount
 
 RTAB-Map persists its database and **reloads it on start**. On the sim lane the
 scene is procedurally regenerated, so a restarted sim is a new layout — and
@@ -274,7 +274,7 @@ full or read-only `~/.ros`) stops before RTAB-Map starts. `database_path:=<path>
 chooses the file (its default spelling and an empty value derive it) but not that
 check. `rtabmap_args:=-d` wipes and remaps: the launch removes the database and
 its sidecar before it claims, so a launch that stops early leaves no map to
-adopt. Nothing else deletes or renames a database: the others stay in the volume.
+adopt. The launch deletes or renames no other database: the others stay in the volume.
 Recreate the services on a rebuilt image together, so the TF and the key carry
 the same mount.
 

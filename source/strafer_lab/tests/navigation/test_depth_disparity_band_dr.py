@@ -53,8 +53,8 @@ BAND = (0.002, 0.16)
 
 
 def _iid_arm(contract, sigma, band):
-    """The tier's contract with the 80x45 disparity noise at ``sigma`` (over ``band`` when one is given) and the
-    sensor noise off."""
+    """The tier's contract with the 80x45 disparity noise at ``sigma``, or drawn over ``band`` when one is given, and
+    the sensor noise off."""
     arm = copy.deepcopy(contract)
     depth = arm.sensors.depth_camera
     depth.stereo_noise_enable = False

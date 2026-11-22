@@ -118,6 +118,14 @@ def test_the_disparity_sits_on_the_lattice_and_the_depth_on_whole_millimetres():
     assert float((zmm - torch.round(zmm)).abs().max()) < 1e-3
 
 
+def test_the_lattice_rounds_without_bias():
+    p = D555NoiseProcess(1, "cpu", D555NoiseCfg(), step_dt=1.0 / 30.0, seed=0, shape=(4, 4))
+    d = 1.0 + 63.0 * (torch.arange(2 ** 18, dtype=torch.float64) + 0.5) / 2 ** 18
+    err = p._quantise(d.float()).double() - d
+    assert abs(float(err.mean())) < 1.0 / 512  # bins at or below their codes would read -1/64 px
+    assert float(err.abs().max()) < 3.0 / 32  # the occupancy moves a disparity by at most two codes and a half
+
+
 def test_the_blobs_take_the_floors_share_none_on_a_wall_and_recur_at_fixed_pixels_with_no_memory():
     p = _process(t_sigma0_px=0.0, s_sigma0_px=0.0, s_slope_gain=0.0, s_phase_bias_px=0.0)
     z = _floor(wall=5.0)[..., None]  # the floor, and above it a fronto-parallel wall at 5 m

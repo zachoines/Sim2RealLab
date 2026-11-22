@@ -14,7 +14,8 @@ geometry: the incidence cosine ``cos φ`` from the back-projected surface normal
   constant), streaked along the rows. Its amplitude is ``σ_S = a_S · min(σ_S0 + k · G, σ_S,max)``, plus a sub-pixel
   locking ripple ``b · sin 2π frac(d)``.
 - **The disparity lattice.** The noisy disparity is rounded to 1/32 px through the measured sub-pixel occupancy (some
-  sub-pixel codes never occur), and the depth to the millimetre, as Z16 carries it.
+  sub-pixel codes never occur), each bin centred on its code so the rounding adds no bias, and the depth to the
+  millimetre, as Z16 carries it.
 - **Invalid blobs**, with probability ``p = p_b + p_ref · (c_ref / cos φ)^k`` clipped at ``p_max``. The base ``p_b`` is
   the surface's: ``p_base`` on a surface facing the camera or a wall, rising linearly to ``p_floor`` as the vertical
   disparity gradient ``G_v = ∂d/∂v`` reaches the floor's. They are split into flickering speckle (a two-scale Gaussian
@@ -39,7 +40,8 @@ from strafer_shared.constants import D555_MEASURED_FX_PX, PERCEPTION_HEIGHT, PER
 
 LATTICE_OCCUPANCY_LUT = (1, 2, 2, 4, 5, 7, 8, 9, 9, 10, 11, 12, 13, 13, 14, 14,
                          16, 16, 17, 17, 18, 19, 20, 21, 23, 24, 26, 27, 29, 29, 30, 31)
-"""Sub-pixel code (of 32) a disparity's fractional bin maps to: the inverse of the unit's measured occupancy."""
+"""Sub-pixel code (of 32) a disparity's 1/32 px bin maps to, the bin centred on its own code: the inverse of the unit's
+measured occupancy."""
 
 
 @dataclass(frozen=True)
@@ -370,12 +372,11 @@ class D555NoiseProcess:
 
     # --- one frame ---------------------------------------------------------------------------------------------------
     def _quantise(self, disparity: torch.Tensor) -> torch.Tensor:
-        whole = torch.floor(disparity)
-        frac = disparity - whole
         if self._lut is None:
             return torch.round(disparity * 32.0) / 32.0
-        idx = torch.clamp((frac * 32.0).long(), max=31)
-        return whole + self._lut[idx]
+        nearest = torch.floor(disparity * 32.0 + 0.5)  # the bin centred on each 1/32 px code
+        whole = torch.floor(nearest / 32.0)
+        return whole + self._lut[(nearest - 32.0 * whole).long()]
 
     def step(self, depth: torch.Tensor, fb: torch.Tensor, max_depth: float) -> tuple[torch.Tensor, torch.Tensor]:
         """The noisy depth and the invalid blobs of one ``(N, H, W)`` clean frame."""

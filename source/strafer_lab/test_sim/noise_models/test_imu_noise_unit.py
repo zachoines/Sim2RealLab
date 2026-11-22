@@ -20,11 +20,11 @@ import numpy as np
 from scipy import stats
 
 from test_sim.common import (
-    CONFIDENCE_LEVEL,
     chi_squared_variance_test,
     one_sample_t_test,
     DEVICE,
 )
+from test_sim.noise_models.seeded_stream import CASE_ALPHA, CASE_CONFIDENCE, seeded_stream
 
 # -- imports resolved after AppLauncher (root conftest) --
 from strafer_lab.tasks.navigation.mdp.noise_models import IMUNoiseModel, IMUNoiseModelCfg
@@ -79,16 +79,18 @@ def _make_full_imu_model(sensor_type: str = "accel") -> IMUNoiseModel:
 # =============================================================================
 
 
+@seeded_stream(401)
 def test_accel_white_noise_variance():
     """Verify accelerometer noise variance matches configured std.
 
     With bias and drift disabled, model(zeros) returns pure white noise.
-    Uses chi-squared variance test on a single axis.
+    Uses chi-squared variance test on a single axis, at alpha 1e-6 on its
+    own stream: at 5 000 samples a sigma off by 6 % still fails (power 0.9).
     """
     model = _make_white_noise_only_model("accel")
 
     # Use fewer samples for chi-squared to accommodate float32 GPU precision.
-    # At 5 000 df the 95 % CI is ≈ ±4 %, wide enough for float32 noise.
+    # At 5 000 df the interval at alpha 1e-6 is about ±10 % on the variance.
     n_chi2 = 5_000
     clean = torch.zeros(N_ENVS, 3, device=DEVICE)
     samples = []
@@ -98,7 +100,7 @@ def test_accel_white_noise_variance():
         samples.append(noisy[0, 0].cpu().item())
 
     samples = np.array(samples)
-    result = chi_squared_variance_test(samples, ACCEL_NOISE_STD**2)
+    result = chi_squared_variance_test(samples, ACCEL_NOISE_STD**2, confidence_level=CASE_CONFIDENCE)
 
     print(f"\n  Accel noise variance test:")
     print(f"    Expected std: {ACCEL_NOISE_STD}")
@@ -114,11 +116,13 @@ def test_accel_white_noise_variance():
     )
 
 
+@seeded_stream(402)
 def test_accel_noise_has_zero_mean():
     """Verify accelerometer noise is zero-mean using one-sample t-test.
 
     With bias disabled, the noise mean should not significantly differ
-    from zero at the configured confidence level.
+    from zero at alpha 1e-6. At 1.6 million samples a mean of 1e-4 m/s²
+    (0.5 % of sigma) still fails (power 0.9).
     """
     model = _make_white_noise_only_model("accel")
 
@@ -129,7 +133,7 @@ def test_accel_noise_has_zero_mean():
         samples.append(noisy[:, 0].cpu().numpy())
 
     samples = np.concatenate(samples)
-    result = one_sample_t_test(samples, null_value=0.0)
+    result = one_sample_t_test(samples, null_value=0.0, confidence_level=CASE_CONFIDENCE)
 
     print(f"\n  Accel zero-mean test:")
     print(f"    Sample mean: {result.mean:.6f}")
@@ -142,10 +146,13 @@ def test_accel_noise_has_zero_mean():
     )
 
 
+@seeded_stream(403)
 def test_accel_noise_is_gaussian():
     """Verify accelerometer noise follows Gaussian distribution.
 
-    Uses Kolmogorov-Smirnov test to check normality after standardizing.
+    Uses Kolmogorov-Smirnov test to check normality after standardizing,
+    at alpha 1e-6: at 1.6 million samples a distribution whose CDF departs
+    from the normal's by 0.003 anywhere still fails (power 0.9).
     """
     model = _make_white_noise_only_model("accel")
 
@@ -161,7 +168,7 @@ def test_accel_noise_is_gaussian():
         "norm",
     )
 
-    alpha = 1 - CONFIDENCE_LEVEL
+    alpha = CASE_ALPHA
 
     print(f"\n  Accel Gaussian distribution test (KS):")
     print(f"    KS statistic: {ks_stat:.6f}")
@@ -173,11 +180,13 @@ def test_accel_noise_is_gaussian():
     )
 
 
+@seeded_stream(404)
 def test_accel_noise_independent_per_env():
     """Verify noise is independently generated per environment.
 
     Pearson correlation between two env noise streams should not be
-    significant at the configured confidence level.
+    significant at alpha 1e-6. At 50 000 pairs a correlation of 0.028
+    still fails (power 0.9).
     """
     model = _make_white_noise_only_model("accel")
 
@@ -190,7 +199,7 @@ def test_accel_noise_independent_per_env():
         env1_samples.append(noisy[1, 0].cpu().item())
 
     r, p = stats.pearsonr(env0_samples, env1_samples)
-    alpha = 1 - CONFIDENCE_LEVEL
+    alpha = CASE_ALPHA
 
     print(f"\n  Inter-env independence test:")
     print(f"    Pearson r: {r:.6f}")
@@ -232,12 +241,15 @@ def test_bias_within_configured_range():
     assert np.all(biases <= bias_hi), f"Bias above configured maximum: {np.max(biases)}"
 
 
+@seeded_stream(405)
 def test_bias_drift_increases_variance():
     """Verify bias drift increases spread over time.
 
-    Uses Welch's t-test to compare the absolute deviation of bias
-    values after 10 steps vs after 500 steps. The later sample should
-    have significantly greater spread.
+    Uses a one-sided Mann-Whitney U test to compare the absolute deviation
+    of bias values after 10 steps and after 1 000 steps. The later sample
+    should have significantly greater spread at alpha 1e-6: a random
+    walk's is ten times the earlier (z about 24 against the 4.8 needed),
+    and a late spread under 1.4 times the early one fails (power 0.9).
     """
     model = _make_full_imu_model("accel")
 
@@ -268,7 +280,7 @@ def test_bias_drift_increases_variance():
     # Late deviations should be significantly larger (one-sided Mann-Whitney U)
     from scipy.stats import mannwhitneyu
     stat, p_value = mannwhitneyu(late, early, alternative="greater")
-    alpha = 1 - CONFIDENCE_LEVEL
+    alpha = CASE_ALPHA
 
     print(f"\n  Bias drift variance increase test:")
     print(f"    Early deviation mean: {np.mean(early):.6f}")

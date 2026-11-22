@@ -23,6 +23,7 @@ from test_sim.common import (
     N_SAMPLES_STEPS,
     one_sample_t_test,
 )
+from test_sim.noise_models.seeded_stream import CASE_ALPHA, CASE_CONFIDENCE, seeded_stream
 
 from test_sim.noise_models.conftest import (
     collect_stationary_observations,
@@ -36,12 +37,17 @@ from test_sim.noise_models.conftest import (
 # =============================================================================
 
 
+@seeded_stream(501)
 def test_noise_affects_observations(noisy_env):
     """Verify observations have variance when noise is enabled.
 
     Uses one-sample t-test on per-step variances to verify that the
     mean variance across steps is significantly greater than zero.
-    This replaces an arbitrary threshold with a proper statistical test.
+    This replaces an arbitrary threshold with a proper statistical test. At
+    alpha 1e-6 on its own stream it is scale-free: any nonzero noise gives
+    t near √50 over the per-step variances' relative spread (at most about
+    0.10 across 64 envs and 3 axes, so t of about 70 or more) against the
+    5.6 needed at 49 df.
     """
     obs = collect_stationary_observations(noisy_env, 50)
 
@@ -49,7 +55,7 @@ def test_noise_affects_observations(noisy_env):
     per_step_var = obs[:, :, IMU_ACCEL_SLICE].var(dim=1).mean(dim=1)  # (n_steps,)
     var_samples = per_step_var.cpu().numpy()
 
-    result = one_sample_t_test(var_samples, null_value=0.0)
+    result = one_sample_t_test(var_samples, null_value=0.0, confidence_level=CASE_CONFIDENCE)
 
     print(f"\n  Noise-enabled observation variance test (one-sample t-test):")
     print(f"    Mean per-step variance: {result.mean:.6e}")
@@ -63,6 +69,7 @@ def test_noise_affects_observations(noisy_env):
     )
 
 
+@seeded_stream(502)
 def test_noise_is_independent_across_envs(noisy_env):
     """Verify that custom NoiseModel generates independent noise per environment.
 
@@ -73,6 +80,9 @@ def test_noise_is_independent_across_envs(noisy_env):
     Statistical approach:
     - Compute Pearson correlation between noise from env 0 and env 1
     - Under null hypothesis of independence, test r ≈ 0
+    Tested at alpha 1e-6 on its own stream: at 600 pairs a correlation of
+    0.25 still fails (power 0.9), and a stream shared between envs (r 1)
+    fails at any n.
     """
     obs = collect_stationary_observations(noisy_env, 200)
 
@@ -99,20 +109,24 @@ def test_noise_is_independent_across_envs(noisy_env):
     print(f"    Correlation between env 0 and env 1: r={correlation:.4f}")
     print(f"    Standard error under H0 (independence): {se_r:.6f}")
     print(f"    Two-tailed p-value: {p_value:.4e}")
-    print(f"    Significance level (α): {1 - CONFIDENCE_LEVEL:.2f}")
+    print(f"    Significance level (α): {CASE_ALPHA:.0e}")
 
     # Test: correlation should not be significantly different from zero
-    assert p_value > (1 - CONFIDENCE_LEVEL), (
+    assert p_value > CASE_ALPHA, (
         f"Noise appears correlated across environments: "
-        f"r={correlation:.4f}, p={p_value:.4e} < α={1 - CONFIDENCE_LEVEL:.2f}"
+        f"r={correlation:.4f}, p={p_value:.4e} < α={CASE_ALPHA:.0e}"
     )
 
 
+@seeded_stream(503)
 def test_noise_changes_each_step(noisy_env):
     """Verify noise is different at each timestep (not frozen).
 
     Uses one-sample t-test on mean absolute step-to-step differences
-    to verify the changes are significantly greater than zero.
+    to verify the changes are significantly greater than zero. At alpha
+    1e-6 on its own stream it is scale-free: any step-to-step change gives
+    t near √49 over the per-step means' relative spread (about 0.055 across
+    64 envs and 3 axes, so t of about 130) against the 5.6 needed at 48 df.
     """
     obs = collect_stationary_observations(noisy_env, 50)
 
@@ -123,7 +137,7 @@ def test_noise_changes_each_step(noisy_env):
         step_diffs.append(diff.item())
 
     step_diffs = np.array(step_diffs)
-    result = one_sample_t_test(step_diffs, null_value=0.0)
+    result = one_sample_t_test(step_diffs, null_value=0.0, confidence_level=CASE_CONFIDENCE)
 
     print(f"\n  Step-to-step noise change test (one-sample t-test):")
     print(f"    Mean |Δobs| per step: {result.mean:.6f}")

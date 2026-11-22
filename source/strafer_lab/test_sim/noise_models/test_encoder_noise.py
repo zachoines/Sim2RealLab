@@ -22,10 +22,10 @@ import numpy as np
 import pytest
 
 from test_sim.common import (
-    CONFIDENCE_LEVEL,
     N_SAMPLES_STEPS,
     variance_ratio_test,
 )
+from test_sim.noise_models.seeded_stream import CASE_ALPHA, CASE_CONFIDENCE, seeded_stream
 
 from test_sim.noise_models.conftest import (
     collect_stationary_observations,
@@ -83,6 +83,7 @@ else:
 # =============================================================================
 
 
+@seeded_stream(201)
 def test_encoder_noise_std_matches_config(noisy_env):
     """Verify encoder velocity noise std matches theoretical prediction.
 
@@ -92,6 +93,8 @@ def test_encoder_noise_std_matches_config(noisy_env):
 
     Note: Unlike IMU noise, encoder noise has NO drift component,
     so we can directly measure std without using first-differences.
+    Tested at alpha 1e-6 on its own stream: at 102 400 samples a sigma off
+    by 1.4 % still fails (power 0.9).
     """
     obs = collect_stationary_observations(noisy_env, N_SAMPLES_STEPS)
 
@@ -102,7 +105,7 @@ def test_encoder_noise_std_matches_config(noisy_env):
 
     # Chi-squared variance ratio test
     expected_var = ENCODER_STD_THEORETICAL**2
-    result = variance_ratio_test(measured_var, expected_var, n_samples)
+    result = variance_ratio_test(measured_var, expected_var, n_samples, confidence_level=CASE_CONFIDENCE)
 
     # Get config values for display
     vel_noise_std = _ENCODER_NOISE_CFG.velocity_noise_std
@@ -127,12 +130,12 @@ def test_encoder_noise_std_matches_config(noisy_env):
     print(f"      Measured std: {measured_std:.6f}")
     print(f"      Theoretical std: {ENCODER_STD_THEORETICAL:.6f}")
     print(f"      Variance ratio (measured/theoretical): {result.ratio:.4f}")
-    print(f"      {CONFIDENCE_LEVEL*100:.0f}% CI: [{result.ci_low:.4f}, {result.ci_high:.4f}]")
+    print(f"      CI at alpha {CASE_ALPHA:.0e}: [{result.ci_low:.4f}, {result.ci_high:.4f}]")
     print(f"    Result: Variance ratio {'is' if result.in_ci else 'is NOT'} within CI")
 
     assert result.in_ci, (
         f"Encoder variance ratio {result.ratio:.4f} not within "
-        f"{CONFIDENCE_LEVEL*100:.0f}% CI [{result.ci_low:.4f}, {result.ci_high:.4f}]"
+        f"the CI at alpha {CASE_ALPHA:.0e} [{result.ci_low:.4f}, {result.ci_high:.4f}]"
     )
 
 

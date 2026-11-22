@@ -223,6 +223,14 @@ policy trained at, source checkpoint, git commit, and ONNX opset. The
 inference node ticks at that recorded period rather than at its own
 constant, so re-exporting is what moves the deploy cadence.
 
+## A run directory without a manifest
+A run directory without a manifest is matched to its task in two steps:
+1. its training stdout, where it was captured: the header prints
+   `Environment: <task id>`, and a few lines later `Logging to: <run dir>`;
+2. failing that, the machine's Kit log for the launch, which records the
+   full command line under a timestamp that matches the run directory's to
+   the second.
+
 ## NoCam — TorchScript only
 ```bash
 $ISAACLAB -p source/strafer_lab/scripts/export_policy.py \

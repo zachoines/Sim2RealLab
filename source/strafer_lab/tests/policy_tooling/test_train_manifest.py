@@ -13,6 +13,7 @@ import subprocess
 
 import pytest
 
+from strafer_shared.constants import POLICY_PERIOD_S
 from strafer_lab.tools.train_manifest import (
     MANIFEST_NAME,
     build_train_manifest,
@@ -91,7 +92,8 @@ def test_the_export_sidecar_carries_the_training_env_beside_the_export_env(tmp_p
     ckpt = _leg(tmp_path, "run_a", "Isaac-Strafer-Nav-RLDepth-Subgoal-Robust-v0")
     common = dict(policy_variant="DEPTH_SUBGOAL", obs_dim=3619, action_dim=3,
                   env_id="Isaac-Strafer-Nav-RLDepth-Subgoal-Real-Play-v0", training_preset="P", source_checkpoint=ckpt,
-                  formats=["pt"], is_recurrent=True, trained_period_s=1.0 / 30.0, git_commit="x", export_timestamp="t")
+                  formats=["pt"], is_recurrent=True, trained_period_s=POLICY_PERIOD_S, git_commit="x",
+                  export_timestamp="t")
     sidecar = export_policy.write_metadata_sidecar(tmp_path / "out" / "policy",
                                                    training_env_id="Isaac-Strafer-Nav-RLDepth-Subgoal-Robust-v0",
                                                    training_manifest=ckpt.parent / MANIFEST_NAME, **common)

@@ -85,7 +85,7 @@ entry-point scripts](repo-topology.md#key-entry-point-scripts).
 - `strafer_autonomy` — the executor's skills, planner/VLM/ROS client protocols, and the `strafer-autonomy-cli` / `strafer-executor` console entry points; see its README.
 - `strafer_vlm` — the grounding/description/detection HTTP service + operator CLI tools; see its README.
 - `strafer_ros` — ROS 2 launch surface + hardware-validation scripts, the `strafer_inference` trained-policy nodes (`inference_node`, `subgoal_generator_node`), and the diagnostic obs/subgoal **parity CLIs** (`strafer_inference/scripts/obs_parity.py`, `subgoal_parity.py`) backed by the rclpy-free `strafer_inference.parity` library (+ `bag_io` rosbag/TF glue); see its README.
-- `strafer_shared` — `constants.py` (chassis/sensor/topic specs) + `policy_interface`; append-only across the lane boundary.
+- `strafer_shared` — `constants.py` (chassis/sensor/topic specs; append-only across the lane boundary) + `mecanum_kinematics` (the wheel kinematics matrix both lanes import) + `policy_interface` + `rolling_subgoal` (the numpy-only rolling-subgoal rule that `strafer_inference`'s subgoal generator runs: arc-length cursor, end-clamped lookahead, anchor admission; training's `PathCursor` is its torch counterpart) + `depth_texture` (the per-pixel texture statistic of a policy-resolution depth frame, shared by both lanes).
 
 ## Maintenance rule
 

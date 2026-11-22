@@ -4,8 +4,8 @@ Navigation training perturbs the actuation, the sensors and the world on one of 
 `RealismCfg(level=...)` ([`composed_env_cfg.py`](../../source/strafer_lab/strafer_lab/tasks/navigation/composed_env_cfg.py)):
 `ideal` (nothing), `real` (the realistic tier) and `robust`. The action term, the sensor noise and the subgoal-frame
 drift come from the tier contracts `IDEAL_SIM_CONTRACT`, `REAL_ROBOT_CONTRACT` and `ROBUST_TRAINING_CONTRACT`
-([`sim_real_cfg.py:707-709`](../../source/strafer_lab/strafer_lab/tasks/navigation/sim_real_cfg.py#L707)); friction,
-mass, motor strength, the mount angle, the room, the lookahead bands and the goal noise are per-tier values in
+([`sim_real_cfg.py:682-684`](../../source/strafer_lab/strafer_lab/tasks/navigation/sim_real_cfg.py#L682)); friction,
+mass, motor strength, the mount angle, the room and the lookahead bands are per-tier values in
 [`strafer_env_cfg.py`](../../source/strafer_lab/strafer_lab/tasks/navigation/strafer_env_cfg.py), and the re-render is
 set per sensor stack in `composed_env_cfg.py`. Every RL ID trains on `real` unless it is named `…-Robust-…`;
 the plane scaffolds `StraferNavCfg_*_Ideal` use `ideal`. Each row says what a perturbation stands for on the deployed
@@ -29,19 +29,15 @@ acceleration limit and the motor lag.
 
 | perturbation | ideal | real | robust | models | basis |
 |---|---|---|---|---|---|
-| [Command delay](../../source/strafer_lab/strafer_lab/tasks/navigation/mdp/actions.py#L199) | off | 1–3 control steps | 1–5 control steps | time from the policy's command to the wheels: topic transport, the driver, the motor controller's serial link | design; not measured. One delay per env, drawn when the action term is built, not at a reset |
-| [Command hold](../../source/strafer_lab/strafer_lab/tasks/navigation/mdp/actions.py#L215) | off | a fraction U(0, 0.05) of ticks, in runs of mean U(1, 1.2) ticks, both drawn per env at each reset | same | a residual: a control tick the node does not publish (a skipped or late tick), on which the chassis keeps its last command | design; not measured. The deployed node publishes on every tick, reusing its last depth frame when none arrived, so a held depth frame does not hold the command there |
-| [Acceleration limit](../../source/strafer_lab/strafer_lab/tasks/navigation/mdp/actions.py#L237) | off | 175–275 rad/s² per wheel, drawn per env at each reset (field: 700–1100) | 125–300 rad/s² (field: 500–1200) | how fast a wheel's speed can change under torque, load and the battery's state | unknown for the nominal 225 (field: 900), which acts only when the band is one value; the band is design. The limit is `accel × physics_dt` per control step, so a field value is 4× the trained one |
-| [Motor lag](../../source/strafer_lab/strafer_lab/tasks/navigation/mdp/actions.py#L186) | off | first-order; 63.2 % rise in 0.216 s, the lag's time constant (field τ 0.05 s) | 0.256 s (field τ 0.06 s) | the motor controller's velocity loop and the motor | unknown; not measured. α = `physics_dt / (τ + physics_dt)` per control step, so the backward-Euler τ at the control step is 0.200 / 0.240 s, 4× the field |
-| [Command envelope](../../source/strafer_lab/strafer_lab/tasks/navigation/mdp/actions.py#L272) | off | off | s ~ U(0.255, 1.0) per env at each reset, on both caps; the policy does not observe s | the deploy node caps the twist at s = 0.5 of the full envelope | design: a band holding the deploy cap |
-| [Twist clamp](../../source/strafer_lab/strafer_lab/tasks/navigation/mdp/actions.py#L368) | \|vx\| + \|vy\| ≤ 1.568 m/s, \|ω\| ≤ 4.186 rad/s | same | same, × s | the deploy node's clamp: `l1_clamp_twist` there, its batched twin `l1_clamp_twist_batched` here, pinned equal by a test | derived from the motor's rated speed and the chassis geometry |
-| [Wheel speed and torque](../../source/strafer_lab/strafer_lab/tasks/navigation/mdp/actions.py#L462) | 32.67 rad/s; 2.383 N·m at every speed | same | same | the drive motor's rated speed (312 rpm) and stall torque, on a velocity drive (damping 1000) whose torque cap does not fall with speed | datasheet |
-| [Motor strength](../../source/strafer_lab/strafer_lab/tasks/navigation/mdp/events.py#L454) | off | torque limit × U(0.92, 1.08), each wheel drawn on its own at each reset | × U(0.8, 1.2) | motor-to-motor torque spread | design |
+| [Command delay](../../source/strafer_lab/strafer_lab/tasks/navigation/mdp/actions.py#L199) | off | 1–3 control steps | 1–5 control steps | time from the policy's command to the wheels: topic transport, the driver, the motor controller's serial link | design; not measured. One delay per env, drawn when the action term is built, not at a reset. On the sim-in-the-loop bridge, which steps the env every physics tick by default, the delay counts physics ticks. |
+| [Command hold](../../source/strafer_lab/strafer_lab/tasks/navigation/mdp/actions.py#L215) | off | a fraction U(0, 0.05) of ticks, in runs of mean U(1, 1.2) ticks, both drawn per env at each reset | same | a residual: a control tick the node does not publish (a skipped or late tick), on which the chassis keeps its last command | design; not measured. The deployed node publishes on every tick, reusing its last depth frame when none arrived, so a held depth frame does not hold the command there. On the sim-in-the-loop bridge the hold counts physics ticks, as the delay does. |
+| [Acceleration limit](../../source/strafer_lab/strafer_lab/tasks/navigation/mdp/actions.py#L238) | off | 175–275 rad/s² per wheel, drawn per env at each reset | 125–300 rad/s² | how fast a wheel's speed can change under torque and load; a design spread, not a battery state: the motor controllers run from a regulated supply | unknown for the nominal 225, which acts only when the band is one value; the band is design. The limit is `accel × step_dt` per control step. The limit is per second, so the sim-in-the-loop bridge, which steps the env every physics tick by default, runs the trained limit. |
+| [Motor lag](../../source/strafer_lab/strafer_lab/tasks/navigation/mdp/actions.py#L186) | off | first-order; 63.2 % rise in 0.216 s, the lag's time constant (field τ 0.2 s) | 0.256 s (field τ 0.24 s) | the motor controller's velocity loop and the motor | unknown; not measured. α = `step_dt / (τ + step_dt)` per control step, so the field τ is the backward-Euler time constant at the control step, 0.200 / 0.240 s The lag is set in seconds, so the sim-in-the-loop bridge, which steps the env every physics tick by default, runs about the trained lag. |
+| [Command envelope](../../source/strafer_lab/strafer_lab/tasks/navigation/mdp/actions.py#L273) | off | off | s ~ U(0.255, 1.0) per env at each reset, on both caps; the policy does not observe s | the deploy node caps the twist at s = 0.5 of the full envelope | design: a band holding the deploy cap |
+| [Twist clamp](../../source/strafer_lab/strafer_lab/tasks/navigation/mdp/actions.py#L369) | \|vx\| + \|vy\| ≤ 1.568 m/s, \|ω\| ≤ 4.186 rad/s | same | same, × s | the deploy node's clamp: `l1_clamp_twist` there, its batched twin `l1_clamp_twist_batched` here, pinned equal by a test | derived from the motor's rated speed and the chassis geometry |
+| [Wheel speed and torque](../../source/strafer_lab/strafer_lab/tasks/navigation/mdp/actions.py#L463) | 32.67 rad/s; 2.383 N·m at every speed | same | same | the drive motor's rated speed (312 rpm) and stall torque, on a velocity drive (damping 1000) whose torque cap does not fall with speed | datasheet |
+| [Motor strength](../../source/strafer_lab/strafer_lab/tasks/navigation/mdp/events.py#L430) | off | torque limit × U(0.92, 1.08), each wheel drawn on its own at each reset | × U(0.8, 1.2) | motor-to-motor torque spread | design |
 | Control period | 1/30 s (physics 1/120 s) | same | same | the deploy node's 30 Hz tick and the D555's 30 Hz stream | design; not randomized on any tier |
-
-Declared, not applied: the contract fields `motor_time_constant_range` and `domain_randomization_scale`
-([`sim_real_cfg.py:125`](../../source/strafer_lab/strafer_lab/tasks/navigation/sim_real_cfg.py#L125),
-[`:492`](../../source/strafer_lab/strafer_lab/tasks/navigation/sim_real_cfg.py#L492)) reach no env.
 
 ## Sensing
 
@@ -61,19 +57,16 @@ per control step to the policy's observation.
 | Depth latency | off | 0–2 control steps, drawn per env at each reset | 1–3 | the age of the depth frame at the policy | design: a per-env spread centred on one control step (two on `robust`); not measured as the age at the policy |
 | [Depth range and grid](../../source/strafer_lab/strafer_lab/tasks/navigation/mdp/observations.py#L45) | under 0.4 m reads 0.2 m; far clamp 6.0 m; 640×360 block-reduced to 80×45 | same | same | the camera's near range and the deploy node's reduction (the same operator) | design |
 | [Camera lens](../../source/strafer_lab/strafer_lab/tasks/navigation/d555_cfg.py#L145) | fx = fy = 321.522 px at 640×360, the principal point at the image centre | same | same | the real unit's intrinsics | measured (the unit's factory calibration); the principal point is not matched |
-| [Re-render after reset](../../source/strafer_lab/strafer_lab/tasks/navigation/composed_env_cfg.py#L577) | 1 on every stack that reads a camera, 0 on the camera-free stack | same | same | a fresh frame at an episode's start | design |
-| [Mount misalignment](../../source/strafer_lab/strafer_lab/tasks/navigation/mdp/events.py#L505) | off | ±1° per axis per reset, shared by the IMU readings and the rendered camera | ±3° | the D555's mounting tolerance | design |
-| [Subgoal-frame drift](../../source/strafer_lab/strafer_lab/tasks/navigation/mdp/events.py#L407) | off | gain U(0, 0.5) per env × 0.166 m RMS and 6.7° heading, correlation time 2 s | same | the SLAM map frame drifting under the subgoal; on the goal-objective IDs it moves the goal | the RMS and heading measured on the sim-in-the-loop rig's SLAM, not on the robot; the gain band and τ are design |
+| [Re-render after reset](../../source/strafer_lab/strafer_lab/tasks/navigation/composed_env_cfg.py#L572) | 1 on every stack that reads a camera, 0 on the camera-free stack | same | same | a fresh frame at an episode's start | design |
+| [Mount misalignment](../../source/strafer_lab/strafer_lab/tasks/navigation/mdp/events.py#L481) | off | ±1° per axis per reset, shared by the IMU readings and the rendered camera | ±3° | the D555's mounting tolerance | design |
+| [Subgoal-frame drift](../../source/strafer_lab/strafer_lab/tasks/navigation/mdp/events.py#L383) | off | gain U(0, 0.5) per env × 0.166 m RMS and 6.7° heading, correlation time 2 s | same | the SLAM map frame drifting under the subgoal; on the goal-objective IDs it moves the goal | the RMS and heading measured on the sim-in-the-loop rig's SLAM, not on the robot; the gain band and τ are design |
 | [Path and lookahead](../../source/strafer_lab/strafer_lab/tasks/navigation/mdp/commands.py#L668) | no subgoal ID | subgoal IDs only: waypoint noise 0.025 m; lookahead U(0.9, 1.1) m | subgoal IDs only: waypoint noise 0.025 m; lookahead U(0.7, 1.3) m | the deployed planner's path and lookahead | design |
 
 Not applied on any tier: RGB noise (no registered ID observes RGB), depth quantization and temporal noise, lens
-distortion, body-velocity noise, wheel-odometry drift and TF staleness. Declared, not applied: the contract's IMU
-temperature drift (`enable_temp_effects`, `temp_coefficient`), its depth temporal noise (`enable_temporal_noise`,
-`temporal_noise_std`), `hole_cluster_size` and `velocity_quantization_ticks_per_step`
-([`sim_real_cfg.py:186`](../../source/strafer_lab/strafer_lab/tasks/navigation/sim_real_cfg.py#L186),
-[`:303`](../../source/strafer_lab/strafer_lab/tasks/navigation/sim_real_cfg.py#L303),
-[`:269`](../../source/strafer_lab/strafer_lab/tasks/navigation/sim_real_cfg.py#L269),
-[`:222`](../../source/strafer_lab/strafer_lab/tasks/navigation/sim_real_cfg.py#L222)), and the encoder noise model's
+distortion, body-velocity noise, wheel-odometry drift and TF staleness. Declared, not applied: `hole_cluster_size` and
+`velocity_quantization_ticks_per_step`
+([`sim_real_cfg.py:260`](../../source/strafer_lab/strafer_lab/tasks/navigation/sim_real_cfg.py#L260),
+[`:213`](../../source/strafer_lab/strafer_lab/tasks/navigation/sim_real_cfg.py#L213)), and the encoder noise model's
 `ticks_per_radian`.
 
 ## The world
@@ -82,9 +75,7 @@ temperature drift (`enable_temp_effects`, `temp_coefficient`), its depth tempora
 |---|---|---|---|---|---|
 | [Friction](../../source/strafer_lab/strafer_lab/tasks/navigation/mdp/events.py#L170) | off | static U(0.6, 1.2) per env at each reset, dynamic 0.9×, on all 57 collision shapes, the 40 roller covers included; against the floor's static 0.5, averaged, the wheel-floor static grip is U(0.55, 0.85) | U(0.3, 1.5); grip U(0.4, 1.0) | the grip on the robot's floors, and from the same draw the chassis's friction against walls and furniture. The covers' authored rubber material resolves as no physics material, so the term's exception for rubber shapes matches none; without the draw the grip is 0.50 | design |
 | [Mass](../../source/strafer_lab/strafer_lab/tasks/navigation/mdp/events.py#L334) | off | × U(0.95, 1.05) per env at each reset, one factor on every body of the articulation (wheels and roller covers included); inertia not rescaled | × U(0.85, 1.15) | a spread on the mechanical chassis, the USD's 5.15 kg; the deployed robot's electronics and battery are not in it | design |
-| [Spawn and goal](../../source/strafer_lab/strafer_lab/tasks/navigation/mdp/events.py#L622) | spawn uniform in ±1 m, any heading; goal in a box a success curriculum sets, ±0.5 m wider by 0.25 m after each 5 successes in a row up to ±5 m, at least 1 m away, resampled every 10–15 s | uniform over the room's reachable cells, any heading; the goal from the same pool; on the camera stacks the robot's pool keeps 1 more 0.1 m cell from obstacles | same | any start the robot could be placed at | design |
+| [Spawn and goal](../../source/strafer_lab/strafer_lab/tasks/navigation/mdp/events.py#L598) | spawn uniform in ±1 m, any heading; goal in a box a success curriculum sets, ±0.5 m wider by 0.25 m after each 5 successes in a row up to ±5 m, at least 1 m away, resampled every 10–15 s | uniform over the room's reachable cells, any heading; the goal from the same pool; on the camera stacks the robot's pool keeps 1 more 0.1 m cell from obstacles | same | any start the robot could be placed at | design |
 | [Room](../../source/strafer_lab/strafer_lab/tasks/navigation/mdp/proc_room.py#L990) | a plane | camera stacks: difficulty U{4…7}; walls 2.7 m; spans up to 7.5 m per axis, at most 13.4 m together; doors up to 2.0 m; 2 tall columns on 50 % of episodes; clutter biased to the walls on 30 %; a ceiling on 70 % at 2.2–2.9 m. Camera-free: level 7, 1.0 m walls, open top | same | indoor rooms | design |
 
-Not applied on any tier: a centre-of-mass offset, pushes, gravity or restitution changes. Declared, not applied: the goal-pose noise term
-([`events.py:383`](../../source/strafer_lab/strafer_lab/tasks/navigation/mdp/events.py#L383)), installed on the robust
-goal-objective IDs (σ 0.35 m) and the Infinigen capture IDs (σ 0.15 m); the command's reset resamples the goal after the event writes it.
+Not applied on any tier: a centre-of-mass offset, pushes, gravity or restitution changes.

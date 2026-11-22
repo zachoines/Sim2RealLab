@@ -19,9 +19,13 @@ from types import SimpleNamespace
 import pytest
 import torch
 
+from strafer_lab.tasks.navigation.sim_real_cfg import SensorFailureCfg
+from strafer_shared.constants import POLICY_PERIOD_S
+
 N = 8
-STEP = 1.0 / 30.0
-TIMEOUTS = {"imu": 0.2, "driver": 0.2, "depth": 0.5}
+STEP = POLICY_PERIOD_S
+_FAILURES = SensorFailureCfg()
+TIMEOUTS = {"imu": _FAILURES.imu_timeout_s, "driver": _FAILURES.driver_timeout_s, "depth": _FAILURES.depth_timeout_s}
 
 
 @pytest.fixture(autouse=True)

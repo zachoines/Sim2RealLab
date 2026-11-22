@@ -388,8 +388,8 @@ class SensorFailureCfg:
     """Probability per step of an RGB camera failure (a black frame). No registered ID observes RGB. A failed depth
     frame is a dropped one instead (the depth camera's frame_drop_probability), which repeats the previous frame."""
 
-    # Per-source outages and the node's stale-source stop (off by default). The rates and lengths are design values
-    # until the robot session measures stale-source stops over its inferring time.
+    # Per-source outages and the node's stale-source stop (off by default). The rates and lengths are design values,
+    # not measured.
     outage_enable: bool = False
     """Draw per-source outages (the source repeats) and stop the chassis, as the node does, past each timeout."""
 
@@ -409,13 +409,16 @@ class SensorFailureCfg:
     """Outage length band [min, max], in seconds. Design."""
 
     imu_timeout_s: float = 0.2
-    """The node's staleness timeout for the IMU, in seconds."""
+    """The node's staleness timeout for the IMU, in seconds. It mirrors the inference node's ``obs_timeout_s`` in
+    strafer_inference (``inference_node.py`` and ``config/inference.yaml``)."""
 
     driver_timeout_s: float = 0.2
-    """The node's staleness timeout for the joint states and odom, in seconds."""
+    """The node's staleness timeout for the joint states and odom, in seconds. It mirrors the inference node's
+    ``obs_timeout_s`` in strafer_inference (``inference_node.py`` and ``config/inference.yaml``)."""
 
     depth_timeout_s: float = 0.5
-    """The node's staleness timeout for the depth, in seconds."""
+    """The node's staleness timeout for the depth, in seconds. It mirrors the inference node's ``depth_timeout_s`` in
+    strafer_inference (``inference_node.py`` and ``config/inference.yaml``)."""
 
 
 # =============================================================================

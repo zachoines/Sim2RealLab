@@ -769,13 +769,13 @@ class DepthNoiseModel(NoiseModel):
                 held = held & self._has_prev_frame
                 noisy_data[held] = self._prev_frame[held]
 
-        # Store for next frame
         # A depth source in an outage repeats its previous frame
         outage = current_outage(self._num_envs, self._device)
         if outage is not None and self._prev_frame is not None:
             out = outage.stale("depth") & self._has_prev_frame
             noisy_data[out] = self._prev_frame[out]
 
+        # Store for next frame
         self._prev_frame = noisy_data.clone()
         self._has_prev_frame.fill_(True)
 

@@ -4,11 +4,11 @@
 """A failed sensor repeats its previous reading, as a held source does in the deployed node's cache.
 
 The IMU and encoder models, built from the composed robust cfg with their stuck rate raised, must re-emit the previous
-emitted reading bit for bit, never zeros; a reset forgets the previous reading, so an env's first step after one
-passes the current reading. The depth model has no failure mode: a failed frame is a dropped one, which repeats the
-previous frame and never reads all far. The composed cfgs carry the stated rates and none of the removed fields. The
-real tier's IMU and encoder models are pinned to main's bits, so an added random draw on that tier fails. (On the
-robot the IMU's two channels hold together, and the encoders with the body velocity; training draws them apart.)
+emitted reading bit for bit, never zeros; a reset forgets the previous reading, so an env's first step after one passes
+the current reading. The depth model has no failure mode: a failed frame is a dropped one, which repeats the previous
+frame and never reads all far. The composed cfgs carry the stated rates and none of the removed fields. The real tier's
+IMU and encoder models are pinned to the bits frozen here, so an added random draw on that tier fails. (On the robot the
+IMU's two channels hold together, and the encoders with the body velocity; training draws them apart.)
 
 No Kit / GPU. Run with the pure-Python lab tests.
 """
@@ -112,7 +112,7 @@ def test_a_failed_depth_frame_repeats_the_previous_one_and_never_reads_far():
 
 
 def test_the_composed_rates_are_as_stated():
-    """Robust: each IMU term stuck at 2e-4 (its 1e-4 stuck and 1e-4 failed, both now repeats), the encoders at 1e-4,
+    """Robust: each IMU term stuck at 2e-4 (its 1e-4 stuck and 1e-4 failed, both repeats), the encoders at 1e-4,
     the depth frame drop at 0.011 (0.01 and the 0.001 of a failed frame). Real: none."""
     for term in (ACC, GYR):
         assert _noise("Robust", term).stuck_probability == pytest.approx(2e-4)
@@ -135,7 +135,7 @@ def test_the_removed_fields_are_gone():
     assert "hole_cluster_size" not in {f.name for f in dataclasses.fields(sim_real_cfg.DepthCameraNoiseCfg)}
 
 
-# The real tier's models over 40 steps with resets, and the RNG state after, as main's tree gives them.
+# The real tier's models over 40 steps with resets, and the RNG state after: the bits that tier is pinned to.
 # One literal per CPU normal-fill kernel family: the AVX2/AVX-512 kernel and the
 # scalar one round a few float32 draws an ulp apart. One x86 machine re-freezes
 # both: "avx2" run natively, "scalar" under ATEN_CPU_CAPABILITY=default.
@@ -156,7 +156,7 @@ def _normal_fill_family() -> str:
 
 @pytest.mark.parametrize("term", [ACC, GYR, ENC])
 def test_the_real_tier_is_unchanged(term):
-    """The real tier takes no failure draw, so its noise is main's bit for bit; any added draw moves this."""
+    """The real tier takes no failure draw, so its noise holds to its digests bit for bit; an added draw moves it."""
     ncfg = _noise("Real", term)
     torch.manual_seed(31)
     model = ncfg.class_type(ncfg, 16, "cpu")

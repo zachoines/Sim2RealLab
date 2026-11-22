@@ -25,13 +25,18 @@ import pytest
 import torch
 
 from strafer_lab.tasks.navigation.mdp.d555_sensor import (
+    STEREO_MARGIN_PX,
+    STEREO_OCCLUSION_TOL_PX,
     D555SensorCfg,
     D555SensorProcess,
     sensor_frame,
     stereo_validity,
 )
 from strafer_lab.tasks.navigation.mdp.observations import depth_image
-from strafer_shared.constants import DEPTH_MAX, PERCEPTION_HEIGHT, PERCEPTION_WIDTH
+from strafer_shared.constants import (
+    D555_BASELINE_M, D555_MEASURED_FX_PX, D555_MIN_DEPTH_M, D555_RENDER_FAR_CLIP_M, DEPTH_MAX, PERCEPTION_HEIGHT,
+    PERCEPTION_WIDTH,
+)
 
 H, W = PERCEPTION_HEIGHT, PERCEPTION_WIDTH
 FB = D555SensorCfg().fb_px_m
@@ -98,7 +103,7 @@ def test_the_perceived_term_is_the_nodes_reduction_of_the_sensor_frame(seed):
 
 def test_a_wall_at_2_m_gives_a_band_of_fb_over_2_plus_the_margin_and_no_core():
     valid = stereo_validity(torch.full((1, H, W), 2.0), FB, D555SensorCfg())
-    width = math.ceil(FB / 2.0 + 6.5)
+    width = math.ceil(FB / 2.0 + STEREO_MARGIN_PX)
     assert width == 22
     assert not bool(valid[0, :, :width].any()) and bool(valid[0, :, width:].all())
 
@@ -127,7 +132,7 @@ def test_an_all_culled_render_gives_the_band_only():
     process = D555SensorProcess(1, "cpu", D555SensorCfg())
     assert bool((_term(_env(raw, process)) == DEPTH_MAX).all())
     _, valid = sensor_frame(_rescued(raw), process)
-    band = math.ceil(FB / DEPTH_MAX + 6.5)
+    band = math.ceil(FB / DEPTH_MAX + STEREO_MARGIN_PX)
     assert band == 12
     assert not bool(valid[0, :, :band].any()) and bool(valid[0, :, band:].all())
     _, raw_valid = sensor_frame(raw, process)  # called on the cull itself: nothing returns
@@ -155,8 +160,9 @@ def test_the_process_draws_from_its_own_generator():
 def test_the_event_creates_the_process_once_seeded_from_the_env():
     from strafer_lab.tasks.navigation.mdp import events
 
-    params = dict(fb_px_m=FB, fb_scale_range=(0.98, 1.06), margin_px=6.5, core_px=0.0, min_depth_m=0.244,
-                  occlusion_tol_px=0.5, invalid_depth_m=DEPTH_MAX, max_return_m=50.0)
+    params = dict(fb_px_m=FB, fb_scale_range=(0.98, 1.06), margin_px=STEREO_MARGIN_PX, core_px=0.0,
+                  min_depth_m=D555_MIN_DEPTH_M, occlusion_tol_px=STEREO_OCCLUSION_TOL_PX, invalid_depth_m=DEPTH_MAX,
+                  max_return_m=D555_RENDER_FAR_CLIP_M)
     envs = [types.SimpleNamespace(num_envs=8, device="cpu", cfg=types.SimpleNamespace(seed=5)) for _ in range(2)]
     torch.manual_seed(1)
     events.randomize_d555_sensor(envs[0], torch.arange(8), **params)
@@ -197,7 +203,7 @@ def test_the_contracts_fb_is_the_policy_cameras_fx_times_the_baseline_and_off_is
         contract.sensors.depth_camera.hole_probability = 0.0
         params = src.get_d555_sensor_params(contract)
         assert params["fb_px_m"] == pytest.approx(fx * contract.sensors.depth_camera.baseline_m, rel=1e-9)
-        assert params["fb_px_m"] == pytest.approx(30.545, abs=5e-4)
+        assert params["fb_px_m"] == pytest.approx(D555_MEASURED_FX_PX * D555_BASELINE_M, abs=5e-4)
         assert params["invalid_depth_m"] == contract.sensors.depth_camera.max_range_m
         noise = src.get_depth_noise(contract)
         assert noise.noise_free_at_max_range and noise.hole_probability == 0.0
@@ -230,11 +236,13 @@ def test_on_at_the_realistic_and_robust_tiers_off_at_the_ideal_one_and_without_a
                  "StraferNavCfg_RLDepth_Robust_PLAY"):
         cfg = getattr(composed, name)()
         params = cfg.events.randomize_d555_sensor.params
-        assert params["fb_px_m"] == pytest.approx(FB) and params["margin_px"] == 6.5 and params["core_px"] == 0.0, name
+        assert params["fb_px_m"] == pytest.approx(FB) and params["margin_px"] == STEREO_MARGIN_PX, name
+        assert params["core_px"] == 0.0, name
         assert params["fb_scale_range"] == ((0.98, 1.06) if "Robust" in name else (1.0, 1.0)), name
         noise = cfg.observations.policy.depth_image.noise
         assert noise.hole_probability == 0.0 and noise.noise_free_at_max_range, name
-        assert "perceived" not in cfg.observations.policy.depth_image.params, name  # the layout is unchanged
+        # the policy term keeps the default, perceived=True, and adds no param to the layout
+        assert "perceived" not in cfg.observations.policy.depth_image.params, name
         assert cfg.observations.critic.depth_image.params["perceived"] is False, name  # the critic reads the render
     for name in ("StraferNavCfg_RLNoCamSubgoal_Robust", "StraferNavCfg_RLNoCam"):
         assert getattr(composed, name)().events.randomize_d555_sensor is None, name

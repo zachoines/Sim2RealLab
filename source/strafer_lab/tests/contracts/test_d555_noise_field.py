@@ -21,7 +21,13 @@ import types
 import pytest
 import torch
 
-from strafer_lab.tasks.navigation.mdp.d555_noise import LATTICE_OCCUPANCY_LUT, D555NoiseCfg, D555NoiseProcess, surface_geometry
+from strafer_lab.tasks.navigation.mdp.d555_noise import (
+    LATTICE_OCCUPANCY_LUT,
+    D555NoiseCfg,
+    D555NoiseProcess,
+    edge_distance,
+    surface_geometry,
+)
 from strafer_lab.tasks.navigation.mdp.d555_sensor import D555SensorCfg, D555SensorProcess, sensor_frame
 
 H, W = 360, 640
@@ -143,6 +149,38 @@ def test_the_blobs_take_the_floors_share_none_on_a_wall_and_recur_at_fixed_pixel
     # the share, which independent draws would give
     nxt = [float((floor[k:] * floor[:-k]).sum() / floor[:-k].sum()) for k in (1, 20)]
     assert nxt[0] > 5 * share and nxt[0] == pytest.approx(nxt[1], abs=0.05)
+
+
+def _box_on_a_wall(n=1, box=1.5, wall=5.0):
+    z = torch.full((n, H, W), wall)
+    z[:, 100:250, 250:450] = box
+    return z
+
+
+def test_the_edge_distance_is_the_chessboard_distance_to_a_disparity_jump():
+    z = torch.full((1, H, W), 4.0)
+    z[:, :, 300:] = 1.0  # a jump of f·B (1/1 - 1/4) px between columns 299 and 300
+    dist = edge_distance(FB / z, D555NoiseCfg().hole_edge_jump_px)
+    row = dist[0, 180]
+    assert row[299] == 0 and row[300] == 0
+    assert [int(row[299 - k]) for k in (1, 5, 16)] == [1, 5, 16] and int(row[299 - 17]) == 17  # beyond: 17
+    assert [int(row[300 + k]) for k in (1, 5, 16)] == [1, 5, 16]
+    assert float(edge_distance(FB / torch.full((1, H, W), 2.0), 2.0).min()) == 17  # no edge on a flat wall
+
+
+def test_the_rim_puts_its_share_on_a_depth_edge_and_none_beyond_its_reach():
+    c = D555NoiseCfg()
+    p = _process(n=4, t_sigma0_px=0.0, s_sigma0_px=0.0, s_slope_gain=0.0, s_phase_bias_px=0.0)
+    z = _box_on_a_wall(4)[..., None]
+    masks = torch.stack([~sensor_frame(z, p)[1][..., 0] for _ in range(20)]).float()
+    dist = edge_distance(FB / _box_on_a_wall(1), c.hole_edge_jump_px)[0]
+    clean = torch.zeros(H, W, dtype=torch.bool)
+    clean[120:230, 430:475] = True  # about the box's right edge: clear of its shadow, 20 px from its top and bottom
+    on_edge = clean & (dist == 0)
+    assert float(masks[:, :, on_edge].mean()) == pytest.approx(c.hole_rim_p0, rel=0.3)
+    assert float(masks[:, :, clean & (dist >= 12) & (dist <= 16)].mean()) < 0.01
+    off = _process(n=4, t_sigma0_px=0.0, s_sigma0_px=0.0, s_slope_gain=0.0, s_phase_bias_px=0.0, hole_rim_p0=0.0)
+    assert float(torch.stack([~sensor_frame(z, off)[1][..., 0] for _ in range(5)]).float()[:, :, on_edge].mean()) == 0.0
 
 
 def test_the_far_clamp_gets_no_noise():

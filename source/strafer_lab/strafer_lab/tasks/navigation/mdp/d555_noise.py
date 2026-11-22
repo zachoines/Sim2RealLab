@@ -18,7 +18,9 @@ geometry: the incidence cosine ``cos φ`` from the back-projected surface normal
   millimetre, as Z16 carries it.
 - **Invalid blobs**, with probability ``p = p_b + p_ref · (c_ref / cos φ)^k`` clipped at ``p_max``. The base ``p_b`` is
   the surface's: ``p_base`` on a surface facing the camera or a wall, rising linearly to ``p_floor`` as the vertical
-  disparity gradient ``G_v = ∂d/∂v`` reaches the floor's. They are split into flickering speckle (a two-scale Gaussian
+  disparity gradient ``G_v = ∂d/∂v`` reaches the floor's, plus a rim ``p_rim · exp(−e / λ)`` within 16 px of a depth
+  edge (a disparity jump between neighbouring pixels), ``e`` the chessboard distance to it. They are split into
+  flickering speckle (a two-scale Gaussian
   field with an AR(1) memory per step and a static share held for the episode) and static grazing dropout (a coarse
   field held for the episode), each thresholded at its own share. At the centres the speckle field is drawn fresh at
   every step around its static share: each pixel's rate is set per episode, and its draws have no memory.
@@ -123,6 +125,15 @@ class D555NoiseCfg:
     hole_p_ref: float = 0.0
     """The grazing excess at ``hole_c_ref``: none on the open floor out to 2 m."""
 
+    hole_rim_p0: float = 0.66
+    """The invalid share a depth edge adds at its own pixels, beside the occlusion shadow the stereo validity makes."""
+
+    hole_rim_length_px: float = 1.8
+    """The rim's decay: the share falls as ``exp(−e / length)`` with the chessboard distance ``e`` to the edge, in px."""
+
+    hole_edge_jump_px: float = 2.0
+    """The disparity jump between neighbouring pixels, in px, that makes a depth edge."""
+
     hole_k_graze: float = 3.70
     """The grazing law's exponent."""
 
@@ -136,7 +147,7 @@ class D555NoiseCfg:
     """Share of the grazing excess that flickers as speckle; the rest is static dropout."""
 
     hole_p_speckle_max: float = 0.08
-    """Ceiling on the speckle share."""
+    """Ceiling on the speckle share the grazing excess adds; a base share above it (a rim's) flickers in full."""
 
     hole_m_short: float = 0.5
     """Speckle field: the short scale's share of variance."""
@@ -237,6 +248,28 @@ def _gauss_kernel(sigma: float, device, dtype) -> torch.Tensor:
     taps = torch.arange(-radius, radius + 1, device=device, dtype=dtype)
     k = torch.exp(-0.5 * (taps / sigma) ** 2)
     return k / k.sum()
+
+
+_RIM_REACH_PX = 16
+"""How far from a depth edge the rim reaches, in px."""
+
+
+def edge_distance(disparity: torch.Tensor, jump_px: float) -> torch.Tensor:
+    """Chessboard distance, in px, from each pixel of ``(N, H, W)`` disparity to the nearest depth edge: both pixels of
+    a jump above ``jump_px`` between 4-neighbours. Beyond the rim's reach it reads ``_RIM_REACH_PX + 1``."""
+    edge = torch.zeros_like(disparity, dtype=torch.bool)
+    jh = (disparity[..., :, 1:] - disparity[..., :, :-1]).abs() > jump_px
+    jv = (disparity[..., 1:, :] - disparity[..., :-1, :]).abs() > jump_px
+    edge[..., :, 1:] |= jh
+    edge[..., :, :-1] |= jh
+    edge[..., 1:, :] |= jv
+    edge[..., :-1, :] |= jv
+    dist = torch.where(edge, 0.0, float(_RIM_REACH_PX + 1)).to(disparity.dtype)
+    grown = edge[:, None].to(disparity.dtype)
+    for k in range(1, _RIM_REACH_PX + 1):
+        grown = F.max_pool2d(grown, 3, stride=1, padding=1)
+        dist = torch.where((grown[:, 0] > 0) & (dist > k), float(k), dist)
+    return dist
 
 
 def _unit(x: torch.Tensor) -> torch.Tensor:
@@ -415,11 +448,15 @@ class D555NoiseProcess:
         # invalid blobs: flickering speckle, static grazing dropout, the patch field
         floor = (grad_v / c.hole_floor_grad_px).clamp(0.0, 1.0)
         base = c.hole_p_base + (c.hole_p_floor - c.hole_p_base) * floor
+        if c.hole_rim_p0 > 0:
+            e = edge_distance(disparity, c.hole_edge_jump_px)
+            base = base + torch.where(e <= _RIM_REACH_PX, c.hole_rim_p0 * torch.exp(-e / c.hole_rim_length_px), 0.0)
         prob = (base + c.hole_p_ref * (c.hole_c_ref / cos_c) ** c.hole_k_graze).clamp(1e-6, c.hole_p_max)
-        p_speckle = torch.clamp(base + c.hole_f_speckle * (prob - base), max=c.hole_p_speckle_max)
+        # the base share (the surface's, the rim's) flickers in full; the ceiling holds the grazing excess's part
+        p_speckle = torch.minimum(base + c.hole_f_speckle * (prob - base), base.clamp(min=c.hole_p_speckle_max))
         p_static = (prob - p_speckle).clamp(0.0, 1.0)
         inf = torch.full_like(prob, float("inf"))
-        thr_speckle = torch.where(p_speckle > 1e-6, torch.special.ndtri(1.0 - p_speckle.clamp(1e-6, 0.5)), inf)
+        thr_speckle = torch.where(p_speckle > 1e-6, torch.special.ndtri(1.0 - p_speckle.clamp(1e-6, 1 - 1e-6)), inf)
         thr_static = torch.where(p_static > 1e-6, torch.special.ndtri(1.0 - p_static.clamp(1e-6, 1 - 1e-6)), inf)
         r = c.hole_rho
         self.hole_long = r * self.hole_long + math.sqrt(1 - r * r) * self._hole_long(n)

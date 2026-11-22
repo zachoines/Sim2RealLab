@@ -100,7 +100,7 @@ def claim_database(db_path: str, key: str, *, deleting: bool) -> None:
     is True when ``rtabmap_args`` carries ``-d``: the database and its sidecar
     are removed before the claim, as rtabmap's -d removes the database at
     start, so a launch that stops after the claim leaves no map behind the
-    record. A matching record is left as written.
+    record. Without -d, a matching record is left as written.
     """
     sidecar = db_path + SIDECAR_SUFFIX
     if deleting:
@@ -112,7 +112,7 @@ def claim_database(db_path: str, key: str, *, deleting: bool) -> None:
             except OSError as exc:
                 raise RuntimeError(
                     f"rtabmap_args carries -d, but {path!r} could not be removed "
-                    f"({exc}), so this launch does not start RTAB-Map on it."
+                    f"({exc}), so this launch does not start RTAB-Map."
                 ) from exc
     recorded = recorded_key(sidecar)
     if recorded == key:

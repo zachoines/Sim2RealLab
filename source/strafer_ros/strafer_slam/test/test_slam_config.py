@@ -340,6 +340,20 @@ class TestSceneKeyedDatabase:
         assert not os.path.exists(db)
         assert json.loads(_read(sidecar))["key"] == "run6"
 
+    def test_delete_flag_removes_a_database_recorded_under_its_own_key(self, tmp_path):
+        db = str(tmp_path / "rtabmap.db")
+        database.claim_database(db, "run4", deleting=False)
+        _write(db, b"map")
+        database.claim_database(db, "run4", deleting=True)
+        assert not os.path.exists(db)
+
+    def test_a_sidecar_that_cannot_be_removed_stops_the_claim(self, tmp_path):
+        db = str(tmp_path / "rtabmap.db")
+        _write(db, b"map")
+        os.mkdir(db + database.SIDECAR_SUFFIX)
+        with pytest.raises(RuntimeError, match="could not be removed"):
+            database.claim_database(db, "run5", deleting=True)
+
     def test_a_database_that_cannot_be_removed_stops_the_claim(self, tmp_path):
         db = str(tmp_path / "rtabmap.db")
         sidecar = db + database.SIDECAR_SUFFIX

@@ -170,6 +170,6 @@ def test_the_falloff_lowers_the_limit_linearly_and_is_off_by_default():
         assert w_on - prev_on <= allowed + 1e-4
         prev_on, prev_off = w_on, w_off
         for name, w in (("on", w_on), ("off", w_off)):
-            if w >= 32.67 - 1e-3:
+            if w >= on._max_wheel_angular_vel - 1e-3:  # a full forward command's wheel target
                 full.setdefault(name, k)
     assert full["on"] > full["off"]  # the fall-off slows the approach to full speed

@@ -32,7 +32,7 @@ from __future__ import annotations
 from isaaclab.utils.configclass import configclass
 from isaaclab.utils.noise import GaussianNoiseCfg
 
-from strafer_shared.constants import DEPTH_NEARFIELD_FILL
+from strafer_shared.constants import DEPTH_NEARFIELD_FILL, MAX_WHEEL_ANGULAR_VEL
 
 # Import custom noise models that generate independent per-environment noise
 from strafer_lab.tasks.navigation.mdp.noise_models import (
@@ -536,7 +536,7 @@ def create_real_robot_contract() -> SimRealContractCfg:
             enable_motor_dynamics=True,
             motor_time_constant_s=0.21623864,  # alpha = 1/7 at the 1/30 s control step
             motor_time_constant_range=(0.21623864, 0.21623864),
-            wheel_speed_limit_rad_s=32.67,
+            wheel_speed_limit_rad_s=MAX_WHEEL_ANGULAR_VEL,
             max_velocity_rad_s=32.67,  # 312 RPM
             max_acceleration_rad_s2=225.0,
             max_acceleration_range=(175.0, 275.0),  # a design spread
@@ -613,7 +613,7 @@ def create_robust_training_contract() -> SimRealContractCfg:
             enable_motor_dynamics=True,
             motor_time_constant_s=0.25630551,  # alpha = 1/8.2 at the 1/30 s control step
             motor_time_constant_range=(0.25630551, 0.25630551),
-            wheel_speed_limit_rad_s=32.67,
+            wheel_speed_limit_rad_s=MAX_WHEEL_ANGULAR_VEL,
             max_acceleration_rad_s2=225.0,
             max_acceleration_range=(125.0, 300.0),  # a wider design spread
             # 0.40 to 1.57 m/s on |vx| + |vy|, the deploy cap (s = 0.5) inside it.

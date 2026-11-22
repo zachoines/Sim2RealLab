@@ -967,8 +967,9 @@ def test_the_fields_nothing_reads_are_the_modules_declared_list():
 
 
 ANCHORS = {
-    "actions.py#L220": "torch.randint", "actions.py#L231": "HoldProcess(", "actions.py#L254": "_max_delta_per_step",
-    "actions.py#L395": "torch.expm1(", "actions.py#L276": "_draw_speed_scale",
+    "actions.py#L220": "self._delay_env_steps = torch.randint(", "actions.py#L231": "HoldProcess(",
+    "actions.py#L254": "_max_delta_per_step", "actions.py#L395": "torch.expm1(",
+    "actions.py#L304": "def _draw_speed_scale",
     "actions.py#L451": "l1_clamp_twist_batched(", "actions.py#L572": "max_wheel_angular_vel",
     "events.py#L401": "def randomize_motor_strength", "events.py#L452": "def randomize_d555_mount_offset",
     "events.py#L354": "def randomize_subgoal_drift", "events.py#L170": "def randomize_friction",

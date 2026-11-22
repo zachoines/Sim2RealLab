@@ -694,8 +694,8 @@ def create_real_robot_contract() -> SimRealContractCfg:
                 disparity_noise_px=0.0,  # 0: the sensor noise below models the disparity error
                 # The sensor's stereo validity on the rendered frame, fitted on the robot's frames at mount height:
                 # the left band f·B/z + 6.5 px with no core, the occlusion shadows at 0.5 px. It replaces the cell
-                # holes. The 0.244 m minimum is the bench sensor's nearest finite return, where a 126-disparity
-                # search ends at 640x360 (f·B / 126), not measured at mount height.
+                # holes. The 0.244 m minimum is the bench sensor's nearest finite return, near where a 126-disparity
+                # search ends at 640x360 (f·B / 126, 0.242 m), not measured at mount height.
                 stereo_mask_enable=True,
                 stereo_margin_px=STEREO_MARGIN_PX,
                 stereo_core_px=0.0,
@@ -781,8 +781,8 @@ def create_robust_training_contract() -> SimRealContractCfg:
                 disparity_noise_px=0.0,  # 0, no band: the sensor noise below models the disparity error
                 # The sensor's stereo validity on the rendered frame, fitted on the robot's frames at mount height:
                 # the left band f·B/z + 6.5 px with no core, the occlusion shadows at 0.5 px. It replaces the cell
-                # holes. The 0.244 m minimum is the bench sensor's nearest finite return, where a 126-disparity
-                # search ends at 640x360 (f·B / 126), not measured at mount height.
+                # holes. The 0.244 m minimum is the bench sensor's nearest finite return, near where a 126-disparity
+                # search ends at 640x360 (f·B / 126, 0.242 m), not measured at mount height.
                 stereo_mask_enable=True,
                 stereo_margin_px=STEREO_MARGIN_PX,
                 stereo_core_px=0.0,

@@ -504,6 +504,15 @@ def build_proc_room_collection_cfg(
 # GPU BFS
 # ===========================================================================
 
+def _rounded(fn, *args: torch.Tensor) -> torch.Tensor:
+    """``fn`` evaluated in float64 and rounded once to the inputs' dtype.
+
+    CPU float32 sin, cos and atan2 differ by an ulp between kernel builds (SLEEF
+    on aarch64, MKL on x86_64); the float64 result rounded once agrees.
+    """
+    return fn(*(a.double() for a in args)).to(args[0].dtype)
+
+
 def _build_occupancy_grid(
     poses: torch.Tensor,
     active_mask: torch.Tensor,
@@ -544,15 +553,15 @@ def _build_occupancy_grid(
     cy = poses[:, :, 1]  # (B, N)
     qz = poses[:, :, 5]  # (B, N) — XYZW: index 5 is qz
     qw = poses[:, :, 6]  # (B, N) — XYZW: index 6 is qw
-    yaw = 2.0 * torch.atan2(qz, qw)  # (B, N)
+    yaw = 2.0 * _rounded(torch.atan2, qz, qw)  # (B, N)
 
     # Object half-sizes
     wx = sizes[:, 0].unsqueeze(0).expand(B, -1) / 2.0  # (B, N)
     wy = sizes[:, 1].unsqueeze(0).expand(B, -1) / 2.0  # (B, N)
 
     # Rotated AABB half-extents
-    cos_yaw = torch.abs(torch.cos(yaw))
-    sin_yaw = torch.abs(torch.sin(yaw))
+    cos_yaw = torch.abs(_rounded(torch.cos, yaw))
+    sin_yaw = torch.abs(_rounded(torch.sin, yaw))
     hx = wx * cos_yaw + wy * sin_yaw  # (B, N)
     hy = wx * sin_yaw + wy * cos_yaw  # (B, N)
 
@@ -856,7 +865,7 @@ def _yaw_to_quat(yaw: torch.Tensor) -> torch.Tensor:
     half = yaw / 2.0
     zeros = torch.zeros_like(yaw)
     # XYZW: [x=0, y=0, z=sin(yaw/2), w=cos(yaw/2)]
-    quat = torch.stack([zeros, zeros, torch.sin(half), torch.cos(half)], dim=-1)
+    quat = torch.stack([zeros, zeros, _rounded(torch.sin, half), _rounded(torch.cos, half)], dim=-1)
     return quat
 
 
@@ -1590,7 +1599,7 @@ def generate_proc_room(
             # divide by "envs" for the per-room mean.
             "free_components": int(n_components.sum()),
             "free_multi_component_envs": int((n_components > 1).sum()),
-            "free_largest_share_sum": float(largest_share.sum()),
+            "free_largest_share_sum": float(largest_share.double().sum()),
             "free_largest_share_min": float(largest_share.min()),
         })
 

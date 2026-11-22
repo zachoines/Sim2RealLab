@@ -6,7 +6,7 @@
 The stand-in's material table has 57 rows, the robot USD's collision-shape count: the first 40 the roller covers (one
 shape on each of the 40 ``roller_cover`` links), the rest the chassis. The term draws the effective static grip mu_eff
 per reset env and writes the covers 2 mu_eff - floor (PhysX averages the two materials' coefficients); by default every
-shape takes that value, as the friction term before it wrote one draw to all 57.
+shape takes that value: one draw per reset env on all 57.
 
 No Kit / GPU. Run with the pure-Python lab tests.
 """
@@ -93,9 +93,9 @@ def _tier_params():
 
 
 @pytest.mark.parametrize("tier", ["Real", "Robust"])
-def test_by_default_every_shape_takes_the_covers_draw_as_the_friction_term_wrote(tier):
-    """The default writes what the friction term before it wrote: one uniform draw d per reset env, in its own
-    expression, on all 57 shapes (static d, dynamic 0.9 d), with d's band today's (0.6, 1.2) / (0.3, 1.5)."""
+def test_by_default_every_shape_takes_one_draw_in_the_bands_own_expression(tier):
+    """By default every shape takes one uniform draw d per reset env, ``rand * (hi - lo) + lo`` over the covers' static
+    band ((0.6, 1.2) realistic, (0.3, 1.5) robust), bit for bit: static d, dynamic 0.9 d, on all 57 shapes."""
     params = _tier_params()[tier]
     d_lo, d_hi = {"Real": (0.6, 1.2), "Robust": (0.3, 1.5)}[tier]
     table = _table()

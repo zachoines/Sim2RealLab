@@ -962,9 +962,9 @@ _D555_MOUNT_TRANSLATION_ROBUST_M = (0.0, 0.0, 0.0)
 
 # The payload on the chassis body: what the robot carries that the asset's mechanical chassis does not (the camera,
 # the motor controllers, the pack, the Jetson, the wiring). Its mass in kg, and the shift of body_link's centre of mass
-# it makes, m (p - c0) / (M0 + m) in body_link's frame (p the payload's centre of mass, M0 and c0 the body's), from the
-# weighed and taped components. Added once at startup through Isaac Lab's own terms, before the per-reset mass factor
-# reads the masses; at 0 kg no term is installed.
+# it makes, m (p - c0) / (M0 + m) in body_link's frame (p the payload's centre of mass, M0 and c0 the body's). Added
+# once at startup through Isaac Lab's own terms, before the per-reset mass factor reads the masses; at 0 kg no term is
+# installed.
 _PAYLOAD_MASS_KG = 0.0
 _PAYLOAD_COM_SHIFT_M = (0.0, 0.0, 0.0)
 

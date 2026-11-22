@@ -25,6 +25,8 @@ from isaaclab.utils.math import (
 
 from isaaclab.managers import ManagerTermBase
 
+from strafer_shared.constants import POLICY_PERIOD_S
+
 from .subgoal_drift import SubgoalDriftProcess
 from .tf_age import TfAgeProcess
 from .sensor_outage import OutageProcess
@@ -207,7 +209,8 @@ class randomize_wheel_grip(ManagerTermBase):
                 f"grip_range {p['grip_range']} reaches below floor_friction / 2 = {self._floor / 2.0}, which PhysX's "
                 "average combine cannot represent against this floor; use another combine mode on the roller covers' "
                 "material ('min' or 'multiply'), or a floor value set per scene")
-        # The covers' static band, rounded so the draw below is the friction band's own expression
+        # The covers' static band, rounded to 12 places so 2 mu - floor gives the band's decimal ends exactly
+        # (2 × 0.55 − 0.5 is 0.6000000000000001 unrounded)
         self._cover_range = (round(2.0 * lo - self._floor, 12), round(2.0 * hi - self._floor, 12))
         self._ratio = float(p.get("dynamic_ratio", 0.9))
         self._mode = p.get("chassis_mode", "same")
@@ -567,7 +570,7 @@ def randomize_d555_sensor(
         noise_cfg = None if noise is None else D555NoiseCfg(
             **{k: tuple(v) if isinstance(v, list) else v for k, v in noise.items()})
         process = D555SensorProcess(env.num_envs, env.device, cfg, seed=0 if seed is None else int(seed),
-                                    noise=noise_cfg, step_dt=getattr(env, "step_dt", 1.0 / 30.0))
+                                    noise=noise_cfg, step_dt=getattr(env, "step_dt", POLICY_PERIOD_S))
         env._d555_sensor = process
     process.reset(env_ids)
 

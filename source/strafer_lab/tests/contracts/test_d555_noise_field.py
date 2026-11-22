@@ -29,8 +29,9 @@ from strafer_lab.tasks.navigation.mdp.d555_noise import (
     surface_geometry,
 )
 from strafer_lab.tasks.navigation.mdp.d555_sensor import D555SensorCfg, D555SensorProcess, sensor_frame
+from strafer_shared.constants import D555_MEASURED_FX_PX, PERCEPTION_HEIGHT, PERCEPTION_WIDTH, POLICY_PERIOD_S
 
-H, W = 360, 640
+H, W = PERCEPTION_HEIGHT, PERCEPTION_WIDTH
 FB = D555SensorCfg().fb_px_m
 LENS_H = 0.279
 
@@ -41,7 +42,8 @@ def _wall(z=2.0, n=1):
 
 def _floor(n=1, wall=5.0):
     rows = torch.arange(H, dtype=torch.float32)[:, None]
-    floor = torch.where(rows > 185, LENS_H * 321.522 / (rows - 180.0).clamp(min=1.0), torch.full_like(rows, 1e9))
+    floor = torch.where(rows > 185, LENS_H * D555_MEASURED_FX_PX / (rows - 180.0).clamp(min=1.0),
+                        torch.full_like(rows, 1e9))
     return torch.minimum(torch.full((H, W), wall), floor.expand(H, W)).repeat(n, 1, 1)
 
 
@@ -53,8 +55,8 @@ def _process(n=1, seed=0, **noise):
 
 def test_the_geometry_reads_the_rays_incidence_on_a_wall_and_the_floors_grazing_cosine():
     _, cos_wall, grad_wall, grad_v_wall = surface_geometry(_wall(), torch.tensor([FB]), D555NoiseCfg())
-    u = (torch.arange(W) - 320.0) / 321.522
-    v = (torch.arange(H) - 180.0) / 321.522
+    u = (torch.arange(W) - 320.0) / D555_MEASURED_FX_PX
+    v = (torch.arange(H) - 180.0) / D555_MEASURED_FX_PX
     ray = 1.0 / torch.sqrt(1.0 + u[None, :] ** 2 + v[:, None] ** 2)  # a fronto-parallel wall: the ray's own angle
     assert float((cos_wall[0, 5:-5, 5:-5] - ray[5:-5, 5:-5]).abs().max()) < 1e-4
     assert float(cos_wall[0, 180, 320]) == pytest.approx(1.0, abs=1e-6) and float(grad_wall[0, 5:-5, 5:-5].max()) < 1e-4
@@ -64,7 +66,8 @@ def test_the_geometry_reads_the_rays_incidence_on_a_wall_and_the_floors_grazing_
     for v in (220, 260, 320):
         zf = float(z[0, v, 320])
         assert float(cos_floor[0, v, 320]) == pytest.approx(LENS_H / math.sqrt(LENS_H ** 2 + zf ** 2), rel=0.02)
-        assert float(grad_floor[0, v, 320]) == pytest.approx(0.095 / LENS_H * FB / 30.545, rel=0.02)  # B / h per row
+        # B / h per row
+        assert float(grad_floor[0, v, 320]) == pytest.approx(FB / (D555_MEASURED_FX_PX * LENS_H), rel=0.02)
         assert float(grad_v_floor[0, v, 320]) == pytest.approx(float(grad_floor[0, v, 320]), rel=1e-3)  # all of it down
 
 
@@ -125,7 +128,7 @@ def test_the_disparity_sits_on_the_lattice_and_the_depth_on_whole_millimetres():
 
 
 def test_the_lattice_rounds_without_bias():
-    p = D555NoiseProcess(1, "cpu", D555NoiseCfg(), step_dt=1.0 / 30.0, seed=0, shape=(4, 4))
+    p = D555NoiseProcess(1, "cpu", D555NoiseCfg(), step_dt=POLICY_PERIOD_S, seed=0, shape=(4, 4))
     d = 1.0 + 63.0 * (torch.arange(2 ** 18, dtype=torch.float64) + 0.5) / 2 ** 18
     err = p._quantise(d.float()).double() - d
     assert abs(float(err.mean())) < 1.0 / 512  # bins at or below their codes would read -1/64 px
@@ -193,7 +196,7 @@ def test_the_per_env_spread_draws_inside_its_bands():
     cfg = D555NoiseCfg(amp_t_range=(0.5, 2.0), amp_s_range=(0.5, 2.0), clean_fraction=0.1, s_static_probability=0.5,
                        s_tau_range_s=(1.0, 10.0), patch_share_range=(0.0, 0.04), patch_zero_probability=0.25)
     n = 2000
-    p = D555NoiseProcess(n, "cpu", cfg, step_dt=1.0 / 30.0, seed=4, shape=(16, 32))
+    p = D555NoiseProcess(n, "cpu", cfg, step_dt=POLICY_PERIOD_S, seed=4, shape=(16, 32))
     p.reset(None)
     clean = (p.amp_t == 0) & (p.amp_s == 0)
     assert 0.07 < float(clean.float().mean()) < 0.13
@@ -271,6 +274,7 @@ def test_on_at_the_centres_on_the_realistic_tier_and_with_the_spread_on_the_robu
     for name in ("StraferNavCfg_RLDepthSubgoal_Real", "StraferNavCfg_RLDepthSubgoal_Robust"):
         cfg = getattr(composed, name)()
         noise = cfg.observations.policy.depth_image.noise
-        assert noise.disparity_noise_px == 0.0 and noise.disparity_noise_px_range is None, name  # the 80x45 term retired
+        # no 80x45 disparity noise
+        assert noise.disparity_noise_px == 0.0 and noise.disparity_noise_px_range is None, name
         assert cfg.observations.critic.depth_image.params["perceived"] is False, name
     assert getattr(composed.StraferNavCfg_Depth_Ideal().events, "randomize_d555_sensor", None) is None

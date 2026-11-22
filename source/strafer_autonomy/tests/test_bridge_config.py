@@ -186,3 +186,22 @@ class TestFrozenDataclass:
     def test_camera_stream_config_is_frozen(self, default_cfg):
         with pytest.raises((AttributeError, TypeError)):
             default_cfg.color_camera.image_topic = "/hacked"  # type: ignore[misc]
+
+
+class TestCmdWatchdogWindow:
+    """The bridge's stop-on-silence window is the shared command-watchdog window, in sim seconds."""
+
+    def test_defaults_from_the_shared_constant(self, default_cfg):
+        import ast
+        import inspect
+
+        from strafer_lab.bridge import config
+        from strafer_shared.constants import CMD_WATCHDOG_TIMEOUT_S
+
+        assert default_cfg.cmd_watchdog_sim_s == CMD_WATCHDOG_TIMEOUT_S
+        # a literal that happens to agree would pass the value: the field's default must name the constant
+        fields = [n for n in ast.walk(ast.parse(inspect.getsource(config.BridgeConfig)))
+                  if isinstance(n, ast.AnnAssign) and getattr(n.target, "id", None) == "cmd_watchdog_sim_s"]
+        assert len(fields) == 1 and isinstance(fields[0].value, ast.Name)
+        assert fields[0].value.id == "CMD_WATCHDOG_TIMEOUT_S"
+

@@ -53,7 +53,9 @@ from strafer_shared.constants import (
     GOAL_ARRIVAL_RADIUS_M,
     NAV_ANGULAR_VEL,
     NAV_VEL_SCALE,
+    POLICY_DECIMATION,
     POLICY_MISSION_TIMEOUT_S,
+    POLICY_SIM_DT,
     TRACK_WIDTH,
     WHEEL_BASE,
     WHEEL_RADIUS,
@@ -1265,9 +1267,10 @@ class CurriculumCfg_Infinigen:
 # a variant from the sensor / scene-source / realism axes.
 # =============================================================================
 
-_DEFAULT_NAV_SIM_DT = 1.0 / 120.0
+_DEFAULT_NAV_SIM_DT = POLICY_SIM_DT
+# The renderer's cadence knob, not the policy step rate: it stays here, not in the shared constants.
 _DEFAULT_NAV_RENDER_INTERVAL = 4
-_DEFAULT_NAV_DECIMATION = 4
+_DEFAULT_NAV_DECIMATION = POLICY_DECIMATION
 _DEFAULT_NAV_EPISODE_LENGTH_S = 20.0
 
 _STANDARD_TRAIN_NUM_ENVS = 4096

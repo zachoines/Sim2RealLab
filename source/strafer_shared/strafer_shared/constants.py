@@ -237,6 +237,20 @@ POLICY_DECIMATION = 4
 POLICY_PERIOD_S = POLICY_SIM_DT * POLICY_DECIMATION  # 1/30 s = 30 Hz
 
 # =============================================================================
+# Command watchdog
+# =============================================================================
+# The stop-on-silence window of the /cmd_vel watchdog, on the robot (the RoboClaw
+# driver) and in the sim bridge. It is a stream-relative silence budget, counted in
+# each side's own clock: wall seconds on the robot, sim seconds in the bridge, where
+# the policy tick and the physics both run. So on both paths the watchdog trips after
+# the same 15 missed policy ticks at 30 Hz, and the robot coasts the same distance in
+# the world on a stale command before it halts. It is not one wall-clock duration on
+# both: a wall window in the bridge would trip between healthy commands whenever the
+# simulation runs slower than real time.
+
+CMD_WATCHDOG_TIMEOUT_S = 0.5
+
+# =============================================================================
 # RoboClaw Motor Controllers
 # =============================================================================
 

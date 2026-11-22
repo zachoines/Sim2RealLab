@@ -15,6 +15,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 from strafer_shared.constants import (
+    CMD_WATCHDOG_TIMEOUT_S,
     FRAME_BASE_LINK,
     FRAME_D555_COLOR_OPTICAL,
     FRAME_D555_LINK,
@@ -96,9 +97,10 @@ class BridgeConfig:
     # Stop-on-silence watchdog window for the /cmd_vel stream, in **sim
     # seconds** (not wall-clock: under use_sim_time a low real-time factor
     # spaces healthy commands out in wall-time, so a wall window would
-    # false-trip between them). Mirrors the RoboClaw driver's 0.5 s command
-    # watchdog. 0 disables. Consumed by StraferAsyncPublisher, not the graph.
-    cmd_watchdog_sim_s: float = 0.5
+    # false-trip between them). The shared command-watchdog window, which the
+    # RoboClaw driver counts in wall seconds. 0 disables. Consumed by
+    # StraferAsyncPublisher, not the graph.
+    cmd_watchdog_sim_s: float = CMD_WATCHDOG_TIMEOUT_S
 
 
 def build_default_bridge_config(

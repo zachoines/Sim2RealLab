@@ -1,9 +1,12 @@
 #!/usr/bin/env python3
 """PID tuning script for RoboClaw velocity controllers.
 
-Programmatically sets PID/QPPS values and runs step-response tests to
-measure the actual time constant, targeting a ~50 ms first-order response
-to match the Isaac Lab simulation motor model.
+Programmatically sets PID/QPPS values and runs step-response tests that
+measure each motor: it drives with command 37, as the driver does, reads the
+encoder counts (commands 16 and 17), passes a motor whose mean speed tracks
+the target within ±5 %, and reports the dead time and time constant fitted
+to the count. The robot is tuned for tracking and then measured; nothing
+here aims at a time constant.
 
 Usage:
     # Read current PID on both controllers
@@ -24,12 +27,15 @@ Usage:
 
 from __future__ import annotations
 from strafer_shared.constants import (
-    ENCODER_PPR_OUTPUT_SHAFT,
-    MAX_WHEEL_ANGULAR_VEL,
-    MOTOR_MAX_RPM,
+    RADIANS_TO_ENCODER_TICKS,
     ROBOCLAW_BAUD_RATE,
     ROBOCLAW_FRONT_ADDRESS,
+    ROBOCLAW_PID_D,
+    ROBOCLAW_PID_I,
+    ROBOCLAW_PID_P,
+    ROBOCLAW_QPPS,
     ROBOCLAW_REAR_ADDRESS,
+    WHEEL_RADIUS,
 )
 from strafer_driver.roboclaw_interface import (
     RoboClawInterface,
@@ -38,41 +44,201 @@ from strafer_driver.roboclaw_interface import (
 
 import argparse
 import atexit
+import bisect
 import math
+import signal
 import time
+from typing import NamedTuple
 
 
 # Global list of open controllers for cleanup on exit
 _open_controllers: list[RoboClawInterface] = []
 
 # ---------------------------------------------------------------------------
-# Derived constants for PID tuning
+# Step-response parameters
 # ---------------------------------------------------------------------------
 
-# QPPS = max ticks per second at full speed
-QPPS = int(MOTOR_MAX_RPM * ENCODER_PPR_OUTPUT_SHAFT / 60.0)  # ~2796
+# The gains the driver writes at every start; --tune writes them unless given others.
+DEFAULT_P = ROBOCLAW_PID_P
+DEFAULT_I = ROBOCLAW_PID_I
+DEFAULT_D = ROBOCLAW_PID_D
 
-# Target time constant from sim: 50 ms first-order system
-TARGET_TAU_S = 0.05
+# The tracking box: at 0.3 m/s, each wheel's mean speed from 0.6 s after the
+# first command to the last is within ±5 % of its target.
+STEP_SPEED_MPS = 0.3
+STEP_VELOCITY_TICKS = round(STEP_SPEED_MPS / WHEEL_RADIUS * RADIANS_TO_ENCODER_TICKS)  # 535
+TRACK_START_S = 0.6
+TRACK_TOLERANCE = 0.05
 
-# Step-response test parameters
-STEP_VELOCITY_TICKS = QPPS // 2  # 50% of max speed for safety
-SAMPLE_PERIOD_S = 0.005  # 5 ms sample period (200 Hz)
-STEP_DURATION_S = 0.5  # 500 ms capture window
+STEP_HOLD_S = 6.0
+MIN_HOLD_S = TRACK_START_S + 0.4
+MAX_HOLD_S = 30.0
+SAMPLE_PERIOD_S = 0.02  # the driver's 50 Hz: command 37 re-sent and the counts read each cycle
+PRE_S = 0.2  # counts read at rest before the first command
 SETTLE_TIME_S = 0.2  # Wait after stopping before next test
+REST_TICKS = 2  # a count that moves more than this over PRE_S is not at rest
 
-# Abort step-response if speed starts >50% of target on first 5 samples
-# (indicates reversed motor/encoder direction)
-REVERSED_DETECT_SAMPLES = 5
-REVERSED_DETECT_THRESHOLD = 0.5  # fraction of target speed
+# A step drives only while the controller's packet-serial timeout (command 15)
+# is armed, so the controller stops the wheels if this tool dies mid-step.
+SERIAL_TIMEOUT_RANGE_S = (0.1, 1.0)
+STOP_TRIES = 3  # each motor's duty-0 stop is retried until acknowledged
+# After a final stop that is not acknowledged, no packet for longer than the
+# timeout, so the controller's timeout stops the wheels.
+SILENT_S = 1.2
 
-# Default starting PID gains (conservative).
-# RoboClaw PID is integer fixed-point. Typical ranges:
-#   P: 1000 - 65535, I: 0 - 5000, D: 0 - 10000
-# These are starting values for a 312 RPM motor with ~2796 QPPS.
-DEFAULT_P = 15000
-DEFAULT_I = 750
-DEFAULT_D = 0
+# Aborts: a motor turning against its target (reversed motor or encoder
+# leads), running away from it, or stalling (a dead encoder, or a jammed wheel
+# or one not broken away). Both motors are watched, the one held at 0 too.
+AGAINST_TPS = 150  # ticks/s against the target ...
+AGAINST_SAMPLES = 3  # ... for this many samples in a row
+RUNAWAY_MARGIN_TPS = 300  # over 2 * |target| + this ...
+RUNAWAY_SAMPLES = 10  # ... for this many samples in a row
+STALL_AFTER_S = 0.5  # from this long after the command, a stepped motor whose count ...
+STALL_WINDOW_S = 0.3  # ... over the last this long ...
+STALL_FRACTION = 0.1  # ... moved under this fraction of its target's travel has stalled
+MAX_MISSED = 2  # count reads failed, or command 37 unacknowledged, this many cycles in a row
+# ROBOCLAW_QPPS is the motors' mean full speed: the largest step keeps the
+# runaway limit 10 % under it, for the slowest motor and the speed's scatter.
+MAX_STEP_TICKS = (int(0.9 * ROBOCLAW_QPPS) - RUNAWAY_MARGIN_TPS) // 2
+
+# The fit covers the rise, before the tracking window opens: after it, the
+# integral term's slow approach to the target is no first-order lag, and over a
+# whole hold it pins the dead time to 0 and stretches tau.
+FIT_END_S = TRACK_START_S
+# The fit: dead time on [0, 0.3] s and tau on [5 ms, 3 s], coarse to fine.
+DEAD_TIME_MAX_S = 0.3
+TAU_MIN_S = 0.005
+TAU_MAX_S = 3.0
+MIN_FIT_SAMPLES = 10
+
+
+# ---------------------------------------------------------------------------
+# Measurement
+# ---------------------------------------------------------------------------
+
+
+class StepFit(NamedTuple):
+    """A dead time and a first-order lag fitted to a step's encoder count."""
+
+    dead_time_s: float
+    tau_s: float
+    speed: float  # the level the rise settles toward, ticks/s
+    rms_ticks: float  # the count's rms residual about the fit
+
+
+class StepTrace:
+    """One motor's step: its count from rest, timed from the first command."""
+
+    def __init__(self, motor: str, target: int) -> None:
+        self.motor = motor
+        self.target = target
+        self.times: list[float] = []  # s, when each count read returned
+        self.counts: list[int] = []  # ticks from the count at rest
+        self.abort: str | None = None
+
+
+def count_delta(a: int, b: int) -> int:
+    """Signed change from count *a* to count *b*, folding the 32-bit wrap."""
+    return ((b - a + 2**31) % 2**32) - 2**31
+
+
+def _step_sse(
+    times: list[float], counts: list[float], sum_cc: float, dead: float, tau: float
+) -> tuple[float, float]:
+    """(sum of squared residuals, best final speed) for one dead time and tau."""
+    sum_gg = sum_gc = 0.0
+    for t, c in zip(times, counts):
+        x = t - dead
+        if x <= 0.0:
+            continue
+        g = x - tau * (1.0 - math.exp(-x / tau))
+        sum_gg += g * g
+        sum_gc += g * c
+    if sum_gg == 0.0:
+        return sum_cc, 0.0
+    return sum_cc - sum_gc * sum_gc / sum_gg, sum_gc / sum_gg
+
+
+def fit_dead_time_and_tau(
+    times: list[float], counts: list[float], end_s: float = FIT_END_S
+) -> StepFit | None:
+    """Fit a dead time and a time constant to a step's encoder count.
+
+    The speed is a first-order lag behind a dead time; its integral is the count:
+
+        count(t) = V * (x - tau * (1 - exp(-x / tau))),  x = max(0, t - dead_time)
+
+    with *times* in seconds from the first command and *counts* in ticks from
+    the count at rest, over the samples before *end_s*. For each (dead time,
+    tau) the best V is linear least squares. The pair comes from a coarse grid,
+    then a pattern search from its best point: a 3x3 stencil that moves while
+    it improves and halves its steps when it does not, so it follows the
+    valley where more dead time trades for less tau. The dead time is bounded
+    below by 0. Fitting the count, not the reported speed (commands 18 and 19),
+    avoids the speed reading's lag behind the wheel.
+
+    The dead time plus tau (the time to 63 % of the level) is better resolved
+    than the split between them. From whole-tick counts at 50 Hz alone, for a
+    535 ticks/s step with tau near the sample period, the sum scatters by
+    under 1 ms (one standard deviation) and the split by about 2 ms; both grow
+    as the level falls, to about 2 and 5 ms for a 178 ticks/s step, whose
+    rise levels off near 140.
+
+    Returns None with fewer than MIN_FIT_SAMPLES samples, or a count that
+    never leaves rest.
+    """
+    pts = [(t, float(c)) for t, c in zip(times, counts) if 0.0 <= t < end_s]
+    if len(pts) < MIN_FIT_SAMPLES or max(abs(c) for _, c in pts) <= REST_TICKS:
+        return None
+    ts = [t for t, _ in pts]
+    cs = [c for _, c in pts]
+    sum_cc = sum(c * c for c in cs)
+
+    def trial(dead, tau, best):
+        dead = min(max(dead, 0.0), DEAD_TIME_MAX_S)
+        tau = min(max(tau, TAU_MIN_S), TAU_MAX_S)
+        sse, v = _step_sse(ts, cs, sum_cc, dead, tau)
+        return (sse, dead, tau, v) if sse < best[0] else best
+
+    n_tau = 60
+    ratio = (TAU_MAX_S / TAU_MIN_S) ** (1.0 / (n_tau - 1))
+    best = (math.inf, 0.0, TAU_MIN_S, 0.0)
+    for i in range(round(DEAD_TIME_MAX_S / 0.01) + 1):
+        for k in range(n_tau):
+            best = trial(i * 0.01, TAU_MIN_S * ratio**k, best)
+
+    dead_step, tau_step = 0.01, ratio  # tau steps are factors
+    while dead_step > 1e-6:
+        center = best
+        for dd in (-1, 0, 1):
+            for dt in (-1, 0, 1):
+                best = trial(center[1] + dd * dead_step, center[2] * tau_step**dt, best)
+        if best is center:
+            dead_step /= 2.0
+            tau_step = math.sqrt(tau_step)
+
+    sse, dead, tau, v = best
+    return StepFit(
+        dead_time_s=dead,
+        tau_s=tau,
+        speed=v,
+        rms_ticks=math.sqrt(max(sse, 0.0) / len(ts)),
+    )
+
+
+def tracking_speed(
+    times: list[float], counts: list[float], start: float, end: float
+) -> float | None:
+    """Mean speed over [start, end] from the count, in ticks/s.
+
+    The count's change between the first and last samples in the window, over
+    the time between them. None with fewer than two samples there.
+    """
+    win = [(t, c) for t, c in zip(times, counts) if start <= t <= end]
+    if len(win) < 2 or win[-1][0] <= win[0][0]:
+        return None
+    (t0, c0), (t1, c1) = win[0], win[-1]
+    return (c1 - c0) / (t1 - t0)
 
 
 # ---------------------------------------------------------------------------
@@ -80,52 +246,7 @@ DEFAULT_D = 0
 # ---------------------------------------------------------------------------
 
 
-def fit_first_order_tau(
-    times: list[float], speeds: list[float], target: float
-) -> float:
-    """Estimate the first-order time constant from step-response data.
-
-    Fits y(t) = target * (1 - exp(-t/tau)) by finding tau that minimises
-    the sum of squared errors using a simple grid + refine search.
-
-    Returns tau in seconds, or -1.0 if fitting fails.
-    """
-    if not times or target == 0:
-        return -1.0
-
-    best_tau = 0.01
-    best_err = float("inf")
-
-    # Coarse grid: 5 ms to 500 ms
-    for tau_ms in range(5, 501):
-        tau = tau_ms / 1000.0
-        err = sum(
-            (s - target * (1.0 - math.exp(-t / tau))) ** 2
-            for t, s in zip(times, speeds)
-        )
-        if err < best_err:
-            best_err = err
-            best_tau = tau
-
-    # Fine grid: ±5 ms around best, 0.1 ms steps
-    lo = max(0.001, best_tau - 0.005)
-    hi = best_tau + 0.005
-    step = 0.0001
-    tau = lo
-    while tau <= hi:
-        err = sum(
-            (s - target * (1.0 - math.exp(-t / tau))) ** 2
-            for t, s in zip(times, speeds)
-        )
-        if err < best_err:
-            best_err = err
-            best_tau = tau
-        tau += step
-
-    return best_tau
-
-
-def hard_stop(rc: RoboClawInterface) -> None:
+def hard_stop(rc: RoboClawInterface) -> bool:
     """Force-stop both motors using duty-cycle commands (bypasses PID).
 
     This sends forward_m1(0) and forward_m2(0) which switch the RoboClaw
@@ -133,12 +254,43 @@ def hard_stop(rc: RoboClawInterface) -> None:
     This is critical because drive_m*_speed(0) only sets the PID target
     to 0, and with accumulated I-term or reversed motors, the PID may
     continue driving.
+
+    Each motor's stop is sent on its own and retried until acknowledged, up
+    to STOP_TRIES times. A Ctrl-C, SIGTERM or SIGHUP meanwhile is held and
+    raised once both have been sent; a second one raises at once, abandoning
+    the stops (a write that hangs, say) to the controller's serial timeout.
+    Returns True when both were acknowledged.
     """
+    held: list[int] = []
+
+    def hold(signum: int, _frame) -> None:
+        if held:
+            raise KeyboardInterrupt(f"signal {signum}")
+        held.append(signum)
+
+    handlers = {}
     try:
-        rc.forward_m1(0)
-        rc.forward_m2(0)
-    except Exception:
-        pass  # Best-effort during cleanup
+        try:
+            for sig in (signal.SIGINT, signal.SIGTERM, signal.SIGHUP):
+                handlers[sig] = signal.signal(sig, hold)
+        except ValueError:
+            pass  # not the main thread: the stops go out unheld
+        acked = True
+        for stop in (rc.forward_m1, rc.forward_m2):
+            for _ in range(STOP_TRIES):
+                try:
+                    if stop(0):
+                        break
+                except Exception:
+                    pass  # Best-effort during cleanup
+            else:
+                acked = False
+    finally:
+        for sig, handler in handlers.items():
+            signal.signal(sig, signal.SIG_DFL if handler is None else handler)
+    if held:
+        raise KeyboardInterrupt(f"signal {held[0]}")
+    return acked
 
 
 def _atexit_stop_all() -> None:
@@ -213,13 +365,13 @@ def get_controllers(which: str) -> list[tuple[str, str, int]]:
         if port:
             controllers.append(("Front", port, ROBOCLAW_FRONT_ADDRESS))
         else:
-            print("WARNING: Front RoboClaw (0x80) not detected.")
+            print(f"WARNING: Front RoboClaw (0x{ROBOCLAW_FRONT_ADDRESS:02X}) not detected.")
     if which in ("rear", "both"):
         port = detected.get(ROBOCLAW_REAR_ADDRESS)
         if port:
             controllers.append(("Rear", port, ROBOCLAW_REAR_ADDRESS))
         else:
-            print("WARNING: Rear RoboClaw (0x81) not detected.")
+            print(f"WARNING: Rear RoboClaw (0x{ROBOCLAW_REAR_ADDRESS:02X}) not detected.")
     return controllers
 
 
@@ -230,6 +382,12 @@ def get_motor_list(which: str) -> list[str]:
     if which == "m2":
         return ["M2"]
     return ["M1", "M2"]
+
+
+def _read_count(rc: RoboClawInterface, motor: str) -> tuple[float, int]:
+    """(monotonic time the read returned, raw count) for one motor."""
+    count, _ = rc.read_encoder_m1() if motor == "M1" else rc.read_encoder_m2()
+    return time.monotonic(), count
 
 
 # ---------------------------------------------------------------------------
@@ -263,7 +421,7 @@ def cmd_set(args: argparse.Namespace) -> None:
     p = args.p
     i = args.i
     d = args.d
-    qpps = args.qpps or QPPS
+    qpps = args.qpps or ROBOCLAW_QPPS
     motors = get_motor_list(args.motor)
 
     for label, port, addr in get_controllers(args.controller):
@@ -296,183 +454,279 @@ def cmd_set(args: argparse.Namespace) -> None:
 
 def run_step_response(
     rc: RoboClawInterface,
-    motor: str,
+    motors: list[str],
     speed_ticks: int,
-) -> tuple[list[float], list[float], float, bool]:
-    """Run a step-response test on one motor.
+    hold_s: float,
+) -> list[StepTrace]:
+    """Step the selected motors of one controller to *speed_ticks* and record their counts.
 
-    Returns:
-        (times, speeds, steady_state_speed, reversed_detected)
-        times: seconds from step onset
-        speeds: ticks/sec at each sample (absolute values)
-        steady_state_speed: mean of last 20% of samples
-        reversed_detected: True if motor direction appears reversed
+    Command 37 sets both motors at once, as the driver does, and is re-sent
+    every SAMPLE_PERIOD_S for *hold_s*; a motor not selected is held at 0.
+    Each cycle reads both motors' counts (commands 16 and 17). The step does
+    not start unless the controller's serial timeout is armed, the stop is
+    acknowledged and both counts are at rest. It stops, for both motors, when
+    a motor turns against its target, runs away from it, or (if stepped)
+    stalls, or when reads fail or command 37 goes unacknowledged MAX_MISSED
+    cycles in a row. An unacknowledged final stop is followed by SILENT_S
+    without a packet, and a motor still moving after the stop fails.
     """
-    reversed_detected = False
+    traces = {m: StepTrace(motor=m, target=speed_ticks) for m in motors}
+    target = {m: speed_ticks if m in motors else 0 for m in ("M1", "M2")}
+
+    def abort(reason: str, by: str | None = None) -> list[StepTrace]:
+        for m, tr in traces.items():
+            tr.abort = reason if by in (None, m) else f"stopped with {by}: {reason}"
+        return list(traces.values())
+
+    try:
+        timeout = rc.read_serial_timeout()
+    except Exception as e:
+        return abort(f"serial timeout unread ({e}); not stepped")
+    lo, hi = SERIAL_TIMEOUT_RANGE_S
+    if not lo <= timeout <= hi:
+        return abort(
+            f"serial timeout {timeout:g} s (0 disables it); a step needs {lo:g} to {hi:g} s, "
+            "so the controller stops the wheels if this tool dies. Not stepped; set it with "
+            "diagnose_roboclaw.py --set-serial-timeout."
+        )
 
     # Hard-stop both motors before test (duty-cycle, bypasses PID)
-    hard_stop(rc)
+    if not hard_stop(rc):
+        return abort("the duty-0 stop went unacknowledged; not stepped")
     time.sleep(SETTLE_TIME_S)
 
-    # Verify motor is actually stopped
-    try:
-        if motor == "M1":
-            pre_spd, _ = rc.read_speed_m1()
-        else:
-            pre_spd, _ = rc.read_speed_m2()
-        if abs(pre_spd) > 10:
-            print(f"    WARNING: {motor} still moving at {pre_spd} ticks/s before test")
+    # The counts at rest: the last before the first command is each motor's zero.
+    rest: dict[str, list[int]] = {m: [] for m in target}
+    end_pre = time.monotonic() + PRE_S
+    while time.monotonic() < end_pre:
+        for m in target:
+            rest[m].append(_read_count(rc, m)[1])
+        time.sleep(SAMPLE_PERIOD_S)
+    for m in target:
+        moved = max(abs(count_delta(rest[m][0], c)) for c in rest[m])
+        if moved > REST_TICKS:
             hard_stop(rc)
-            time.sleep(SETTLE_TIME_S)
-    except Exception:
-        pass
-
-    times: list[float] = []
-    speeds: list[float] = []
-    signed_speeds: list[float] = []
-
-    # Command the step
-    t0 = time.monotonic()
-    if motor == "M1":
-        rc.drive_m1_speed(speed_ticks)
-    else:
-        rc.drive_m2_speed(speed_ticks)
-
-    # Sample velocity
-    next_sample = t0 + SAMPLE_PERIOD_S
-    while True:
-        now = time.monotonic()
-        elapsed = now - t0
-        if elapsed > STEP_DURATION_S:
-            break
-
-        # Wait for next sample time
-        sleep_time = next_sample - now
-        if sleep_time > 0:
-            time.sleep(sleep_time)
-        next_sample += SAMPLE_PERIOD_S
-
-        # Read speed
-        try:
-            if motor == "M1":
-                spd, direction = rc.read_speed_m1()
-            else:
-                spd, direction = rc.read_speed_m2()
-            sample_t = time.monotonic() - t0
-            times.append(sample_t)
-            # direction: 0=forward, 1=backward
-            signed_spd = float(-abs(spd) if direction else abs(spd))
-            signed_speeds.append(signed_spd)
-            speeds.append(float(abs(spd)))
-        except Exception:
-            pass  # Skip missed samples
-
-        # Detect reversed motor: if early samples show speed decaying from
-        # a high initial value, the motor was already moving (PID fighting
-        # reversed direction) or if speed is consistently negative
-        if len(signed_speeds) == REVERSED_DETECT_SAMPLES:
-            neg_count = sum(1 for s in signed_speeds if s < 0)
-            avg_early = sum(speeds[:REVERSED_DETECT_SAMPLES]) / REVERSED_DETECT_SAMPLES
-            if neg_count >= 3 or avg_early > speed_ticks * REVERSED_DETECT_THRESHOLD:
-                reversed_detected = True
-                print(
-                    f"    ABORT: {motor} appears to have REVERSED motor/encoder direction!"
-                )
-                print(f"           Early speeds: {[int(s) for s in signed_speeds[:5]]}")
-                print(f"           Expected: ramp from 0 toward +{speed_ticks}")
-                print(
-                    f"           Fix: swap M{'1' if motor == 'M1' else '2'}A / M{'1' if motor == 'M1' else '2'}B wires"
-                )
-                # Hard-stop immediately
-                hard_stop(rc)
-                time.sleep(SETTLE_TIME_S)
-                return times, speeds, 0.0, True
-
-    # Hard-stop motor (duty-cycle, not PID)
-    hard_stop(rc)
-    time.sleep(0.05)  # Brief pause
-
-    # Verify motor stopped
-    try:
-        if motor == "M1":
-            post_spd, _ = rc.read_speed_m1()
-        else:
-            post_spd, _ = rc.read_speed_m2()
-        if abs(post_spd) > 10:
-            print(
-                f"    WARNING: {motor} still at {post_spd} ticks/s after stop, retrying..."
+            return abort(
+                f"{m} not at rest before the step (count moved {moved} ticks); not stepped", m
             )
+
+    zero = {m: rest[m][-1] for m in target}
+    last = {m: (0.0, 0) for m in target}
+    against = {m: 0 for m in target}
+    runaway = {m: 0 for m in target}
+    missed_reads = missed_acks = 0
+    try:
+        t0 = time.monotonic()
+        next_cycle = t0
+        while time.monotonic() - t0 < hold_s:
+            missed_acks = 0 if rc.drive_m1m2_speed(target["M1"], target["M2"]) else missed_acks + 1
+            if missed_acks >= MAX_MISSED:
+                abort(f"command 37 unacknowledged {MAX_MISSED} cycles in a row")
+                break
+            try:
+                reads = {m: _read_count(rc, m) for m in target}
+            except Exception:
+                missed_reads += 1
+                if missed_reads >= MAX_MISSED:
+                    abort(f"{MAX_MISSED} count reads failed in a row")
+                    break
+                reads = None
+            stop = None
+            if reads is not None:
+                missed_reads = 0
+                for m, (t_read, raw) in reads.items():
+                    t, c = t_read - t0, count_delta(zero[m], raw)
+                    if m in traces:
+                        traces[m].times.append(t)
+                        traces[m].counts.append(c)
+                    t_prev, c_prev = last[m]
+                    last[m] = (t, c)
+                    if t <= t_prev:
+                        continue
+                    v = (c - c_prev) / (t - t_prev)
+                    goal = target[m]
+                    backward = goal != 0 and v * math.copysign(1, goal) < -AGAINST_TPS
+                    against[m] = against[m] + 1 if backward else 0
+                    fast = abs(v) > 2 * abs(goal) + RUNAWAY_MARGIN_TPS
+                    runaway[m] = runaway[m] + 1 if fast else 0
+                    if against[m] >= AGAINST_SAMPLES:
+                        stop = (
+                            f"{m} turns against its target ({v:+.0f} ticks/s for "
+                            f"{goal:+d}): REVERSED motor/encoder direction? "
+                            f"Swap {m}A / {m}B."
+                        )
+                    elif runaway[m] >= RUNAWAY_SAMPLES:
+                        stop = f"{m} ran away: {v:+.0f} ticks/s for a target of {goal:+d}"
+                    elif goal != 0 and t >= STALL_AFTER_S:
+                        stop = _stalled(traces[m], goal)
+                    if stop:
+                        hard_stop(rc)
+                        abort(stop, m)
+                        break
+            if stop:
+                break
+            next_cycle += SAMPLE_PERIOD_S
+            time.sleep(max(0.0, next_cycle - time.monotonic()))
+    finally:
+        # Hard-stop motor (duty-cycle, not PID)
+        stopped = hard_stop(rc)
+        if not stopped:
+            print(
+                f"    STOP NOT ACKNOWLEDGED: silent {SILENT_S:g} s so the controller's serial "
+                "timeout stops the wheels."
+            )
+            time.sleep(SILENT_S)
+
+    # Verify the motors stopped: a wheel still turning SETTLE_TIME_S after the
+    # stop is stopped again, and fails.
+    faults = [] if stopped else [f"the duty-0 stop went unacknowledged (silent {SILENT_S:g} s)"]
+    try:
+        time.sleep(SETTLE_TIME_S)
+        before = {m: _read_count(rc, m)[1] for m in target}
+        time.sleep(SETTLE_TIME_S)
+        after = {m: _read_count(rc, m)[1] for m in target}
+        moving = [m for m in target if abs(count_delta(before[m], after[m])) > REST_TICKS]
+        if moving:
             hard_stop(rc)
-            time.sleep(SETTLE_TIME_S)
-    except Exception:
-        pass
+            faults.append(f"{', '.join(moving)} still moving after the stop")
+    except Exception as e:
+        faults.append(f"the stop could not be checked ({e})")
+    for tr in traces.values():
+        tr.abort = "; ".join(([tr.abort] if tr.abort else []) + faults) or None
 
-    # Steady-state = mean of last 20% of samples
-    if speeds:
-        tail = speeds[int(len(speeds) * 0.8) :]
-        steady = sum(tail) / len(tail) if tail else 0.0
-    else:
-        steady = 0.0
-
-    return times, speeds, steady, reversed_detected
+    return list(traces.values())
 
 
-def _report_step_result(
-    motor: str,
-    times: list[float],
-    speeds: list[float],
-    steady: float,
-    speed: int,
-    reversed_detected: bool,
-    verbose: bool,
-    p: int | None = None,
-) -> None:
-    """Print step-response analysis for one motor."""
-    if reversed_detected:
-        return  # Already printed abort message
+def _stalled(trace: StepTrace, goal: int) -> str | None:
+    """Why a stepped motor has stalled, or None.
 
-    if not times:
-        print(f"    No data collected -- check motor/encoder connection")
-        return
-
-    tau = fit_first_order_tau(times, speeds, steady)
-    error_pct = (tau - TARGET_TAU_S) / TARGET_TAU_S * 100.0
-
-    print(f"    Samples:      {len(times)}")
-    print(f"    Steady-state: {steady:.0f} ticks/s (target={speed})")
-    print(
-        f"    Measured tau:  {tau*1000:.1f} ms (target={TARGET_TAU_S*1000:.0f} ms, error={error_pct:+.1f}%)"
+    It has, when its count over the last STALL_WINDOW_S moved under
+    STALL_FRACTION of the travel its target asks for.
+    """
+    t, c = trace.times[-1], trace.counts[-1]
+    k = bisect.bisect_right(trace.times, t - STALL_WINDOW_S) - 1
+    if k < 0:
+        return None
+    moved, span = abs(c - trace.counts[k]), t - trace.times[k]
+    if moved >= STALL_FRACTION * abs(goal) * span:
+        return None
+    return (
+        f"{trace.motor}'s count moved {moved} ticks in {span:.2f} s at {goal:+d} ticks/s: "
+        "a dead encoder, a jammed wheel, or one not broken away at this speed"
     )
 
-    if steady < speed * 0.1:
-        print(f"    WARNING: Steady-state speed is <10% of target.")
+
+def _report_step_result(trace: StepTrace, hold_s: float, verbose: bool) -> bool:
+    """Print one motor's tracking verdict and its fit. True on a pass."""
+    speed = trace.target
+    if trace.abort:
+        print(f"    ABORT: {trace.abort}")
+        return False
+
+    if not trace.times:
+        print(f"    No data collected -- check motor/encoder connection")
+        return False
+
+    tracked = tracking_speed(trace.times, trace.counts, TRACK_START_S, hold_s)
+    print(f"    Samples:      {len(trace.times)}")
+    if tracked is None:
+        print(f"    FAIL -- too few samples in [{TRACK_START_S}, {hold_s}] s to measure tracking")
+        return False
+    error = tracked / speed - 1.0
+    print(
+        f"    Tracking:     {tracked:.0f} ticks/s over [{TRACK_START_S}, {hold_s:g}] s "
+        f"(target={speed}, error={error*100:+.1f}%)"
+    )
+
+    fit = fit_dead_time_and_tau(trace.times, trace.counts)
+    if fit is None:
+        print(
+            f"    Fit:          none (too few samples before {FIT_END_S} s, "
+            "or the count did not leave rest)"
+        )
+    else:
+        dead_at = (
+            " (the fit's floor)" if fit.dead_time_s <= 0.0
+            else " (the fit's bound)" if fit.dead_time_s >= DEAD_TIME_MAX_S else ""
+        )
+        tau_at = " (the fit's bound)" if not TAU_MIN_S < fit.tau_s < TAU_MAX_S else ""
+        print(
+            f"    Dead time:    {fit.dead_time_s*1000:.1f} ms{dead_at}   "
+            f"tau: {fit.tau_s*1000:.1f} ms{tau_at}   "
+            f"63% at {(fit.dead_time_s + fit.tau_s)*1000:.1f} ms"
+        )
+        print(
+            f"                  (fit to the count before {FIT_END_S} s: "
+            f"level {fit.speed:.0f} ticks/s, rms {fit.rms_ticks:.1f} ticks)"
+        )
+        if tau_at or fit.dead_time_s >= DEAD_TIME_MAX_S:
+            print(
+                f"    WARNING: The fit sits at a bound: the rise before {FIT_END_S} s is not "
+                "measured. Do not record these."
+            )
+
+    if abs(tracked) < abs(speed) * 0.1:
+        print("    WARNING: Mean speed is <10% of target.")
         print(f"             Motor may be stalled, disconnected, or wheels loaded.")
         print(f"             Lift the robot so wheels spin freely for tuning.")
-    elif steady < speed * 0.5:
-        print(f"    WARNING: Steady-state speed is <50% of target.")
+    elif abs(tracked) < abs(speed) * 0.5:
+        print("    WARNING: Mean speed is <50% of target.")
         print(f"             Check motor wiring and ensure wheels are unloaded.")
 
-    if abs(error_pct) < 20:
-        print(f"    PASS -- within 20% of target tau")
-    elif tau > TARGET_TAU_S:
-        hint = f" (currently {p})" if p is not None else ""
-        print(f"    SLOW -- consider increasing P{hint} or decreasing D")
+    passed = abs(error) <= TRACK_TOLERANCE
+    if passed:
+        print(f"    PASS -- tracks within {TRACK_TOLERANCE*100:.0f}% of target")
     else:
-        hint = f" (currently {p})" if p is not None else ""
-        print(f"    FAST -- consider decreasing P{hint} or increasing D")
+        side = "under" if error < 0 else "over"
+        print(
+            f"    FAIL -- tracks {abs(error)*100:.1f}% {side} target "
+            f"(box: ±{TRACK_TOLERANCE*100:.0f}%)"
+        )
 
     if verbose:
-        print(f"\n    {'Time(ms)':>10}  {'Speed':>10}")
-        for t, s in zip(times, speeds):
-            print(f"    {t*1000:10.1f}  {s:10.0f}")
+        print(f"\n    {'Time(ms)':>10}  {'Count':>10}")
+        for t, c in zip(trace.times, trace.counts):
+            print(f"    {t*1000:10.1f}  {c:10d}")
+    return passed
 
 
-def cmd_step_response(args: argparse.Namespace) -> None:
-    """Run step-response test and report measured time constant."""
+def _step_controller(
+    rc: RoboClawInterface, motors: list[str], speed: int, hold_s: float, verbose: bool
+) -> tuple[bool, bool]:
+    """Step one controller's selected motors and report each.
+
+    Returns (every motor passed, the step was aborted).
+    """
+    print(f"  Testing {', '.join(motors)} (command 37, {hold_s:g} s hold)...")
+    traces = run_step_response(rc, motors, speed, hold_s)
+    passed = True
+    for trace in traces:
+        print(f"  {trace.motor}:")
+        passed &= _report_step_result(trace, hold_s, verbose)
+    time.sleep(SETTLE_TIME_S)
+    return passed, any(trace.abort for trace in traces)
+
+
+def _selected_controllers(which: str) -> list[tuple[str, str, int]]:
+    """The controllers --controller names, or none unless every one was detected."""
+    controllers = get_controllers(which)
+    if len(controllers) < (2 if which == "both" else 1):
+        print("ERROR: not every selected controller was detected; nothing is stepped.")
+        return []
+    return controllers
+
+
+STOP_AFTER_ABORT = "\n  Not stepping the remaining controllers after the abort."
+
+
+def cmd_step_response(args: argparse.Namespace) -> bool:
+    """Run the step-response test; report tracking, dead time and tau. True if all passed."""
     motors = get_motor_list(args.motor)
-    speed = args.speed or STEP_VELOCITY_TICKS
+    speed = args.speed if args.speed is not None else STEP_VELOCITY_TICKS
+    controllers = _selected_controllers(args.controller)
+    passed = bool(controllers)
 
-    for label, port, addr in get_controllers(args.controller):
+    for label, port, addr in controllers:
         print(f"\n{'='*50}")
         print(f"  {label} RoboClaw (0x{addr:02X}) -- Step Response")
         print(f"{'='*50}")
@@ -489,34 +743,38 @@ def cmd_step_response(args: argparse.Namespace) -> None:
             print(
                 f"  Current M2 PID: P={pid_m2['P']} I={pid_m2['I']} D={pid_m2['D']} QPPS={pid_m2['QPPS']}"
             )
-            print(f"  Step target: {speed} ticks/s ({speed / QPPS * 100:.0f}% of max)")
+            print(f"  Step target: {speed} ticks/s ({speed / ROBOCLAW_QPPS * 100:.0f}% of QPPS)")
             print()
 
-            for motor in motors:
-                print(f"  Testing {motor}...")
-                times, speeds, steady, reversed_detected = run_step_response(
-                    rc, motor, speed
-                )
-                _report_step_result(
-                    motor, times, speeds, steady, speed, reversed_detected, args.verbose
-                )
-                time.sleep(SETTLE_TIME_S)
-
+            ok, aborted = _step_controller(rc, motors, speed, args.hold, args.verbose)
+            passed &= ok
             close_controller(rc)
+            if aborted:
+                print(STOP_AFTER_ABORT)
+                break
         except Exception as e:
             print(f"  ERROR: {e}")
+            passed = False
+            print(STOP_AFTER_ABORT)
+            break
+    print()
+    print("  The dead time and tau above are measurements, not targets: nothing here")
+    print("  passes or fails on them.")
+    return passed
 
 
-def cmd_tune(args: argparse.Namespace) -> None:
-    """Set PID values and immediately run step-response test."""
+def cmd_tune(args: argparse.Namespace) -> bool:
+    """Set PID values and immediately run the step-response test. True if all passed."""
     p = args.p or DEFAULT_P
     i_val = args.i if args.i is not None else DEFAULT_I
     d = args.d if args.d is not None else DEFAULT_D
-    qpps = args.qpps or QPPS
+    qpps = args.qpps or ROBOCLAW_QPPS
     motors = get_motor_list(args.motor)
-    speed = args.speed or STEP_VELOCITY_TICKS
+    speed = args.speed if args.speed is not None else STEP_VELOCITY_TICKS
+    controllers = _selected_controllers(args.controller)
+    passed = bool(controllers)
 
-    for label, port, addr in get_controllers(args.controller):
+    for label, port, addr in controllers:
         print(f"\n{'='*60}")
         print(f"  {label} RoboClaw (0x{addr:02X}) -- Tune + Step Response")
         print(f"{'='*60}")
@@ -525,11 +783,13 @@ def cmd_tune(args: argparse.Namespace) -> None:
             rc = open_controller(port, addr)
 
             # Set PID
+            written = True
             for motor in motors:
                 if motor == "M1":
                     ok = rc.set_velocity_pid_m1(p, i_val, d, qpps)
                 else:
                     ok = rc.set_velocity_pid_m2(p, i_val, d, qpps)
+                written &= bool(ok)
                 status = "OK" if ok else "FAILED"
                 print(f"  {motor} SET P={p} I={i_val} D={d} QPPS={qpps} -> {status}")
 
@@ -539,69 +799,73 @@ def cmd_tune(args: argparse.Namespace) -> None:
                     pid = rc.read_velocity_pid_m1()
                 else:
                     pid = rc.read_velocity_pid_m2()
+                written &= (pid["P"], pid["I"], pid["D"], pid["QPPS"]) == (p, i_val, d, qpps)
                 print(
                     f"  {motor} readback: P={pid['P']} I={pid['I']} D={pid['D']} QPPS={pid['QPPS']}"
                 )
+            if not written:
+                print("  ERROR: the gains were not confirmed; not stepping on other gains.")
+                close_controller(rc)
+                passed = False
+                print(STOP_AFTER_ABORT)
+                break
 
             print(
-                f"\n  Step target: {speed} ticks/s ({speed / QPPS * 100:.0f}% of max)"
+                f"\n  Step target: {speed} ticks/s ({speed / qpps * 100:.0f}% of QPPS)"
             )
             print()
 
-            # Run step-response
-            for motor in motors:
-                print(f"  Testing {motor}...")
-                times, speeds, steady, reversed_detected = run_step_response(
-                    rc, motor, speed
-                )
-                _report_step_result(
-                    motor,
-                    times,
-                    speeds,
-                    steady,
-                    speed,
-                    reversed_detected,
-                    args.verbose,
-                    p,
-                )
-                time.sleep(SETTLE_TIME_S)
-
+            ok, aborted = _step_controller(rc, motors, speed, args.hold, args.verbose)
+            passed &= ok
             close_controller(rc)
+            if aborted:
+                print(STOP_AFTER_ABORT)
+                break
         except Exception as e:
             print(f"  ERROR: {e}")
+            passed = False
+            print(STOP_AFTER_ABORT)
+            break
 
     print(f"\n{'='*60}")
     print("  Tuning Summary")
     print(f"{'='*60}")
-    print(f"  Target tau:  {TARGET_TAU_S*1000:.0f} ms (from sim motor_time_constant_s)")
+    print(f"  Gains:       P={p} I={i_val} D={d} QPPS={qpps}")
     print(
-        f"  QPPS:        {qpps} ({MOTOR_MAX_RPM:.0f} RPM * {ENCODER_PPR_OUTPUT_SHAFT} PPR / 60)"
+        f"  Tracking:    {'PASS' if passed else 'FAIL'} -- the box is "
+        f"±{TRACK_TOLERANCE*100:.0f}% of the target, from {TRACK_START_S} s after "
+        "the first command to the last"
     )
     print()
-    print("  If all motors show PASS, these PID values are good.")
-    print("  If SLOW: increase P by 50%, or add small I (e.g., 500).")
-    print("  If FAST/oscillating: decrease P by 30%, or add D (e.g., 5000).")
+    print("  The dead time and tau above are measurements: record them with the gains.")
+    print("  They are not targets, and nothing here passes or fails on them.")
     print()
-    print("  Iterate by running:  python3 tune_pid.py --tune --p <new_P>")
+    print("  Iterate by running:  python3 tune_pid.py --tune --p <new_P> --i <new_I>")
     print("  PID values stored in RAM only — set automatically on startup")
     print("  by the driver node and test scripts.")
+    return passed
 
 
-def cmd_stop(args: argparse.Namespace) -> None:
-    """Emergency stop all motors."""
-    for label, port, addr in get_controllers(args.controller):
+def cmd_stop(args: argparse.Namespace) -> bool:
+    """Emergency stop all motors. True if every selected controller acknowledged its stop."""
+    controllers = get_controllers(args.controller)
+    stopped = len(controllers) == (2 if args.controller == "both" else 1)
+    for label, port, addr in controllers:
         print(f"  Stopping {label} (0x{addr:02X})...", end=" ")
         try:
             rc = open_controller(port, addr)
             # hard_stop is called by open_controller, but call again explicitly
-            hard_stop(rc)
+            acked = hard_stop(rc)
             # Also read back speed to verify
             spd1, _ = rc.read_speed_m1()
             spd2, _ = rc.read_speed_m2()
             close_controller(rc)
-            print(f"OK (M1={spd1}, M2={spd2} ticks/s)")
+            print(f"{'OK' if acked else 'FAILED, unacknowledged'} (M1={spd1}, M2={spd2} ticks/s)")
+            stopped &= acked
         except Exception as e:
             print(f"ERROR: {e}")
+            stopped = False
+    return stopped
 
 
 # ---------------------------------------------------------------------------
@@ -609,7 +873,7 @@ def cmd_stop(args: argparse.Namespace) -> None:
 # ---------------------------------------------------------------------------
 
 
-def main() -> None:
+def main() -> int:
     parser = argparse.ArgumentParser(
         description="RoboClaw velocity PID tuning for Strafer chassis",
         formatter_class=argparse.RawDescriptionHelpFormatter,
@@ -623,6 +887,13 @@ Examples:
   python3 tune_pid.py --step-response -v               # Test with raw data
   python3 tune_pid.py --tune --controller front        # Front only
   python3 tune_pid.py --tune --motor m1                # M1 only (all controllers)
+
+The step drives the wheels: lift the chassis so every wheel is off the ground.
+It needs each controller's serial timeout armed (0.1 to 1.0 s).
+Exit status of --step-response and --tune: 1 if a motor fails tracking, a step is
+aborted or errs, a selected controller is missing or (--tune) the gains are not
+confirmed. Of --stop: 1 if a selected controller is missing or a stop is not
+acknowledged. 130 if interrupted (Ctrl-C, SIGTERM, SIGHUP); else 0.
         """,
     )
 
@@ -645,7 +916,10 @@ Examples:
         "--motor",
         choices=["m1", "m2", "both"],
         default="both",
-        help="Which motor(s) to operate on (default: both)",
+        help=(
+            "Which motor(s) to operate on (default: both); a step holds the other at 0 "
+            "with its speed loop"
+        ),
     )
 
     parser.add_argument(
@@ -658,16 +932,25 @@ Examples:
         "--d", type=int, default=None, help=f"D gain (default for --tune: {DEFAULT_D})"
     )
     parser.add_argument(
-        "--qpps", type=int, default=None, help=f"QPPS (default: {QPPS})"
+        "--qpps", type=int, default=None, help=f"QPPS (default: {ROBOCLAW_QPPS})"
     )
     parser.add_argument(
         "--speed",
         type=int,
         default=None,
-        help=f"Step-response target speed in ticks/s (default: {STEP_VELOCITY_TICKS})",
+        help=(
+            f"Step-response target speed in ticks/s "
+            f"(default: {STEP_VELOCITY_TICKS}, {STEP_SPEED_MPS} m/s)"
+        ),
     )
     parser.add_argument(
-        "-v", "--verbose", action="store_true", help="Print raw step-response data"
+        "--hold",
+        type=float,
+        default=STEP_HOLD_S,
+        help=f"Step hold in seconds (default: {STEP_HOLD_S:g}; {MIN_HOLD_S:g} to {MAX_HOLD_S:g})",
+    )
+    parser.add_argument(
+        "-v", "--verbose", action="store_true", help="Print raw step-response counts"
     )
     args = parser.parse_args()
 
@@ -680,25 +963,51 @@ Examples:
         and args.qpps is None
     ):
         parser.error("--set requires at least one of --p, --i, --d, --qpps")
+    stepping = args.tune or args.step_response
+    if stepping and not MIN_HOLD_S <= args.hold <= MAX_HOLD_S:
+        parser.error(
+            f"--hold must be from {MIN_HOLD_S:g} s, to measure tracking from {TRACK_START_S} s, "
+            f"to {MAX_HOLD_S:g} s"
+        )
+    if stepping and args.speed is not None and not 0 < abs(args.speed) <= MAX_STEP_TICKS:
+        parser.error(
+            f"--speed must be nonzero and at most {MAX_STEP_TICKS} ticks/s either way, "
+            "so the runaway abort fires 10 % under full speed"
+        )
 
-    if args.stop:
-        cmd_stop(args)
-    elif args.read:
-        cmd_read(args)
-    elif args.set:
-        # For --set, default unspecified values to 0 rather than the tuning defaults
-        if args.p is None:
-            parser.error("--set requires --p")
-        if args.i is None:
-            args.i = 0
-        if args.d is None:
-            args.d = 0
-        cmd_set(args)
-    elif args.step_response:
-        cmd_step_response(args)
-    elif args.tune:
-        cmd_tune(args)
+    # A terminal hang-up or a kill takes the same path as Ctrl-C, so the
+    # motors are stopped on the way out.
+    for sig in (signal.SIGTERM, signal.SIGHUP):
+        signal.signal(sig, _interrupt)
+
+    try:
+        if args.stop:
+            return 0 if cmd_stop(args) else 1
+        elif args.read:
+            cmd_read(args)
+        elif args.set:
+            # For --set, default unspecified values to 0 rather than the tuning defaults
+            if args.p is None:
+                parser.error("--set requires --p")
+            if args.i is None:
+                args.i = 0
+            if args.d is None:
+                args.d = 0
+            cmd_set(args)
+        elif args.step_response:
+            return 0 if cmd_step_response(args) else 1
+        elif args.tune:
+            return 0 if cmd_tune(args) else 1
+    except KeyboardInterrupt:
+        print("\nInterrupted: stopping the motors.")
+        _atexit_stop_all()
+        return 130
+    return 0
+
+
+def _interrupt(signum: int, _frame) -> None:
+    raise KeyboardInterrupt(f"signal {signum}")
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())

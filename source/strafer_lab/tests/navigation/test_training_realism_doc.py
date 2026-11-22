@@ -989,7 +989,7 @@ ANCHORS = {
     "noise_models.py#L187": "class IMUNoiseModel(", "noise_models.py#L353": "class EncoderNoiseModel(",
     "noise_models.py#L479": "class DepthNoiseModel(",
     "observations.py#L45": "def reduce_depth_to_policy_grid", "d555_cfg.py#L145": "focal_length=",
-    "composed_env_cfg.py#L576": "num_rerenders_on_reset = 1", "commands.py#L683": "perturb_waypoints(",
+    "composed_env_cfg.py#L576": "num_rerenders_on_reset = 1", "planner.py#L251": "def perturb_waypoints(",
     "proc_room.py#L990": "def generate_proc_room", "sim_real_cfg.py#L736": "IDEAL_SIM_CONTRACT",
 }
 

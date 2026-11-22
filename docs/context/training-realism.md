@@ -43,7 +43,11 @@ acceleration limit and the motor lag.
 
 The noise models are in
 [`mdp/noise_models.py`](../../source/strafer_lab/strafer_lab/tasks/navigation/mdp/noise_models.py); each applies once
-per control step to the policy's observation.
+per control step to the policy's observation. The depth term's sensor function (the stereo validity and the sensor
+noise, [`mdp/d555_sensor.py`](../../source/strafer_lab/strafer_lab/tasks/navigation/mdp/d555_sensor.py)) runs inside
+the term, not as a noise model. Where it is on, the group's `enable_corruption = False` no longer gives clean depth;
+only the term's `perceived=False` does, as the critic reads it. A variant drops the function whole with
+`RealismCfg(depth_sensor=False)`, as the bridge variants do.
 
 | perturbation | ideal | real | robust | models | basis |
 |---|---|---|---|---|---|
@@ -64,7 +68,8 @@ per control step to the policy's observation.
 | [Subgoal-frame drift](../../source/strafer_lab/strafer_lab/tasks/navigation/mdp/events.py#L424) | off | gain U(0, 0.5) per env × 0.166 m RMS and 6.7° heading, correlation time 2 s | same | the SLAM map frame drifting under the subgoal; on the goal-objective IDs it moves the goal. A TF-age delay on the goal-shaped observations (the pose the goal is projected with, some control steps old) and a periodic replan of the subgoal path are built, both off | the RMS and heading measured on the sim-in-the-loop rig's SLAM, not on the robot; the gain band and τ are design |
 | [Path and lookahead](../../source/strafer_lab/strafer_lab/tasks/navigation/mdp/commands.py#L683) | no subgoal ID | subgoal IDs only: waypoint noise 0.025 m; lookahead U(0.9, 1.1) m | subgoal IDs only: waypoint noise 0.025 m; lookahead U(0.7, 1.3) m | the deployed planner's path and lookahead | design |
 
-Not applied on any tier: RGB noise (no registered ID observes RGB), depth quantization and temporal noise, lens
+Not applied on any tier: RGB noise (no registered ID observes RGB), the 80×45 depth model's own quantization and
+temporal noise (on `real` and `robust` the sensor function's lattice and temporal field replace them), lens
 distortion, wheel-odometry drift and TF staleness (its delay is built, off).
 
 ## The world

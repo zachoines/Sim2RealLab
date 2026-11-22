@@ -1079,8 +1079,9 @@ def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
                         help="Normalized commanded speed below which the direction "
                              "offset is undefined and the tick leaves that metric")
     parser.add_argument("--disable-obs-corruption", action="store_true",
-                        help="Turn the policy observation group's noise models off, "
-                             "isolating the emulated cadence from the trained noise")
+                        help="Turn the policy observation group's noise models and the depth "
+                             "term's sensor function off, isolating the emulated cadence from "
+                             "the trained noise")
     parser.add_argument("--no-hidden-reset", action="store_true",
                         help="Carry the recurrent hidden state across episode "
                              "boundaries. Environments still reset normally, so the "
@@ -1504,6 +1505,10 @@ def main() -> None:
         env_cfg.episode_length_s = args.episode_length_s
     if args.disable_obs_corruption:
         env_cfg.observations.policy.enable_corruption = False
+        # The depth term's sensor function runs inside the term, outside the corruption switch;
+        # dropping its event is what RealismCfg(depth_sensor=False) does at composition.
+        if hasattr(env_cfg.events, "randomize_d555_sensor"):
+            env_cfg.events.randomize_d555_sensor = None
 
     drift_position_m = args.subgoal_drift_m * args.subgoal_drift_gain
     drift_heading_rad = math.radians(args.subgoal_drift_deg * args.subgoal_drift_gain)

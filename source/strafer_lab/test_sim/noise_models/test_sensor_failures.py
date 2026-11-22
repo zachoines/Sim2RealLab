@@ -6,7 +6,9 @@
 A failed IMU term or encoder repeats its previous reading (``stuck_probability``), as a held source does in the
 deployed node's cache (each IMU term is drawn on its own, where the robot's one IMU message holds both); on an env's
 first step after a reset there is no previous reading and the current one passes. The rate cases are seeded, so a read
-is reproducible. The depth model has no failure mode of its own: a failed frame is a dropped one, which repeats the
+is reproducible, and each is tested two-sided at alpha 1e-6: at alpha 0.05 a seeded case is a fixed 1-in-20 draw on each
+device's random stream, which one GPU's stream at seed 7 missed (p 0.045) with the model correct. At 80 000 samples a
+rate off by 0.01 still fails (z about 8). The depth model has no failure mode of its own: a failed frame is a dropped one, which repeats the
 previous frame. The RGB model returns a black frame (``failure_probability``); no registered ID observes RGB.
 
 These tests validate:
@@ -53,6 +55,7 @@ HIGH_FAIL_PROB = 1.0
 # Moderate failure prob for rate-matching tests
 RATE_FAIL_PROB = 0.15
 RATE_STUCK_PROB = 0.10
+RATE_CONFIDENCE = 1.0 - 1e-6  # the rate cases' two-sided level: a correct model does not fail by chance
 
 
 # =====================================================================
@@ -106,7 +109,7 @@ def test_imu_stuck_rate_matches_config():
         stuck_count += torch.all(out == prev_out, dim=-1).sum().item()
         total += N_ENVS
         prev_out = out.clone()
-    result = binomial_test(int(stuck_count), total, RATE_STUCK_PROB)
+    result = binomial_test(int(stuck_count), total, RATE_STUCK_PROB, confidence_level=RATE_CONFIDENCE)
     print(f"\n  IMU stuck rate test: observed {result.observed_rate:.4f}, expected {result.expected_rate}, "
           f"p {result.p_value:.4f}")
     assert not result.reject_null, (
@@ -154,7 +157,7 @@ def test_encoder_stuck_rate_matches_config():
         stuck_count += torch.all(out == prev_out, dim=-1).sum().item()
         total += N_ENVS
         prev_out = out.clone()
-    result = binomial_test(int(stuck_count), total, RATE_STUCK_PROB)
+    result = binomial_test(int(stuck_count), total, RATE_STUCK_PROB, confidence_level=RATE_CONFIDENCE)
     print(f"\n  Encoder stuck rate test: observed {result.observed_rate:.4f}, expected {result.expected_rate}, "
           f"p {result.p_value:.4f}")
     assert not result.reject_null, (
@@ -228,7 +231,7 @@ def test_rgb_failure_rate_matches_config():
         failures += all_zero.sum().item()
         total += N_ENVS
 
-    result = binomial_test(int(failures), total, RATE_FAIL_PROB)
+    result = binomial_test(int(failures), total, RATE_FAIL_PROB, confidence_level=RATE_CONFIDENCE)
     print(f"\n  RGB failure rate test:")
     print(f"    Observed: {result.observed_rate:.4f}")
     print(f"    Expected: {result.expected_rate}")

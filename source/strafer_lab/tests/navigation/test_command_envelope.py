@@ -143,9 +143,9 @@ def test_an_impossible_range_is_refused(bad):
 
 
 def test_every_tier_builds_its_caps_from_the_shared_chassis_geometry():
-    """The wheel radius, wheel base and track width are strafer_shared's; the wheel limit is the contract's 32.67 rad/s,
-    so the full caps sit 7.9e-5 under MAX_LINEAR_VEL and MAX_ANGULAR_VEL, and the half-scale caps within 1e-4 of the
-    node's NAV_LINEAR_VEL and NAV_ANGULAR_VEL (rounded to four decimals)."""
+    """The wheel radius, wheel base and track width are strafer_shared's; the action scale is the contract's 32.67
+    rad/s, so the full caps sit 7.9e-5 under MAX_LINEAR_VEL and MAX_ANGULAR_VEL, and the half-scale caps within 1e-4 of
+    the node's NAV_LINEAR_VEL and NAV_ANGULAR_VEL (rounded to four decimals)."""
     from strafer_lab.tasks.navigation import strafer_env_cfg as tiers
     from strafer_shared.constants import (
         MAX_ANGULAR_VEL, MAX_LINEAR_VEL, NAV_ANGULAR_VEL, NAV_LINEAR_VEL, TRACK_WIDTH, WHEEL_BASE, WHEEL_RADIUS,

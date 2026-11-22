@@ -1,9 +1,10 @@
 """Tests for tune_pid.py: the step it drives, the fit to the count, and the tracking verdict.
 
 The tuner drives each controller with command 37, as the driver does, and reads the encoder
-counts (commands 16 and 17). By default a motor passes when its mean speed from 0.6 s after the
-first command to the end of the hold is within ±5 % of the target. The tuner reports a dead time
-and a time constant fitted to the count before 0.6 s, and aims at neither. The fit runs on
+counts (commands 16 and 17). On the default step a motor passes when its mean speed from 0.6 s
+after the first command to the end of the hold is within ±5 % of the target; off it, the tuner
+reports the tracking with no verdict. It reports a dead time and a time constant fitted to the
+count before 0.6 s, and aims at neither. The fit runs on
 synthetic steps and on two bench holds of the real wheels (data/step_holds/SOURCE.md). The
 step runs on test_port_fence's fake bus with a simulated motor behind each channel.
 """
@@ -11,6 +12,7 @@ step runs on test_port_fence's fake bus with a simulated motor behind each chann
 import csv
 import functools
 import importlib.util
+import inspect
 import math
 import os
 import re
@@ -49,7 +51,7 @@ TRACES = os.path.join(os.path.dirname(__file__), "data", "step_holds")
 CHANNELS = ("F1", "F2", "R1", "R2")
 HOLD_S = 6.0  # the bench's hold for these runs
 
-# The tracking box and the fit's end, as the tuner's criterion states them.
+# The tracking box, the one the driver's gains passed, and the fit's end.
 BOX_TOLERANCE = 0.05
 BOX_START_S = 0.6
 
@@ -364,7 +366,8 @@ class SteppedRoboClaw(FakeRoboClaw):
 
     Command 37 and the duty commands set the motors' targets (the tuner sends only duty 0);
     commands 16 and 17 read their counts. Each packet takes WIRE_S. The serial timeout is
-    armed at 0.5 s unless given.
+    armed at 0.5 s unless given, and as on the controller, no packet for that long stops both
+    motors; here any packet, answered or not, restarts it.
     """
 
     WIRE_S = 0.0005
@@ -375,10 +378,16 @@ class SteppedRoboClaw(FakeRoboClaw):
         self.motors = {1: m1, 2: m2}
         self.count_reads = 0
         self.log = []  # (time, command) of every packet
+        self.last_packet = None
 
     def respond(self, packet):
         self.clock.now += self.WIRE_S
         now = self.clock.now
+        timeout = self.serial_timeout / 10
+        if timeout and self.last_packet is not None and now - self.last_packet > timeout:
+            for motor in self.motors.values():
+                motor.command(self.last_packet + timeout, 0)
+        self.last_packet = now
         for motor in self.motors.values():
             motor.advance(now)
         valid = (
@@ -432,12 +441,15 @@ def stepped_robot(clock, front=None, rear=None, front_cls=SteppedRoboClaw,
     return FakeBus(devices)
 
 
-def run_tuner(clock, *argv, module=None):
+def run_tuner(clock, *argv, module=None, confirmed=True):
     """Run a fresh copy of the tuner's main() on the simulated clock; return its exit status.
 
-    Its signal handlers go to a mock, not to this process.
+    Its signal handlers go to a mock, not to this process. A step is run with --no-confirm
+    unless *confirmed* is False.
     """
     module = module or load_tuner()
+    if confirmed and {"--tune", "--step-response"} & set(argv):
+        argv = (*argv, "--no-confirm")
     with patch.object(sys, "argv", ["tune_pid.py", *argv]), patch.object(
         module, "time", clock
     ), patch.object(module, "signal", MagicMock()):
@@ -484,8 +496,19 @@ def aborted(lines, text):
     return any(line.startswith("ABORT:") and text in line for line in lines)
 
 
-HOLD = "2"  # shorter than the default, to keep the tests quick
-CYCLES = 100  # a 2 s hold at the driver's 50 Hz
+def faulted(lines, text):
+    """A step that ran its hold, measured, and then failed on *text*."""
+    return any(line.startswith("Tracking:") for line in lines) and any(
+        line.startswith("FAIL --") and text in line for line in lines
+    )
+
+
+def no_verdict(lines):
+    return any(line.startswith("NO VERDICT --") for line in lines)
+
+
+HOLD = "6"  # the default hold, the only one the box judges
+CYCLES = 300  # a 6 s hold at the driver's 50 Hz
 PLANT_63 = 0.012 + SteppedRoboClaw.WIRE_S + 0.022  # dead + tau, plus the command on the wire
 
 
@@ -606,16 +629,18 @@ def test_the_box_edge(patched, gain, rc):
 
 
 def test_a_reverse_step_tracks(patched, capsys):
+    """Measured, with no verdict: the box judges only the default step, forward."""
     clock = Clock()
     bus = patched(stepped_robot(clock))
 
-    assert run_tuner(clock, "--step-response", "--hold", HOLD, "--speed", "-535") == 0
+    assert run_tuner(clock, "--step-response", "--hold", HOLD, "--speed", "-535") == 3
 
     drives = [struct.unpack(">ii", data[2:10]) for _, data in bus.packets() if data[1] == 37]
     assert set(drives) == {(-535, -535)}
     out = capsys.readouterr().out
     for lines in reports(out).values():
-        assert passes(lines) and measured(lines)[1] == pytest.approx(0.022, rel=0.12)
+        assert no_verdict(lines) and measured(lines)[1] == pytest.approx(0.022, rel=0.12)
+        assert re.search(r"error=[+-]0\.0%", " ".join(lines))
     assert "measurements, not targets" in out
 
 
@@ -815,7 +840,7 @@ def test_a_wheel_still_turning_after_the_stop_fails(patched, capsys):
     assert run_tuner(clock, "--step-response", "--hold", HOLD) == 1
 
     found = reports(capsys.readouterr().out)
-    assert aborted(found[("Front", "M1")], "still moving after the stop")
+    assert faulted(found[("Front", "M1")], "still moving after the stop")
     sent = commands(bus, FRONT_PORT)
     tail = sent[len(sent) - sent[::-1].index(DRIVE_M1M2_SPEED):]
     assert tail.count(0) == tail.count(4) == 3, "the step's stop, the stop again, the close"
@@ -900,7 +925,7 @@ def test_ctrl_c_stops_the_motors(patched, capsys):
     assert "Interrupted" in capsys.readouterr().out
 
 
-def test_a_hangup_or_a_kill_takes_the_ctrl_c_path(patched):
+def test_a_hangup_a_kill_or_a_ctrl_z_takes_the_ctrl_c_path(patched):
     module = load_tuner()
     clock = Clock()
     bus = patched(stepped_robot(clock))
@@ -913,13 +938,13 @@ def test_a_hangup_or_a_kill_takes_the_ctrl_c_path(patched):
         )
         module.main()
 
-    assert opened == [0, 0], "installed before any port opens"
+    assert opened == [0, 0, 0], "installed before any port opens"
     handlers = {
         call.args[0]: call.args[1]
         for call in sig.signal.call_args_list
         if call.args[1] is module._interrupt
     }
-    assert set(handlers) == {sig.SIGTERM, sig.SIGHUP}
+    assert set(handlers) == {sig.SIGTERM, sig.SIGHUP, sig.SIGTSTP}
     for handler in handlers.values():
         with pytest.raises(KeyboardInterrupt):
             handler(15, None)
@@ -992,7 +1017,8 @@ class StopsFailOnceDriven(SteppedRoboClaw):
 
 
 def test_an_unacknowledged_final_stop_goes_silent_then_fails(patched, capsys):
-    """No packet for 1.2 s, longer than any armed serial timeout, so the controller stops."""
+    """No packet for 1.2 s, longer than any armed serial timeout, so the controller's timeout
+    stops the wheels that ignored the stops; the run still fails on the unacknowledged stop."""
     clock = Clock()
     bus = patched(stepped_robot(clock, front_cls=StopsFailOnceDriven))
 
@@ -1002,10 +1028,15 @@ def test_an_unacknowledged_final_stop_goes_silent_then_fails(patched, capsys):
     last37 = max(k for k, (_, command) in enumerate(log) if command == DRIVE_M1M2_SPEED)
     tries = [k for k in range(last37, len(log)) if log[k][1] in DUTY_FORWARD][:6]
     assert [log[k][1] for k in tries] == [0, 0, 0, 4, 4, 4], "each stop tried 3 times"
-    assert log[tries[-1] + 1][0] - log[tries[-1]][0] >= 1.2
+    # The next packet is the check's first read: the silence, then the check's own wait.
+    quiet = log[tries[-1] + 1][0] - log[tries[-1]][0]
+    assert tuner.SILENT_S + tuner.STILL_CHECK_S <= quiet < tuner.SILENT_S + tuner.STILL_CHECK_S + 0.01
+    assert log[tries[-1] + 1][1] in READ_COUNTS
     out = capsys.readouterr().out
     assert "STOP NOT ACKNOWLEDGED: silent 1.2 s" in out
-    assert aborted(reports(out)[("Front", "M1")], "stop went unacknowledged (silent 1.2 s)")
+    found = reports(out)[("Front", "M1")]
+    assert faulted(found, "stop went unacknowledged (silent 1.2 s)")
+    assert "still moving" not in out, "the controller's timeout stopped them"
 
 
 class IgnoresFirstStopOnceDriven(SteppedRoboClaw):
@@ -1025,18 +1056,18 @@ def test_a_wheel_the_second_stop_stops_still_fails(patched, capsys):
 
     assert run_tuner(clock, "--step-response", "--hold", HOLD) == 1
 
-    assert aborted(reports(capsys.readouterr().out)[("Front", "M1")], "still moving after the stop")
+    assert faulted(reports(capsys.readouterr().out)[("Front", "M1")], "still moving after the stop")
 
 
-HELD = (signal.SIGINT, signal.SIGTERM, signal.SIGHUP)
+HELD = (signal.SIGINT, signal.SIGTERM, signal.SIGHUP, signal.SIGTSTP)
 
 
 @pytest.fixture
 def handlers_kept():
-    """SIGTERM and SIGHUP take the Ctrl-C path, as main() sets them, and hard_stop leaves the
-    handlers as it found them. The process's own handlers come back after the test."""
+    """SIGTERM, SIGHUP and SIGTSTP take the Ctrl-C path, as main() sets them, and hard_stop
+    leaves the handlers as it found them. The process's own handlers come back after the test."""
     before = {sig: signal.getsignal(sig) for sig in HELD}
-    for sig in (signal.SIGTERM, signal.SIGHUP):
+    for sig in (signal.SIGTERM, signal.SIGHUP, signal.SIGTSTP):
         signal.signal(sig, tuner._interrupt)
     installed = {sig: signal.getsignal(sig) for sig in HELD}
     try:
@@ -1167,7 +1198,7 @@ def test_an_error_ends_the_run(patched, capsys, mode):
     assert "ERROR:" in out and "Not stepping the remaining controllers" in out
 
 
-@pytest.mark.parametrize("hold", ["0.5", "31", "nan", "inf"])
+@pytest.mark.parametrize("hold", ["0.5", "0.99", "31", "nan", "inf"])
 def test_a_hold_out_of_range_is_refused(patched, hold):
     clock = Clock()
     bus = patched(stepped_robot(clock))
@@ -1207,15 +1238,15 @@ def test_the_hold_range_is_inclusive(patched, hold):
     clock = Clock()
     patched(stepped_robot(clock))
 
-    assert run_tuner(clock, "--step-response", "--controller", "front", "--hold", hold) == 0
+    assert run_tuner(clock, "--step-response", "--controller", "front", "--hold", hold) == 3
 
 
 def test_a_stop_ignores_the_step_options(patched):
-    """An emergency stop is never refused over --hold or --speed, which it does not use."""
+    """An emergency stop is never refused over the step options, which it does not use."""
     clock = Clock()
     bus = patched(stepped_robot(clock))
 
-    assert run_tuner(clock, "--stop", "--hold", "0.5", "--speed", "0") == 0
+    assert run_tuner(clock, "--stop", "--hold", "0.5", "--speed", "0", "--settle", "-1") == 0
 
     assert {0, 4} <= set(commands(bus, FRONT_PORT)) and {0, 4} <= set(commands(bus, REAR_PORT))
 
@@ -1230,67 +1261,86 @@ def test_stop_fails_when_a_controller_is_missing(patched, capsys):
 
 
 # ---------------------------------------------------------------------------
-# The step's options and the constants behind them
+# The step's options, the constants behind them, and the box's verdict
 # ---------------------------------------------------------------------------
 
 
 def test_the_options_default_to_the_constants():
-    """Each step option defaults to the constant that carries its reason."""
-    args = tuner.build_parser().parse_args(["--tune"])
+    """Each step option defaults to the constant that carries its reason, not to a literal."""
+    with patch.object(tuner, "STEP_VELOCITY_TICKS", 534), patch.object(
+        tuner, "STEP_HOLD_S", 5.5
+    ), patch.object(tuner, "SETTLE_TIME_S", 0.3):
+        args = tuner.build_parser().parse_args(["--tune"])
 
-    assert (args.speed, args.hold, args.track_start, args.settle) == (
-        tuner.STEP_VELOCITY_TICKS, tuner.STEP_HOLD_S, tuner.TRACK_START_S, tuner.SETTLE_TIME_S)
-    assert args.tolerance / 100 == tuner.TRACK_TOLERANCE
+    assert (args.speed, args.hold, args.settle) == (534, 5.5, 0.3)
 
 
 def test_the_silence_outlasts_every_timeout_a_step_accepts():
-    """The driver's own serial timeout is in the accepted range, and the silence after an
-    unacknowledged stop outlasts its top."""
+    """The bring-up's serial timeout is in the accepted range, and the silence after an
+    unacknowledged stop is longer than any timeout in it."""
     low, high = tuner.SERIAL_TIMEOUT_RANGE_S
 
     assert low <= ROBOCLAW_SERIAL_TIMEOUT_S <= high < tuner.SILENT_S
 
 
-@pytest.mark.parametrize("gain, tolerance, rc", [
-    (0.94, "7", 0), (0.94, "5", 1), (0.96, "5", 0), (0.96, "3", 1),
-])
-def test_the_tolerance_sets_the_box(patched, capsys, gain, tolerance, rc):
-    clock = Clock()
-    patched(stepped_robot(clock, rear=(Motor(), Motor(gain=gain))))
+def test_the_cycle_is_the_drivers():
+    """The step's cycle is the driver's publish rate, which has no shared constant."""
+    import yaml
 
-    assert run_tuner(clock, "--step-response", "--hold", HOLD, "--tolerance", tolerance) == rc
+    with open(os.path.join(os.path.dirname(__file__), "..", "config", "driver_params.yaml")) as f:
+        rate = yaml.safe_load(f)["roboclaw_node"]["ros__parameters"]["publish_rate"]
+
+    assert tuner.SAMPLE_PERIOD_S == pytest.approx(1.0 / rate)
+
+
+@pytest.mark.parametrize("argv", [["--hold", "2"], ["--speed", "534"], ["--speed", "-535"]])
+@pytest.mark.parametrize("mode", ["--step-response", "--tune"])
+def test_only_the_default_step_gets_a_verdict(patched, capsys, mode, argv):
+    """Off the default step the box does not judge: the tracking is printed, even for a wheel
+    short of its target, and the run exits 3."""
+    clock = Clock()
+    patched(stepped_robot(clock, rear=(Motor(), Motor(gain=0.9))))
+
+    assert run_tuner(clock, mode, *argv) == 3
 
     out = capsys.readouterr().out
-    assert f"the box is ±{tolerance}% of the target" in out
-    assert ("not the criterion's default box" in out) == (tolerance != "5")
+    found = reports(out)
+    assert all(no_verdict(lines) and not passes(lines) for lines in found.values())
+    short = re.search(r"error=([+-][\d.]+)%", " ".join(found[("Rear", "M2")]))
+    assert float(short.group(1)) == pytest.approx(-10.0, abs=0.3)
+    assert "NO VERDICT -- the box is" in out and "has no verdict" in out
 
 
-def test_the_track_start_moves_the_window_not_the_fit(capsys):
-    """A later window leaves out more of the integral term's approach; the fit stays on the
-    rise before 0.6 s."""
-    times, counts = synthetic_step(0.012, 0.022, 510.0)
-    crept = [c + (round(40 * (t - BOX_START_S) ** 2) if t >= BOX_START_S else 0)
-             for t, c in zip(times, counts)]
-    trace = trace_of(times, crept, 535)
-
-    _, default = report(trace, HOLD_S, capsys)
-    tuner._report_step_result(trace, HOLD_S, False, track_start_s=3.0)
-    later = capsys.readouterr().out
-
-    assert "over [0.6, 6] s" in default and "over [3, 6] s" in later
-    error = lambda out: float(re.search(r"error=([+-][\d.]+)%", out).group(1))  # noqa: E731
-    assert error(later) > error(default)
-    assert measured([later]) == measured([default])
-
-
-def test_a_track_start_reaches_the_verdict(patched, capsys):
+def test_a_step_off_the_default_still_fails_on_an_abort(patched, capsys):
     clock = Clock()
-    patched(stepped_robot(clock))
+    patched(stepped_robot(clock, front=(Motor(gain=-1.0), Motor())))
 
-    assert run_tuner(clock, "--step-response", "--hold", HOLD, "--track-start", "1") == 0
+    assert run_tuner(clock, "--step-response", "--hold", "2") == 1
 
-    out = capsys.readouterr().out
-    assert "over [1, 2] s" in out and "not the criterion's default box" in out
+    assert aborted(reports(capsys.readouterr().out)[("Front", "M1")], "turns against its target")
+
+
+def test_the_box_judges_the_hold_the_gains_passed_on():
+    """The integral term closes the last few percent over seconds: on the bench hold the
+    front-left wheel misses the box over a 2 s hold and passes it over the 6 s one."""
+    times, counts = bench_trace("all535_r1", "F1")
+    error = {
+        hold: tuner.tracking_speed(times, counts, tuner.TRACK_START_S, hold) / 535 - 1
+        for hold in (2.0, tuner.STEP_HOLD_S)
+    }
+
+    assert error[2.0] < -tuner.TRACK_TOLERANCE < error[tuner.STEP_HOLD_S]
+
+
+def test_a_dead_time_on_its_floor_is_flagged_not_recorded(capsys):
+    """The bench's front-right wheel at 178 ticks/s: a fit on the 0 floor, whose split from tau
+    is not measured."""
+    _, out = report(trace_of(*bench_trace("all178_r1", "F2"), 178), HOLD_S, capsys)
+    _, interior = report(trace_of(*bench_trace("all535_r1", "F1"), 535), HOLD_S, capsys)
+
+    assert "(the fit's floor)" in out and "its split from tau is not measured" in out
+    assert "Do not record these" in out
+    assert "WARNING" not in interior
 
 
 class SleepLog(Clock):
@@ -1309,19 +1359,23 @@ def test_settle_is_the_wait_before_the_rest_check_not_the_still_check(patched):
     """--settle sets the wait after a stop, before each step and between controllers; the check
     that the wheels stopped keeps STILL_CHECK_S, twice per controller."""
     clock = SleepLog()
-    patched(stepped_robot(clock))
+    bus = patched(stepped_robot(clock))
 
     assert run_tuner(clock, "--step-response", "--hold", HOLD, "--settle", "0.7") == 0
 
     assert clock.sleeps.count(0.7) == 4
     assert clock.sleeps.count(tuner.STILL_CHECK_S) == 4
+    log = bus.devices[FRONT_PORT].log
+    first37 = next(k for k, (_, c) in enumerate(log) if c == DRIVE_M1M2_SPEED)
+    stop = max(k for k in range(first37) if log[k][1] == 4)
+    assert log[stop + 1][1] in READ_COUNTS and log[stop + 1][0] - log[stop][0] >= 0.7
+    last37 = max(k for k, (_, c) in enumerate(log) if c == DRIVE_M1M2_SPEED)
+    stop = next(k for k in range(last37, len(log)) if log[k][1] == 4)
+    assert log[stop + 1][0] - log[stop][0] == pytest.approx(tuner.STILL_CHECK_S, abs=0.01)
 
 
 @pytest.mark.parametrize("argv", [
-    ["--tolerance", "0"], ["--tolerance", "-1"], ["--tolerance", "50.5"], ["--tolerance", "nan"],
-    ["--tolerance", "inf"], ["--track-start", "-0.1"], ["--track-start", "nan"],
-    ["--track-start", "inf"], ["--track-start", "2", "--hold", "2.3"], ["--settle", "-0.1"],
-    ["--settle", "31"], ["--settle", "nan"],
+    ["--settle", "-0.1"], ["--settle", "31"], ["--settle", "nan"], ["--settle", "inf"],
 ])
 def test_an_option_out_of_range_is_refused(patched, argv):
     clock = Clock()
@@ -1334,29 +1388,160 @@ def test_an_option_out_of_range_is_refused(patched, argv):
     assert bus.packets() == []
 
 
-@pytest.mark.parametrize("argv", [
-    ["--track-start", "2", "--hold", "2.4"], ["--track-start", "0.2", "--hold", "0.6"],
-    ["--tolerance", "50"], ["--settle", "0"],
+@pytest.mark.parametrize("argv, rc", [
+    (["--settle", "0"], 0), (["--settle", "30"], 0), (["--hold", "1"], 3), (["--hold", "30"], 3),
 ])
-def test_an_option_at_its_bound_is_accepted(patched, argv):
+def test_an_option_at_its_bound_is_accepted(patched, argv, rc):
+    """The settle is no part of the box: the default step is still judged."""
     clock = Clock()
     patched(stepped_robot(clock))
 
-    assert run_tuner(clock, "--step-response", "--controller", "front", *argv) == 0
+    assert run_tuner(clock, "--step-response", "--controller", "front", *argv) == rc
 
 
 def test_the_controllers_are_opened_as_the_driver_opens_them(patched):
-    """Port, address and baud only: the interface's own read timeout and retries."""
+    """The interface's own read timeout and retries, as roboclaw_node opens it."""
     clock = Clock()
     patched(stepped_robot(clock))
     module = load_tuner()
     real, made = module.RoboClawInterface, []
+    signature = inspect.signature(real)
 
     def spy(*args, **kwargs):
-        made.append(kwargs)
+        made.append(signature.bind(*args, **kwargs).arguments)
         return real(*args, **kwargs)
 
     with patch.object(module, "RoboClawInterface", spy):
         assert run_tuner(clock, "--step-response", "--hold", HOLD, module=module) == 0
 
-    assert made and all(set(kwargs) == {"port", "address", "baud_rate"} for kwargs in made)
+    assert made and not any({"read_timeout", "max_retries"} & set(bound) for bound in made)
+
+
+def test_the_help_gives_each_step_option_its_default_and_range():
+    """--help renders (its %% escapes hold), with each default's reason and each bound."""
+    text = " ".join(tuner.build_parser().format_help().split())
+
+    for part in (
+        "default: 535, 0.3 m/s at the wheel", "at most 1045 either way", "10 % under full speed",
+        "default: 6, the hold the driver's gains were chosen on", "from 1,", "to 30.",
+        "default: 0.2: a lifted wheel stopped at duty 0", "Another hold gets no verdict",
+        "about 1.8 m, and up to 17.6 m", "armed (0.1 to 1 s)", "±5 % of its target",
+        "3 if the step was not the default one", "130 if interrupted (Ctrl-C, Ctrl-Z",
+    ):
+        assert part in text, part
+
+
+@pytest.mark.parametrize("mode", ["--tune", "--set"])
+@pytest.mark.parametrize("qpps", ["0", "-1"])
+def test_a_qpps_that_is_not_positive_is_refused(patched, mode, qpps):
+    clock = Clock()
+    bus = patched(stepped_robot(clock))
+
+    with pytest.raises(SystemExit) as exit_:
+        run_tuner(clock, mode, "--p", "15000", "--qpps", qpps)
+
+    assert exit_.value.code == 2
+    assert bus.packets() == []
+
+
+def test_a_gain_of_0_is_written_as_0(patched):
+    clock = Clock()
+    bus = patched(stepped_robot(clock))
+
+    assert run_tuner(clock, "--tune", "--controller", "front", "--p", "0") == 0
+
+    assert [p for _, p, _, _ in gains_written(bus)] == [0, 0]
+
+
+def test_the_step_is_shown_as_a_share_of_the_qpps_read_back(patched, capsys):
+    clock = Clock()
+    bus = patched(stepped_robot(clock, present=("front",)))
+    bus.devices[FRONT_PORT].gains = {1: (15000, 750, 0, 1070), 2: (15000, 750, 0, 1070)}
+
+    assert run_tuner(clock, "--step-response", "--controller", "front") == 0
+
+    assert "Step target: 535 ticks/s (50% of QPPS 1070)" in capsys.readouterr().out
+
+
+def test_an_abort_prints_its_counts_with_verbose(patched, capsys):
+    clock = Clock()
+    patched(stepped_robot(clock, front=(Jamming(1.0), Motor())))
+
+    assert run_tuner(clock, "--step-response", "-v") == 1
+
+    lines = reports(capsys.readouterr().out)[("Front", "M1")]
+    assert aborted(lines, "a jammed wheel") and "Time(ms) Count" in " ".join(" ".join(lines).split())
+
+
+# ---------------------------------------------------------------------------
+# A paused step, and the typed confirmation that the wheels are lifted
+# ---------------------------------------------------------------------------
+
+
+class Pausing(SteppedRoboClaw):
+    """The host stalls for *pause* s while the 100th command 37 is sent, 2 s into the step."""
+
+    pause = 1.0
+
+    def drive(self, now, m1, m2):
+        self.drives = getattr(self, "drives", 0) + 1
+        if self.drives == 100:
+            self.clock.now += self.pause
+        return super().drive(now, m1, m2)
+
+
+def test_a_pause_past_the_serial_timeout_ends_the_step(patched, capsys):
+    """The controller's timeout stopped the wheels during the pause; the step is not resumed."""
+    clock = Clock()
+    bus = patched(stepped_robot(clock, front_cls=Pausing))
+
+    assert run_tuner(clock, "--step-response") == 1
+
+    assert commands(bus, FRONT_PORT).count(DRIVE_M1M2_SPEED) == 100
+    assert DRIVE_M1M2_SPEED not in commands(bus, REAR_PORT)
+    out = capsys.readouterr().out
+    assert aborted(reports(out)[("Front", "M1")], "the step is not resumed")
+    assert "still moving" not in out
+
+
+class ShortPause(Pausing):
+    pause = 0.3
+
+
+def test_a_late_cycle_does_not_replay_the_missed_ones(patched):
+    """Under the serial timeout the step goes on, one cycle at a time, not a burst of them."""
+    clock = Clock()
+    bus = patched(stepped_robot(clock, front_cls=ShortPause))
+
+    assert run_tuner(clock, "--step-response") == 0
+
+    sent = [t for t, c in bus.devices[FRONT_PORT].log if c == DRIVE_M1M2_SPEED]
+    assert min(b - a for a, b in zip(sent, sent[1:])) >= tuner.SAMPLE_PERIOD_S - 0.002
+    missed = round(ShortPause.pause / tuner.SAMPLE_PERIOD_S)
+    assert abs(len(sent) - (CYCLES - missed)) <= 1, "the cycles the pause took are not run"
+
+
+def test_no_step_without_a_terminal_to_confirm_it(patched, capsys):
+    clock = Clock()
+    bus = patched(stepped_robot(clock))
+
+    assert run_tuner(clock, "--tune", confirmed=False) == 1
+
+    assert bus.packets() == []
+    assert "about 1.80 m of travel" in capsys.readouterr().out
+
+
+@pytest.mark.parametrize("answer, rc", [("yes", 0), ("y", 1), (EOFError, 1)])
+def test_only_a_typed_yes_steps(patched, answer, rc):
+    clock = Clock()
+    bus = patched(stepped_robot(clock))
+    module = load_tuner()
+    reply = {"side_effect": answer} if answer is EOFError else {"return_value": answer}
+
+    with patch.object(module, "sys") as fake_sys, patch.object(module, "termios"), patch(
+        "builtins.input", **reply
+    ):
+        fake_sys.stdin.isatty.return_value = True
+        assert run_tuner(clock, "--step-response", module=module, confirmed=False) == rc
+
+    assert (DRIVE_M1M2_SPEED in [data[1] for _, data in bus.packets()]) == (rc == 0)

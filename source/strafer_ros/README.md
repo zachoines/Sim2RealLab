@@ -238,16 +238,19 @@ These live at the top of `source/strafer_ros/` and are direct-hardware tools. Ru
 # RoboClaw PID tuning and step-response test (wheels lifted). --tune writes the gains (the
 # driver's, from strafer_shared.constants, unless --p/--i/--d/--qpps) and steps each controller
 # with command 37, as the driver does: by default 535 ticks/s (0.3 m/s; --speed) for 6 s
-# (--hold), the encoder counts (commands 16 and 17) read at 50 Hz. A motor passes when its mean
-# speed from the count, from 0.6 s after the first command (--track-start) to the last, is
-# within ±5 % of the target (--tolerance); the run exits 1 if one fails. The dead time and time
-# constant fitted to the count before 0.6 s, the rise, are reported as measurements: nothing
-# passes or fails on them. --step-response steps without the write. A step needs each
-# controller's serial timeout armed (0.1 to 1.0 s), its stop acknowledged and, --settle (0.2 s)
-# later, both wheels at rest. A wheel turning against its target, running away or stalling, two
-# failed reads or two unacknowledged command 37s in a row, or an unconfirmed gains write stops
-# the run; a wheel still turning 0.2 s after the stop fails it. --help gives each default's
-# reason; the safety limits are fixed.
+# (--hold), the encoder counts (commands 16 and 17) read at 50 Hz, after a typed confirmation
+# that the wheels are lifted (--no-confirm skips it): each turns about 1.8 m. On that step a
+# motor passes when its mean speed from the count, from 0.6 s after the first command to the
+# last, is within ±5 % of the target, the box the driver's gains passed; the run exits 1 if one
+# fails. At another --speed or --hold the tracking is printed with no verdict and the run exits
+# 3. The dead time and time constant fitted to the count before 0.6 s, the rise, are reported
+# as measurements: nothing passes or fails on them. --step-response steps without the write. A
+# step needs each controller's serial timeout armed (0.1 to 1.0 s), its stop acknowledged and,
+# --settle (0.2 s) later, both wheels at rest. A wheel turning against its target, running away
+# or stalling, two failed reads or two unacknowledged command 37s in a row, a cycle later than
+# the serial timeout, or an unconfirmed gains write stops the run; a wheel still turning 0.2 s
+# after the stop fails it. Ctrl-C, Ctrl-Z, SIGTERM and SIGHUP stop the motors and exit 130.
+# --help gives each default's reason; the box and the safety limits are fixed.
 python3 source/strafer_ros/tune_pid.py --read         # current PID
 python3 source/strafer_ros/tune_pid.py --tune         # set + measure
 

@@ -686,7 +686,7 @@ def create_real_robot_contract() -> SimRealContractCfg:
                 # Intel D555 stereo parameters (default values)
                 baseline_m=0.095,
                 focal_length_px=673.0,
-                disparity_noise_px=0.0,  # retired: the sensor noise below replaces the 80x45 disparity noise
+                disparity_noise_px=0.0,  # 0: the sensor noise below models the disparity error
                 # The sensor's stereo validity on the rendered frame, fitted on the robot's frames at mount height:
                 # the left band f·B/z + 6.5 px with no core, the occlusion shadows at 0.5 px. It replaces the cell
                 # holes. The 0.244 m minimum is the bench sensor's nearest finite return, where a 126-disparity
@@ -776,7 +776,7 @@ def create_robust_training_contract() -> SimRealContractCfg:
                 # Intel D555 stereo parameters with increased disparity noise
                 baseline_m=0.095,
                 focal_length_px=673.0,
-                disparity_noise_px=0.0,  # retired with its band: the sensor noise below replaces them
+                disparity_noise_px=0.0,  # 0, no band: the sensor noise below models the disparity error
                 # The sensor's stereo validity on the rendered frame, fitted on the robot's frames at mount height:
                 # the left band f·B/z + 6.5 px with no core, the occlusion shadows at 0.5 px. It replaces the cell
                 # holes. The 0.244 m minimum is the bench sensor's nearest finite return, where a 126-disparity
@@ -792,10 +792,9 @@ def create_robust_training_contract() -> SimRealContractCfg:
                 # The sensor's depth noise on the rendered frame, at its centres: fitted to one unit, one glossy
                 # floor and static poses (the temporal and static fields, the lattice, the invalid blobs)
                 stereo_noise_enable=True,
-                # Design, until the robot session reads the noise elsewhere: the two fields scaled per env over
-                # [0.5, 2] each, a tenth of envs at zero; the static field held in the image for half the envs and
-                # decaying over 1-10 s for the rest; a per-episode invalid patch field on up to 4 % of the pixels,
-                # none for a quarter of the envs
+                # Design, not measured: the two fields scaled per env over [0.5, 2] each, a tenth of envs at zero;
+                # the static field held in the image for half the envs and decaying over 1-10 s for the rest; a
+                # per-episode invalid patch field on up to 4 % of the pixels, none for a quarter of the envs
                 stereo_noise_amp_range=(0.5, 2.0),
                 stereo_noise_clean_fraction=0.1,
                 stereo_noise_s_static_probability=0.5,

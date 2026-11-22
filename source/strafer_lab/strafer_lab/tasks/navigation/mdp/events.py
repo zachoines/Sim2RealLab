@@ -25,6 +25,8 @@ from isaaclab.utils.math import (
 
 from isaaclab.managers import ManagerTermBase
 
+from strafer_shared.constants import POLICY_PERIOD_S
+
 from .subgoal_drift import SubgoalDriftProcess
 from .tf_age import TfAgeProcess
 from .sensor_outage import OutageProcess
@@ -567,7 +569,7 @@ def randomize_d555_sensor(
         noise_cfg = None if noise is None else D555NoiseCfg(
             **{k: tuple(v) if isinstance(v, list) else v for k, v in noise.items()})
         process = D555SensorProcess(env.num_envs, env.device, cfg, seed=0 if seed is None else int(seed),
-                                    noise=noise_cfg, step_dt=getattr(env, "step_dt", 1.0 / 30.0))
+                                    noise=noise_cfg, step_dt=getattr(env, "step_dt", POLICY_PERIOD_S))
         env._d555_sensor = process
     process.reset(env_ids)
 

@@ -19,8 +19,9 @@ that value, temporal terms live or stilled.
 
 On the shipped realistic and robust tiers the sensor noise at render resolution
 replaces this term (``disparity_noise_px`` 0, no band). The suite runs on each
-tier's own i.i.d. arm: the shipped contract with the 80x45 noise as it stood
-and the sensor noise off.
+tier's own i.i.d. arm: the shipped contract with the 80x45 noise at 0.08 px
+(realistic) or over its (0.002, 0.16) px band (robust), and the sensor noise
+off.
 
 Pure torch on CPU — no Isaac Sim, no Kit boot. The same equivalences on CUDA are
 measured in the record rather than gated here, so the suite needs no device.
@@ -52,7 +53,8 @@ BAND = (0.002, 0.16)
 
 
 def _iid_arm(contract, sigma, band):
-    """The tier with the 80x45 disparity noise as it stood and the sensor noise off."""
+    """The tier's contract with the 80x45 disparity noise at ``sigma`` (over ``band`` when one is given) and the
+    sensor noise off."""
     arm = copy.deepcopy(contract)
     depth = arm.sensors.depth_camera
     depth.stereo_noise_enable = False
@@ -180,7 +182,7 @@ class TestTheNeutralPath:
             "returns the generator to where the pre-band code left it"
         )
 
-    def test_the_shipped_tiers_retire_the_term_for_the_sensor_noise(self):
+    def test_the_shipped_tiers_carry_the_sensor_noise_and_no_80x45_disparity_noise(self):
         for contract in (REAL_ROBOT_CONTRACT, ROBUST_TRAINING_CONTRACT):
             depth = contract.sensors.depth_camera
             assert depth.stereo_noise_enable and depth.disparity_noise_px == 0.0

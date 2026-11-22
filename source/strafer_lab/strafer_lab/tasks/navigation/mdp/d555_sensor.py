@@ -26,7 +26,7 @@ from dataclasses import dataclass
 
 import torch
 
-from strafer_shared.constants import D555_MEASURED_FX_PX, D555_RENDER_FAR_CLIP_M, DEPTH_MAX
+from strafer_shared.constants import D555_MEASURED_FX_PX, D555_RENDER_FAR_CLIP_M, DEPTH_MAX, POLICY_PERIOD_S
 
 from .d555_noise import D555NoiseCfg, D555NoiseProcess
 
@@ -84,7 +84,7 @@ class D555SensorProcess:
     """Per-env stereo-validity state: the ``f·B`` each env's mask is computed with."""
 
     def __init__(self, num_envs: int, device, cfg: D555SensorCfg, seed: int = 0, noise: D555NoiseCfg | None = None,
-                 step_dt: float = 1.0 / 30.0):
+                 step_dt: float = POLICY_PERIOD_S):
         self.cfg = cfg
         self.num_envs = num_envs
         self.device = device

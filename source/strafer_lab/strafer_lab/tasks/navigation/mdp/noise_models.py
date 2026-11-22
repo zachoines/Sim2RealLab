@@ -26,7 +26,9 @@ from isaaclab.utils.noise import NoiseModel
 from isaaclab.utils.configclass import configclass
 from isaaclab.utils.noise import NoiseModelCfg, GaussianNoiseCfg
 
-from strafer_shared.constants import DEPTH_HEIGHT, DEPTH_NEARFIELD_FILL, DEPTH_WIDTH, ENCODER_TICKS_TO_RADIANS
+from strafer_shared.constants import (
+    DEPTH_HEIGHT, DEPTH_NEARFIELD_FILL, DEPTH_WIDTH, ENCODER_TICKS_TO_RADIANS, POLICY_PERIOD_S,
+)
 from strafer_shared.mecanum_kinematics import INVERSE_KINEMATIC_MATRIX
 
 from .hold_process import HoldProcess
@@ -463,7 +465,7 @@ class EncoderNoiseModelCfg(NoiseModelCfg):
     reported_speed_lag_s: float = 0.0
     """The lag's parameter in seconds (the time constant, the delay, or the window's span); 0 = no lag."""
 
-    control_frequency_hz: float = 30.0
+    control_frequency_hz: float = 1.0 / POLICY_PERIOD_S
     """The rate the observation is computed at, to convert the lag's seconds to steps."""
 
     # Failure mode (for robustness training)

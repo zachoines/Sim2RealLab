@@ -174,8 +174,8 @@ D555_MEASURED_FOCAL_LENGTH_MM = D555_MEASURED_FX_PX * D555_HORIZONTAL_APERTURE_M
 D555_BASELINE_M = 0.095
 
 # The nearest depth the D555 returns: the bench sensor's nearest finite
-# return, where a 126-disparity search ends at 640x360 (f·B / 126). Measured
-# on the bench, not at the robot's mount height.
+# return, near where a 126-disparity search ends at 640x360 (f·B / 126,
+# 0.242 m). Measured on the bench, not at the robot's mount height.
 D555_MIN_DEPTH_M = 0.244
 
 # D555 native frame rate. Both the color and the aligned depth streams

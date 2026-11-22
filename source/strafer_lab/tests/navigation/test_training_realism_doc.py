@@ -515,10 +515,10 @@ def _():
         if p is None or "noise" not in p:
             return OFF
         c = D555NoiseCfg(**p["noise"])
-        assert c.lattice_lut and c.round_to_mm and c.graze_rho == 1.0, t  # the row: the lattice, whole mm, static dropout
+        assert c.lattice_lut and c.round_to_mm and c.hole_p_ref == 0, t  # the row: the lattice, whole mm, no grazing
         out = [c.t_sigma0_px, c.t_angle_exponent, c.t_length_x_px, c.t_width_y_px, c.s_sigma0_px, c.s_slope_gain,
-               c.s_sigma_max_px, c.s_length_x_px, c.s_length_y_px, 1, 32, c.hole_p_base, c.hole_p_ref, c.hole_c_ref,
-               c.hole_k_graze, c.hole_p_max, c.hole_rho]
+               c.s_sigma_max_px, c.s_length_x_px, c.s_length_y_px, 1, 32, c.hole_p_floor, c.hole_p_base,
+               c.hole_floor_grad_px, c.hole_rho, c.hole_m_static]
         if c.amp_t_range == c.amp_s_range == (1.0, 1.0):
             assert c.clean_fraction == 0 and c.s_static_probability == 1 and c.patch_share_range[1] == 0, t
             return out
@@ -1031,7 +1031,7 @@ ANCHORS = {
     "events.py#L424": "def randomize_subgoal_drift", "events.py#L179": "class randomize_wheel_grip(",
     "events.py#L362": "def randomize_mass", "events.py#L764": "def reset_robot_proc_room",
     "noise_models.py#L186": "class IMUNoiseModel(", "noise_models.py#L358": "class EncoderNoiseModel(",
-    "noise_models.py#L490": "class DepthNoiseModel(", "d555_noise.py#L43": "class D555NoiseCfg", "d555_sensor.py#L63": "def stereo_validity",
+    "noise_models.py#L490": "class DepthNoiseModel(", "d555_noise.py#L46": "class D555NoiseCfg", "d555_sensor.py#L63": "def stereo_validity",
     "observations.py#L46": "def reduce_depth_to_policy_grid", "d555_cfg.py#L145": "focal_length=",
     "composed_env_cfg.py#L579": "num_rerenders_on_reset = 1", "commands.py#L683": "perturb_waypoints(",
     "proc_room.py#L990": "def generate_proc_room", "sim_real_cfg.py#L850": "IDEAL_SIM_CONTRACT",

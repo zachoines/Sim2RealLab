@@ -15,9 +15,12 @@ geometry: the incidence cosine ``cos φ`` from the back-projected surface normal
   locking ripple ``b · sin 2π frac(d)``.
 - **The disparity lattice.** The noisy disparity is rounded to 1/32 px through the measured sub-pixel occupancy (some
   sub-pixel codes never occur), and the depth to the millimetre, as Z16 carries it.
-- **Invalid blobs**, with probability ``p = p_base + p_ref · (c_ref / cos φ)^k`` clipped at ``p_max``. They are split
-  into flickering speckle (a two-scale Gaussian field with an AR(1) memory per step and a static share) and static
-  grazing dropout (a coarse field held for the episode), each thresholded at its own share.
+- **Invalid blobs**, with probability ``p = p_b + p_ref · (c_ref / cos φ)^k`` clipped at ``p_max``. The base ``p_b`` is
+  the surface's: ``p_base`` on a surface facing the camera or a wall, rising linearly to ``p_floor`` as the vertical
+  disparity gradient ``G_v = ∂d/∂v`` reaches the floor's. They are split into flickering speckle (a two-scale Gaussian
+  field with an AR(1) memory per step and a static share held for the episode) and static grazing dropout (a coarse
+  field held for the episode), each thresholded at its own share. At the centres the speckle field is drawn fresh at
+  every step around its static share: each pixel's rate is set per episode, and its draws have no memory.
 
 A pixel at or beyond the far clamp gets no noise. The invalid blobs are added to the stereo validity's mask, and every
 draw comes from the process's own generator.
@@ -104,11 +107,19 @@ class D555NoiseCfg:
     round_to_mm: bool = True
     """Round the depth to the millimetre, as Z16 does."""
 
-    hole_p_base: float = 0.025
-    """The invalid share at normal incidence."""
+    hole_p_base: float = 0.0
+    """The invalid share off the floor: a surface facing the camera, a wall."""
 
-    hole_p_ref: float = 0.132
-    """The grazing excess at ``hole_c_ref``."""
+    hole_p_floor: float = 0.0214
+    """The invalid share on the floor, away from its edges."""
+
+    hole_floor_grad_px: float = 0.17
+    """The vertical disparity gradient, in px per row, from which a surface takes ``hole_p_floor`` in full; the share
+    rises linearly from ``hole_p_base`` at 0. Half the floor's gradient on the robot (B / h: 0.095 m over the camera's
+    measured 0.279 m), so a floor seen from up to twice that height takes it in full."""
+
+    hole_p_ref: float = 0.0
+    """The grazing excess at ``hole_c_ref``: none on the open floor out to 2 m."""
 
     hole_k_graze: float = 3.70
     """The grazing law's exponent."""
@@ -137,11 +148,11 @@ class D555NoiseCfg:
     hole_aniso: float = 2.5
     """Speckle field: the blobs' horizontal over vertical extent."""
 
-    hole_rho: float = 0.85
+    hole_rho: float = 0.0
     """Speckle field: the per-step AR(1) memory."""
 
-    hole_m_static: float = 0.6
-    """Speckle field: the share held for the episode."""
+    hole_m_static: float = 0.876
+    """Speckle field: the share held for the episode, the spread of the pixels' rates."""
 
     hole_coarse_px: int = 4
     """The grid the long-scale fields are drawn on, in px."""
@@ -178,7 +189,8 @@ class D555NoiseCfg:
 
 
 def surface_geometry(depth: torch.Tensor, fb: torch.Tensor, cfg: D555NoiseCfg):
-    """Disparity, incidence cosine and disparity gradient of ``(N, H, W)`` clean depth; ``fb`` per env (``(N,)``)."""
+    """Disparity, incidence cosine, disparity gradient and its signed vertical part (positive where the disparity grows
+    down the image, as on a floor) of ``(N, H, W)`` clean depth; ``fb`` per env (``(N,)``)."""
     height, width = depth.shape[-2:]
     cx, cy = cfg.principal_point_px
     u = (torch.arange(width, dtype=depth.dtype, device=depth.device) - cx) / cfg.focal_px
@@ -196,7 +208,7 @@ def surface_geometry(depth: torch.Tensor, fb: torch.Tensor, cfg: D555NoiseCfg):
     cos_phi = (nx * x + ny * y + nz * depth).abs() / (norm * ray)
     disparity = fb.reshape(-1, 1, 1) / depth.clamp(min=1e-3)
     gd_v, gd_u = torch.gradient(disparity, dim=(-2, -1))
-    return disparity, cos_phi, torch.sqrt(gd_u * gd_u + gd_v * gd_v)
+    return disparity, cos_phi, torch.sqrt(gd_u * gd_u + gd_v * gd_v), gd_v
 
 
 def _conv_rows(x: torch.Tensor, kernel: torch.Tensor) -> torch.Tensor:
@@ -369,7 +381,7 @@ class D555NoiseProcess:
         """The noisy depth and the invalid blobs of one ``(N, H, W)`` clean frame."""
         c = self.cfg
         n = self.num_envs
-        disparity, cos_phi, grad = surface_geometry(depth, fb, c)
+        disparity, cos_phi, grad, grad_v = surface_geometry(depth, fb, c)
         cos_c = cos_phi.clamp(c.cos_min, 1.0)
         grad_c = grad.clamp(0.0, c.grad_max)
         phase = 2.0 * math.pi * (disparity - torch.floor(disparity))
@@ -400,8 +412,10 @@ class D555NoiseProcess:
         z = torch.where(depth >= max_depth, depth, z)  # at or beyond the far clamp the frame reads the clamp
 
         # invalid blobs: flickering speckle, static grazing dropout, the patch field
-        prob = (c.hole_p_base + c.hole_p_ref * (c.hole_c_ref / cos_c) ** c.hole_k_graze).clamp(1e-6, c.hole_p_max)
-        p_speckle = torch.clamp(c.hole_p_base + c.hole_f_speckle * (prob - c.hole_p_base), max=c.hole_p_speckle_max)
+        floor = (grad_v / c.hole_floor_grad_px).clamp(0.0, 1.0)
+        base = c.hole_p_base + (c.hole_p_floor - c.hole_p_base) * floor
+        prob = (base + c.hole_p_ref * (c.hole_c_ref / cos_c) ** c.hole_k_graze).clamp(1e-6, c.hole_p_max)
+        p_speckle = torch.clamp(base + c.hole_f_speckle * (prob - base), max=c.hole_p_speckle_max)
         p_static = (prob - p_speckle).clamp(0.0, 1.0)
         inf = torch.full_like(prob, float("inf"))
         thr_speckle = torch.where(p_speckle > 1e-6, torch.special.ndtri(1.0 - p_speckle.clamp(1e-6, 0.5)), inf)

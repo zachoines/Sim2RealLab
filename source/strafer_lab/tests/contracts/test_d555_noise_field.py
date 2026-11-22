@@ -5,7 +5,7 @@
 
 On the clean render, in disparity of the 640-wide stream: a temporal field T fresh each step, a static field S held for
 the episode, the disparity rounded to the 1/32 px lattice through the measured sub-pixel occupancy and the depth to
-the millimetre, and invalid blobs that follow the incidence angle and persist. Off, the function is the stereo
+the millimetre, and invalid blobs on the floor at fixed pixels, with no memory between steps. Off, the function is the stereo
 validity alone. The noise draws from its own generator, so neither the global stream nor the ``f·B`` draws move.
 
 No Kit / GPU. Run with the pure-Python lab tests.
@@ -46,18 +46,20 @@ def _process(n=1, seed=0, **noise):
 
 
 def test_the_geometry_reads_the_rays_incidence_on_a_wall_and_the_floors_grazing_cosine():
-    _, cos_wall, grad_wall = surface_geometry(_wall(), torch.tensor([FB]), D555NoiseCfg())
+    _, cos_wall, grad_wall, grad_v_wall = surface_geometry(_wall(), torch.tensor([FB]), D555NoiseCfg())
     u = (torch.arange(W) - 320.0) / 321.522
     v = (torch.arange(H) - 180.0) / 321.522
     ray = 1.0 / torch.sqrt(1.0 + u[None, :] ** 2 + v[:, None] ** 2)  # a fronto-parallel wall: the ray's own angle
     assert float((cos_wall[0, 5:-5, 5:-5] - ray[5:-5, 5:-5]).abs().max()) < 1e-4
     assert float(cos_wall[0, 180, 320]) == pytest.approx(1.0, abs=1e-6) and float(grad_wall[0, 5:-5, 5:-5].max()) < 1e-4
+    assert float(grad_v_wall[0, 5:-5, 5:-5].abs().max()) < 1e-4
     z = _floor()
-    _, cos_floor, grad_floor = surface_geometry(z, torch.tensor([FB]), D555NoiseCfg())
+    _, cos_floor, grad_floor, grad_v_floor = surface_geometry(z, torch.tensor([FB]), D555NoiseCfg())
     for v in (220, 260, 320):
         zf = float(z[0, v, 320])
         assert float(cos_floor[0, v, 320]) == pytest.approx(LENS_H / math.sqrt(LENS_H ** 2 + zf ** 2), rel=0.02)
         assert float(grad_floor[0, v, 320]) == pytest.approx(0.095 / LENS_H * FB / 30.545, rel=0.02)  # B / h per row
+        assert float(grad_v_floor[0, v, 320]) == pytest.approx(float(grad_floor[0, v, 320]), rel=1e-3)  # all of it down
 
 
 def test_off_the_function_is_the_stereo_validity_and_on_neither_the_global_stream_nor_fb_moves():
@@ -81,7 +83,7 @@ def _disparity(frame):
 
 
 def test_the_static_field_is_held_within_an_episode_and_redrawn_at_a_reset():
-    p = _process(t_sigma0_px=0.0, hole_p_base=0.0, hole_p_ref=0.0)  # S and the lattice only
+    p = _process(t_sigma0_px=0.0, hole_p_base=0.0, hole_p_floor=0.0, hole_p_ref=0.0)  # S and the lattice only
     z = _wall(2.0)[..., None]
     a, va = sensor_frame(z, p)
     b, vb = sensor_frame(z, p)
@@ -93,8 +95,8 @@ def test_the_static_field_is_held_within_an_episode_and_redrawn_at_a_reset():
 
 
 def test_the_temporal_field_is_fresh_each_step_and_white_in_time():
-    p = _process(s_sigma0_px=0.0, s_slope_gain=0.0, s_phase_bias_px=0.0, hole_p_base=0.0, hole_p_ref=0.0,
-                 lattice_lut=(), round_to_mm=False)
+    p = _process(s_sigma0_px=0.0, s_slope_gain=0.0, s_phase_bias_px=0.0, hole_p_base=0.0, hole_p_floor=0.0,
+                 hole_p_ref=0.0, lattice_lut=(), round_to_mm=False)
     z = _wall(2.0)[..., None]
     frames = torch.stack([_disparity(sensor_frame(z, p)[0][0, 40:320, 60:600, 0]) for _ in range(12)])
     resid = frames - frames.mean(0)
@@ -104,32 +106,35 @@ def test_the_temporal_field_is_fresh_each_step_and_white_in_time():
 
 
 def test_the_disparity_sits_on_the_lattice_and_the_depth_on_whole_millimetres():
-    p = _process(hole_p_base=0.0, hole_p_ref=0.0, round_to_mm=False)
+    p = _process(hole_p_base=0.0, hole_p_floor=0.0, hole_p_ref=0.0, round_to_mm=False)
     frame, valid = sensor_frame(_floor()[..., None], p)
     d = _disparity(frame[0, ..., 0][valid[0, ..., 0]].double())
     codes = torch.round((d - torch.floor(d + 1e-9)) * 32.0).long() % 32
     assert set(codes.unique().tolist()) <= set(LATTICE_OCCUPANCY_LUT)
     assert not ({0, 3, 6, 25, 28} & set(codes.unique().tolist()))  # the codes the unit never emits
-    q = _process(hole_p_base=0.0, hole_p_ref=0.0)
+    q = _process(hole_p_base=0.0, hole_p_floor=0.0, hole_p_ref=0.0)
     mm, v = sensor_frame(_floor()[..., None], q)
     zmm = mm[0, ..., 0][v[0, ..., 0] & (mm[0, ..., 0] < 6.0)].double() * 1000.0
     assert float((zmm - torch.round(zmm)).abs().max()) < 1e-3
 
 
-def test_the_blobs_persist_and_follow_the_incidence_angle():
+def test_the_blobs_take_the_floors_share_none_on_a_wall_and_recur_at_fixed_pixels_with_no_memory():
     p = _process(t_sigma0_px=0.0, s_sigma0_px=0.0, s_slope_gain=0.0, s_phase_bias_px=0.0)
-    z = _floor()[..., None]
+    z = _floor(wall=5.0)[..., None]  # the floor, and above it a fronto-parallel wall at 5 m
     masks = []
-    for _ in range(20):
+    for _ in range(40):
         _, v = sensor_frame(z, p)
         masks.append(~v[0, ..., 0])
-    near = slice(300, 360)  # floor rows nearest the camera, cos about 0.35-0.5; columns clear of the left band
-    floor = torch.stack(masks)[:, near, 120:600].float()
+    masks = torch.stack(masks).float()
+    floor = masks[:, 230:360, 120:600]  # floor rows at 0.5-1.8 m, columns clear of the left band
     share = float(floor.mean())
-    nxt = float((floor[1:] * floor[:-1]).sum() / floor[:-1].sum())
-    assert 0.005 < share < 0.2 and nxt > 3 * share
-    far = torch.stack(masks)[:, 205:215, 120:600].float().mean()  # floor at 2.6-3.6 m, cos about 0.08-0.1
-    assert float(far) > 2 * share
+    assert share == pytest.approx(D555NoiseCfg().hole_p_floor, rel=0.35)  # one episode's static map: a wide band
+    wall = masks[:, 40:150, 120:600]  # the wall: no vertical disparity gradient, no blobs
+    assert float(wall.mean()) == 0.0
+    # a pixel's rate is set per episode: invalid again one step later as often as twenty steps later, both well above
+    # the share, which independent draws would give
+    nxt = [float((floor[k:] * floor[:-k]).sum() / floor[:-k].sum()) for k in (1, 20)]
+    assert nxt[0] > 5 * share and nxt[0] == pytest.approx(nxt[1], abs=0.05)
 
 
 def test_the_far_clamp_gets_no_noise():

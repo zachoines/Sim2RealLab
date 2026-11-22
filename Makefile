@@ -224,7 +224,7 @@ clean: ## Remove colcon build artifacts
 
 clean-map: ## Delete the RTAB-Map database (container volumes + any bare-metal copy)
 	-docker volume rm strafer_strafer_ros_home strafer-sim_strafer_ros_home 2>/dev/null
-	-rm -f $(HOME)/.ros/rtabmap.db
+	-rm -f $(HOME)/.ros/rtabmap*.db $(HOME)/.ros/rtabmap*.db.scene.json
 	@echo "RTAB-Map database removed; SLAM starts fresh on next launch."
 
 # ---------- Kill ----------

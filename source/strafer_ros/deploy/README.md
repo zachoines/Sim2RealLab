@@ -254,15 +254,28 @@ reloading the previous run's map silently corrupts `/rtabmap/map` and every Nav2
 `/plan` measured against it. Set a token per sim run:
 
 ```bash
-STRAFER_SLAM_SCENE_TOKEN=run4        # -> ~/.ros/rtabmap_run4.db
+STRAFER_SLAM_SCENE_TOKEN=run4        # -> ~/.ros/rtabmap_run4@<mount>.db
 ```
 
-Whatever path is used, a `<db>.scene.json` sidecar records the key it belongs to,
-and a launch whose key **disagrees** aborts with the ways out rather than loading
-a foreign map. An empty key reproduces the historical behaviour exactly — the
-real robot maps one persistent scene and should reload `~/.ros/rtabmap.db`.
-`database_path:=<path>` still overrides everything, and `rtabmap_args:=-d` wipes
-and remaps.
+The camera mount is part of the key: `<mount>` is `CAMERA_OFFSET_X/Y/Z` in
+millimetres to 0.1 mm, joined by `_`. With neither a task id nor a token (the
+real robot) the database is `~/.ros/rtabmap_@<mount>.db`. It reloads on every
+boot of the same image. An image built with other mount constants derives that
+mount's name, so it maps fresh unless that mount was mapped before. The launch
+prints what it chose:
+`[strafer_slam] database=<path> key=<key>`, and
+`ros2 run strafer_slam database_path` prints the database a launch with the same
+environment uses.
+
+Whatever path is used, a `<db>.scene.json` sidecar records the key, and a launch
+that finds a database recorded under another key, or under none, aborts with
+the ways out rather than loading it; a launch that cannot write the sidecar (a
+full or read-only `~/.ros`) stops before RTAB-Map starts. `database_path:=<path>`
+chooses the file (its default spelling and an empty value derive it) but not that
+check, and `rtabmap_args:=-d` wipes and remaps.
+Keying never deletes or renames a database: the others stay in the volume.
+Recreate the services on a rebuilt image together, so the TF and the key carry
+the same mount.
 
 ### Zenoh / remote workstation
 `--profile remote` starts a Zenoh bridge exposing the ROS graph on

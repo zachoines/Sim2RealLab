@@ -49,7 +49,11 @@ def generate_launch_description():
         ),
         DeclareLaunchArgument(
             "database_path", default_value="~/.ros/rtabmap.db",
-            description="RTAB-Map database file path.",
+            description=(
+                "RTAB-Map database file path. This default, or an empty value, "
+                "makes strafer_slam derive ~/.ros/rtabmap_<key>.db "
+                "(scene key @ camera mount); any other value is the path."
+            ),
         ),
         DeclareLaunchArgument(
             "rtabmap_args", default_value="",
@@ -68,11 +72,12 @@ def generate_launch_description():
             description=(
                 "Opt-in 360 deg rotation at bringup to fill in the "
                 "camera blind-spot donut around base_link. Default off "
-                "on real-robot: in steady-state ops the rtabmap.db "
+                "on real-robot: in steady-state ops the RTAB-Map database "
                 "carries the donut fill-in from prior sessions, and a "
                 "startup spin has chassis/safety implications on real "
-                "hardware. Pass donut_warmup:=true on a cold-start "
-                "session (fresh rtabmap.db or new environment) where "
+                "hardware. Pass donut_warmup:=true on a cold start "
+                "(a fresh database: an unmapped environment, or "
+                "the first boot on other camera mount constants) where "
                 "the first mission would otherwise oscillate."
             ),
         ),

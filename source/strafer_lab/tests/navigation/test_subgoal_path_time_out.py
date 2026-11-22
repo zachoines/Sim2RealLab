@@ -24,9 +24,9 @@ import pytest
 import torch
 import warp as wp
 
-from strafer_shared.constants import POLICY_MISSION_TIMEOUT_S
+from strafer_shared.constants import NAV_ANGULAR_VEL, NAV_VEL_SCALE, POLICY_MISSION_TIMEOUT_S
 
-TURN_RATE = 2.0933  # rad/s, the angular cap at the reference scale (0.5 x 4.1866), fixed with 11.87 and 1.53
+TURN_RATE = 2.0933  # rad/s, the node's angular cap at the reference scale 0.5, pinned with 11.87 and 1.53
 PARAMS = dict(command_name="goal_command", action_name="wheel_velocities", intercept_s=11.87, time_per_m_s=1.53,
               turn_rate_rad_s=TURN_RATE, reference_speed_scale=0.5, ceiling_s=POLICY_MISSION_TIMEOUT_S)
 ENVELOPE = (0.255, 1.0)
@@ -119,6 +119,16 @@ def test_a_right_angle_adds_an_in_place_turn_at_the_deploy_caps_angular_speed():
         assert abs((turned - straight) / 30 - extra_s) <= 1 / 30, (s, straight, turned)
     assert (PI / 2) / TURN_RATE == pytest.approx(0.75, abs=0.001)
     assert (PI / 2) / TURN_RATE * 0.5 / 0.255 == pytest.approx(1.47, abs=0.002)
+
+
+def test_the_reference_scale_and_turn_rate_are_the_nodes_cap_the_bound_was_measured_at():
+    """The cfg takes both from the shared constants; 11.87 s and 1.53 s/m were measured at that cap. A retune of
+    NAV_VEL_SCALE or of the chassis maximum fails here: measure the bound again at the new cap, then re-pin."""
+    from strafer_lab.tasks.navigation import strafer_env_cfg
+
+    assert (NAV_VEL_SCALE, NAV_ANGULAR_VEL) == (PARAMS["reference_speed_scale"], PARAMS["turn_rate_rad_s"])
+    assert strafer_env_cfg._SUBGOAL_TIME_OUT_REFERENCE_SCALE == NAV_VEL_SCALE
+    assert strafer_env_cfg._SUBGOAL_TIME_OUT_TURN_RATE_RAD_S == NAV_ANGULAR_VEL
 
 
 def test_each_env_has_its_own_limit_and_no_state():
@@ -302,7 +312,7 @@ def test_every_subgoal_composition_carries_the_term_and_every_goal_one_the_stock
             subgoal += 1
             assert term.func is _mdp().path_time_out and term.params == PARAMS, name
             assert term.params["ceiling_s"] == POLICY_MISSION_TIMEOUT_S
-            assert term.params["turn_rate_rad_s"] == 2.0933  # a literal: no retune of the node's caps moves it
+            assert term.params["turn_rate_rad_s"] == 2.0933  # pinned: a retune of the node's caps fails here
         else:
             goal += 1
             assert term.func is _mdp().time_out and not term.params, name

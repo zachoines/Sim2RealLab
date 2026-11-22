@@ -268,15 +268,15 @@ prints what it chose:
 environment uses.
 
 Whatever path is used, a `<db>.scene.json` sidecar records the key, and a launch
-that finds a database recorded under another key, or under none, aborts with
-the ways out rather than loading it; a launch that cannot write the sidecar (a
-full or read-only `~/.ros`) stops before RTAB-Map starts. `database_path:=<path>`
-chooses the file (its default spelling and an empty value derive it) but not that
-check. `rtabmap_args:=-d` wipes and remaps: the launch removes the database and
-its sidecar before it claims, so a launch that stops early leaves no map to
-adopt. The launch deletes or renames no other database: the others stay in the volume.
-Recreate the services on a rebuilt image together, so the TF and the key carry
-the same mount.
+that finds a database recorded under another key, or under none, aborts with the
+ways out rather than loading it; a launch that cannot write the sidecar (a full
+or read-only `~/.ros`) stops before RTAB-Map starts. `database_path:=<path>`
+chooses the file (its default spelling and an empty value derive it) but not
+that check. `rtabmap_args:=-d` wipes and remaps: the launch removes the database
+and its sidecar before it claims, so a launch that stops early leaves no map to
+adopt. The launch deletes or renames no other database: the others stay in the
+volume. Recreate the services on a rebuilt image together, so the TF and the key
+carry the same mount.
 
 ### Zenoh / remote workstation
 `--profile remote` starts a Zenoh bridge exposing the ROS graph on

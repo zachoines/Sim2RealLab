@@ -75,8 +75,9 @@ docker logs strafer_slam 2>&1 | grep -A1 'loadDataFromDb()' | grep -c repair   #
 #    token (1b; the old db is kept for forensics) and re-seed by re-running steps 1-3.
 ```
 
-Details: scene keying and the `addLink()` abort are in the deploy
-[README](../../source/strafer_ros/deploy/README.md#slam-the-map-is-keyed-to-the-scene-and-the-camera-mount).
+Details: scene keying is in the deploy
+[README](../../source/strafer_ros/deploy/README.md#slam-the-map-is-keyed-to-the-scene-and-the-camera-mount),
+and the `addLink()` abort under its "Applying a config change".
 
 ## Send a natural-language command
 

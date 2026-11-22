@@ -3,13 +3,13 @@
 
 """Unit tests for sensor failure modes across all noise models.
 
-A failed IMU term or encoder repeats its previous reading (``stuck_probability``), as a held source does in the
-deployed node's cache (each IMU term is drawn on its own, where the robot's one IMU message holds both); on an env's
-first step after a reset there is no previous reading and the current one passes. The rate cases are seeded, so a read
-is reproducible, and each is tested two-sided at alpha 1e-6: at alpha 0.05 a seeded case is a fixed 1-in-20 draw on each
-device's random stream, which one GPU's stream at seed 7 missed (p 0.045) with the model correct. At 80 000 samples a
-rate off by 0.01 still fails (z about 8). The depth model has no failure mode of its own: a failed frame is a dropped one, which repeats the
-previous frame. The RGB model returns a black frame (``failure_probability``); no registered ID observes RGB.
+A failed IMU term or encoder repeats its previous reading (``stuck_probability``), as a held source does in the deployed
+node's cache (each IMU term is drawn on its own, where the robot's one IMU message holds both); on an env's first step
+after a reset there is no previous reading and the current one passes. The rate cases are seeded, so a read is
+reproducible, and each is tested two-sided at alpha 1e-6, since at alpha 0.05 a seeded case is a fixed 1-in-20 draw on
+each device's random stream. At 80 000 samples a rate off by 0.01 still fails (z about 8). The depth model has no
+failure mode of its own: a failed frame is a dropped one, which repeats the previous frame. The RGB model returns a
+black frame (``failure_probability``); no registered ID observes RGB.
 
 These tests validate:
 1. A stuck output equals the previous output bit for bit, and a reset forgets it.

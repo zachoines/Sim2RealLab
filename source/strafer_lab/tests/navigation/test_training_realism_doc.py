@@ -983,7 +983,7 @@ ANCHORS = {
     "noise_models.py#L477": "class DepthNoiseModel(",
     "observations.py#L45": "def reduce_depth_to_policy_grid", "d555_cfg.py#L145": "focal_length=",
     "composed_env_cfg.py#L572": "num_rerenders_on_reset = 1", "commands.py#L668": "perturb_waypoints(",
-    "proc_room.py#L981": "def generate_proc_room", "sim_real_cfg.py#L721": "IDEAL_SIM_CONTRACT",
+    "proc_room.py#L990": "def generate_proc_room", "sim_real_cfg.py#L721": "IDEAL_SIM_CONTRACT",
 }
 
 

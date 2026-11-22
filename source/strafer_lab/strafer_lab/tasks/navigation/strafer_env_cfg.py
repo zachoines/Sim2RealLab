@@ -49,7 +49,15 @@ from . import mdp
 
 # Import robot configuration
 from strafer_lab.assets import STRAFER_CFG
-from strafer_shared.constants import GOAL_ARRIVAL_RADIUS_M, POLICY_MISSION_TIMEOUT_S
+from strafer_shared.constants import (
+    GOAL_ARRIVAL_RADIUS_M,
+    NAV_ANGULAR_VEL,
+    NAV_VEL_SCALE,
+    POLICY_MISSION_TIMEOUT_S,
+    TRACK_WIDTH,
+    WHEEL_BASE,
+    WHEEL_RADIUS,
+)
 
 # Import sim-real contracts and helper functions
 from .sim_real_cfg import (
@@ -434,9 +442,9 @@ class ActionsCfg_Ideal:
         asset_name="robot",
         joint_names=["wheel_1_drive", "wheel_2_drive", "wheel_3_drive", "wheel_4_drive"],
         wheel_axis_signs=(-1.0, 1.0, -1.0, 1.0),
-        wheel_radius=0.048,
-        wheel_base=0.336,
-        track_width=0.4132,
+        wheel_radius=WHEEL_RADIUS,
+        wheel_base=WHEEL_BASE,
+        track_width=TRACK_WIDTH,
         **get_action_config_params(IDEAL_SIM_CONTRACT),
     )
 
@@ -448,9 +456,9 @@ class ActionsCfg_Realistic:
         asset_name="robot",
         joint_names=["wheel_1_drive", "wheel_2_drive", "wheel_3_drive", "wheel_4_drive"],
         wheel_axis_signs=(-1.0, 1.0, -1.0, 1.0),
-        wheel_radius=0.048,
-        wheel_base=0.336,
-        track_width=0.4132,
+        wheel_radius=WHEEL_RADIUS,
+        wheel_base=WHEEL_BASE,
+        track_width=TRACK_WIDTH,
         **get_action_config_params(REAL_ROBOT_CONTRACT),
     )
 
@@ -462,9 +470,9 @@ class ActionsCfg_Robust:
         asset_name="robot",
         joint_names=["wheel_1_drive", "wheel_2_drive", "wheel_3_drive", "wheel_4_drive"],
         wheel_axis_signs=(-1.0, 1.0, -1.0, 1.0),
-        wheel_radius=0.048,
-        wheel_base=0.336,
-        track_width=0.4132,
+        wheel_radius=WHEEL_RADIUS,
+        wheel_base=WHEEL_BASE,
+        track_width=TRACK_WIDTH,
         **get_action_config_params(ROBUST_TRAINING_CONTRACT),
     )
 
@@ -2034,16 +2042,18 @@ class RewardsCfg_ProcRoom_Subgoal_Depth(RewardsCfg_ProcRoom_Subgoal):
     )
 
 
-# The subgoal episode's time-out: 11.87 s + 1.53 s per metre of the installed path is the completion bound measured
-# under the deploy node's speed cap (envelope scale 0.5), plus the planned path's total turning taken as an in-place
-# turn at 2.0933 rad/s, the angular cap at that scale (0.5 x 4.1866 rad/s); below that scale the whole bound stretches
-# by 0.5 / s. The four constants are one measurement's, so none follows a later retune of the node's caps. The limit
-# is never below the env's episode length, and above it never past the larger of that and POLICY_MISSION_TIMEOUT_S,
-# the node's bound on one goal.
+# The subgoal episode's time-out. The reference scale and the turn rate are the deploy node's speed cap: NAV_VEL_SCALE
+# of the chassis maximum, and its angular speed NAV_ANGULAR_VEL. 11.87 s + 1.53 s per metre of the installed path are
+# measured, not derived: a trained policy's completion bound under that cap (a least-squares slope in the arc, and the
+# intercept that puts 99 % of completions under it). The planned path's total turning is added as an in-place turn at
+# the turn rate; below the reference scale the whole bound stretches by reference / s. A retune of the node's caps
+# moves the two derived values and fails the time-out's tests, which pin all four, until the bound is measured again
+# at the new cap. The limit is never below the env's episode length, and above it never past the larger of that and
+# POLICY_MISSION_TIMEOUT_S, the node's bound on one goal.
 _SUBGOAL_TIME_OUT_INTERCEPT_S = 11.87
 _SUBGOAL_TIME_OUT_PER_M_S = 1.53
-_SUBGOAL_TIME_OUT_TURN_RATE_RAD_S = 2.0933
-_SUBGOAL_TIME_OUT_REFERENCE_SCALE = 0.5
+_SUBGOAL_TIME_OUT_TURN_RATE_RAD_S = NAV_ANGULAR_VEL
+_SUBGOAL_TIME_OUT_REFERENCE_SCALE = NAV_VEL_SCALE
 
 
 @configclass

@@ -21,7 +21,9 @@ from types import SimpleNamespace
 import pytest
 import torch
 
-STEP = 1.0 / 30.0
+from strafer_shared.constants import POLICY_PERIOD_S
+
+STEP = POLICY_PERIOD_S
 N = 64
 
 
@@ -134,7 +136,7 @@ def test_the_delay_and_the_hold_mean_the_same_seconds_at_another_decimation():
     assert runs4 == pytest.approx([STEP, 1.2 * STEP]) and runs1 == pytest.approx(runs4, abs=tick / 2)
 
 
-def test_at_decimation_4_the_tiers_draw_todays_delays_and_runs():
+def test_at_decimation_4_the_tiers_draw_their_whole_step_delays_and_runs():
     for tier, top in (("Real", 3), ("Robust", 5)):
         term, _, _ = _term(tier=tier, num_envs=512)
         assert term._delay_steps_range == (1, top), tier

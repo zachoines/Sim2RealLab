@@ -225,8 +225,9 @@ constant, so re-exporting is what moves the deploy cadence.
 
 ## A run directory without a manifest
 A run directory without a manifest is matched to its task in two steps:
-1. its training stdout, where it was captured: the header prints
-   `Environment: <task id>`, and a few lines later `Logging to: <run dir>`;
+1. its training stdout, where it was captured as the in-tree
+   `logs/rsl_rl/**/*_stdout.log`: the header prints `Environment: <task id>`,
+   and a few lines later `Logging to: <run dir>`;
 2. failing that, the machine's Kit log for the launch, which records the
    full command line under a timestamp that matches the run directory's to
    the second.

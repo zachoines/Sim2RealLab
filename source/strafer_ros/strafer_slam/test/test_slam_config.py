@@ -5,6 +5,7 @@ import json
 import os
 import shutil
 import subprocess
+import types
 import xml.etree.ElementTree as ET
 import pytest
 import yaml
@@ -323,17 +324,31 @@ class TestSceneKeyedDatabase:
         assert "database_path:=" in msg
         assert "rtabmap_args:=-d" in msg
 
-    def test_delete_flag_bypasses_the_guard(self, tmp_path):
-        # rtabmap_args:=-d wipes the db at start, so there is no map left to
-        # protect against, recorded or not.
+    def test_delete_flag_removes_the_database_before_the_claim(self, tmp_path):
+        # rtabmap_args:=-d wipes the db, so the claim removes it and its record
+        # first, recorded or not: no record outlives the map it was written for.
         db = str(tmp_path / "rtabmap.db")
         sidecar = db + database.SIDECAR_SUFFIX
         database.claim_database(db, "run4", deleting=False)
-        _write(db)
+        _write(db, b"map")
         database.claim_database(db, "run5", deleting=True)
+        assert not os.path.exists(db)
+        assert json.loads(_read(sidecar))["key"] == "run5"
+        _write(db, b"map")
         os.remove(sidecar)
         database.claim_database(db, "run6", deleting=True)
+        assert not os.path.exists(db)
         assert json.loads(_read(sidecar))["key"] == "run6"
+
+    def test_a_database_that_cannot_be_removed_stops_the_claim(self, tmp_path):
+        db = str(tmp_path / "rtabmap.db")
+        sidecar = db + database.SIDECAR_SUFFIX
+        os.mkdir(db)
+        database.write_sidecar(sidecar, {"key": "run4"})
+        record = _read(sidecar)
+        with pytest.raises(RuntimeError, match="could not be removed"):
+            database.claim_database(db, "run5", deleting=True)
+        assert os.path.isdir(db) and _read(sidecar) == record
 
     def test_missing_db_is_claimed_not_refused(self, tmp_path):
         # A stale sidecar with no database behind it is not a wrong-scene
@@ -573,22 +588,54 @@ class TestSceneKeyedLaunch:
         [("-d", False), ("--delete_db_on_start", True), ("--udebug", True)],
         ids=["d", "delete_db_on_start", "udebug"],
     )
-    def test_only_the_short_delete_flag_bypasses_the_guard(
+    def test_only_the_short_delete_flag_removes_the_database(
         self, pkg_dir, monkeypatch, tmp_path, arg, refused
     ):
-        # A flag the guard does not read leaves the guard in place, which
-        # refuses rather than loads.
+        # A flag the guard does not read leaves the database and the guard in
+        # place, which refuses rather than loads.
         key = database.database_key("", database.CAMERA_MOUNT)
         db = str(tmp_path / ".ros" / f"rtabmap_{key}.db")
         os.mkdir(tmp_path / ".ros")
-        _write(db)
+        _write(db, b"map")
         mod = _load_launch(pkg_dir)
         if refused:
             with pytest.raises(RuntimeError):
                 _run_launch_setup(mod, monkeypatch, tmp_path, rtabmap_args=arg)
+            assert _read(db) == b"map"
         else:
             _run_launch_setup(mod, monkeypatch, tmp_path, rtabmap_args=arg)
+            assert not os.path.exists(db)
             assert json.loads(_read(db + database.SIDECAR_SUFFIX))["key"] == key
+
+    def test_a_delete_launch_that_stops_after_the_claim_leaves_no_map(
+        self, pkg_dir, monkeypatch, tmp_path
+    ):
+        # The launch claims, then loads RTAB-Map's parameters. One that stops
+        # there with -d has removed the other mount's map already, so the next
+        # launch without -d finds no map under the record to adopt.
+        x, y, z = database.CAMERA_MOUNT
+        key = database.database_key("", database.CAMERA_MOUNT)
+        ros = tmp_path / ".ros"
+        ros.mkdir()
+        db = str(ros / f"rtabmap_{key}.db")
+        _write(db, b"another mount's map")
+        database.write_sidecar(
+            db + database.SIDECAR_SUFFIX, {"key": database.database_key("", (x, y, z + 0.02))}
+        )
+
+        def stop(stream):
+            raise RuntimeError("stopped after the claim")
+
+        mod = _load_launch(pkg_dir)
+        monkeypatch.setattr(mod, "yaml", types.SimpleNamespace(safe_load=stop))
+        with pytest.raises(RuntimeError, match="stopped after the claim"):
+            _run_launch_setup(mod, monkeypatch, tmp_path, rtabmap_args="-d")
+        assert not os.path.exists(db)
+
+        notice = _notice(_run_launch_setup(_load_launch(pkg_dir), monkeypatch, tmp_path))
+        assert notice == f"[strafer_slam] database={db} key={key}"
+        assert not os.path.exists(db)
+        assert all(_read(str(ros / name)) != b"another mount's map" for name in os.listdir(ros))
 
     @pytest.mark.parametrize("localization", ["false", "true"], ids=["mapping", "localization"])
     def test_a_db_with_no_record_is_refused_in_either_mode(

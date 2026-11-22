@@ -272,8 +272,9 @@ that finds a database recorded under another key, or under none, aborts with
 the ways out rather than loading it; a launch that cannot write the sidecar (a
 full or read-only `~/.ros`) stops before RTAB-Map starts. `database_path:=<path>`
 chooses the file (its default spelling and an empty value derive it) but not that
-check, and `rtabmap_args:=-d` wipes and remaps.
-Keying never deletes or renames a database: the others stay in the volume.
+check. `rtabmap_args:=-d` wipes and remaps: the launch removes the database and
+its sidecar before it claims, so a launch that stops early leaves no map to
+adopt. Nothing else deletes or renames a database: the others stay in the volume.
 Recreate the services on a rebuilt image together, so the TF and the key carry
 the same mount.
 

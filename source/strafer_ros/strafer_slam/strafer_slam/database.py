@@ -97,16 +97,28 @@ def claim_database(db_path: str, key: str, *, deleting: bool) -> None:
 
     A sidecar that is missing, unreadable or holds no key records no key, so
     the map may be of another scene or from another camera mount. ``deleting``
-    is True when ``rtabmap_args`` carries ``-d`` (rtabmap wipes the db at
-    start), so there is no map left to protect against. A matching record is
-    left as written.
+    is True when ``rtabmap_args`` carries ``-d``: the database and its sidecar
+    are removed before the claim, as rtabmap's -d removes the database at
+    start, so a launch that stops after the claim leaves no map behind the
+    record. A matching record is left as written.
     """
     sidecar = db_path + SIDECAR_SUFFIX
+    if deleting:
+        for path in (db_path, sidecar):
+            try:
+                os.remove(path)
+            except FileNotFoundError:
+                pass
+            except OSError as exc:
+                raise RuntimeError(
+                    f"rtabmap_args carries -d, but {path!r} could not be removed "
+                    f"({exc}), so this launch does not start RTAB-Map on it."
+                ) from exc
     recorded = recorded_key(sidecar)
     if recorded == key:
         return
 
-    if not deleting and os.path.isfile(db_path):
+    if os.path.isfile(db_path):
         held = f"key {recorded!r}" if recorded is not None else "no readable key"
         raise RuntimeError(
             f"RTAB-Map database {db_path!r} has {held} in {sidecar!r}, but this "

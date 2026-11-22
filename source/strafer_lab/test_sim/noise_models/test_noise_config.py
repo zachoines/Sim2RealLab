@@ -41,8 +41,7 @@ def test_noise_affects_observations(noisy_env):
     """Verify observations have variance when noise is enabled.
 
     Uses one-sample t-test on per-step variances to verify that the
-    mean variance across steps is significantly greater than zero.
-    This replaces an arbitrary threshold with a proper statistical test. At
+    mean variance across steps is significantly greater than zero. At
     alpha 1e-6 on its own stream it is scale-free: any nonzero noise gives
     t near √50 over the per-step variances' relative spread (at most about
     0.10 across 64 envs and 3 axes, so t of about 70 or more) against the

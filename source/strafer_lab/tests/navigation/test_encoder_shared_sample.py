@@ -7,8 +7,8 @@ On the robot ``joint_states`` and odom carry the same reported wheel speeds, so 
 the policy's ``wheel_encoder_velocities`` term keeps its ``EncoderNoiseModel``, which applies the reported speed's lag
 and then the noise and keeps its output; the ``body_velocity_xy`` term's ``BodyVelocityNoiseModel``, built after it in
 the same group, returns the mecanum kinematics of that output. The terms' functions and the critic stay clean, so the
-policy tensor's layout is unchanged. The lag's three forms (a first-order filter, a pure delay, a moving average) take
-their parameter in seconds; 0 is the identity.
+shared reading adds no term to the policy tensor. The lag's three forms (a first-order filter, a pure delay, a moving
+average) take their parameter in seconds; 0 is the identity.
 
 No Kit / GPU. Run with the pure-Python lab tests.
 """

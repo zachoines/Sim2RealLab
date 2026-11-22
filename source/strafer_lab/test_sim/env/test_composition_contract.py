@@ -107,20 +107,20 @@ def _hash(obj):
 # training distribution did change — and it is why the layout golden below
 # exists: it is the half a deployed checkpoint depends on, and it must not move.
 _CONTRACT_GOLDENS = {
-    "RLDepth_Real": "9141bc7e945adeadf4d5bc68ab6785551b92085c582ebe3f6d4b1edf091dfcf3",
-    "RLDepth_Robust": "bb04106b1df9a07f1da8544636b3c25b521af7c6a7ec0c04989c5b4b8b6d2302",
-    "RLNoCam": "e0c00a35bba5d8780cbdfeacbd9cb1b3357e1d605aa4fb1237cd77b5f4d59f9c",
-    "RLDepth_Real_PLAY": "a010b8417d4ad1c3cc0a6bc9720bd8915bb62dfa3cc4929af977a18e83a86ae2",
-    "RLDepth_Robust_PLAY": "9af941937525509f4421ecc8a9197e25a66c15ccc2df4e428c5110d2e8124127",
-    "RLNoCam_PLAY": "9e7faea72eee2c42021d9b28285ece387f3b3320ec61142618b114ed5274ca5d",
-    "RLNoCamSubgoal_Real": "47b85b4c87ca3627f37aeee6bccdd24ae2eecc458bf1301a99d633e3c824d352",
-    "RLNoCamSubgoal_Robust": "be73e8da0c21b3f27236de77d83162f286a9647f7fd133794b5e640379bed30b",
-    "RLNoCamSubgoal_Real_PLAY": "5d7a6cfd10e369cc915752b5c686d1a129d10ae5e2e5e4dd4d1d9fed8171a817",
-    "RLNoCamSubgoal_Robust_PLAY": "0e141e10a7ee213de01fee272257443ed1e7c9070e178a1600d7d8de764a94dc",
-    "RLDepthSubgoal_Real": "70b44f9d0aa6e4b38634f671050824e28b0a349d50831332af5e854cb31995f0",
-    "RLDepthSubgoal_Robust": "4b2f2dfd29af0a91664a53b0a2f2a409bbe5cc005d661c92dde3f5e2ec1d181e",
-    "RLDepthSubgoal_Real_PLAY": "c85bf511f62264da709124f23a0b03bd3b1cf039a230485cc3cd7b41451723bb",
-    "RLDepthSubgoal_Robust_PLAY": "2b52918f49dcbc62b5ef4b3d60f647ebb790ce962e4b38b3534ae29331d613be",
+    "RLDepth_Real": "b7408ee4df3df488fdcd736d0f584ef97be7f397b84294e94d480d0ce040e5c3",
+    "RLDepth_Robust": "d14c1fa2cf8a616d0410392562fb845c4d68fe13b345af7770b974de6494e59f",
+    "RLNoCam": "5db51cdeea7f0f0ac0f33940c6b3c6cca2f9638a5e104871a01c53d858b3cea3",
+    "RLDepth_Real_PLAY": "bb4e9ded9e8d2ed8d1dc0462716c35cd903d980461dabfd8655f2454d98626b8",
+    "RLDepth_Robust_PLAY": "986c72943f45e0c835a6f78cde23f9353133e720f45799737c280bdeaa75a7d2",
+    "RLNoCam_PLAY": "e5391be0ba958e59be3e491e9ea29e8a03f606a15a0a8b43aec66ad0f5a5b080",
+    "RLNoCamSubgoal_Real": "994edf175d80c0a55a46a7ddce37abb4aa444423b1a80cfc3c2a9dcd6e861efc",
+    "RLNoCamSubgoal_Robust": "d9f08ea0acc8479e904026ac0fa2bf27db4a0d14c25cf6030799b4f15dd849f0",
+    "RLNoCamSubgoal_Real_PLAY": "79c719fd1d3992839f2a03141f8c93c171d3687f274020cc9301a75f708299bd",
+    "RLNoCamSubgoal_Robust_PLAY": "d032d3e273d48ac99d7f5ba8f977504d7c1c1a4768edfccaf29cf61e9f47a546",
+    "RLDepthSubgoal_Real": "5a66555fce8ff8232c56cb1ddb7487ca977e279b8cebac3448603d0a138bfa3e",
+    "RLDepthSubgoal_Robust": "e95a256191ec90c897bb784dcab889afcc4d6463f5a151350ff371cbb99a0863",
+    "RLDepthSubgoal_Real_PLAY": "ee42c7f8a4349727afe8bed7249a61f3377f2a71904afce1fc94439f4512555f",
+    "RLDepthSubgoal_Robust_PLAY": "19d56adf80b425298a66bd0077954a015a26311aa6485e53b080f5194725799a",
 }
 
 # Frozen signature (slot name set + spawn sizes) of the open-top room's 44-object

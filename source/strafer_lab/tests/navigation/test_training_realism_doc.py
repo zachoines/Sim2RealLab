@@ -1002,8 +1002,9 @@ def test_the_fields_nothing_reads_are_the_modules_declared_list():
 
 
 ANCHORS = {
-    "actions.py#L220": "torch.randint", "actions.py#L231": "HoldProcess(", "actions.py#L254": "_max_delta_per_step",
-    "actions.py#L395": "torch.expm1(", "actions.py#L276": "_draw_speed_scale",
+    "actions.py#L220": "self._delay_env_steps = torch.randint(", "actions.py#L231": "HoldProcess(",
+    "actions.py#L254": "_max_delta_per_step", "actions.py#L395": "torch.expm1(",
+    "actions.py#L304": "def _draw_speed_scale",
     "actions.py#L458": "l1_clamp_twist_batched(", "actions.py#L579": "max_wheel_angular_vel",
     "events.py#L570": "def randomize_motor_strength", "events.py#L621": "def randomize_d555_mount_offset",
     "events.py#L424": "def randomize_subgoal_drift", "events.py#L178": "class randomize_wheel_grip(",
@@ -1011,7 +1012,7 @@ ANCHORS = {
     "noise_models.py#L188": "class IMUNoiseModel(", "noise_models.py#L360": "class EncoderNoiseModel(",
     "noise_models.py#L492": "class DepthNoiseModel(", "d555_sensor.py#L65": "def stereo_validity",
     "observations.py#L46": "def reduce_depth_to_policy_grid", "d555_cfg.py#L145": "focal_length=",
-    "composed_env_cfg.py#L579": "num_rerenders_on_reset = 1", "commands.py#L683": "perturb_waypoints(",
+    "composed_env_cfg.py#L579": "num_rerenders_on_reset = 1", "planner.py#L251": "def perturb_waypoints(",
     "proc_room.py#L990": "def generate_proc_room", "sim_real_cfg.py#L814": "IDEAL_SIM_CONTRACT",
 }
 

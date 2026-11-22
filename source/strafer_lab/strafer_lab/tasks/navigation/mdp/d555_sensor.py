@@ -24,29 +24,35 @@ from dataclasses import dataclass
 
 import torch
 
-from strafer_shared.constants import D555_MEASURED_FX_PX, D555_RENDER_FAR_CLIP_M, DEPTH_MAX
+from strafer_shared.constants import (
+    D555_BASELINE_M, D555_MEASURED_FX_PX, D555_MIN_DEPTH_M, D555_RENDER_FAR_CLIP_M, DEPTH_MAX,
+)
+
+# The mask's band margin and occlusion tolerance, fitted on the robot's frames at mount height
+STEREO_MARGIN_PX = 6.5
+STEREO_OCCLUSION_TOL_PX = 0.5
 
 
 @dataclass(frozen=True)
 class D555SensorCfg:
     """The stereo-validity mask's parameters."""
 
-    fb_px_m: float = D555_MEASURED_FX_PX * 0.095
+    fb_px_m: float = D555_MEASURED_FX_PX * D555_BASELINE_M
     """Focal length (px, at the render resolution) times the stereo baseline (m)."""
 
     fb_scale_range: tuple[float, float] = (1.0, 1.0)
     """Per-env scale on ``fb_px_m``, drawn uniformly at each reset."""
 
-    margin_px: float = 6.5
+    margin_px: float = STEREO_MARGIN_PX
     """Width of the left band beyond the disparity, in px."""
 
     core_px: float = 0.0
     """A fixed width the left band never falls below, in px."""
 
-    min_depth_m: float = 0.244
+    min_depth_m: float = D555_MIN_DEPTH_M
     """Depth below which the sensor returns none, in m."""
 
-    occlusion_tol_px: float = 0.5
+    occlusion_tol_px: float = STEREO_OCCLUSION_TOL_PX
     """Right-image overlap, in px, beyond which a pixel is occluded."""
 
     invalid_depth_m: float = DEPTH_MAX

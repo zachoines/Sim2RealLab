@@ -510,7 +510,7 @@ def _():
         if p is None:
             return OFF
         d = _noise(t, DEPTH)
-        assert d.hole_probability == 0 and d.noise_free_at_max_range, t  # the row: holes retired, no sigma at the clamp
+        assert d.hole_probability == 0 and d.noise_free_at_max_range, t  # the row: no cell holes, no sigma at the clamp
         assert p["core_px"] == 0 and p["invalid_depth_m"] == d.max_range, t
         assert _c(t).observations.critic.depth_image.params["perceived"] is False, t
         out = [p["margin_px"], p["fb_px_m"], p["occlusion_tol_px"], p["min_depth_m"], p["invalid_depth_m"]]
@@ -1006,7 +1006,7 @@ ANCHORS = {
     "events.py#L423": "def randomize_subgoal_drift", "events.py#L178": "class randomize_wheel_grip(",
     "events.py#L361": "def randomize_mass", "events.py#L758": "def reset_robot_proc_room",
     "noise_models.py#L186": "class IMUNoiseModel(", "noise_models.py#L358": "class EncoderNoiseModel(",
-    "noise_models.py#L490": "class DepthNoiseModel(", "d555_sensor.py#L59": "def stereo_validity",
+    "noise_models.py#L490": "class DepthNoiseModel(", "d555_sensor.py#L65": "def stereo_validity",
     "observations.py#L46": "def reduce_depth_to_policy_grid", "d555_cfg.py#L145": "focal_length=",
     "composed_env_cfg.py#L579": "num_rerenders_on_reset = 1", "commands.py#L683": "perturb_waypoints(",
     "proc_room.py#L990": "def generate_proc_room", "sim_real_cfg.py#L813": "IDEAL_SIM_CONTRACT",

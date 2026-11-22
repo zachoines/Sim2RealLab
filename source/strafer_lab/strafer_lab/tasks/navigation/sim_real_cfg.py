@@ -32,7 +32,9 @@ from __future__ import annotations
 from isaaclab.utils.configclass import configclass
 from isaaclab.utils.noise import GaussianNoiseCfg
 
-from strafer_shared.constants import D555_MEASURED_FX_PX, D555_RENDER_FAR_CLIP_M, DEPTH_NEARFIELD_FILL
+from strafer_shared.constants import D555_MEASURED_FX_PX, D555_MIN_DEPTH_M, D555_RENDER_FAR_CLIP_M, DEPTH_NEARFIELD_FILL
+
+from strafer_lab.tasks.navigation.mdp.d555_sensor import STEREO_MARGIN_PX, STEREO_OCCLUSION_TOL_PX
 
 # Import custom noise models that generate independent per-environment noise
 from strafer_lab.tasks.navigation.mdp.noise_models import (
@@ -306,16 +308,16 @@ class DepthCameraNoiseCfg:
     stereo_fb_scale_range: tuple[float, float] = (1.0, 1.0)
     """Per-env scale on the mask's f·B (the policy camera's fx times ``baseline_m``), drawn at each reset."""
 
-    stereo_margin_px: float = 6.5
+    stereo_margin_px: float = STEREO_MARGIN_PX
     """Width of the left band beyond the disparity, in px at the render resolution."""
 
     stereo_core_px: float = 0.0
     """A fixed width the left band never falls below, in px."""
 
-    stereo_min_depth_m: float = 0.244
+    stereo_min_depth_m: float = D555_MIN_DEPTH_M
     """Depth below which the sensor returns none, in m."""
 
-    stereo_occlusion_tol_px: float = 0.5
+    stereo_occlusion_tol_px: float = STEREO_OCCLUSION_TOL_PX
     """Right-image overlap beyond which a pixel is occluded, in px."""
 
     # Range limits
@@ -664,12 +666,11 @@ def create_real_robot_contract() -> SimRealContractCfg:
                 # The sensor's stereo validity on the rendered frame, fitted on the robot's frames at mount height:
                 # the left band f·B/z + 6.5 px with no core, the occlusion shadows at 0.5 px. It replaces the cell
                 # holes. The 0.244 m minimum is the bench sensor's nearest finite return, where a 126-disparity
-                # search ends at 640x360 (f·B / 126); it is kept only if the robot session confirms the sensor
-                # returns none below it at mount height, and is 0 (no minimum) otherwise.
+                # search ends at 640x360 (f·B / 126), not measured at mount height.
                 stereo_mask_enable=True,
-                stereo_margin_px=6.5,
+                stereo_margin_px=STEREO_MARGIN_PX,
                 stereo_core_px=0.0,
-                stereo_min_depth_m=0.244,
+                stereo_min_depth_m=D555_MIN_DEPTH_M,
                 hole_probability=0.0,
                 frame_drop_probability=0.001,
                 # Design. The band was sized from the sim-in-the-loop rig's 23 Hz
@@ -756,12 +757,11 @@ def create_robust_training_contract() -> SimRealContractCfg:
                 # The sensor's stereo validity on the rendered frame, fitted on the robot's frames at mount height:
                 # the left band f·B/z + 6.5 px with no core, the occlusion shadows at 0.5 px. It replaces the cell
                 # holes. The 0.244 m minimum is the bench sensor's nearest finite return, where a 126-disparity
-                # search ends at 640x360 (f·B / 126); it is kept only if the robot session confirms the sensor
-                # returns none below it at mount height, and is 0 (no minimum) otherwise.
+                # search ends at 640x360 (f·B / 126), not measured at mount height.
                 stereo_mask_enable=True,
-                stereo_margin_px=6.5,
+                stereo_margin_px=STEREO_MARGIN_PX,
                 stereo_core_px=0.0,
-                stereo_min_depth_m=0.244,
+                stereo_min_depth_m=D555_MIN_DEPTH_M,
                 # Design: f·B scaled per env around the nominal 30.545 px m, bracketing the band's fitted slope
                 # (about 31.8) and the depth lattice's estimate (31.2-32.2)
                 stereo_fb_scale_range=(0.98, 1.06),

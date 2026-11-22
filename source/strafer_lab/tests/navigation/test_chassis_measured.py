@@ -1,7 +1,7 @@
 # Copyright (c) 2025, Strafer Lab Project
 # SPDX-License-Identifier: BSD-3-Clause
 
-"""The chassis's measured properties: the payload, the mount's translation, the IMU's per-sample noise.
+"""The chassis's payload, mount-translation and per-sample IMU-noise fields.
 
 The payload is added once at startup to the chassis body through Isaac Lab's own mass and centre-of-mass terms, and at
 no payload no term is installed. The mount offset can draw a translation of the D555 housing after its angles; the
@@ -138,7 +138,7 @@ def test_the_camera_prim_moves_by_the_same_draw_and_keeps_its_orientation():
     n, ids = 4, torch.tensor([0, 2])
     env, view = _cam_env(n)
     events.jitter_d555_camera_prim_pose(env, ids)
-    assert view.calls[0][0] is None  # no translation: orientation only, as before
+    assert view.calls[0][0] is None  # no translation: orientation only
     dr = torch.tensor([[0.01, 0.02, -0.005]]) * torch.arange(1, n + 1).unsqueeze(1)
     env2, view2 = _cam_env(n, dr)
     events.jitter_d555_camera_prim_pose(env2, ids)

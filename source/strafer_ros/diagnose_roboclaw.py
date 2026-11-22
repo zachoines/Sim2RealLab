@@ -4,6 +4,14 @@ commands instead of PID velocity.
 
 Also reads each controller's packet-serial timeout, and sets it on request. On request it
 writes the driver's velocity gains, and with --write-nvm saves either setting to flash.
+
+Every run that reaches the gains also reads the settings: firmware (21), status (90), the S-pin
+modes (75), the main battery settings (59), the default duty acceleration (81), the standard
+config (99), the current limits (135, 136), the PWM mode (149) and the idle modes (161). A
+reply whose length depends on the firmware (75, 81, 90) is taken at the length that
+arrived, if its CRC matches: 75's length is always printed, and a short 81 or 90 says so. Reading
+90 clears its warning bits and the E-Stop bit, so it is read once, never retried, and with base
+stopped the tool is their only reader.
 """
 
 from __future__ import annotations
@@ -27,8 +35,10 @@ from strafer_shared.constants import (
     ROBOCLAW_SERIAL_TIMEOUT_S,
 )
 from strafer_driver.roboclaw_interface import (
+    RoboClawChecksumError,
     RoboClawInterface,
     RoboClawError,
+    RoboClawTimeoutError,
     _crc16,
     detect_roboclaws,
     is_udev_roboclaw_port,
@@ -43,6 +53,88 @@ CMD_READ_M2_VEL_PID = 56
 CMD_WRITE_SETTINGS_NVM = 94
 CMD_READ_SETTINGS_NVM = 95
 NVM_WRITE_KEY = 0xE22EAB7A
+
+# The settings reads, all read-only (the RoboClaw user manual, Rev 6.0, pages 72-90).
+CMD_READ_FIRMWARE = 21
+CMD_READ_MAIN_BATTERY_SETTINGS = 59
+CMD_READ_PIN_MODES = 75
+CMD_READ_DEFAULT_DUTY_ACCEL = 81
+CMD_READ_STATUS = 90
+CMD_READ_STANDARD_CONFIG = 99
+CMD_READ_M1_CURRENT_LIMIT = 135
+CMD_READ_M2_CURRENT_LIMIT = 136
+CMD_READ_PWM_MODE = 149
+CMD_READ_IDLE = 161
+FIRMWARE_MAX_BYTES = 48
+SETTINGS_GAP_S = 0.012  # between the settings reads
+# Command 90's bits (four-byte status). Warnings clear when read; errors persist until a reset,
+# but for the E-Stop, which clears on read.
+STATUS_BITS = {
+    0x00000001: ("error", "Emergency Stop"),
+    0x00000002: ("error", "Temperature"),
+    0x00000004: ("error", "Temperature 2"),
+    0x00000010: ("error", "Logic Battery High"),
+    0x00000020: ("error", "Logic Battery Low"),
+    0x00000040: ("error", "Motor 1 Fault"),
+    0x00000080: ("error", "Motor 2 Fault"),
+    0x00000100: ("error", "Motor 1 Speed"),
+    0x00000200: ("error", "Motor 2 Speed"),
+    0x00000400: ("error", "Motor 1 Position"),
+    0x00000800: ("error", "Motor 2 Position"),
+    0x00001000: ("error", "Motor Current 1"),
+    0x00002000: ("error", "Motor Current 2"),
+    0x00010000: ("warning", "Over Current 1"),
+    0x00020000: ("warning", "Over Current 2"),
+    0x00040000: ("warning", "Main Battery High"),
+    0x00080000: ("warning", "Main Battery Low"),
+    0x00100000: ("warning", "Temperature"),
+    0x00200000: ("warning", "Temperature 2"),
+    0x00400000: ("warning", "S4 Limit Switch"),
+    0x00800000: ("warning", "S5 Limit Switch"),
+    0x01000000: ("warning", "Idle Motor 1"),
+    0x02000000: ("warning", "Idle Motor 2"),
+    0x20000000: ("warning", "Reset"),
+    0x40000000: ("warning", "Over Regen Motor 1"),
+    0x80000000: ("warning", "Over Regen Motor 2"),
+}
+# Command 74/75's pin modes (the 5-byte frame). Motion Studio's Invert option is not among them.
+PIN_MODES = {
+    0x00: "Default/Disabled",
+    0xC1: "E-Stop (Latching)",
+    0x14: "Voltage Clamp",
+    0x24: "RS485 Direction",
+    0x80: "Encoder Toggle",
+    0x04: "Brake",
+    0xE2: "Home (Auto)",
+    0x62: "Home (User)",
+    0xF2: "Home (Auto)/Limit (Fwd)",
+    0x72: "Home (User)/Limit (Fwd)",
+    0x12: "Limit (Fwd)",
+    0x22: "Limit (Rev)",
+    0x32: "Limit (Both)",
+    0x11: "Stop M1",
+    0x21: "Stop M2",
+    0x41: "E-Stop",
+    0x84: "User Output",
+    0x94: "Main Batt Out",
+    0xA4: "Logic Batt Out",
+    0xB4: "M1 Current Out",
+    0xC4: "M2 Current Out",
+    0xD4: "Temperature 1 Out",
+    0xE4: "Temperature 2 Out",
+    0x40: "Flip Switch",
+    0x34: "Main Batt Warning",
+    0x44: "Logic Batt Warning",
+}
+PIN_MODE_UNLISTED = "(not in the manual's table)"
+# Command 98/99's low bits: the control mode and the battery mode.
+CONFIG_MODES = {0x0000: "RC mode", 0x0001: "analog mode", 0x0002: "simple serial mode",
+                0x0003: "packet serial mode"}
+CONFIG_BATTERY_MODES = {0x0000: "off", 0x0004: "auto", 0x0008: "2 cell", 0x000C: "3 cell",
+                        0x0010: "4 cell", 0x0014: "5 cell", 0x0018: "6 cell", 0x001C: "7 cell"}
+# Command 148/149's PWM modes.
+PWM_MODES = {0: "inductive", 1: "resistive, 5 % blanking", 2: "resistive, 10 % blanking",
+             3: "resistive, 15 % blanking", 4: "resistive, 20 % blanking"}
 
 DUTY = 32
 DUTY_HOLD_S = 1.0
@@ -195,6 +287,185 @@ def describe_serial_timeout(seconds: float) -> str:
         return f"{seconds:.1f} s"
     disabled = "0 = disabled; " if seconds == 0 else ""
     return f"{seconds:.1f} s ({disabled}the bring-up expects {ROBOCLAW_SERIAL_TIMEOUT_S:.1f} s)"
+
+
+# ---------------------------------------------------------------------------
+# The settings reads: firmware, status, pins, battery limits, acceleration, config, current
+# limits, PWM and idle modes. Each only reads. Formats from the RoboClaw user manual, Rev 6.0; the
+# shorter 75, 81 and 90 replies are an older firmware's.
+# ---------------------------------------------------------------------------
+
+
+def _read_payload(claw: RoboClawInterface, command: int, lengths: tuple[int, ...]) -> bytes:
+    header = bytes([claw.address, command])
+    claw._serial.reset_input_buffer()
+    claw._serial.write(header + struct.pack(">H", _crc16(header)))
+    response = claw._serial.read(max(lengths) + 2)
+    payload, crc = response[:-2], response[-2:]
+    if len(payload) not in lengths:
+        raise RoboClawTimeoutError(
+            f"{len(response)} bytes on the wire, expected "
+            f"{' or '.join(str(n) for n in lengths)} data bytes and a 2-byte CRC"
+        )
+    if struct.unpack(">H", crc)[0] != _crc16(header + payload):
+        raise RoboClawChecksumError("CRC mismatch")
+    return payload
+
+
+def read_reply(claw: RoboClawInterface, command: int, *lengths: int) -> bytes:
+    """Send read *command* and return its payload, one of *lengths* bytes long.
+
+    Some replies' length depends on the firmware: the longest is read, and a shorter one ends at
+    the port's read timeout. The reply is taken at the length that arrived, if its CRC (over the
+    address, the command and the payload) matches.
+    """
+    return claw._retry(_read_payload, claw, command, lengths)
+
+
+def _read_firmware(claw: RoboClawInterface) -> str:
+    header = bytes([claw.address, CMD_READ_FIRMWARE])
+    claw._serial.reset_input_buffer()
+    claw._serial.write(header + struct.pack(">H", _crc16(header)))
+    text = b""
+    while not text.endswith(b"\n\x00"):
+        if len(text) >= FIRMWARE_MAX_BYTES + 2:
+            raise RoboClawError(f"no line feed and null in {len(text)} bytes")
+        byte = claw._serial.read(1)
+        if not byte:
+            raise RoboClawTimeoutError(f"reply ended after {len(text)} bytes")
+        text += byte
+    crc = claw._serial.read(2)
+    if len(crc) != 2 or struct.unpack(">H", crc)[0] != _crc16(header + text):
+        raise RoboClawChecksumError("CRC mismatch")
+    return text[:-2].decode("ascii", "replace").strip()
+
+
+def read_firmware(claw: RoboClawInterface) -> str:
+    """The product name and firmware version (command 21): a string ending in LF and NUL."""
+    return claw._retry(_read_firmware, claw)
+
+
+def describe_status(claw: RoboClawInterface) -> str:
+    # Read once, never retried: the read clears the warning bits, so a retry after a lost reply
+    # would read them cleared.
+    try:
+        with claw._lock:
+            payload = _read_payload(claw, CMD_READ_STATUS, (4, 2))
+    except SERIAL_ERRORS as e:
+        raise RoboClawError(f"{e}; the failed read may have cleared the warning bits") from e
+    if len(payload) == 2:
+        value = struct.unpack(">H", payload)[0]
+        return (
+            f"0x{value:04X} (2-byte reply: an older firmware's status, whose bits the manual's "
+            "table does not describe; not decoded)"
+        )
+    value = struct.unpack(">I", payload)[0]
+    if value == 0:
+        return "0x00000000, normal"
+    names = [f"{name} ({kind})" for bit, (kind, name) in STATUS_BITS.items() if value & bit]
+    unknown = value & ~sum(STATUS_BITS)
+    if unknown:
+        names.append(f"unlisted 0x{unknown:08X}")
+    return f"0x{value:08X}: {', '.join(names)}"
+
+
+def describe_pin_modes(claw: RoboClawInterface) -> str:
+    payload = read_reply(claw, CMD_READ_PIN_MODES, 5, 3)
+    if len(payload) == 3:
+        # An older firmware's frame: Rev 6.0's mode table is not known to hold for its values.
+        modes = ", ".join(f"{pin} 0x{mode:02X}" for pin, mode in zip(("S3", "S4", "S5"), payload))
+        return f"{modes} (3-byte reply: S3, S4, S5, an older firmware's frame; modes not named)"
+    modes = ", ".join(
+        f"{pin} 0x{mode:02X} {PIN_MODES.get(mode, PIN_MODE_UNLISTED)}"
+        for pin, mode in zip(("S3", "S4", "S5", "CTRL1", "CTRL2"), payload)
+    )
+    return f"{modes} (5-byte reply: S3, S4, S5, CTRL1, CTRL2)"
+
+
+def describe_battery_settings(claw: RoboClawInterface) -> str:
+    low, high, offset = struct.unpack(">HHB", read_reply(claw, CMD_READ_MAIN_BATTERY_SETTINGS, 5))
+    return f"min {low / 10:.1f} V, max {high / 10:.1f} V, auto offset {offset}"
+
+
+def describe_duty_acceleration(claw: RoboClawInterface) -> str:
+    payload = read_reply(claw, CMD_READ_DEFAULT_DUTY_ACCEL, 16, 8)
+    if len(payload) == 8:
+        m1, m2 = struct.unpack(">II", payload)
+        return f"M1 {m1}, M2 {m2} (8-byte reply: one value per motor)"
+    m1a, m1d, m2a, m2d = struct.unpack(">IIII", payload)
+    return f"M1 accel {m1a} decel {m1d}, M2 accel {m2a} decel {m2d}"
+
+
+def describe_standard_config(claw: RoboClawInterface) -> str:
+    (config,) = struct.unpack(">H", read_reply(claw, CMD_READ_STANDARD_CONFIG, 2))
+    mode = CONFIG_MODES[config & 0x0003]
+    battery = CONFIG_BATTERY_MODES[config & 0x001C]
+    return f"0x{config:04X} ({mode}, battery mode {battery})"
+
+
+def describe_current_limits(claw: RoboClawInterface) -> str:
+    """Both motors' limits; one motor's failed read does not keep the other's from being read."""
+    parts = []
+    for motor, command in ((1, CMD_READ_M1_CURRENT_LIMIT), (2, CMD_READ_M2_CURRENT_LIMIT)):
+        try:
+            high, low = struct.unpack(">II", read_reply(claw, command, 8))
+        except SERIAL_ERRORS as e:
+            parts.append(f"M{motor} read failed (cmd {command}): {e}")
+            continue
+        minimum = f" min {low / 100:.2f} A" if low else ""
+        parts.append(f"M{motor} max {high / 100:.2f} A{minimum}")
+    return ", ".join(parts)
+
+
+def describe_pwm_modes(claw: RoboClawInterface) -> str:
+    payload = read_reply(claw, CMD_READ_PWM_MODE, 2)
+    return ", ".join(
+        f"M{motor} {PWM_MODES.get(mode, f'unlisted {mode}')}"
+        for motor, mode in enumerate(payload, start=1)
+    )
+
+
+def describe_idle_modes(claw: RoboClawInterface) -> str:
+    payload = read_reply(claw, CMD_READ_IDLE, 2)
+    parts = []
+    for motor, byte in enumerate(payload, start=1):
+        delay = (byte & 0x7F) / 10
+        if byte & 0x80:
+            parts.append(f"M{motor} braking at zero (its {delay:.1f} s delay unused)")
+        else:
+            parts.append(f"M{motor} braking for {delay:.1f} s, then freewheel")
+    return ", ".join(parts)
+
+
+# (label, commands, describer), in the order printed.
+SETTINGS_READS = (
+    ("Firmware", "21", read_firmware),
+    ("Status", "90", describe_status),
+    ("S-pin modes", "75", describe_pin_modes),
+    ("Main battery settings", "59", describe_battery_settings),
+    ("Default duty acceleration", "81", describe_duty_acceleration),
+    ("Standard config", "99", describe_standard_config),
+    ("Current limits", "135, 136", describe_current_limits),
+    ("PWM mode", "149", describe_pwm_modes),
+    ("Idle modes", "161", describe_idle_modes),
+)
+
+
+def print_settings_reads(claw: RoboClawInterface) -> None:
+    """Each settings read on its own line; a failed read is said so, and the rest go on."""
+    print("\n  Settings:")
+    for label, commands, describe in SETTINGS_READS:
+        try:
+            print(f"    {label} (cmd {commands}): {describe(claw)}")
+        except SERIAL_ERRORS as e:
+            print(f"    {label} (cmd {commands}): read failed: {e}")
+        # A read's CRC byte can fall in 0x80-0x87, which over USB starts a packet; the controller
+        # drops a partial packet after 10 ms, so a gap keeps it off the next read.
+        time.sleep(SETTINGS_GAP_S)
+    print(
+        "    Reading command 90 clears its warning bits and the E-Stop bit: with base stopped, "
+        "this tool is their only reader."
+    )
 
 
 def test_duty_drive(
@@ -420,6 +691,8 @@ def diagnose_roboclaw(
                     "    *** --set-gains --write-nvm writes and saves the driver's gains ***"
                 )
 
+    print_settings_reads(claw)
+
     if not drive:
         print("\n  No motor command: the duty-cycle drive runs only with --drive.")
         claw.close()
@@ -480,8 +753,12 @@ def main(argv: list[str] | None = None) -> int | None:
     mode.add_argument(
         "--read-only",
         action="store_true",
-        help="Read battery, temperature, serial timeout and velocity PID only, as a run "
-        "without --drive, --set-serial-timeout or --set-gains does; no motor command is sent",
+        help="Read only, as a run without --drive, --set-serial-timeout or --set-gains does: "
+        "battery (24), temperature (82), serial timeout (15), velocity PID (55, 56), firmware "
+        "(21), status (90, which clears its warning bits and the E-Stop bit), S-pin modes (75), "
+        "main battery "
+        "settings (59), default duty acceleration (81), standard config (99), current limits "
+        "(135, 136), PWM mode (149) and idle modes (161); no motor command is sent",
     )
     mode.add_argument(
         "--drive",

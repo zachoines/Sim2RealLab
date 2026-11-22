@@ -242,7 +242,12 @@ python3 source/strafer_ros/tune_pid.py --tune         # set + measure
 # RoboClaw diagnostics. --front/--rear take /dev/roboclaw* names; any other path needs
 # --allow-unverified-ports (bench only). A port that does not answer the battery read gets
 # nothing more, and the run exits 1. By default it only reads: battery, temperature, velocity
-# PID and the packet-serial timeout (command 15, the active value). --drive adds the direct
+# PID and the packet-serial timeout (command 15, the active value), then the settings: firmware
+# (21), status (90, read once; the read clears its warning bits and the E-Stop bit, so with
+# base stopped it is their only reader), S-pin modes (75, with the reply's length: 5 bytes, or
+# 3 on older firmware, then shown unnamed), main battery min, max and auto offset (59), default
+# duty acceleration (81), standard config (99), current limits (135, 136), PWM mode (149) and
+# idle modes (161). --drive adds the direct
 # duty-cycle test (skips PID; wheels lifted). --set-serial-timeout 0.5 sets the timeout and
 # reads it back; with --write-nvm it first reloads the saved settings (command 95), then sets
 # and saves them all to flash (command 94), which resets the controller. --set-gains writes the

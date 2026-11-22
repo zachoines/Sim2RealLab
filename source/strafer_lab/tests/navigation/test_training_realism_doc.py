@@ -382,11 +382,14 @@ def _():
 
 @row("Wheel speed and torque", {"datasheet"})
 def _():
+    from strafer_shared import constants as k
+
     def cell(t):
         drive = _c(t).scene.robot.actuators["wheel_drives"]
         assert type(drive).__name__ == "ImplicitActuatorCfg"  # a velocity drive with a flat effort cap
-        limit = _term(t)[0]._wheel_speed_limit
-        assert limit == _act(t).max_wheel_angular_vel, (t, limit)  # the per-wheel limit at the rated speed
+        limit, a = _term(t)[0]._wheel_speed_limit, _act(t)
+        rated = a.max_wheel_angular_vel if a.wheel_speed_limit is None else k.MAX_WHEEL_ANGULAR_VEL
+        assert limit == rated, (t, limit)  # the per-wheel limit at the rated speed; unset, at the action scale
         return [limit, drive.effort_limit_sim]
     drive = _c("ideal").scene.robot.actuators["wheel_drives"]
     rpm = _act("ideal").max_wheel_angular_vel * 60.0 / (2.0 * math.pi)
@@ -976,14 +979,14 @@ ANCHORS = {
     "actions.py#L220": "torch.randint", "actions.py#L231": "HoldProcess(", "actions.py#L254": "_max_delta_per_step",
     "actions.py#L395": "torch.expm1(", "actions.py#L276": "_draw_speed_scale",
     "actions.py#L451": "l1_clamp_twist_batched(", "actions.py#L572": "max_wheel_angular_vel",
-    "events.py#L467": "def randomize_motor_strength", "events.py#L518": "def randomize_d555_mount_offset",
-    "events.py#L420": "def randomize_subgoal_drift", "events.py#L175": "class randomize_wheel_grip(",
-    "events.py#L358": "def randomize_mass", "events.py#L656": "def reset_robot_proc_room",
-    "noise_models.py#L185": "class IMUNoiseModel(", "noise_models.py#L351": "class EncoderNoiseModel(",
-    "noise_models.py#L477": "class DepthNoiseModel(",
+    "events.py#L468": "def randomize_motor_strength", "events.py#L519": "def randomize_d555_mount_offset",
+    "events.py#L421": "def randomize_subgoal_drift", "events.py#L175": "class randomize_wheel_grip(",
+    "events.py#L359": "def randomize_mass", "events.py#L657": "def reset_robot_proc_room",
+    "noise_models.py#L187": "class IMUNoiseModel(", "noise_models.py#L353": "class EncoderNoiseModel(",
+    "noise_models.py#L479": "class DepthNoiseModel(",
     "observations.py#L45": "def reduce_depth_to_policy_grid", "d555_cfg.py#L145": "focal_length=",
     "composed_env_cfg.py#L572": "num_rerenders_on_reset = 1", "commands.py#L668": "perturb_waypoints(",
-    "proc_room.py#L990": "def generate_proc_room", "sim_real_cfg.py#L721": "IDEAL_SIM_CONTRACT",
+    "proc_room.py#L990": "def generate_proc_room", "sim_real_cfg.py#L714": "IDEAL_SIM_CONTRACT",
 }
 
 

@@ -410,10 +410,11 @@ class TestSceneKeyedDatabase:
             database.claim_database(db, key, deleting=False)
         assert _read(sidecar) == data
 
-    def test_a_db_from_another_mount_is_refused(self, tmp_path):
+    @pytest.mark.parametrize("dz", [0.02, 0.0001], ids=["20mm", "0.1mm"])
+    def test_a_db_from_another_mount_is_refused(self, tmp_path, dz):
         x, y, z = database.CAMERA_MOUNT
         db = str(tmp_path / "rtabmap_run4.db")
-        there = database.database_key("run4", (x, y, z + 0.02))
+        there = database.database_key("run4", (x, y, z + dz))
         here = database.database_key("run4", database.CAMERA_MOUNT)
         database.claim_database(db, there, deleting=False)
         _write(db)
@@ -457,6 +458,23 @@ class TestSceneKeyedDatabase:
         assert record["written_by"] == "strafer_slam/slam.launch.py"
         assert not os.path.exists(sidecar + ".tmp")
 
+    def test_a_failed_write_leaves_the_previous_record(self, tmp_path, monkeypatch):
+        # The record is written beside the sidecar and renamed over it, so a
+        # write that fails part way leaves the previous record whole.
+        db = str(tmp_path / "rtabmap_run4.db")
+        sidecar = db + database.SIDECAR_SUFFIX
+        database.claim_database(db, "run4", deleting=False)
+        record = _read(sidecar)
+
+        def torn(obj, f, **kwargs):
+            f.write('{"key": "ru')
+            raise OSError("no space left on device")
+
+        monkeypatch.setattr(database.json, "dump", torn)
+        with pytest.raises(RuntimeError, match="Could not write the scene sidecar"):
+            database.claim_database(db, "run5", deleting=False)
+        assert _read(sidecar) == record
+
 
 class TestCameraMount:
     """A database's key carries the camera mount that places d555_link, so its
@@ -477,8 +495,9 @@ class TestCameraMount:
     def test_mount_is_written_in_millimetres_to_a_tenth(self):
         assert database.mount_tag((0.1, -0.0123, 0.3)) == "100_-12.3_300"
         assert database.database_key("run4", (0.1, -0.0123, 0.3)) == "run4@100_-12.3_300"
-        # Float noise and negative zero round away; one quantum re-keys.
+        # Float noise either side and negative zero round away; one quantum re-keys.
         assert database.mount_tag((0.1, -0.0, 0.3 + 1e-9)) == "100_0_300"
+        assert database.mount_tag((0.1, 0.0, 0.3 - 1e-9)) == "100_0_300"
         assert database.mount_tag((0.1, 0.0, 0.3001)) == "100_0_300.1"
         assert database.mount_tag((-1e-5, 0.0, 0.0)) == "0_0_0"
 
@@ -723,6 +742,19 @@ class TestDatabaseResolver:
         database.main(["--key"])
         line = capsys.readouterr().out
         assert line == f"database={db} key={key}\n"
+        assert _notice(actions) == f"[strafer_slam] {line.rstrip()}"
+
+    def test_key_prints_the_launch_line_for_tokens_that_slug(
+        self, pkg_dir, env, monkeypatch, tmp_path, capsys
+    ):
+        monkeypatch.setenv("STRAFER_SLAM_TASK_ID", "enrich v2")
+        monkeypatch.setenv("STRAFER_SLAM_SCENE_TOKEN", "07:40")
+        key = database.database_key(database.scene_key("enrich v2", "07:40"), database.CAMERA_MOUNT)
+        actions = _run_launch_setup(_load_launch(pkg_dir), monkeypatch, tmp_path)
+        database.main(["--key"])
+        line = capsys.readouterr().out
+        assert key.startswith("enrich-v2_07-40@")
+        assert line == f"database={tmp_path / '.ros' / f'rtabmap_{key}.db'} key={key}\n"
         assert _notice(actions) == f"[strafer_slam] {line.rstrip()}"
 
     def test_it_claims_writes_and_checks_nothing(self, env, capsys):

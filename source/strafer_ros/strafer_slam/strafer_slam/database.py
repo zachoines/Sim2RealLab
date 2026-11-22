@@ -186,3 +186,7 @@ def main(argv=None) -> int:
     path = resolve_database_path(args.database_path, key)
     print(f"database={path} key={key}" if args.key else path)
     return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

@@ -17,16 +17,16 @@ Usage:
 import numpy as np
 from scipy import stats
 import pytest
+import torch
 
 from test_sim.common import (
-    CONFIDENCE_LEVEL,
     N_SAMPLES_STEPS,
     one_sample_t_test,
 )
+from test_sim.noise_models.seeded_stream import CASE_ALPHA, CASE_CONFIDENCE, seeded_stream
 
 from test_sim.noise_models.conftest import (
     collect_stationary_observations,
-    extract_noise_samples,
     IMU_ACCEL_SLICE,
 )
 
@@ -36,12 +36,17 @@ from test_sim.noise_models.conftest import (
 # =============================================================================
 
 
+@seeded_stream(501)
 def test_noise_affects_observations(noisy_env):
     """Verify observations have variance when noise is enabled.
 
     Uses one-sample t-test on per-step variances to verify that the
     mean variance across steps is significantly greater than zero.
-    This replaces an arbitrary threshold with a proper statistical test.
+    This replaces an arbitrary threshold with a proper statistical test. At
+    alpha 1e-6 on its own stream it is scale-free: any nonzero noise gives
+    t near √50 over the per-step variances' relative spread (at most about
+    0.10 across 64 envs and 3 axes, so t of about 70 or more) against the
+    5.6 needed at 49 df.
     """
     obs = collect_stationary_observations(noisy_env, 50)
 
@@ -49,7 +54,7 @@ def test_noise_affects_observations(noisy_env):
     per_step_var = obs[:, :, IMU_ACCEL_SLICE].var(dim=1).mean(dim=1)  # (n_steps,)
     var_samples = per_step_var.cpu().numpy()
 
-    result = one_sample_t_test(var_samples, null_value=0.0)
+    result = one_sample_t_test(var_samples, null_value=0.0, confidence_level=CASE_CONFIDENCE)
 
     print(f"\n  Noise-enabled observation variance test (one-sample t-test):")
     print(f"    Mean per-step variance: {result.mean:.6e}")
@@ -63,6 +68,7 @@ def test_noise_affects_observations(noisy_env):
     )
 
 
+@seeded_stream(502)
 def test_noise_is_independent_across_envs(noisy_env):
     """Verify that custom NoiseModel generates independent noise per environment.
 
@@ -73,6 +79,9 @@ def test_noise_is_independent_across_envs(noisy_env):
     Statistical approach:
     - Compute Pearson correlation between noise from env 0 and env 1
     - Under null hypothesis of independence, test r ≈ 0
+    Tested at alpha 1e-6 on its own stream: at 600 pairs a correlation of
+    0.25 still fails (power 0.9), and a stream shared between envs (r 1)
+    fails at any n.
     """
     obs = collect_stationary_observations(noisy_env, 200)
 
@@ -99,20 +108,24 @@ def test_noise_is_independent_across_envs(noisy_env):
     print(f"    Correlation between env 0 and env 1: r={correlation:.4f}")
     print(f"    Standard error under H0 (independence): {se_r:.6f}")
     print(f"    Two-tailed p-value: {p_value:.4e}")
-    print(f"    Significance level (α): {1 - CONFIDENCE_LEVEL:.2f}")
+    print(f"    Significance level (α): {CASE_ALPHA:.0e}")
 
     # Test: correlation should not be significantly different from zero
-    assert p_value > (1 - CONFIDENCE_LEVEL), (
+    assert p_value > CASE_ALPHA, (
         f"Noise appears correlated across environments: "
-        f"r={correlation:.4f}, p={p_value:.4e} < α={1 - CONFIDENCE_LEVEL:.2f}"
+        f"r={correlation:.4f}, p={p_value:.4e} < α={CASE_ALPHA:.0e}"
     )
 
 
+@seeded_stream(503)
 def test_noise_changes_each_step(noisy_env):
     """Verify noise is different at each timestep (not frozen).
 
     Uses one-sample t-test on mean absolute step-to-step differences
-    to verify the changes are significantly greater than zero.
+    to verify the changes are significantly greater than zero. At alpha
+    1e-6 on its own stream it is scale-free: any step-to-step change gives
+    t near √49 over the per-step means' relative spread (about 0.055 across
+    64 envs and 3 axes, so t of about 130) against the 5.6 needed at 48 df.
     """
     obs = collect_stationary_observations(noisy_env, 50)
 
@@ -123,7 +136,7 @@ def test_noise_changes_each_step(noisy_env):
         step_diffs.append(diff.item())
 
     step_diffs = np.array(step_diffs)
-    result = one_sample_t_test(step_diffs, null_value=0.0)
+    result = one_sample_t_test(step_diffs, null_value=0.0, confidence_level=CASE_CONFIDENCE)
 
     print(f"\n  Step-to-step noise change test (one-sample t-test):")
     print(f"    Mean |Δobs| per step: {result.mean:.6f}")
@@ -142,32 +155,41 @@ def test_noise_changes_each_step(noisy_env):
 # =============================================================================
 
 
+@seeded_stream(504)
 def test_noise_has_zero_mean(noisy_env):
-    """Verify noise has approximately zero mean (unbiased).
+    """Verify the accelerometer's noise, its observation minus its clean value, has zero mean.
 
-    Uses one-sample t-test to verify the mean is not significantly
-    different from zero at the configured confidence level.
+    Each step the clean value is the term evaluated on the state the step's
+    observation was computed on, scaled as the manager scales it (the term has
+    no clip, and its noise is added before the scale). Each env carries its
+    own bias for the whole read (drawn per axis at the reset, then drifting),
+    so the unit of the test is the per-(env, axis) mean noise: 192 values,
+    tested against zero with a one-sample t-test at alpha 1e-6 on its own
+    stream. At 192 means a mean noise of 0.011 m/s² (46 % of the bias draws'
+    spread) still fails (power 0.9).
     """
-    obs = collect_stationary_observations(noisy_env, N_SAMPLES_STEPS)
+    names = noisy_env.observation_manager._group_obs_term_names["policy"]
+    term = noisy_env.observation_manager._group_obs_term_cfgs["policy"][names.index("imu_linear_acceleration")]
+    assert names[0] == "imu_linear_acceleration" and IMU_ACCEL_SLICE == slice(0, 3), "the accel term is not first"
+    assert term.clip is None and term.modifiers is None, "a clip or modifier would bend the noise"
 
-    # Extract noise for accelerometer
-    noise_samples = extract_noise_samples(obs, IMU_ACCEL_SLICE)
+    clean = []
+    obs = collect_stationary_observations(
+        noisy_env, N_SAMPLES_STEPS,
+        on_step=lambda env: clean.append(term.func(env, **term.params) * term.scale),
+    )
+    noise = obs[:, :, IMU_ACCEL_SLICE] - torch.stack(clean, dim=0)  # (steps, envs, 3), observation units
+    assert noise.std() > 0, "the accelerometer term carries no noise"
+    per_env_axis = (noise.mean(dim=0) / term.scale).flatten().cpu().numpy()  # m/s²
+    result = one_sample_t_test(per_env_axis, null_value=0.0, confidence_level=CASE_CONFIDENCE)
 
-    # One-sample t-test: is mean significantly different from 0?
-    result = one_sample_t_test(noise_samples, null_value=0.0)
+    print(f"\n  Accelerometer noise mean test (observation minus clean value, one-sample t-test):")
+    print(f"    per-(env, axis) means: {result.n_samples}")
+    print(f"    mean of means: {result.mean:.6f} m/s², sd {np.std(per_env_axis, ddof=1):.6f} m/s²")
+    print(f"    noise sd over all samples: {(noise / term.scale).std().item():.6f} m/s²")
+    print(f"    t: {result.t_statistic:.4f}, p-value: {result.p_value:.4g}")
 
-    std = np.std(noise_samples)
-
-    print(f"\n  Accelerometer noise mean test (one-sample t-test):")
-    print(f"    N samples: {result.n_samples:,}")
-    print(f"    Mean: {result.mean:.6f}")
-    print(f"    Std: {std:.6f}")
-    print(f"    {CONFIDENCE_LEVEL*100:.0f}% CI for mean: [{result.ci_low:.2e}, {result.ci_high:.2e}]")
-    print(f"    p-value: {result.p_value:.4f}")
-    print(f"    Reject null (mean ≠ 0): {result.reject_null}")
-
-    # Test passes if we fail to reject the null hypothesis (mean = 0)
     assert not result.reject_null, (
-        f"Noise mean {result.mean:.6f} is significantly different from zero "
-        f"(p={result.p_value:.4f} < α={1 - CONFIDENCE_LEVEL:.2f})"
+        f"Noise mean {result.mean:.6f} m/s² is significantly different from zero "
+        f"(p={result.p_value:.4g} < α={CASE_ALPHA:.0e})"
     )

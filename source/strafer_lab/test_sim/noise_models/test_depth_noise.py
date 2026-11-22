@@ -24,6 +24,7 @@ from test_sim.common import (
     binomial_test,
     DEVICE,
 )
+from test_sim.noise_models.seeded_stream import CASE_CONFIDENCE, seeded_stream
 
 # -- imports resolved after AppLauncher (root conftest) --
 from strafer_lab.tasks.navigation.mdp.noise_models import (
@@ -82,6 +83,7 @@ def _make_depth_model(
 # =============================================================================
 
 
+@seeded_stream(101)
 def test_depth_dependent_noise():
     """Verify depth noise increases with distance (stereo noise model).
 
@@ -90,15 +92,17 @@ def test_depth_dependent_noise():
 
     Tests both:
     1. Monotone ordering: std(1m) < std(2m) < std(4m)
-    2. Chi-squared variance test at a reference depth against theoretical σ
+    2. Chi-squared variance test at a reference depth against theoretical σ,
+       at alpha 1e-6 on its own stream: at 10 000 samples a sigma off by
+       4.4 % still fails (power 0.9)
     """
     model = _make_depth_model(hole_probability=0.0)
     stereo_coeff = TEST_DISPARITY_NOISE_PX / (TEST_FOCAL_PX * TEST_BASELINE_M)
 
     # Use enough samples for stable chi-squared but not so many that float32
-    # GPU precision causes false rejections.  A 99% CI keeps the test stable.
+    # GPU precision causes false rejections.
     n_chi2 = 10_000
-    chi2_confidence = 0.99
+    chi2_confidence = CASE_CONFIDENCE
     test_depths = [1.0, 2.0, 4.0]
     measured_stds = {}
 
@@ -150,11 +154,14 @@ def test_depth_dependent_noise():
     )
 
 
+@seeded_stream(102)
 def test_hole_probability():
     """Verify hole insertion rate matches configured probability.
 
     Pinned to ``hole_fill="max"`` so a hole is identifiable by its value:
-    the rate is what this test measures, not the value written.
+    the rate is what this test measures, not the value written. Tested at
+    alpha 1e-6 on its own stream: at 307 million pixel draws a rate off by
+    6e-5 (0.2 % of the 0.03) still fails (power 0.9).
     """
     model = _make_depth_model(hole_probability=TEST_HOLE_PROBABILITY, hole_fill="max")
 
@@ -169,9 +176,7 @@ def test_hole_probability():
         n_holes += int((noisy >= TEST_MAX_RANGE - 1e-3).sum().item())
         n_total += N_ENVS * N_PIXELS
 
-    # Use 99% confidence: with ~409M observations the binomial test has
-    # extreme power — even sub-0.01% deviations cause rejection at 95%.
-    hole_confidence = 0.99
+    hole_confidence = CASE_CONFIDENCE
     result = binomial_test(n_holes, n_total, TEST_HOLE_PROBABILITY,
                            confidence_level=hole_confidence)
 

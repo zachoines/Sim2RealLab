@@ -56,6 +56,17 @@ entry-point scripts](repo-topology.md#key-entry-point-scripts).
 **Profiling**
 - `phase_profiler` — per-phase timing for the training/capture loops.
 
+**Run provenance**
+- `train_manifest` — the training run's `train_manifest.json`, written at run start (task ID, git SHA and dirty flag, seed, env count, iterations, command line, resume chain); `export_policy` reads it into the sidecar's `training_env_id`.
+
+A run directory without a manifest is matched to its task in two steps:
+1. its training stdout, where it was captured: the header prints `Environment: <task id>`, and a few lines later
+   `Logging to: <run dir>`;
+2. failing that, the machine's Kit log for the launch, which records the full command line under a timestamp that
+   matches the run directory's to the second.
+
+An export sidecar's `env_id` is the export env, not the training task. Read `training_env_id`, or the run's manifest.
+
 `tools/retired/` holds deprecated-but-mined code (e.g. `dataset_export`): not imported by any live entry point; emptied by the owning brief on ship.
 
 ## `strafer_lab/scripts/` (run directly via `$ISAACLAB -p` / `python -m` / a `make` target)

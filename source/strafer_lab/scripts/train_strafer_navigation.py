@@ -11,6 +11,9 @@ Video recording (overhead view):
     --video_length 200     Frames per clip (default: 200)
     --video_interval 2000  Steps between recordings (default: 2000)
 
+Each run directory (``<log_dir>/run_<timestamp>``) gets ``train_manifest.json`` before the first iteration: the
+task ID, the git SHA and a dirty flag, the seed, env count and iterations, the command line and the resume chain.
+
 Usage:
     $ISAACLAB -p source/strafer_lab/scripts/train_strafer_navigation.py --num_envs 512
     $ISAACLAB -p source/strafer_lab/scripts/train_strafer_navigation.py --headless --num_envs 1024
@@ -20,6 +23,7 @@ Usage:
 import argparse
 import math
 import os
+import sys
 from datetime import datetime
 
 
@@ -320,6 +324,18 @@ def main():
         log_dir = os.path.join(log_root, f"run_{timestamp}")
         os.makedirs(log_dir, exist_ok=True)
     print(f"Logging to: {log_dir}")
+    from strafer_lab.tools.train_manifest import build_train_manifest, write_train_manifest
+
+    manifest = build_train_manifest(
+        task_id=env_name,
+        seed=args.seed,
+        num_envs=args.num_envs,
+        max_iterations=agent_cfg.max_iterations,
+        num_steps_per_env=agent_cfg.num_steps_per_env,
+        resume=args.resume,
+        argv=sys.argv,
+    )
+    print(f"Manifest: {write_train_manifest(log_dir, manifest)}")
 
     # Create runner (inject CLI overrides into the config dict)
     agent_cfg = handle_deprecated_rsl_rl_cfg(agent_cfg, _rsl_rl_version)

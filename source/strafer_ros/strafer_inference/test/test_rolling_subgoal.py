@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import ast
 import subprocess
 import sys
 from pathlib import Path
@@ -15,8 +16,8 @@ from strafer_inference import generator
 # A fresh interpreter, as this process has already imported strafer_shared and
 # rclpy. numpy is in the baseline since its compiled extensions register modules
 # of their own. A finder refuses the blocked names and records every attempt, so
-# a guarded import fails too; the API runs once so an import inside a function
-# is reached.
+# a guarded import fails too. The API runs once, along one path; the syntax-tree
+# test below reads the imports on every other.
 _PROBE = """
 import importlib.abc
 import sys
@@ -81,6 +82,17 @@ def test_core_imports_with_numpy_alone(tmp_path):
     )
     assert result.returncode == 0, result.stderr
     assert Path(result.stdout.strip()).resolve() == Path(core.__file__).resolve()
+
+
+def test_every_import_in_the_core_is_numpy_strafer_shared_or_the_stdlib():
+    tree = ast.parse(Path(core.__file__).read_text(encoding="utf-8"))
+    named = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            named.update(alias.name.partition(".")[0] for alias in node.names)
+        elif isinstance(node, ast.ImportFrom):
+            named.add("strafer_shared" if node.level else node.module.partition(".")[0])
+    assert named - set(sys.stdlib_module_names) - {"numpy", "strafer_shared"} == set()
 
 
 @pytest.mark.parametrize("name", _OBJECTS)

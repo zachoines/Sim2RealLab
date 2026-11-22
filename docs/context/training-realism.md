@@ -4,7 +4,7 @@ Navigation training perturbs the actuation, the sensors and the world on one of 
 `RealismCfg(level=...)` ([`composed_env_cfg.py`](../../source/strafer_lab/strafer_lab/tasks/navigation/composed_env_cfg.py)):
 `ideal` (nothing), `real` (the realistic tier) and `robust`. The action term, the sensor noise and the subgoal-frame
 drift come from the tier contracts `IDEAL_SIM_CONTRACT`, `REAL_ROBOT_CONTRACT` and `ROBUST_TRAINING_CONTRACT`
-([`sim_real_cfg.py:741-743`](../../source/strafer_lab/strafer_lab/tasks/navigation/sim_real_cfg.py#L741)); friction,
+([`sim_real_cfg.py:743-745`](../../source/strafer_lab/strafer_lab/tasks/navigation/sim_real_cfg.py#L743)); friction,
 mass, motor strength, the mount angle, the room and the lookahead bands are per-tier values in
 [`strafer_env_cfg.py`](../../source/strafer_lab/strafer_lab/tasks/navigation/strafer_env_cfg.py), and the re-render is
 set per sensor stack in `composed_env_cfg.py`. Every RL ID trains on `real` unless it is named `…-Robust-…`;

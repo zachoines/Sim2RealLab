@@ -464,7 +464,9 @@ class LocalizationDriftCfg:
     planned once at reset."""
 
     replan_period_s: float = 0.5
-    """The replan period in seconds, the subgoal generator's."""
+    """The replan period in seconds. It mirrors the subgoal generator node's
+    ``replan_period_s`` in strafer_inference (``subgoal_generator_node.py``
+    and ``config/subgoal_generator.yaml``)."""
 
 
 # =============================================================================

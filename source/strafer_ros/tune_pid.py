@@ -93,9 +93,9 @@ MAX_HOLD_S = 30.0  # a cap on a mistyped --hold or --settle: five default holds
 # (roboclaw_node's publish_rate, 50 Hz).
 SAMPLE_PERIOD_S = 0.02
 
-# Rest: a count that moves more than REST_TICKS over PRE_S before the step is
-# not at rest, and one that moves more than that over STILL_CHECK_S, STILL_CHECK_S
-# after the final stop, is still turning. Either check catches every wheel
+# Rest: a count that moves more than REST_TICKS over PRE_S (ten cycles) before
+# the step is not at rest, and one that moves more than that over STILL_CHECK_S,
+# from STILL_CHECK_S after a stop, is turning. Either check catches every wheel
 # turning at 20 ticks/s or more, under 4 % of the default step. A wheel at rest
 # moves no tick: two let an encoder resting on an edge flicker a count, with one
 # to spare. A lifted wheel stopped at duty 0 from about 600 ticks/s is at rest
@@ -143,14 +143,20 @@ RUNAWAY_SAMPLES = 10
 STALL_AFTER_S = 0.5
 STALL_WINDOW_S = 0.3
 STALL_FRACTION = 0.1
-# Count reads failed, or command 37 unacknowledged, MAX_MISSED cycles in a row:
-# one is a lost packet, two a failing link.
+# Count reads failed, or command 37 unacknowledged, MAX_MISSED cycles in a row.
+# A missed cycle is a command 37 or its acknowledgement lost (the interface does
+# not retry it), or a count read failed twice, with the interface's one retry;
+# one is let pass, two in a row are a failing link.
 MAX_MISSED = 2
 # The largest step keeps the runaway limit RUNAWAY_HEADROOM of ROBOCLAW_QPPS,
 # the motors' mean full speed, so a motor slower than the mean (the slowest is
 # 1 % under it) and the full-speed count's scatter still trip it.
 RUNAWAY_HEADROOM = 0.9
 MAX_STEP_TICKS = (int(RUNAWAY_HEADROOM * ROBOCLAW_QPPS) - RUNAWAY_MARGIN_TPS) // RUNAWAY_FACTOR
+# The smallest step is a tick a cycle over AGAINST_TPS, so the against abort sees
+# a reversed motor every cycle: under it a reversed wheel turning 3 ticks a cycle
+# reads exactly AGAINST_TPS, and the abort trips only by the cycle's timing.
+MIN_STEP_TICKS = round(AGAINST_TPS + 1 / SAMPLE_PERIOD_S)
 
 # The fit covers the rise, before the box opens: after it, the integral term's
 # slow approach to the target is no first-order lag, and over a whole hold it
@@ -160,10 +166,11 @@ FIT_END_S = TRACK_START_S
 # time's 0 is physical, but a fit held there has not resolved the split between
 # the dead time and tau, and its sum may be short. Its 0.3 s, half the window,
 # is far past a working wheel's (under 20 ms) and leaves the rest of the window
-# to the rise. Tau's floor sits above the controller's 300 Hz loop (3.3 ms);
-# past its 3 s, five windows, a rise is a ramp inside the window, which fixes
-# only its slope. A fit at any of these four bounds is reported as no
-# measurement.
+# to the rise. Tau's floor is a quarter of a cycle: a shorter lag rises within
+# one cycle, so at most one read falls in its rise and the rest see only its
+# sum with the dead time. Past its 3 s, five windows, a rise is a ramp inside
+# the window, which fixes only its slope. A fit at any of these four bounds is
+# reported as no measurement.
 DEAD_TIME_MAX_S = 0.3
 TAU_MIN_S = 0.005
 TAU_MAX_S = 3.0
@@ -534,12 +541,12 @@ def run_step_response(
     not start unless the controller's serial timeout is armed, the stop is
     acknowledged and, *settle_s* later, both counts are at rest. It stops, for
     both motors, when a motor turns against its target, runs away from it, or
-    (if stepped) stalls, or when reads fail or command 37 goes unacknowledged
-    MAX_MISSED cycles in a row, or when a cycle comes later than the serial
-    timeout after the last (the process was paused, and the controller has
-    stopped the wheels): the step is not resumed. An unacknowledged final stop
-    is followed by SILENT_S without a packet, and a motor still moving
-    STILL_CHECK_S after the stop fails.
+    (if stepped) stalls, when reads fail or command 37 goes unacknowledged
+    MAX_MISSED cycles in a row, or when a cycle starts, or its command 37 ends,
+    later than the serial timeout after the last cycle started (the controller
+    may have stopped the wheels): the step is not resumed, nor taken for a
+    finished hold. An unacknowledged final stop is followed by SILENT_S without
+    a packet, and a motor turning STILL_CHECK_S after the stop fails.
     """
     traces = {m: StepTrace(motor=m, target=speed_ticks) for m in motors}
     target = {m: speed_ticks if m in motors else 0 for m in ("M1", "M2")}
@@ -589,15 +596,32 @@ def run_step_response(
     try:
         t0 = time.monotonic()
         next_cycle = sent = t0
-        while (now := time.monotonic()) - t0 < hold_s:
+        while True:
+            # The gap is checked before the hold's end, so a pause that carries the
+            # clock past the end is not taken for a finished hold.
+            now = time.monotonic()
             if now - sent > timeout:
                 abort(
                     f"{now - sent:.2f} s between cycles, over the {timeout:g} s serial timeout "
-                    "that stops the wheels (the process was paused?); the step is not resumed"
+                    "that stops the wheels (the process was paused, or packets went "
+                    "unanswered); the step is not resumed"
                 )
                 break
-            sent = now
+            if now - t0 >= hold_s:
+                break
+            prev, sent = sent, now
             missed_acks = 0 if rc.drive_m1m2_speed(target["M1"], target["M2"]) else missed_acks + 1
+            # The controller has heard nothing since the last cycle's reads: a pause
+            # after the clock read, which the gap above misses, shows here, and the
+            # stop follows the late command 37 at once.
+            late = time.monotonic() - prev
+            if late > timeout:
+                abort(
+                    f"{late:.2f} s from the last cycle to the end of this one's command 37, over "
+                    f"the {timeout:g} s serial timeout that stops the wheels (the process was "
+                    "paused, or packets went unanswered); the step is not resumed"
+                )
+                break
             if missed_acks >= MAX_MISSED:
                 abort(f"command 37 unacknowledged {MAX_MISSED} cycles in a row")
                 break
@@ -643,9 +667,15 @@ def run_step_response(
                         break
             if stop:
                 break
-            # A late cycle moves the schedule on rather than running the missed
-            # cycles back to back.
-            next_cycle = max(next_cycle + SAMPLE_PERIOD_S, time.monotonic())
+            # The cycles keep the 50 Hz grid. A cycle that ends past the next grid
+            # point moves the grid to one period after its own start, and the missed
+            # cycles are not run. After a pause between this cycle's clock read and
+            # its command 37 reaching the controller, that is past too: the next cycle
+            # runs at once, its command 37 one cycle's I/O after this one's, and no
+            # rule trips on it.
+            next_cycle += SAMPLE_PERIOD_S
+            if next_cycle <= time.monotonic():
+                next_cycle = now + SAMPLE_PERIOD_S
             time.sleep(max(0.0, next_cycle - time.monotonic()))
     finally:
         # Hard-stop motor (duty-cycle, not PID)
@@ -657,24 +687,47 @@ def run_step_response(
             )
             time.sleep(SILENT_S)
 
-    # Verify the motors stopped: a wheel still turning STILL_CHECK_S after the
-    # stop is stopped again, and fails.
+    # Verify the motors stopped: a wheel turning STILL_CHECK_S after the stop is
+    # stopped again, and fails.
     faults = [] if stopped else [f"the duty-0 stop went unacknowledged (silent {SILENT_S:g} s)"]
-    try:
-        time.sleep(STILL_CHECK_S)
-        before = {m: _read_count(rc, m)[1] for m in target}
-        time.sleep(STILL_CHECK_S)
-        after = {m: _read_count(rc, m)[1] for m in target}
-        moving = [m for m in target if abs(count_delta(before[m], after[m])) > REST_TICKS]
-        if moving:
-            hard_stop(rc)
-            faults.append(f"{', '.join(moving)} still moving after the stop")
-    except Exception as e:
-        faults.append(f"the stop could not be checked ({e})")
+    moving = _moving_after_stop([rc], list(target))[0]
+    if isinstance(moving, Exception):
+        faults.append(f"the stop could not be checked ({moving})")
+    elif moving:
+        hard_stop(rc)
+        faults.append(f"{', '.join(moving)} still moving after the stop")
     for tr in traces.values():
         tr.fault = "; ".join(faults) or None
 
     return list(traces.values())
+
+
+def _moving_after_stop(
+    controllers: list[RoboClawInterface], motors: list[str]
+) -> list[list[str] | Exception]:
+    """Each controller's motors turning after its stop, judged on the count, or the error that
+    ended its check.
+
+    From STILL_CHECK_S after the last stop, two reads of every controller's counts,
+    STILL_CHECK_S apart: a motor whose count moves more than REST_TICKS between them is turning.
+    So each controller's window starts at least STILL_CHECK_S after its own stop.
+    """
+
+    def counts(rc: RoboClawInterface) -> dict[str, int] | Exception:
+        try:
+            return {m: _read_count(rc, m)[1] for m in motors}
+        except Exception as e:
+            return e
+
+    time.sleep(STILL_CHECK_S)
+    before = [counts(rc) for rc in controllers]
+    time.sleep(STILL_CHECK_S)
+    after = [counts(rc) for rc in controllers]
+    return [
+        b if isinstance(b, Exception) else a if isinstance(a, Exception)
+        else [m for m in motors if abs(count_delta(b[m], a[m])) > REST_TICKS]
+        for b, a in zip(before, after)
+    ]
 
 
 def _stalled(trace: StepTrace, goal: int) -> str | None:
@@ -706,20 +759,22 @@ def _report_step_result(
     tracking is printed with no verdict, and only a failed measurement fails.
     """
     speed = trace.target
+    fault = f"; {trace.fault}" if trace.fault else ""
     if trace.abort:
-        print(f"    ABORT: {trace.abort}" + (f"; {trace.fault}" if trace.fault else ""))
+        print(f"    ABORT: {trace.abort}{fault}")
         _print_counts(trace, verbose)
         return False
 
     if not trace.times:
-        print(f"    No data collected -- check motor/encoder connection")
+        print(f"    No data collected -- check motor/encoder connection{fault}")
         return False
 
     tracked = tracking_speed(trace.times, trace.counts, TRACK_START_S, hold_s)
     print(f"    Samples:      {len(trace.times)}")
     if tracked is None:
         print(
-            f"    FAIL -- too few samples in [{TRACK_START_S:g}, {hold_s:g}] s to measure tracking"
+            f"    FAIL -- too few samples in [{TRACK_START_S:g}, {hold_s:g}] s to measure "
+            f"tracking{fault}"
         )
         return False
     error = tracked / speed - 1.0
@@ -821,23 +876,25 @@ def _judged(args: argparse.Namespace) -> bool:
     return args.speed == STEP_VELOCITY_TICKS and args.hold == STEP_HOLD_S
 
 
-def _box(args: argparse.Namespace) -> str:
-    """The tracking box, and whether it judges this run's step."""
+def _summary(passed: bool, args: argparse.Namespace) -> str:
+    """The run's tracking verdict, and the box that gives it, as the summary prints them.
+
+    Off the default step the box gives none, so a run that fails there failed above: an
+    abort, a failed measurement or check, or an error.
+    """
     box = (
         f"±{TRACK_TOLERANCE * 100:g}% of the target, from {TRACK_START_S:g} s after the first "
         "command to the last"
     )
     if _judged(args):
-        return box
+        return f"{'PASS' if passed else 'FAIL'} -- the box is {box}"
+    default = f"the default step, {STEP_VELOCITY_TICKS} ticks/s for {STEP_HOLD_S:g} s"
+    if not passed:
+        return f"FAIL -- the run failed above (the box judges only {default})"
     return (
-        f"{box}, and it judges only the default step, {STEP_VELOCITY_TICKS} ticks/s for "
-        f"{STEP_HOLD_S:g} s: this step, {args.speed} ticks/s for {args.hold:g} s, has no verdict"
+        f"NO VERDICT -- the box is {box}, and it judges only {default}: this step, "
+        f"{args.speed} ticks/s for {args.hold:g} s, has no verdict"
     )
-
-
-def _verdict(passed: bool, args: argparse.Namespace) -> str:
-    """The run's tracking verdict, as the summary prints it."""
-    return "FAIL" if not passed else "PASS" if _judged(args) else "NO VERDICT"
 
 
 def _selected_controllers(which: str) -> list[tuple[str, str, int]]:
@@ -894,7 +951,7 @@ def cmd_step_response(args: argparse.Namespace) -> bool:
             print(STOP_AFTER_ABORT)
             break
     print()
-    print(f"  Tracking: {_verdict(passed, args)} -- the box is {_box(args)}.")
+    print(f"  Tracking: {_summary(passed, args)}.")
     print("  The dead time and tau above are measurements, not targets: nothing here")
     print("  passes or fails on them.")
     return passed
@@ -968,7 +1025,7 @@ def cmd_tune(args: argparse.Namespace) -> bool:
     print("  Tuning Summary")
     print(f"{'='*60}")
     print(f"  Gains:       P={p} I={i_val} D={d} QPPS={qpps}")
-    print(f"  Tracking:    {_verdict(passed, args)} -- the box is {_box(args)}")
+    print(f"  Tracking:    {_summary(passed, args)}")
     print()
     print("  The dead time and tau above are measurements: record them with the gains.")
     print("  They are not targets, and nothing here passes or fails on them.")
@@ -980,24 +1037,44 @@ def cmd_tune(args: argparse.Namespace) -> bool:
 
 
 def cmd_stop(args: argparse.Namespace) -> bool:
-    """Emergency stop all motors. True if every selected controller acknowledged its stop."""
+    """Emergency stop all motors. Every selected controller is opened and stopped before any is
+    checked, so no check holds back another's stop, and an error on one keeps no other from its
+    stop; a controller that answers nothing holds back the next one's stop by its retries alone.
+    The check after a step then runs on all of them at once. True if each acknowledged its stop
+    and no motor's count moves more than REST_TICKS over STILL_CHECK_S, from STILL_CHECK_S after
+    the last stop. The reported speeds are printed, and judge nothing."""
     controllers = get_controllers(args.controller)
     stopped = len(controllers) == (2 if args.controller == "both" else 1)
+    opened, status = [], {}
     for label, port, addr in controllers:
-        print(f"  Stopping {label} (0x{addr:02X})...", end=" ")
         try:
             rc = open_controller(port, addr)
             # hard_stop is called by open_controller, but call again explicitly
-            acked = hard_stop(rc)
-            # Also read back speed to verify
-            spd1, _ = rc.read_speed_m1()
-            spd2, _ = rc.read_speed_m2()
-            close_controller(rc)
-            print(f"{'OK' if acked else 'FAILED, unacknowledged'} (M1={spd1}, M2={spd2} ticks/s)")
-            stopped &= acked
+            opened.append((label, rc, hard_stop(rc)))
         except Exception as e:
-            print(f"ERROR: {e}")
-            stopped = False
+            status[label], stopped = f"ERROR: {e}", False
+    checks = _moving_after_stop([rc for _, rc, _ in opened], ["M1", "M2"])
+    for (label, rc, acked), moving in zip(opened, checks):
+        try:
+            if isinstance(moving, Exception):
+                raise moving
+            # Commands 18 and 19 read a filtered speed that lags the wheel by about
+            # 0.1 s, so a stopped wheel reads as turning for longer than it turns.
+            speeds = {"M1": rc.read_speed_m1()[0], "M2": rc.read_speed_m2()[0]}
+            why = [] if acked else ["unacknowledged"]
+            if moving:
+                why.append(f"{', '.join(moving)} turning {STILL_CHECK_S:g} s after the stop")
+            verdict = f"FAILED, {'; '.join(why)}" if why else "OK"
+            status[label] = (
+                f"{verdict} (reported speeds M1={speeds['M1']}, M2={speeds['M2']} ticks/s)"
+            )
+            stopped &= not why
+        except Exception as e:
+            status[label], stopped = f"ERROR: {e}", False
+        finally:
+            close_controller(rc)
+    for label, _, addr in controllers:
+        print(f"  Stopping {label} (0x{addr:02X})... {status[label]}")
     return stopped
 
 
@@ -1057,7 +1134,8 @@ Examples:
 
 The step drives the wheels: lift the chassis so every wheel is off the ground.
 At the defaults each stepped wheel turns about {travel:.1f} m, and up to {longest:.1f} m
-at the largest --speed and --hold. A typed confirmation comes first (--no-confirm
+at the largest --speed and --hold. --speed is {MIN_STEP_TICKS} to {MAX_STEP_TICKS} ticks/s either
+way, the steps the aborts guard. A typed confirmation comes first (--no-confirm
 skips it), and each controller's serial timeout must be armed ({lo:g} to {hi:g} s).
 By default it is the step the driver's gains were chosen on, {STEP_VELOCITY_TICKS} ticks/s
 ({STEP_SPEED_MPS:g} m/s) for {STEP_HOLD_S:g} s, and the box they passed: each wheel's mean
@@ -1068,8 +1146,10 @@ Exit status of --step-response and --tune: 0 if every motor passed; 1 if a motor
 fails tracking, a step is aborted or errs, a selected controller is missing, the
 step is not confirmed or (--tune) the gains are not confirmed; {EXIT_NO_VERDICT} if the step
 was not the default one and nothing failed. Of --stop: 1 if a selected controller
-is missing or a stop is not acknowledged. {EXIT_INTERRUPTED} if interrupted (Ctrl-C,
-Ctrl-Z, SIGTERM, SIGHUP); else 0.
+is missing, a stop is not acknowledged or errs, or a wheel's count moves more than
+{REST_TICKS} ticks over {STILL_CHECK_S:g} s from {STILL_CHECK_S:g} s after the stop; the reported
+speeds lag, and are printed only.
+{EXIT_INTERRUPTED} if interrupted (Ctrl-C, Ctrl-Z, SIGTERM, SIGHUP); else 0.
         """,
     )
 
@@ -1121,9 +1201,10 @@ Ctrl-Z, SIGTERM, SIGHUP); else 0.
         help=(
             f"Step target in ticks/s (default: {STEP_VELOCITY_TICKS}, {STEP_SPEED_MPS:g} m/s at "
             "the wheel through strafer_shared's WHEEL_RADIUS and RADIANS_TO_ENCODER_TICKS, the "
-            f"speed the driver's gains were chosen at); nonzero, at most {MAX_STEP_TICKS} either "
-            f"way, so the runaway abort trips {(1 - RUNAWAY_HEADROOM) * 100:g} %% under full "
-            "speed. Another speed gets no verdict"
+            f"speed the driver's gains were chosen at); from {MIN_STEP_TICKS}, so the against "
+            f"abort sees a reversed motor every cycle, to {MAX_STEP_TICKS} either way, so the "
+            f"runaway abort trips {(1 - RUNAWAY_HEADROOM) * 100:g} %% under full speed. Another "
+            "speed gets no verdict"
         ),
     )
     parser.add_argument(
@@ -1186,10 +1267,15 @@ def main() -> int:
             )
         if not 0 <= args.settle <= MAX_HOLD_S:
             parser.error(f"--settle must be from 0 to {MAX_HOLD_S:g} s")
-        if not 0 < abs(args.speed) <= MAX_STEP_TICKS:
+        if abs(args.speed) < MIN_STEP_TICKS:
             parser.error(
-                f"--speed must be nonzero and at most {MAX_STEP_TICKS} ticks/s either way, "
-                f"so the runaway abort trips {(1 - RUNAWAY_HEADROOM) * 100:g} % under full speed"
+                f"--speed must be at least {MIN_STEP_TICKS} ticks/s either way: below it the "
+                "against abort cannot see a reversed motor every cycle"
+            )
+        if abs(args.speed) > MAX_STEP_TICKS:
+            parser.error(
+                f"--speed must be at most {MAX_STEP_TICKS} ticks/s either way, so the runaway "
+                f"abort trips {(1 - RUNAWAY_HEADROOM) * 100:g} % under full speed"
             )
 
     # A terminal hang-up, a kill or a Ctrl-Z takes the same path as Ctrl-C, so

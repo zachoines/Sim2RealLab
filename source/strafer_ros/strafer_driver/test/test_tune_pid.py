@@ -642,8 +642,7 @@ def test_tune_writes_the_constants_themselves(patched):
 @pytest.mark.parametrize("mode", [("--read",), ("--set", "--p", str(ROBOCLAW_PID_P))])
 def test_each_controller_opened_is_stopped_before_anything_else(patched, mode):
     """Opening a controller sends both motors duty 0 before any command but the battery reads
-    that find and open it, so --read and --set, and --tune's gains write, run with the motors
-    stopped, as --stop does."""
+    that find and open it, so --read and --set run with the motors stopped, as --stop does."""
     clock = Clock()
     bus = patched(stepped_robot(clock))
 
@@ -2551,7 +2550,7 @@ def test_a_pause_inside_a_count_read_past_its_tries_ends_the_step(
     paused = f"M{channel}"
     found = reports(capsys.readouterr().out)[("Front", "M1" if motor == "m1" else paused)]
     assert aborted(found, f"{paused}'s count read took") == ends
-    assert aborted(found, "s its tries can take (the process was paused)") == ends
+    assert aborted(found, "s its tries can wait (the process was paused)") == ends
     if ends:
         assert aborted(found, "the step is not resumed")
         assert commands(bus, FRONT_PORT).count(DRIVE_M1M2_SPEED) == claw.at
@@ -2626,8 +2625,9 @@ class RetriedRead(PausedInRead):
 def test_a_count_read_that_needed_its_retry_goes_on(patched, capsys):
     """The tracking window's first count read goes unanswered: the interface waits out its read
     timeout, pauses and tries again, which takes longer than a cycle. That is no pause: the step
-    goes on, the sample left out of the tracking, whose printed window opens at the next one,
-    and passes."""
+    goes on, the sample left out of the tracking, and passes. M1's window opens at the cycle after
+    it, and M2's at its own read in that cycle, which the retry delayed: both more than a cycle
+    into the box, and the report prints them."""
     clock = Clock()
     robot = stepped_robot(clock, front_cls=RetriedRead)
     patched(TimedReads(robot.devices, clock))
@@ -2643,22 +2643,21 @@ def test_a_count_read_that_needed_its_retry_goes_on(patched, capsys):
                         " ".join(found[("Front", "M1")]))
     assert counted and int(counted.group(2)) == int(counted.group(1)) - 1
     assert not any("read within a cycle" in line for line in found[("Front", "M2")])
-    opened = re.search(r"over \[([\d.]+), [\d.]+\] s", " ".join(found[("Front", "M1")]))
-    assert opened and float(opened.group(1)) > tuner.TRACK_START_S, found
-    box = f"over [{tuner.TRACK_START_S:g}, {tuner.STEP_HOLD_S:g}] s"
-    assert any(box in line for line in found[("Front", "M2")])
+    for motor in ("M1", "M2"):
+        opened = re.search(r"over \[([\d.]+), [\d.]+\] s", " ".join(found[("Front", motor)]))
+        assert opened and float(opened.group(1)) > tuner.TRACK_START_S + tuner.SAMPLE_PERIOD_S
 
 
 @pytest.mark.parametrize("left_out, window", [
-    (None, "[0.6, 6]"), (0.6, "[0.62, 6.00]"), (6.0, "[0.60, 5.98]"), (3.0, "[0.6, 6]"),
+    (None, "[0.6, 6]"), (0.6, "[0.61, 6.00]"), (6.0, "[0.60, 5.99]"), (3.0, "[0.6, 6]"),
 ])
 def test_a_sample_left_out_at_a_window_end_prints_the_window_the_tracking_used(
     capsys, left_out, window
 ):
     """A sample left out at either end of the tracking window moves the window the tracking
-    measured over to the next sample in: the report prints that window. One left out inside it,
-    or none, leaves the window's ends, and the report prints the box's."""
-    times = [round(k * tuner.SAMPLE_PERIOD_S, 6) for k in range(301)]
+    measured over to the next sample in, here half a cycle on: the report prints that window.
+    One left out inside it, or none, leaves the window's ends, and the report prints the box's."""
+    times = [round(k * tuner.SAMPLE_PERIOD_S / 2, 6) for k in range(601)]
     trace = trace_of(times, [535 * t for t in times], tuner.STEP_VELOCITY_TICKS)
     if left_out is not None:
         trace.slow = {times.index(left_out)}
@@ -2667,7 +2666,157 @@ def test_a_sample_left_out_at_a_window_end_prints_the_window_the_tracking_used(
 
     assert passed
     assert f"Tracking:     535 ticks/s over {window} s" in out, out
-    assert ("(300 read within a cycle, 1 left out)" in out) == (left_out is not None)
+    assert ("(600 read within a cycle, 1 left out)" in out) == (left_out is not None)
+
+
+def window_trace(where, shift, left_out):
+    """A wheel at the default step, read every cycle over the hold, whose tracking window's
+    *where* end ("start" or "end") sits *shift* s inside the box's: the samples between are
+    missing, or (*left_out*) there but read over a cycle."""
+    cycle, start, hold = tuner.SAMPLE_PERIOD_S, tuner.TRACK_START_S, tuner.STEP_HOLD_S
+    grid = [round(k * cycle, 6) for k in range(round(hold / cycle) + 1)]
+    edge = start + shift if where == "start" else hold - shift
+    gap = [t for t in grid if (start <= t < edge if where == "start" else edge < t <= hold)]
+    times = sorted(set(grid) - set(gap) | {edge} | (set(gap) if left_out else set()))
+    speed = tuner.STEP_VELOCITY_TICKS
+    trace = trace_of(times, [speed * t for t in times], speed)
+    trace.slow = {times.index(t) for t in gap} if left_out else set()
+    trace.edge_s = tuner.SAMPLE_PERIOD_S + longest_read()
+    return trace, edge
+
+
+@pytest.mark.parametrize("left_out", [False, True])
+@pytest.mark.parametrize("where", ["start", "end"])
+@pytest.mark.parametrize("past", [True, False])
+def test_a_window_an_end_more_than_a_cycle_and_a_read_inside_the_box_fails(
+    capsys, where, past, left_out
+):
+    """Each end of the window the tracking uses may sit at most a cycle and one read's tries
+    inside the box's. Half a cycle farther in, at either end, the motor fails for too few
+    samples, with the samples left out or none come there as the reason; half a cycle nearer, it
+    is measured over that window, which the report prints."""
+    edge_s = tuner.SAMPLE_PERIOD_S + longest_read()
+    shift = edge_s + (1 if past else -1) * tuner.SAMPLE_PERIOD_S / 2
+    trace, edge = window_trace(where, shift, left_out)
+
+    passed, out = report(trace, tuner.STEP_HOLD_S, capsys)
+
+    assert passed != past, out
+    if past:
+        why = (
+            "those whose read took longer than a cycle are left out" if left_out
+            else "no sample came there (a pause, or reads lost)"
+        )
+        near = "FAIL -- too few samples near the ends"
+        failed = [line for line in out.splitlines() if near in line]
+        assert failed and why in failed[0] and "Tracking:" not in out, out
+    else:
+        window = f"[{edge:.2f}, 6.00]" if where == "start" else f"[0.60, {edge:.2f}]"
+        assert f"Tracking:     535 ticks/s over {window} s" in out, out
+
+
+@pytest.mark.parametrize("pause, printed", [
+    (tuner.SAMPLE_PERIOD_S / 2, "[0.6, 6]"), (1.5 * tuner.SAMPLE_PERIOD_S, "[0.63, 5.99]"),
+])
+def test_the_window_used_is_printed_once_an_end_sits_a_cycle_inside_the_box(
+    patched, capsys, pause, printed
+):
+    """With nothing left out, a pause across the box's start that moves the window's first sample
+    half a cycle in leaves the box printed; one that moves it a cycle and a half in prints the
+    window the tracking used."""
+    clock = PausedSleep(round(tuner.TRACK_START_S / tuner.SAMPLE_PERIOD_S), pause)
+    bus = patched(stepped_robot(clock, present=("front",)))
+    clock.claw = bus.devices[FRONT_PORT]
+
+    assert run_tuner(clock, "--step-response", "--controller", "front") == 0
+
+    for lines in reports(capsys.readouterr().out).values():
+        assert any(f"over {printed} s" in line for line in lines), lines
+
+
+def test_a_fault_is_printed_with_a_window_short_of_the_box(capsys):
+    """A fault from the check after the stop is printed on the fail for too few samples near the
+    box's ends too."""
+    trace, _ = window_trace("start", 0.3, True)
+    trace.fault = "the stop could not be checked"
+
+    passed, out = report(trace, tuner.STEP_HOLD_S, capsys)
+
+    assert not passed and "inside the box's" in out and trace.fault in out, out
+
+
+class MostReadsRetried(SteppedRoboClaw):
+    """Every count read of M1 in the step needs its retry, but those after the *kept* commands
+    37."""
+
+    kept = ()
+
+    def drive(self, now, m1, m2):
+        self.drives, self.tried = getattr(self, "drives", 0) + 1, False
+        return super().drive(now, m1, m2)
+
+    def read_count(self, packet, channel):
+        if channel == 1 and getattr(self, "drives", 0) not in (0, *self.kept) and not self.tried:
+            self.tried = True
+            return b""
+        return super().read_count(packet, channel)
+
+
+def test_samples_left_out_that_leave_a_short_window_fail_the_motor(patched, capsys):
+    """Every M1 count read needs its retry but two adjacent ones, which are all the tracking
+    could use: a cycle apart, where a wheel 5.2 % under its target reads +2.8 %. Their window's
+    ends sit far inside the box's, so the motor fails for too few samples, with the samples left
+    out as the reason, and the run exits 1."""
+    clock = Clock()
+    robot = stepped_robot(clock, front=(Motor(gain=0.948), Motor()), front_cls=MostReadsRetried)
+    robot.devices[FRONT_PORT].kept = (11, 12)
+    patched(TimedReads(robot.devices, clock))
+
+    with patch("strafer_driver.roboclaw_interface.time", clock):
+        assert run_tuner(clock, "--step-response", "--controller", "front", "--motor", "m1") == 1
+
+    text = " ".join(reports(capsys.readouterr().out)[("Front", "M1")])
+    assert "(2 read within a cycle," in text, text
+    assert "FAIL -- too few samples near the ends of [0.6, 6] s" in text, text
+    assert "those whose read took longer than a cycle are left out" in text, text
+
+
+# A cycle and a read's tries: how far an end of the window the tracking uses may sit inside the
+# box's.
+EDGE = tuner.SAMPLE_PERIOD_S + longest_read()
+
+
+@pytest.mark.parametrize("where, at, pause, passed", [
+    ("start", 30, EDGE - tuner.SAMPLE_PERIOD_S / 2, True),
+    ("start", 30, EDGE + tuner.SAMPLE_PERIOD_S / 4, False),
+    ("start", 30, EDGE + tuner.SAMPLE_PERIOD_S / 2, False),
+    ("start", 30, 0.4, False),
+    ("end", 290, 0.3, True), ("end", 289, 0.3, False), ("end", 280, 0.42, False),
+])
+def test_a_pause_across_the_box_start_or_the_hold_end_moves_or_fails_the_window(
+    patched, capsys, where, at, pause, passed
+):
+    """A pause between cycles under the serial timeout, across the box's start or across the
+    hold's end, moves that end of the window the tracking uses: after the 30th command 37, by the
+    pause (and its cycle's reads, a millisecond or two); the hold, ending at the first cycle past
+    it, after the 290th's reads by 0.22 s and the 289th's by 0.24. Up to a cycle and a read's
+    tries inside the box's (6 to 9 ms within it here), the report prints the window used; from
+    6 ms past it, the motor fails for too few samples, none having come there."""
+    clock = PausedSleep(at, pause)
+    bus = patched(stepped_robot(clock, present=("front",)))
+    clock.claw = bus.devices[FRONT_PORT]
+
+    assert run_tuner(clock, "--step-response", "--controller", "front") == (0 if passed else 1)
+
+    for lines in reports(capsys.readouterr().out).values():
+        text = " ".join(lines)
+        if passed:
+            used = re.search(r"over \[([\d.]+), ([\d.]+)\] s", text)
+            moved = float(used.group(1)) - 0.6 if where == "start" else 6.0 - float(used.group(2))
+            assert used and tuner.SAMPLE_PERIOD_S < moved < tuner.SAMPLE_PERIOD_S + longest_read()
+            assert passes(lines), text
+        else:
+            assert "no sample came there (a pause, or reads lost)" in text, text
 
 
 class EveryReadRetried(SteppedRoboClaw):
@@ -2697,6 +2846,38 @@ def test_a_link_whose_every_read_needs_its_retry_fails_on_the_samples_left_out(p
         assert counted and counted.group(1) == counted.group(2), text
         assert "FAIL -- too few samples in" in text, text
         assert "to measure tracking: those whose read took longer than a cycle are left out" in text
+
+
+def test_the_rules_take_the_samples_left_out(patched, capsys):
+    """Every count read needs its retry, so every sample is left out of the tracking and the fit,
+    and the abort rules still take them: a reversed wheel is stopped by the against rule."""
+    clock = Clock()
+    robot = stepped_robot(clock, front=(Motor(gain=-1.0), Motor()), front_cls=EveryReadRetried)
+    patched(TimedReads(robot.devices, clock))
+
+    with patch("strafer_driver.roboclaw_interface.time", clock):
+        assert run_tuner(clock, "--step-response", "--controller", "front") == 1
+
+    assert aborted(reports(capsys.readouterr().out)[("Front", "M1")], "turns against its target")
+
+
+def test_the_read_bound_is_the_opened_interfaces(patched, capsys):
+    """The read's bound, and the window's, come from the interface as the tool opens it: with a
+    0.12 s read timeout and a 0.03 s retry pause, whose bound is 0.27 s, a read paused to 0.26 s
+    in the window's first cycle, past what the defaults allow, or either of the two alone, is
+    left out rather than ending the step, and the window it moves passes."""
+    clock = Clock()
+    bus = patched(stepped_robot(clock, present=("front",), front_cls=PausedInRead))
+    claw = bus.devices[FRONT_PORT]
+    claw.pause = 0.26 - claw.WIRE_S
+    module = load_tuner()
+    wide = functools.partial(module.RoboClawInterface, read_timeout=0.12, retry_pause=0.03)
+
+    with patch.object(module, "RoboClawInterface", wide):
+        assert run_tuner(clock, "--step-response", "--controller", "front", module=module) == 0
+
+    lines = reports(capsys.readouterr().out)[("Front", "M1")]
+    assert "1 left out)" in " ".join(lines) and passes(lines), lines
 
 
 @pytest.mark.parametrize("samples, why", [(3, True), (2, False)])

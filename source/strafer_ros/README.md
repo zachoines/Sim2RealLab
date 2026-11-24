@@ -254,20 +254,22 @@ These live at the top of `source/strafer_ros/` and are direct-hardware tools. Ru
 # against its target, running away or stalling, two failed reads or two unacknowledged command
 # 37s in a row, a cycle that starts, or whose command 37 ends, more than the serial timeout
 # after the last cycle started (for the first, the rest check's last read), a count read longer
-# than the interface's tries can take, or an unconfirmed gains write stops the run; a wheel
+# than the interface's tries can wait, or an unconfirmed gains write stops the run; a wheel
 # turning 0.2 s after the stop fails it. A count read longer than a cycle (20 ms) times neither
 # the tracking nor the fit, and the report gives how many were read within a cycle and how many
-# left out. Exit status: 0 if every motor passed; 1 if a motor fails tracking, a step is
-# aborted or errs, a selected controller is missing, the step is not confirmed or (--tune) the
-# gains are not confirmed; 3 if the step was not the default one and nothing failed; 2 on a
-# usage error. --stop sends every detected controller its stop before it checks any, and exits
-# 1 if a controller is missing, a stop is not acknowledged or errs, a read fails, or a wheel's
-# count moves more than 2 ticks over 0.2 s from 0.2 s after the stop. Ctrl-C, Ctrl-Z, SIGTERM
-# and SIGHUP stop the motors (--stop: once every detected controller has its stop; a second
-# signal in detection ends the run with nothing stopped, one in a port's open or in the stop
-# the first came in abandons that open or stop, and one in a later stop is held to that stop's
-# end) and exit 130. --help gives each default's reason; the box and the safety limits are
-# fixed.
+# left out; a motor whose tracking window has an end more than a cycle and a read's tries
+# (0.225 s) inside the box's, from samples left out or a pause, fails for too few samples. Exit
+# status of --tune and --step-response: 0 if every motor passed; 1 if a motor fails tracking, a
+# step is aborted or errs, a selected controller is missing, the step is not confirmed or
+# (--tune) the gains are not confirmed; 3 if the step was not the default one and nothing
+# failed; 2 on a usage error. --stop sends every detected controller its stop before it checks
+# any, and exits 1 if a controller is missing, a stop is not acknowledged or errs, a read
+# fails, or a wheel's count moves more than 2 ticks over 0.2 s from 0.2 s after the stop.
+# Ctrl-C, Ctrl-Z, SIGTERM and SIGHUP stop the motors (--stop: once every detected controller
+# has its stop; a second signal in detection ends the run with nothing stopped, one in a port's
+# open or in the stop the first came in abandons that open or stop, and one in a later stop is
+# held to that stop's end) and exit 130. --help gives each default's reason; the box and the
+# safety limits are fixed.
 python3 source/strafer_ros/tune_pid.py --read         # current PID
 python3 source/strafer_ros/tune_pid.py --tune         # set + measure
 

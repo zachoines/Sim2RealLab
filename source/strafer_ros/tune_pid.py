@@ -83,9 +83,9 @@ TRACK_TOLERANCE = 0.05
 # controllers. A lifted wheel stopped at duty 0 from about 600 ticks/s is at
 # rest within it.
 SETTLE_TIME_S = 0.2
-# --hold is at least MIN_HOLD_S: the tracking window then spans 20 cycles or
-# more, so one tick is under 1 % of the travel at the default step, and the
-# stall abort, from STALL_AFTER_S, watches half the hold or more.
+# --hold is at least MIN_HOLD_S: the box then spans 20 cycles or more, so one
+# tick is under 1 % of its travel at the default step, and the stall abort,
+# from STALL_AFTER_S, watches half the hold or more.
 MIN_TRACK_WINDOW_S = 0.4
 MIN_HOLD_S = TRACK_START_S + MIN_TRACK_WINDOW_S
 MAX_HOLD_S = 30.0  # a cap on a mistyped --hold or --settle: five default holds
@@ -160,6 +160,16 @@ MAX_MISSED = 2
 # moves the mean by up to 0.4 % either way, and a sample in the rise up to a
 # cycle late, which can move the printed 63 % point by about 3 ms and the dead
 # time by up to about 18 ms, unflagged.
+#
+# The window the tracking uses runs from its first sample in the box to its
+# last. Each end may sit at most a cycle and one read's tries (StepTrace.edge_s)
+# inside the box's: one sample left out there, or a pause the read's bound
+# allows. Farther in, samples left out or a pause leave a window the box does
+# not describe (late on a creeping wheel it reads high, early it reads low, and
+# a short one rests on a few ticks), so the motor fails for too few samples.
+# Within it, a late start or an early end moves the default step's mean by up
+# to 0.13 % on the bench holds at the shipped gains, and up to 0.4 % on holds
+# whose wheels creep more.
 
 # The largest step keeps the runaway limit RUNAWAY_HEADROOM of ROBOCLAW_QPPS,
 # the motors' mean full speed, so a motor slower than the mean (the slowest is
@@ -225,6 +235,7 @@ class StepTrace:
         self.counts: list[int] = []  # ticks from the count at rest
         self.slow: set[int] = set()  # the samples whose read took longer than a cycle
         self.zero_unknown = False  # the first command 37 went unacknowledged
+        self.edge_s = math.inf  # how far inside the box's the tracking's ends may sit (the step's)
         self.abort: str | None = None  # why the step did not run its hold
         self.fault: str | None = None  # what the check after the stop found
 
@@ -587,8 +598,8 @@ def run_step_response(
     later than the serial timeout after the last cycle started (the rest
     check's last read, for the first; the controller may have stopped the
     wheels), or when a count read takes longer than the interface's tries can
-    (the process was paused): the step is not resumed, nor taken for a finished
-    hold. An unacknowledged final stop is followed by SILENT_S without a
+    wait (the process was paused): the step is not resumed, nor taken for a
+    finished hold. An unacknowledged final stop is followed by SILENT_S without a
     packet, and a motor turning STILL_CHECK_S after the stop fails.
     """
     traces = {m: StepTrace(motor=m, target=speed_ticks) for m in motors}
@@ -638,6 +649,8 @@ def run_step_response(
     runaway = {m: 0 for m in target}
     missed_reads = missed_acks = 0
     longest = _longest_read_s(rc)
+    for tr in traces.values():
+        tr.edge_s = SAMPLE_PERIOD_S + longest
     try:
         # The rest check's last read stands for the cycle before the first: the controller
         # last heard a packet in it, so the first cycle's checks count from its start.
@@ -698,7 +711,7 @@ def run_step_response(
                 if took[slowest] > longest:
                     abort(
                         f"{slowest}'s count read took {took[slowest]:.2f} s, over the "
-                        f"{longest:g} s its tries can take (the process was paused); the step "
+                        f"{longest:g} s its tries can wait (the process was paused); the step "
                         "is not resumed"
                     )
                     break
@@ -738,9 +751,9 @@ def run_step_response(
             # The cycles keep the 50 Hz grid. A cycle that ends past the next grid
             # point moves the grid to one period after its own start, and the missed
             # cycles are not run. After a pause between this cycle's clock read and
-            # its command 37 reaching the controller, that is past too: the next cycle
-            # runs at once, its command 37 one cycle's I/O after this one's, and no
-            # rule trips on it.
+            # its command 37 reaching the controller, longer than a period less the
+            # cycle's I/O, that is past too: the next cycle runs at once, its command
+            # 37 one cycle's I/O after this one's, and no rule trips on it.
             next_cycle += SAMPLE_PERIOD_S
             if next_cycle <= time.monotonic():
                 next_cycle = now + SAMPLE_PERIOD_S
@@ -841,6 +854,13 @@ def _report_step_result(
     timed = [k for k in range(len(trace.times)) if k not in trace.slow]
     times, counts = [trace.times[k] for k in timed], [trace.counts[k] for k in timed]
     tracked = tracking_speed(times, counts, TRACK_START_S, hold_s)
+    full = [t for t in trace.times if TRACK_START_S <= t <= hold_s]
+    used = [t for t in times if TRACK_START_S <= t <= hold_s]
+
+    def inside(window: list[float]) -> float:
+        """How far the farther end of *window* sits inside the box's."""
+        return max(window[0] - TRACK_START_S, hold_s - window[-1]) if window else math.inf
+
     within = (
         f" ({len(timed)} read within a cycle, {len(trace.slow)} left out)" if trace.slow else ""
     )
@@ -855,13 +875,23 @@ def _report_step_result(
             f"tracking{why}{fault}"
         )
         return False
-    # A sample left out at a window end moves the window the tracking used: print that one.
-    full = [t for t in trace.times if TRACK_START_S <= t <= hold_s]
-    used = [t for t in times if TRACK_START_S <= t <= hold_s]
+    # A sample left out at a window end, or an end more than a cycle inside the box's, moves
+    # the window the tracking used: print that one.
+    moved = (full[0], full[-1]) != (used[0], used[-1]) or inside(used) > SAMPLE_PERIOD_S
     window = (
-        f"[{used[0]:.2f}, {used[-1]:.2f}]" if (full[0], full[-1]) != (used[0], used[-1])
-        else f"[{TRACK_START_S:g}, {hold_s:g}]"
+        f"[{used[0]:.2f}, {used[-1]:.2f}]" if moved else f"[{TRACK_START_S:g}, {hold_s:g}]"
     )
+    if inside(used) > trace.edge_s:
+        why = (
+            "those whose read took longer than a cycle are left out" if inside(full) <= trace.edge_s
+            else "no sample came there (a pause, or reads lost)"
+        )
+        print(
+            f"    FAIL -- too few samples near the ends of [{TRACK_START_S:g}, {hold_s:g}] s to "
+            f"measure tracking: those it has span [{used[0]:.2f}, {used[-1]:.2f}] s, an end more "
+            f"than {trace.edge_s:.3g} s inside the box's; {why}{fault}"
+        )
+        return False
     error = tracked / speed - 1.0
     print(
         f"    Tracking:     {tracked:.0f} ticks/s over {window} s "

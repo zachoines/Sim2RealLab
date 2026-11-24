@@ -100,7 +100,11 @@ def generate_launch_description():
         ),
         DeclareLaunchArgument(
             "database_path", default_value="~/.ros/rtabmap.db",
-            description="RTAB-Map database file path.",
+            description=(
+                "RTAB-Map database file path. This default, or an empty value, "
+                "makes strafer_slam derive ~/.ros/rtabmap_<key>.db "
+                "(scene key @ camera mount); any other value is the path."
+            ),
         ),
         DeclareLaunchArgument(
             "rtabmap_args", default_value="",

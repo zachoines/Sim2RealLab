@@ -148,14 +148,28 @@ STALL_FRACTION = 0.1
 # not retry it), or a count read failed twice, with the interface's one retry;
 # one is let pass, two in a row are a failing link.
 MAX_MISSED = 2
+
+# A count read is timed when it returns, and its count was latched somewhere
+# inside it. A read longer than SAMPLE_PERIOD_S (a retry, or a pause after the
+# controller answered) cannot be placed within its cycle, so the tracking and
+# the fit leave its sample out; the abort rules take it. A read longer than the
+# interface's tries wait unpaused (_longest_read_s) held a pause, which took
+# that cycle's timing, not only its sample's (the next cycle runs at once): it
+# ends the step, as the pause checks do. A pause under a cycle is left: it can
+# make either end of a window up to a cycle late, which at the default step
+# moves the mean by up to 0.4 % either way, and a sample in the rise up to a
+# cycle late, which can move the printed 63 % point by about 3 ms and the dead
+# time by up to about 18 ms, unflagged.
+
 # The largest step keeps the runaway limit RUNAWAY_HEADROOM of ROBOCLAW_QPPS,
 # the motors' mean full speed, so a motor slower than the mean (the slowest is
 # 1 % under it) and the full-speed count's scatter still trip it.
 RUNAWAY_HEADROOM = 0.9
 MAX_STEP_TICKS = (int(RUNAWAY_HEADROOM * ROBOCLAW_QPPS) - RUNAWAY_MARGIN_TPS) // RUNAWAY_FACTOR
 # The smallest step is a tick a cycle over AGAINST_TPS, so the against abort sees
-# a reversed motor every cycle: under it a reversed wheel turning 3 ticks a cycle
-# reads exactly AGAINST_TPS, and the abort trips only by the cycle's timing.
+# a reversed motor in every cycle whose reads are 15 ms or more apart: under it a
+# reversed wheel turns 3 ticks in some cycles, which reads exactly AGAINST_TPS and
+# is not counted, so the abort can miss it for a whole hold.
 MIN_STEP_TICKS = round(AGAINST_TPS + 1 / SAMPLE_PERIOD_S)
 
 # The fit covers the rise, before the box opens: after it, the integral term's
@@ -209,6 +223,8 @@ class StepTrace:
         self.target = target
         self.times: list[float] = []  # s, when each count read returned
         self.counts: list[int] = []  # ticks from the count at rest
+        self.slow: set[int] = set()  # the samples whose read took longer than a cycle
+        self.zero_unknown = False  # the first command 37 went unacknowledged
         self.abort: str | None = None  # why the step did not run its hold
         self.fault: str | None = None  # what the check after the stop found
 
@@ -322,6 +338,29 @@ def tracking_speed(
 # ---------------------------------------------------------------------------
 
 
+def _hold_signals(held: list[str], handlers: dict) -> None:
+    """Hold a Ctrl-C, Ctrl-Z, SIGTERM or SIGHUP in *held* while it is empty, and raise
+    KeyboardInterrupt on one after, storing in *handlers* the handlers this replaces; off the
+    main thread none is installed."""
+
+    def hold(signum: int, _frame) -> None:
+        if held:
+            raise KeyboardInterrupt(f"signal {signum}")
+        held.append(f"signal {signum}")
+
+    try:
+        for sig in (signal.SIGINT, signal.SIGTERM, signal.SIGHUP, signal.SIGTSTP):
+            handlers[sig] = signal.signal(sig, hold)
+    except ValueError:
+        pass  # not the main thread: nothing is held
+
+
+def _restore_signals(handlers: dict) -> None:
+    """Put back the handlers _hold_signals replaced."""
+    for sig, handler in handlers.items():
+        signal.signal(sig, signal.SIG_DFL if handler is None else handler)
+
+
 def hard_stop(rc: RoboClawInterface) -> bool:
     """Force-stop both motors using duty-cycle commands (bypasses PID).
 
@@ -337,20 +376,10 @@ def hard_stop(rc: RoboClawInterface) -> bool:
     at once, abandoning this call's stops (a write that hangs, say) to the
     controller's serial timeout. Returns True when both were acknowledged.
     """
-    held: list[int] = []
-
-    def hold(signum: int, _frame) -> None:
-        if held:
-            raise KeyboardInterrupt(f"signal {signum}")
-        held.append(signum)
-
+    held: list[str] = []
     handlers = {}
     try:
-        try:
-            for sig in (signal.SIGINT, signal.SIGTERM, signal.SIGHUP, signal.SIGTSTP):
-                handlers[sig] = signal.signal(sig, hold)
-        except ValueError:
-            pass  # not the main thread: the stops go out unheld
+        _hold_signals(held, handlers)  # off the main thread the stops go out unheld
         acked = True
         for stop in (rc.forward_m1, rc.forward_m2):
             for _ in range(STOP_TRIES):
@@ -362,10 +391,9 @@ def hard_stop(rc: RoboClawInterface) -> bool:
             else:
                 acked = False
     finally:
-        for sig, handler in handlers.items():
-            signal.signal(sig, signal.SIG_DFL if handler is None else handler)
+        _restore_signals(handlers)
     if held:
-        raise KeyboardInterrupt(f"signal {held[0]}")
+        raise KeyboardInterrupt(held[0])
     return acked
 
 
@@ -387,12 +415,13 @@ def open_controller(port: str, address: int) -> RoboClawInterface:
     """Open and return a RoboClawInterface for the given port.
 
     It is opened as the driver opens it, with the interface's read timeout and
-    retries.
+    retries, and listed for the stop on exit before its first stop, so an
+    interrupted one is stopped on the way out.
     """
     rc = RoboClawInterface(port=port, address=address, baud_rate=ROBOCLAW_BAUD_RATE)
     rc.open()
-    hard_stop(rc)  # Ensure motors are stopped on connect
     _open_controllers.append(rc)
+    hard_stop(rc)  # Ensure motors are stopped on connect
     return rc
 
 
@@ -458,10 +487,17 @@ def get_motor_list(which: str) -> list[str]:
     return ["M1", "M2"]
 
 
-def _read_count(rc: RoboClawInterface, motor: str) -> tuple[float, int]:
-    """(monotonic time the read returned, raw count) for one motor."""
+def _read_count(rc: RoboClawInterface, motor: str) -> tuple[float, int, float]:
+    """(monotonic time the read returned, raw count, monotonic time it started) for one motor."""
+    started = time.monotonic()
     count, _ = rc.read_encoder_m1() if motor == "M1" else rc.read_encoder_m2()
-    return time.monotonic(), count
+    return time.monotonic(), count, started
+
+
+def _longest_read_s(rc: RoboClawInterface) -> float:
+    """The longest the tries of a read through *rc* wait unpaused: each waits out the read
+    timeout, the last answered at the end of it, with the retry pause between them."""
+    return (1 + rc.max_retries) * rc.read_timeout + rc.max_retries * rc.retry_pause
 
 
 # ---------------------------------------------------------------------------
@@ -536,17 +572,24 @@ def run_step_response(
     """Step the selected motors of one controller to *speed_ticks* and record their counts.
 
     Command 37 sets both motors at once, as the driver does, and is re-sent
-    every SAMPLE_PERIOD_S for *hold_s*; a motor not selected is held at 0.
-    Each cycle reads both motors' counts (commands 16 and 17). The step does
+    every SAMPLE_PERIOD_S for *hold_s*, timed from the first one's return: a
+    pause before the controller hears it is no dead time, one after it
+    shortens the dead time and the 63 % point by about its length, unflagged
+    until the dead time reads 0, and an unacknowledged first one flags the fit.
+    A motor not selected is held at 0. Each cycle reads
+    both motors' counts (commands 16 and 17); a sample whose read took longer
+    than a cycle is marked slow, and the report leaves it out. The step does
     not start unless the controller's serial timeout is armed, the stop is
     acknowledged and, *settle_s* later, both counts are at rest. It stops, for
     both motors, when a motor turns against its target, runs away from it, or
     (if stepped) stalls, when reads fail or command 37 goes unacknowledged
-    MAX_MISSED cycles in a row, or when a cycle starts, or its command 37 ends,
-    later than the serial timeout after the last cycle started (the controller
-    may have stopped the wheels): the step is not resumed, nor taken for a
-    finished hold. An unacknowledged final stop is followed by SILENT_S without
-    a packet, and a motor turning STILL_CHECK_S after the stop fails.
+    MAX_MISSED cycles in a row, when a cycle starts, or its command 37 ends,
+    later than the serial timeout after the last cycle started (the rest
+    check's last read, for the first; the controller may have stopped the
+    wheels), or when a count read takes longer than the interface's tries can
+    (the process was paused): the step is not resumed, nor taken for a finished
+    hold. An unacknowledged final stop is followed by SILENT_S without a
+    packet, and a motor turning STILL_CHECK_S after the stop fails.
     """
     traces = {m: StepTrace(motor=m, target=speed_ticks) for m in motors}
     target = {m: speed_ticks if m in motors else 0 for m in ("M1", "M2")}
@@ -578,7 +621,8 @@ def run_step_response(
     end_pre = time.monotonic() + PRE_S
     while time.monotonic() < end_pre:
         for m in target:
-            rest[m].append(_read_count(rc, m)[1])
+            _, count, heard = _read_count(rc, m)
+            rest[m].append(count)
         time.sleep(SAMPLE_PERIOD_S)
     for m in target:
         moved = max(abs(count_delta(rest[m][0], c)) for c in rest[m])
@@ -593,35 +637,48 @@ def run_step_response(
     against = {m: 0 for m in target}
     runaway = {m: 0 for m in target}
     missed_reads = missed_acks = 0
+    longest = _longest_read_s(rc)
     try:
-        t0 = time.monotonic()
-        next_cycle = sent = t0
+        # The rest check's last read stands for the cycle before the first: the controller
+        # last heard a packet in it, so the first cycle's checks count from its start.
+        t0, sent = None, heard
         while True:
             # The gap is checked before the hold's end, so a pause that carries the
             # clock past the end is not taken for a finished hold.
             now = time.monotonic()
             if now - sent > timeout:
                 abort(
-                    f"{now - sent:.2f} s between cycles, over the {timeout:g} s serial timeout "
-                    "that stops the wheels (the process was paused, or packets went "
-                    "unanswered); the step is not resumed"
-                )
-                break
-            if now - t0 >= hold_s:
-                break
-            prev, sent = sent, now
-            missed_acks = 0 if rc.drive_m1m2_speed(target["M1"], target["M2"]) else missed_acks + 1
-            # The controller has heard nothing since the last cycle's reads: a pause
-            # after the clock read, which the gap above misses, shows here, and the
-            # stop follows the late command 37 at once.
-            late = time.monotonic() - prev
-            if late > timeout:
-                abort(
-                    f"{late:.2f} s from the last cycle to the end of this one's command 37, over "
-                    f"the {timeout:g} s serial timeout that stops the wheels (the process was "
+                    f"{now - sent:.2f} s since the last cycle (or the rest check), over the "
+                    f"{timeout:g} s serial timeout that stops the wheels (the process was "
                     "paused, or packets went unanswered); the step is not resumed"
                 )
                 break
+            if t0 is not None and now - t0 >= hold_s:
+                break
+            prev, sent = sent, now
+            missed_acks = 0 if rc.drive_m1m2_speed(target["M1"], target["M2"]) else missed_acks + 1
+            written = time.monotonic()
+            # The controller has heard nothing since the last cycle's reads: a pause
+            # after the clock read, which the gap above misses, shows here, and the
+            # stop follows the late command 37 at once.
+            late = written - prev
+            if late > timeout:
+                abort(
+                    f"{late:.2f} s from the last cycle (or the rest check) to the end of this "
+                    f"one's command 37, over the {timeout:g} s serial timeout that stops the "
+                    "wheels (the process was paused, or packets went unanswered); the step is "
+                    "not resumed"
+                )
+                break
+            if t0 is None:
+                # The step is timed from its first command 37's return, as each sample is from
+                # its read's: a pause before the controller hears that command is no dead time.
+                # One after it shortens the dead time and the 63 % point by about its length,
+                # unflagged until the dead time reads 0. Unacknowledged, the return says nothing
+                # of when the controller heard it (if at all), so the fit is flagged.
+                t0 = next_cycle = written
+                for tr in traces.values():
+                    tr.zero_unknown = missed_acks > 0
             if missed_acks >= MAX_MISSED:
                 abort(f"command 37 unacknowledged {MAX_MISSED} cycles in a row")
                 break
@@ -636,9 +693,20 @@ def run_step_response(
             stop = None
             if reads is not None:
                 missed_reads = 0
-                for m, (t_read, raw) in reads.items():
+                took = {m: t_read - t_start for m, (t_read, _, t_start) in reads.items()}
+                slowest = max(took, key=took.get)
+                if took[slowest] > longest:
+                    abort(
+                        f"{slowest}'s count read took {took[slowest]:.2f} s, over the "
+                        f"{longest:g} s its tries can take (the process was paused); the step "
+                        "is not resumed"
+                    )
+                    break
+                for m, (t_read, raw, _) in reads.items():
                     t, c = t_read - t0, count_delta(zero[m], raw)
                     if m in traces:
+                        if took[m] > SAMPLE_PERIOD_S:
+                            traces[m].slow.add(len(traces[m].times))
                         traces[m].times.append(t)
                         traces[m].counts.append(c)
                     t_prev, c_prev = last[m]
@@ -769,21 +837,38 @@ def _report_step_result(
         print(f"    No data collected -- check motor/encoder connection{fault}")
         return False
 
-    tracked = tracking_speed(trace.times, trace.counts, TRACK_START_S, hold_s)
-    print(f"    Samples:      {len(trace.times)}")
+    # The tracking and the fit take only the samples whose read took at most a cycle.
+    timed = [k for k in range(len(trace.times)) if k not in trace.slow]
+    times, counts = [trace.times[k] for k in timed], [trace.counts[k] for k in timed]
+    tracked = tracking_speed(times, counts, TRACK_START_S, hold_s)
+    within = (
+        f" ({len(timed)} read within a cycle, {len(trace.slow)} left out)" if trace.slow else ""
+    )
+    print(f"    Samples:      {len(trace.times)}{within}")
     if tracked is None:
+        left_out = trace.slow and tracking_speed(
+            trace.times, trace.counts, TRACK_START_S, hold_s
+        ) is not None
+        why = ": those whose read took longer than a cycle are left out" if left_out else ""
         print(
             f"    FAIL -- too few samples in [{TRACK_START_S:g}, {hold_s:g}] s to measure "
-            f"tracking{fault}"
+            f"tracking{why}{fault}"
         )
         return False
+    # A sample left out at a window end moves the window the tracking used: print that one.
+    full = [t for t in trace.times if TRACK_START_S <= t <= hold_s]
+    used = [t for t in times if TRACK_START_S <= t <= hold_s]
+    window = (
+        f"[{used[0]:.2f}, {used[-1]:.2f}]" if (full[0], full[-1]) != (used[0], used[-1])
+        else f"[{TRACK_START_S:g}, {hold_s:g}]"
+    )
     error = tracked / speed - 1.0
     print(
-        f"    Tracking:     {tracked:.0f} ticks/s over [{TRACK_START_S:g}, {hold_s:g}] s "
+        f"    Tracking:     {tracked:.0f} ticks/s over {window} s "
         f"(target={speed}, error={error*100:+.1f}%)"
     )
 
-    fit = fit_dead_time_and_tau(trace.times, trace.counts)
+    fit = fit_dead_time_and_tau(times, counts)
     if fit is None:
         print(
             f"    Fit:          none (too few samples before {FIT_END_S} s, "
@@ -813,6 +898,11 @@ def _report_step_result(
             print(
                 f"    WARNING: The fit sits at a bound: the rise before {FIT_END_S} s is not "
                 "measured. Do not record these."
+            )
+        if trace.zero_unknown:
+            print(
+                "    WARNING: The first command 37 went unacknowledged, so when the step started "
+                "is not known. Do not record these."
             )
 
     if abs(tracked) < abs(speed) * STALL_FRACTION:
@@ -1037,22 +1127,36 @@ def cmd_tune(args: argparse.Namespace) -> bool:
 
 
 def cmd_stop(args: argparse.Namespace) -> bool:
-    """Emergency stop all motors. Every selected controller is opened and stopped before any is
+    """Emergency stop all motors. Every detected controller is opened and stopped before any is
     checked, so no check holds back another's stop, and an error on one keeps no other from its
     stop; a controller that answers nothing holds back the next one's stop by its retries alone.
-    The check after a step then runs on all of them at once. True if each acknowledged its stop
-    and no motor's count moves more than REST_TICKS over STILL_CHECK_S, from STILL_CHECK_S after
-    the last stop. The reported speeds are printed, and judge nothing."""
-    controllers = get_controllers(args.controller)
-    stopped = len(controllers) == (2 if args.controller == "both" else 1)
-    opened, status = [], {}
-    for label, port, addr in controllers:
-        try:
-            rc = open_controller(port, addr)
-            # hard_stop is called by open_controller, but call again explicitly
-            opened.append((label, rc, hard_stop(rc)))
-        except Exception as e:
-            status[label], stopped = f"ERROR: {e}", False
+    A Ctrl-C, Ctrl-Z, SIGTERM or SIGHUP from before detection is held by hard_stop's rule: the
+    first is raised once every detected controller has been sent its stop. A second, in
+    detection, in a port's open or in the same stop, raises at once: in detection it ends the
+    run, and otherwise it abandons that controller's open or stop alone (a port that hangs, say)
+    while the others' stops go on; in a later stop it is held to that stop's end. The check
+    after a step then runs on all of them at once. True if every selected controller was
+    detected and opened, each acknowledged its stop, no motor's count moves more than REST_TICKS
+    over STILL_CHECK_S, from STILL_CHECK_S after the last stop, and its reported speeds were
+    read: a failed read is an error, and the speeds read judge nothing."""
+    opened, status, held, handlers = [], {}, [], {}
+    try:
+        _hold_signals(held, handlers)
+        controllers = get_controllers(args.controller)
+        stopped = len(controllers) == (2 if args.controller == "both" else 1)
+        for label, port, addr in controllers:
+            try:
+                rc = open_controller(port, addr)
+                # hard_stop is called by open_controller, but call again explicitly
+                opened.append((label, rc, hard_stop(rc)))
+            except KeyboardInterrupt as e:
+                held.append(str(e))  # held by hard_stop to its stops' end, or a second one
+            except Exception as e:
+                status[label], stopped = f"ERROR: {e}", False
+    finally:
+        _restore_signals(handlers)
+    if held:
+        raise KeyboardInterrupt(held[0])
     checks = _moving_after_stop([rc for _, rc, _ in opened], ["M1", "M2"])
     for (label, rc, acked), moving in zip(opened, checks):
         try:
@@ -1116,6 +1220,7 @@ def _confirm_lifted(args: argparse.Namespace) -> bool:
 def build_parser() -> argparse.ArgumentParser:
     lo, hi = SERIAL_TIMEOUT_RANGE_S
     tolerance = TRACK_TOLERANCE * 100
+    still = STILL_CHECK_S
     travel = _travel_m(STEP_VELOCITY_TICKS, STEP_HOLD_S)
     longest = _travel_m(MAX_STEP_TICKS, MAX_HOLD_S)
     parser = argparse.ArgumentParser(
@@ -1146,10 +1251,10 @@ Exit status of --step-response and --tune: 0 if every motor passed; 1 if a motor
 fails tracking, a step is aborted or errs, a selected controller is missing, the
 step is not confirmed or (--tune) the gains are not confirmed; {EXIT_NO_VERDICT} if the step
 was not the default one and nothing failed. Of --stop: 1 if a selected controller
-is missing, a stop is not acknowledged or errs, or a wheel's count moves more than
-{REST_TICKS} ticks over {STILL_CHECK_S:g} s from {STILL_CHECK_S:g} s after the stop; the reported
-speeds lag, and are printed only.
-{EXIT_INTERRUPTED} if interrupted (Ctrl-C, Ctrl-Z, SIGTERM, SIGHUP); else 0.
+is missing, a stop is not acknowledged or errs, a read fails, or a wheel's count
+moves more than {REST_TICKS} ticks over {still:g} s from {still:g} s after the stop; the reported
+speeds lag, and judge nothing. 2 on a usage error; {EXIT_INTERRUPTED} if interrupted (Ctrl-C,
+Ctrl-Z, SIGTERM, SIGHUP); else 0.
         """,
     )
 
@@ -1202,7 +1307,8 @@ speeds lag, and are printed only.
             f"Step target in ticks/s (default: {STEP_VELOCITY_TICKS}, {STEP_SPEED_MPS:g} m/s at "
             "the wheel through strafer_shared's WHEEL_RADIUS and RADIANS_TO_ENCODER_TICKS, the "
             f"speed the driver's gains were chosen at); from {MIN_STEP_TICKS}, so the against "
-            f"abort sees a reversed motor every cycle, to {MAX_STEP_TICKS} either way, so the "
+            f"abort sees a reversed motor in every full-length cycle, to {MAX_STEP_TICKS} either "
+            "way, so the "
             f"runaway abort trips {(1 - RUNAWAY_HEADROOM) * 100:g} %% under full speed. Another "
             "speed gets no verdict"
         ),

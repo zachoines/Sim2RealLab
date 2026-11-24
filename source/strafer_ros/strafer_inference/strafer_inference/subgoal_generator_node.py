@@ -15,7 +15,7 @@ Five non-obvious contracts:
   independently, so installing on arrival would re-root the path under
   the robot and cross-track error could never develop. Under
   ``subgoal_anchoring: mission`` a fresh plan replaces the anchor only
-  per :func:`~strafer_inference.generator.evaluate_admission`;
+  per :func:`~strafer_shared.rolling_subgoal.evaluate_admission`;
   ``rolling`` re-roots on every plan.
 - The active-goal topic is status telemetry (inference node -> here),
   NOT a command channel: ``navigate_to_pose`` remains the only way to
@@ -39,7 +39,7 @@ Five non-obvious contracts:
   time wall-clock producers (the inference node's keep-alive, the planner
   process) and stay on ``time.monotonic``, as does the status-log cadence.
 
-ROS glue only -- selection math is in :mod:`strafer_inference.generator`.
+ROS glue only -- selection math is in :mod:`strafer_shared.rolling_subgoal`.
 """
 
 from __future__ import annotations

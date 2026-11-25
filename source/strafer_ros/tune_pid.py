@@ -155,11 +155,13 @@ MAX_MISSED = 2
 # the fit leave its sample out; the abort rules take it. A read longer than the
 # interface's tries wait unpaused (_longest_read_s) held a pause, which took
 # that cycle's timing, not only its sample's (the next cycle runs at once): it
-# ends the step, as the pause checks do. A pause under a cycle is left: it can
+# ends the step, as the pause checks do. A pause under a cycle is left. It can
 # make either end of a window up to a cycle late, which at the default step
-# moves the mean by up to 0.4 % either way, and a sample in the rise up to a
-# cycle late, which can move the printed 63 % point by about 3 ms and the dead
-# time by up to about 18 ms, unflagged.
+# moves the mean by at most 0.4 % either way: a bound, derived from the cycle
+# schedule for a wheel at a steady speed. It can make a sample in the rise up
+# to a cycle late, which moved the printed 63 % point by up to about 3 ms and
+# the dead time by up to about 18 ms, unflagged, on a simulated link and on the
+# tests' fake: the worst cases found there, not bounds.
 #
 # The window the tracking uses runs from its first sample in the box to its
 # last. Each end may sit at most a cycle and one read's tries (StepTrace.edge_s)
@@ -167,9 +169,10 @@ MAX_MISSED = 2
 # allows. Farther in, samples left out or a pause leave a window the box does
 # not describe (late on a creeping wheel it reads high, early it reads low, and
 # a short one rests on a few ticks), so the motor fails for too few samples.
-# Within it, a late start or an early end moves the default step's mean by up
-# to 0.13 % on the bench holds at the shipped gains, and up to 0.4 % on holds
-# whose wheels creep more.
+# Within it, a late start or an early end moved the default step's mean by up
+# to 0.13 % on recorded holds at the shipped gains, and up to 0.4 % on recorded
+# holds whose wheels creep more: the worst over every window the rule admits on
+# those holds, not a bound, since a wheel that creeps more moves it further.
 
 # The largest step keeps the runaway limit RUNAWAY_HEADROOM of ROBOCLAW_QPPS,
 # the motors' mean full speed, so a motor slower than the mean (the slowest is

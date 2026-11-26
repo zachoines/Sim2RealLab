@@ -15,5 +15,5 @@
 ## References
 <!-- The only cross-repository links. One line per item, in this exact shape;
      delete a line kind that does not apply. -->
-Tasks: <brief-name> — Sim2RealLab-Tasks PR #<n>
+Tasks: <brief-name> — zachoines/Sim2RealLab-Tasks#<n>
 Record: Sim2RealLab-Artifacts@<commit> <record-dir>/

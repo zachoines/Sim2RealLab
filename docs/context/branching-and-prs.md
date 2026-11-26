@@ -96,15 +96,17 @@ epic/arm tokens, dates.
   in a fixed shape; a line kind that does not apply is left out:
 
   ```
-  Tasks: <brief-name> — Sim2RealLab-Tasks PR #<n>
+  Tasks: <brief-name> — zachoines/Sim2RealLab-Tasks#<n>
   Record: Sim2RealLab-Artifacts@<commit> <record-dir>/
   ```
 
   `Tasks:` names each brief the PR ships or files, with the
   task-repository pull request that carries its stamp, move and board
-  row. `Record:` names each measurement record the PR rests on or
-  produced, at the evidence-repository commit that holds it. Nothing
-  else in the body links across repositories
+  row, in GitHub's cross-repository form: a bare `#<n>` resolves in
+  this repository, so only `zachoines/Sim2RealLab-Tasks#<n>` links to
+  the task repository's pull request. `Record:` names each measurement
+  record the PR rests on or produced, at the evidence-repository commit
+  that holds it. Nothing else in the body links across repositories
   ([`tasks-and-evidence.md`](tasks-and-evidence.md)).
 
 **Register rules** (title, body, commits, and review comments alike):

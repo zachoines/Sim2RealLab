@@ -49,7 +49,15 @@ from . import mdp
 
 # Import robot configuration
 from strafer_lab.assets import STRAFER_CFG
-from strafer_shared.constants import GOAL_ARRIVAL_RADIUS_M, NAV_ANGULAR_VEL, NAV_VEL_SCALE, POLICY_MISSION_TIMEOUT_S
+from strafer_shared.constants import (
+    GOAL_ARRIVAL_RADIUS_M,
+    NAV_ANGULAR_VEL,
+    NAV_VEL_SCALE,
+    POLICY_MISSION_TIMEOUT_S,
+    TRACK_WIDTH,
+    WHEEL_BASE,
+    WHEEL_RADIUS,
+)
 
 # Import sim-real contracts and helper functions
 from .sim_real_cfg import (
@@ -429,9 +437,9 @@ class ActionsCfg_Ideal:
         asset_name="robot",
         joint_names=["wheel_1_drive", "wheel_2_drive", "wheel_3_drive", "wheel_4_drive"],
         wheel_axis_signs=(-1.0, 1.0, -1.0, 1.0),
-        wheel_radius=0.048,
-        wheel_base=0.336,
-        track_width=0.4132,
+        wheel_radius=WHEEL_RADIUS,
+        wheel_base=WHEEL_BASE,
+        track_width=TRACK_WIDTH,
         **get_action_config_params(IDEAL_SIM_CONTRACT),
     )
 
@@ -443,9 +451,9 @@ class ActionsCfg_Realistic:
         asset_name="robot",
         joint_names=["wheel_1_drive", "wheel_2_drive", "wheel_3_drive", "wheel_4_drive"],
         wheel_axis_signs=(-1.0, 1.0, -1.0, 1.0),
-        wheel_radius=0.048,
-        wheel_base=0.336,
-        track_width=0.4132,
+        wheel_radius=WHEEL_RADIUS,
+        wheel_base=WHEEL_BASE,
+        track_width=TRACK_WIDTH,
         **get_action_config_params(REAL_ROBOT_CONTRACT),
     )
 
@@ -457,9 +465,9 @@ class ActionsCfg_Robust:
         asset_name="robot",
         joint_names=["wheel_1_drive", "wheel_2_drive", "wheel_3_drive", "wheel_4_drive"],
         wheel_axis_signs=(-1.0, 1.0, -1.0, 1.0),
-        wheel_radius=0.048,
-        wheel_base=0.336,
-        track_width=0.4132,
+        wheel_radius=WHEEL_RADIUS,
+        wheel_base=WHEEL_BASE,
+        track_width=TRACK_WIDTH,
         **get_action_config_params(ROBUST_TRAINING_CONTRACT),
     )
 

@@ -142,6 +142,27 @@ def test_an_impossible_range_is_refused(bad):
         _term(bad)
 
 
+def test_every_tier_builds_its_caps_from_the_shared_chassis_geometry():
+    """The wheel radius, wheel base and track width are strafer_shared's; the action scale is the contract's 32.67
+    rad/s, so the full caps sit 7.9e-5 under MAX_LINEAR_VEL and MAX_ANGULAR_VEL, and the half-scale caps within 1e-4 of
+    the node's NAV_LINEAR_VEL and NAV_ANGULAR_VEL (rounded to four decimals)."""
+    from strafer_lab.tasks.navigation import strafer_env_cfg as tiers
+    from strafer_shared.constants import (
+        MAX_ANGULAR_VEL, MAX_LINEAR_VEL, NAV_ANGULAR_VEL, NAV_LINEAR_VEL, TRACK_WIDTH, WHEEL_BASE, WHEEL_RADIUS,
+    )
+
+    for tier in (tiers.ActionsCfg_Ideal, tiers.ActionsCfg_Realistic, tiers.ActionsCfg_Robust):
+        cfg = tier().wheel_velocities
+        assert (cfg.wheel_radius, cfg.wheel_base, cfg.track_width) == (WHEEL_RADIUS, WHEEL_BASE, TRACK_WIDTH), tier
+        env = SimpleNamespace(scene={cfg.asset_name: _Asset()}, device="cpu", num_envs=N, physics_dt=1 / 120,
+                              step_dt=1 / 30)
+        term = cfg.class_type(cfg, env)
+        assert term._max_linear_vel == pytest.approx(MAX_LINEAR_VEL, rel=1e-4), tier
+        assert term._max_angular_vel == pytest.approx(MAX_ANGULAR_VEL, rel=1e-4), tier
+        assert 0.5 * term._max_linear_vel == pytest.approx(NAV_LINEAR_VEL, rel=1e-4), tier
+        assert 0.5 * term._max_angular_vel == pytest.approx(NAV_ANGULAR_VEL, rel=1e-4), tier
+
+
 def test_the_range_reaches_the_action_term():
     """The robust contract's range is passed into the action cfg and the built term
     draws from it (a contract field that get_action_config_params does not pass

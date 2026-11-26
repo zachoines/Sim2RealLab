@@ -49,7 +49,7 @@ from . import mdp
 
 # Import robot configuration
 from strafer_lab.assets import STRAFER_CFG
-from strafer_shared.constants import GOAL_ARRIVAL_RADIUS_M
+from strafer_shared.constants import GOAL_ARRIVAL_RADIUS_M, NAV_ANGULAR_VEL, NAV_VEL_SCALE, POLICY_MISSION_TIMEOUT_S
 
 # Import sim-real contracts and helper functions
 from .sim_real_cfg import (
@@ -2000,13 +2000,44 @@ class RewardsCfg_ProcRoom_Subgoal_Depth(RewardsCfg_ProcRoom_Subgoal):
     )
 
 
+# The subgoal episode's time-out. The reference scale and the turn rate are the deploy node's speed cap: NAV_VEL_SCALE
+# of the chassis maximum, and its angular speed NAV_ANGULAR_VEL. 11.87 s + 1.53 s per metre of the installed path are
+# measured, not derived: a trained policy's completion bound under that cap (a least-squares slope in the arc, and the
+# intercept that puts 99 % of completions under it). The planned path's total turning is added as an in-place turn at
+# the turn rate; below the reference scale the whole bound stretches by reference / s. A retune of the node's caps
+# moves the two derived values and fails the time-out's tests, which pin all four, until the bound is measured again
+# at the new cap. The limit is never below the env's episode length, and above it never past the larger of that and
+# POLICY_MISSION_TIMEOUT_S, the node's bound on one goal.
+_SUBGOAL_TIME_OUT_INTERCEPT_S = 11.87
+_SUBGOAL_TIME_OUT_PER_M_S = 1.53
+_SUBGOAL_TIME_OUT_TURN_RATE_RAD_S = NAV_ANGULAR_VEL
+_SUBGOAL_TIME_OUT_REFERENCE_SCALE = NAV_VEL_SCALE
+
+
 @configclass
 class TerminationsCfg_ProcRoom_Subgoal(TerminationsCfg):
     """Terminations for the ProcRoom subgoal objective.
 
     Episodes end on path completion, off-path divergence, sustained
-    collision (ProcRoom-tight threshold), robot flip, or timeout.
+    collision (ProcRoom-tight threshold), robot flip, or a time-out scaled to
+    the path's length and turning and the episode's speed cap (``time_out``,
+    which replaces the inherited fixed one under the same name and stays a
+    time-out).
     """
+
+    time_out = DoneTerm(
+        func=mdp.path_time_out,
+        time_out=True,
+        params={
+            "command_name": "goal_command",
+            "action_name": "wheel_velocities",
+            "intercept_s": _SUBGOAL_TIME_OUT_INTERCEPT_S,
+            "time_per_m_s": _SUBGOAL_TIME_OUT_PER_M_S,
+            "turn_rate_rad_s": _SUBGOAL_TIME_OUT_TURN_RATE_RAD_S,
+            "reference_speed_scale": _SUBGOAL_TIME_OUT_REFERENCE_SCALE,
+            "ceiling_s": POLICY_MISSION_TIMEOUT_S,
+        },
+    )
 
     path_complete = DoneTerm(
         func=mdp.path_complete,

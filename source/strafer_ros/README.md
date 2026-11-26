@@ -38,7 +38,7 @@ Sibling packages it interacts with:
 - **RoboClaw driver** (`strafer_driver/roboclaw_node.py`) — single-threaded executor, 50 Hz timer for all serial I/O, auto-writes PID/QPPS from `strafer_shared.constants` at startup, dual-controller addressing (0x80 front, 0x81 rear), `/cmd_vel` → per-wheel mecanum IK, 500 ms watchdog. The first `cmd_vel` taken within 500 ms after an executor stall longer than the watchdog window is dropped, as the message that waited through the stall; a stall after which nothing is taken for 500 ms drops nothing. Ten consecutive serial failures, or a failure more than 500 ms after the last good exchange, stop both controllers and enter the error state; a single failure that follows an executor delay of about 0.3 s counts. The driver reads its gains back at startup, and until both controllers hold them it stays in the error state. From there it reopens the ports it opened at start every 2 s, probes each at its controller's address, re-writes the gains and reads them back before driving again. When a reopened port does not answer, the driver closes both ports and detects the controllers again by address on `/dev/roboclaw*`, as at startup, and reopens each on the path its address answers on. So a swap in the controllers' enumeration order recovers without a restart of `base`, and the scan also finds a controller replugged under a new `ttyACM` number. A re-detection that finds an address missing, or both addresses on one device, adopts nothing, and the driver stays in the error state until the next attempt. With `auto_detect` false it reopens only the configured ports. `make teleop` publishes once per key read, with no repeat of its own, so the watchdog stops the motors 500 ms after a released key's last repeat.
 - **RealSense D555 stack** (`strafer_perception/`) — launch wiring for the RealSense ROS 2 node (stream profiles, depth alignment, and the four post-processing filters off plus depth auto-exposure on, pinned as `rs_launch.py` arguments and asserted by `test_perception_launch.py`), `timestamp_fixer` (relays colour and aligned depth as the `*_sync` topics, stamps unchanged), `depth_downsampler` (640×360 depth → 80×45 float32 meters; diagnostic, not the policy input), `imu_filter_madgwick` for filtered `/d555/imu/filtered`.
 - **Goal projection service** (`strafer_perception/goal_projection_node.py`) — implements `ProjectDetectionToGoalPose.srv`: VLM bbox (Qwen normalized `[0, 1000]`) → pixel → depth lookup (5×5 median) → 3D camera frame → TF to map → standoff offset → reachability check.
-- **URDF + TF tree** (`strafer_description/`) — URDF with chassis, 4 wheels, and `d555_link`; `robot_state_publisher` broadcasts `base_link → {chassis, wheels, d555_link}` from joint states and URDF.
+- **URDF + TF tree** (`strafer_description/`) — URDF with chassis, 4 wheels, `d555_link` and `d555_color_optical_frame`, its xacro arguments set from `strafer_shared.constants` by `strafer_description.xacro_args`; `robot_state_publisher` broadcasts `base_link → {chassis, wheels, d555_link}` and `d555_link → d555_color_optical_frame` from joint states and URDF.
 - **RTAB-Map SLAM** (`strafer_slam/`) — launch composition for `depth_to_pointcloud` (point cloud from aligned depth) + `pointcloud_to_laserscan` (virtual 2D `/scan`, height-filtered in `base_link`) + `rtabmap` (RGB-D SLAM with odom + IMU fusion, 2 Hz detection rate, 5 cm grid).
 - **Nav2 navigation** (`strafer_navigation/`) — launch composition for the full Nav2 stack with MPPI holonomic controller, `Omni` motion model (produces `vx, vy, wz` for mecanum), costmaps patched from `strafer_shared` constants. `start_cell_planner_selector` publishes `planner_selector` from the cost of the robot's own global-costmap cell, so the navigate-to-pose BT admits the inflated-start escape-hatch planner only when the primary planner refuses the start — and logs, rate-limited, whenever it does.
 - **Bringup layers** (`strafer_bringup/launch/`) — 6 launch files that compose progressively: `base` (driver + URDF), `perception` (+ RealSense), `slam` (+ RTAB-Map), `navigation` (+ Nav2), `autonomy` (+ goal projection + executor), and `bringup_sim_in_the_loop` (no real hardware — consumes topics published by the DGX Isaac Sim ROS 2 bridge).
@@ -115,9 +115,10 @@ Commanded / driven:
 
 ```text
 map ← odom ← base_link ← {chassis, wheel_*, d555_link}
+d555_link ← d555_color_optical_frame
 ```
 
-`map → odom` published by RTAB-Map. `odom → base_link` published by `strafer_driver` at 50 Hz. `base_link → d555_link` comes from the URDF via `robot_state_publisher`; `strafer_perception/perception.launch.py` currently also publishes a redundant static `base_link → d555_link` transform that should be cleaned up — treat the URDF transform as authoritative.
+`map → odom` published by RTAB-Map. `odom → base_link` published by `strafer_driver` at 50 Hz. `base_link → d555_link` comes from the URDF via `robot_state_publisher`, with the mount at `CAMERA_OFFSET_X/Y/Z` from `strafer_shared.constants`; `robot_state_publisher` also publishes `d555_link → d555_color_optical_frame`; on the robot the RealSense driver publishes `d555_color_optical_frame` too, under its own `d555_color_frame`, and a TF listener keeps whichever static transform for it arrives last.
 
 ### Hardware / addressing
 
@@ -235,14 +236,52 @@ make launch-sim
 These live at the top of `source/strafer_ros/` and are direct-hardware tools. Run outside the ROS launch graph (no SLAM / Nav2 running; they drive the motors directly).
 
 ```bash
-# RoboClaw PID tuning and step-response test
+# RoboClaw PID tuning and step-response test (wheels lifted). --tune writes the gains (the
+# driver's, from strafer_shared.constants, unless --p/--i/--d/--qpps) and steps each controller
+# with command 37, as the driver does: by default 535 ticks/s (0.3 m/s; --speed, 200 to 1045
+# ticks/s either way) for 6 s (--hold), the encoder counts (commands 16 and 17) read at 50 Hz,
+# after a typed confirmation that the wheels are lifted (--no-confirm skips it): each turns
+# about 1.8 m. The step is timed from its first command 37's return, each count from its read's
+# return: a pause after the controller heard the first command 37 shortens the dead time and
+# the 63 % point by about its length, unflagged until the dead time reads 0, and an
+# unacknowledged first command 37 flags the fit. On that step a motor passes when its mean
+# speed from the count, from 0.6 s after the first command to the last, is within ±5 % of the
+# target, the box the driver's gains passed; at another --speed or --hold the tracking is
+# printed with no verdict. The dead time and time constant fitted to the count before 0.6 s,
+# the rise, are reported as measurements: nothing passes or fails on them. --step-response
+# steps without the write. A step needs each controller's serial timeout armed (0.1 to 1.0 s),
+# its stop acknowledged and, --settle (0.2 s) later, both wheels at rest. A wheel turning
+# against its target, running away or stalling, two failed reads or two unacknowledged command
+# 37s in a row, a cycle that starts, or whose command 37 ends, more than the serial timeout
+# after the last cycle started (for the first, the rest check's last read), a count read longer
+# than the interface's tries can wait, or an unconfirmed gains write stops the run; a wheel
+# turning 0.2 s after the stop fails it. A count read longer than a cycle (20 ms) times neither
+# the tracking nor the fit, and the report gives how many were read within a cycle and how many
+# left out; a motor whose tracking window has an end more than a cycle and a read's tries
+# (0.225 s) inside the box's, from samples left out or a pause, fails for too few samples. Exit
+# status of --tune and --step-response: 0 if every motor passed; 1 if a motor fails tracking, a
+# step is aborted or errs, a selected controller is missing, the step is not confirmed or
+# (--tune) the gains are not confirmed; 3 if the step was not the default one and nothing
+# failed; 2 on a usage error. --stop sends every detected controller its stop before it checks
+# any, and exits 1 if a controller is missing, a stop is not acknowledged or errs, a read
+# fails, or a wheel's count moves more than 2 ticks over 0.2 s from 0.2 s after the stop.
+# Ctrl-C, Ctrl-Z, SIGTERM and SIGHUP stop the motors (--stop: once every detected controller
+# has its stop; a second signal in detection ends the run with nothing stopped, one in a port's
+# open or in the stop the first came in abandons that open or stop, and one in a later stop is
+# held to that stop's end) and exit 130. --help gives each default's reason; the box and the
+# safety limits are fixed.
 python3 source/strafer_ros/tune_pid.py --read         # current PID
 python3 source/strafer_ros/tune_pid.py --tune         # set + measure
 
 # RoboClaw diagnostics. --front/--rear take /dev/roboclaw* names; any other path needs
 # --allow-unverified-ports (bench only). A port that does not answer the battery read gets
 # nothing more, and the run exits 1. By default it only reads: battery, temperature, velocity
-# PID and the packet-serial timeout (command 15, the active value). --drive adds the direct
+# PID and the packet-serial timeout (command 15, the active value), then the settings: firmware
+# (21), status (90, read once; the read clears its warning bits and the E-Stop bit, so with
+# base stopped it is their only reader), S-pin modes (75, with the reply's length: 5 bytes, or
+# 3 on older firmware, then shown unnamed), main battery min, max and auto offset (59), default
+# duty acceleration (81), standard config (99), current limits (135, 136), PWM mode (149) and
+# idle modes (161). --drive adds the direct
 # duty-cycle test (skips PID; wheels lifted). --set-serial-timeout 0.5 sets the timeout and
 # reads it back; with --write-nvm it first reloads the saved settings (command 95), then sets
 # and saves them all to flash (command 94), which resets the controller. --set-gains writes the
@@ -293,7 +332,7 @@ cat /proc/sys/net/core/rmem_max   # expect 16777216
 
 **The `*_sync` topics are authoritative for grounding and projection.** `timestamp_fixer` relays the four camera topics as `*_sync` with their stamps unchanged: with the host modules in [`docs/guides/D555_IMU_KERNEL_FIX.md`](../../docs/guides/D555_IMU_KERNEL_FIX.md) the D555 stamps on librealsense's global time, about 25 ms behind receive time, and a frame's image and camera_info share one stamp, which `depth_to_pointcloud`'s exact sync needs. Consumers (RTAB-Map, `depth_to_pointcloud`, `goal_projection_node`, the executor's ROS client) subscribe to the `*_sync` versions, never to the raw topics; the Foxglove layout's colour panels do too.
 
-**URDF is the single source of truth for `base_link → d555_link`.** `strafer_perception` also publishes a static TF of the same transform — a historical wart to be removed. Consumers should treat the URDF transform as authoritative.
+**URDF is the single source of truth for `base_link → d555_link`.** `robot_state_publisher` publishes it, and the URDF places the mount at `CAMERA_OFFSET_X/Y/Z` from `strafer_shared.constants`.
 
 **`navigate_to_pose` stays backend-agnostic at the autonomy boundary.** Three backends dispatch: `nav2` (default), `strafer_direct` (pure-RL local control via `strafer_inference`), and `hybrid_nav2_strafer` (Nav2 global plan + RL local control following the subgoal generator). The inference node advertises its `navigate_to_pose` action server only when a policy loads; otherwise the dispatcher falls back to `nav2`.
 

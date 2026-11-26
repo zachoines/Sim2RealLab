@@ -173,6 +173,33 @@ class TestArguments:
             "rear_port": "/dev/roboclaw1",
         }
 
+    @pytest.mark.parametrize(
+        "filename",
+        [
+            "slam.launch.py",
+            "navigation.launch.py",
+            "autonomy.launch.py",
+            "bringup_sim_in_the_loop.launch.py",
+        ],
+    )
+    def test_database_path_default_is_strafer_slams(self, pkg_dir, monkeypatch, filename):
+        """strafer_slam derives the database from its key when database_path
+        arrives empty or at strafer_slam's own default; any other value is the
+        path."""
+        from launch.actions import DeclareLaunchArgument
+        from strafer_slam.database import DEFAULT_DB_ARG
+
+        monkeypatch.delenv("STRAFER_NAV_BACKEND", raising=False)
+        mod = _load_module(pkg_dir, filename, filename.replace(".", "_"))
+        defaults = [
+            "".join(s.text for s in entity.default_value)
+            for entity in mod.generate_launch_description().entities
+            if isinstance(entity, DeclareLaunchArgument)
+            and entity.name == "database_path"
+        ]
+
+        assert defaults == [DEFAULT_DB_ARG]
+
     def test_slam_has_localization_arg(self, pkg_dir):
         args = self._get_arg_names(pkg_dir, "slam.launch.py")
         assert "localization" in args
@@ -256,7 +283,7 @@ class TestSimInTheLoopBringup:
     def test_real_robot_donut_warmup_default_disabled(self, pkg_dir):
         """Default must be 'false' on the real-robot lane. The donut
         symptom is amplified by the sim's cold-mapped workflow; in
-        steady-state real-robot ops the rtabmap.db persists across
+        steady-state real-robot ops the RTAB-Map database persists across
         sessions and a startup spin is unnecessary motion (and a real
         safety concern on hardware).
         """

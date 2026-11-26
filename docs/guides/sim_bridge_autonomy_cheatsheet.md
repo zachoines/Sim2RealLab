@@ -51,7 +51,8 @@ docker compose \
 # 1b) FRESH MAP on every sim restart. ProcRoom regenerates its layout, but rtabmap reloads its db
 #     from the named volume, so a recreate alone comes back on the old map (WM=NNN), which
 #     silently corrupts /plan. Bump the scene token (non-destructive; every earlier map is kept):
-#       export STRAFER_SLAM_SCENE_TOKEN=sim$(date +%Y%m%d-%H%M)   # -> ~/.ros/rtabmap_[<task id>_]<token>.db
+#       export STRAFER_SLAM_SCENE_TOKEN=sim$(date +%Y%m%d-%H%M)   # -> ~/.ros/rtabmap_[<task id>_]<token>@<mount>.db
+#       docker logs strafer_slam 2>&1 | grep -m1 -o 'database=[^ ]*'   # once up: the db the launch chose
 #     The destructive alternative empties the volume:
 #       docker volume rm strafer_strafer_ros_home
 
@@ -74,8 +75,9 @@ docker logs strafer_slam 2>&1 | grep -A1 'loadDataFromDb()' | grep -c repair   #
 #    token (1b; the old db is kept for forensics) and re-seed by re-running steps 1-3.
 ```
 
-Details: scene keying and the `addLink()` abort are in the deploy
-[README](../../source/strafer_ros/deploy/README.md#slam-the-map-is-keyed-to-the-scene).
+Details: scene keying is in the deploy
+[README](../../source/strafer_ros/deploy/README.md#slam-the-map-is-keyed-to-the-scene-and-the-camera-mount),
+and the `addLink()` abort under its "Applying a config change".
 
 ## Send a natural-language command
 

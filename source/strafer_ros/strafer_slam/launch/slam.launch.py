@@ -24,20 +24,21 @@ Scene keying
 RTAB-Map reloads its persisted database on start, which is right for the one
 persistent scene the real robot maps and wrong for a procedurally regenerated
 sim scene, where the reloaded grid describes a different layout and every Nav2
-``/plan`` derived from it is meaningless.
+``/plan`` derived from it is meaningless. It is wrong as well for a map made
+from another camera mount, whose features sit against that mount's camera pose.
 
 ``task_id`` / ``scene_key`` (env ``STRAFER_SLAM_TASK_ID`` /
-``STRAFER_SLAM_SCENE_TOKEN``) form a scene key that derives the database path
-when ``database_path`` is left at its default, and a ``<db>.scene.json`` sidecar
-records which key a database belongs to. A launch whose key disagrees with the
-sidecar aborts. An empty key keeps the unkeyed ``~/.ros/rtabmap.db``, and an
-explicit ``database_path:=`` overrides both.
+``STRAFER_SLAM_SCENE_TOKEN``) form a scene key. A database's key is that scene
+key, ``@`` and the camera mount (``CAMERA_OFFSET_X/Y/Z`` in millimetres, the
+URDF's ``d555_mount``), so an empty scene key keys the database to the mount
+alone. Left at its default, ``database_path`` becomes
+``~/.ros/rtabmap_<key>.db``. A ``<db>.scene.json`` sidecar records the key, and
+an existing database loads only under the key it records: a launch that finds
+another key, or none, aborts. An explicit ``database_path:=`` chooses the file,
+not that check. The TF publisher must run on the same constants.
 """
 
-import datetime
-import json
 import os
-import re
 import yaml
 
 from launch import LaunchDescription
@@ -46,90 +47,7 @@ from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
 from ament_index_python.packages import get_package_share_directory
 from strafer_shared.constants import DEPTH_MIN, DEPTH_MAX, MAP_RESOLUTION
-
-# Every caller in strafer_bringup spells its database_path default exactly like
-# this, so receiving this value means nobody chose a path and scene keying may
-# derive one; any other value is honoured verbatim.
-_UNKEYED_DEFAULT_DB = "~/.ros/rtabmap.db"
-
-# Sits beside the database so deleting the db (or its volume) takes both.
-_SCENE_SIDECAR_SUFFIX = ".scene.json"
-
-
-def _slug(value: str) -> str:
-    """Filename-safe form of a task id / scene token."""
-    return re.sub(r"[^A-Za-z0-9._-]+", "-", value.strip()).strip("-.")
-
-
-def _scene_key(task_id: str, scene_token: str) -> str:
-    """Combined scene key; empty when neither half is set."""
-    return "_".join(p for p in (_slug(task_id), _slug(scene_token)) if p)
-
-
-def _resolve_database_path(database_path: str, key: str) -> str:
-    """Expanded db path, keyed to the scene when the caller chose no path."""
-    if key and database_path.strip() in ("", _UNKEYED_DEFAULT_DB):
-        database_path = f"~/.ros/rtabmap_{key}.db"
-    return os.path.expanduser(database_path.strip() or _UNKEYED_DEFAULT_DB)
-
-
-def _claim_database_for_scene(db_path: str, key: str, *, deleting: bool) -> None:
-    """Refuse a database recorded under a different scene; else claim it.
-
-    ``deleting`` is True when ``rtabmap_args`` carries ``-d`` (rtabmap wipes the
-    db at start), so there is no foreign map left to protect against.
-    """
-    sidecar = db_path + _SCENE_SIDECAR_SUFFIX
-    recorded = None
-    if os.path.isfile(sidecar):
-        try:
-            recorded = json.loads(open(sidecar).read()).get("key")
-        except (OSError, ValueError):
-            recorded = None            # unreadable -> re-adopt below
-
-    if (
-        not deleting
-        and os.path.isfile(db_path)
-        and recorded is not None
-        and recorded != key
-    ):
-        raise RuntimeError(
-            f"RTAB-Map database {db_path!r} was recorded under scene key "
-            f"{recorded!r} but this launch has scene key {key!r}. Loading it "
-            "would silently publish a map of a DIFFERENT scene, and every Nav2 "
-            "/plan derived from it would be meaningless. Refusing to start. "
-            "Pick one:\n"
-            f"  - new scene:     STRAFER_SLAM_SCENE_TOKEN=<token>   (db becomes "
-            "~/.ros/rtabmap_<key>.db)\n"
-            f"  - explicit db:   database_path:=<path>\n"
-            f"  - wipe & remap:  rtabmap_args:=-d\n"
-            f"  - it really IS scene {recorded!r}: set the matching task_id / "
-            "scene_key, or delete "
-            f"{sidecar!r} to re-adopt the database under the current key."
-        )
-
-    # Claim it so the next mismatch is caught. Best-effort: an unwritable
-    # sidecar loses the guard but must not stop SLAM.
-    record = {
-        "key": key,
-        "task_id": os.environ.get("STRAFER_SLAM_TASK_ID", ""),
-        "scene_token": os.environ.get("STRAFER_SLAM_SCENE_TOKEN", ""),
-        "database_path": db_path,
-        "claimed_utc": datetime.datetime.now(datetime.timezone.utc).isoformat(),
-        "written_by": "strafer_slam/slam.launch.py",
-    }
-    try:
-        os.makedirs(os.path.dirname(sidecar) or ".", exist_ok=True)
-        with open(sidecar, "w") as f:
-            json.dump(record, f, indent=2)
-            f.write("\n")
-    except OSError as exc:
-        print(
-            f"[strafer_slam] WARNING: could not write the scene sidecar "
-            f"{sidecar!r} ({exc}); the wrong-scene guard is INACTIVE for this "
-            "database.",
-            flush=True,
-        )
+from strafer_slam import database
 
 
 def _launch_setup(context, *args, **kwargs):
@@ -145,28 +63,29 @@ def _launch_setup(context, *args, **kwargs):
     task_id = LaunchConfiguration("task_id").perform(context)
     scene_key_arg = LaunchConfiguration("scene_key").perform(context)
 
-    # ── Scene keying + wrong-scene guard ────────────────────────────────
-    # The path must resolve before it can be claimed, since the key may derive
-    # it. A mismatch raises out of this OpaqueFunction and aborts the launch.
-    key = _scene_key(task_id, scene_key_arg)
-    database_path = _resolve_database_path(database_path, key)
+    # ── Scene and mount keying + guard ──────────────────────────────────
+    # The key joins the scene key to the camera mount, so a database reloads
+    # only under the mount it was made from. The path must resolve before it
+    # can be claimed, since the key may derive it. A refusal raises out of
+    # this OpaqueFunction and aborts the launch.
+    scene = database.scene_key(task_id, scene_key_arg)
+    key = database.database_key(scene, database.CAMERA_MOUNT)
+    database_path = database.resolve_database_path(database_path, key)
     extra_args = rtabmap_args.split() if rtabmap_args.strip() else []
-    _claim_database_for_scene(database_path, key, deleting="-d" in extra_args)
+    database.claim_database(database_path, key, deleting="-d" in extra_args)
 
-    notices = [LogInfo(msg=(
-        f"[strafer_slam] database={database_path} scene_key="
-        f"{key or '<none>'}"
-    ))]
-    if use_sim_time and not key:
+    notices = [LogInfo(msg=f"[strafer_slam] database={database_path} key={key}")]
+    if use_sim_time and not scene:
         # Warned rather than refused: restarting this container alone is a
-        # supported way to recover from a /clock hitch, and it arrives unkeyed.
+        # supported way to recover from a /clock hitch, and it arrives with no
+        # scene key.
         notices.append(LogInfo(msg=(
             "[strafer_slam] WARNING: use_sim_time is true with NO scene key, so "
             f"this run reloads whatever map is already at {database_path}. A "
             "procedurally regenerated sim scene may be a different layout, "
             "which would make /rtabmap/map and every Nav2 /plan derived from it "
             "meaningless. Set STRAFER_SLAM_SCENE_TOKEN (or scene_key:=) per sim "
-            "run for a keyed database and the wrong-scene guard."
+            "run for a database of its own."
         )))
 
     # ── Load & patch RTAB-Map parameters ────────────────────────────────
@@ -331,15 +250,17 @@ def generate_launch_description():
             description="If true, run in localization mode against saved map.",
         ),
         DeclareLaunchArgument(
-            "database_path", default_value=_UNKEYED_DEFAULT_DB,
+            "database_path", default_value=database.DEFAULT_DB_ARG,
             description=(
-                "Path to the RTAB-Map database file. Left at this default, a "
-                "non-empty scene key derives ~/.ros/rtabmap_<key>.db instead; "
-                "any other value is honoured verbatim."
+                "Path to the RTAB-Map database file. This default, or an empty "
+                "value, derives ~/.ros/rtabmap_<key>.db from the key "
+                "(scene key @ camera mount); any other value is the path, with ~ "
+                "expanded. Either way an existing database loads only under the "
+                "key its sidecar records."
             ),
         ),
         DeclareLaunchArgument(
-            "task_id", default_value=os.environ.get("STRAFER_SLAM_TASK_ID", ""),
+            "task_id", default_value=os.environ.get(database.TASK_ID_ENV, ""),
             description=(
                 "Scene-key half 1: the task/environment the map belongs to, "
                 "e.g. the Isaac task id. Empty on the real robot."
@@ -347,7 +268,7 @@ def generate_launch_description():
         ),
         DeclareLaunchArgument(
             "scene_key",
-            default_value=os.environ.get("STRAFER_SLAM_SCENE_TOKEN", ""),
+            default_value=os.environ.get(database.SCENE_TOKEN_ENV, ""),
             description=(
                 "Scene-key half 2: per-sim-run token. Bump it on every sim "
                 "restart — a procedural scene regenerates its layout, and a map "

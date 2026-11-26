@@ -39,8 +39,8 @@ services:
     environment:
       <<: *dds-env
       # Read inside the container by slam.launch.py (this lane's bringup
-      # includes it), so they need an explicit passthrough. Empty keeps the
-      # unkeyed ~/.ros/rtabmap.db.
+      # includes it), so they need an explicit passthrough. Empty keys the
+      # database to the camera mount alone.
       STRAFER_SLAM_TASK_ID: ${STRAFER_SLAM_TASK_ID:-}
       STRAFER_SLAM_SCENE_TOKEN: ${STRAFER_SLAM_SCENE_TOKEN:-}
       # Per-run artifact swap, so it lives here and in no env_file. This lane
@@ -51,7 +51,7 @@ services:
       - compose/sim.env
     volumes:
       - ../strafer_bringup/config/cyclonedds.xml:/opt/strafer/config/cyclonedds.xml:ro   # canonical (no byte-copy)
-      - strafer_ros_home:/root/.ros                     # persist rtabmap.db across runs
+      - strafer_ros_home:/root/.ros                     # persist rtabmap_<key>.db across runs
     # bringup_sim_in_the_loop.launch.py = description + timestamp_fixer + SLAM +
     # Nav2 + goal_projection + executor + foxglove (no driver/realsense/IMU).
     command: ros2 launch strafer_bringup bringup_sim_in_the_loop.launch.py

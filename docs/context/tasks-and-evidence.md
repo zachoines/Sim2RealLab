@@ -22,7 +22,7 @@ The register keeps `## Summary`, `## Evidence`, `## Scope`, `## Docs`
 
 ```
 ## References
-Tasks: <brief-name> — Sim2RealLab-Tasks PR #<n>        one line per brief shipped or filed
+Tasks: <brief-name> — zachoines/Sim2RealLab-Tasks#<n>   one line per brief shipped or filed
 Record: Sim2RealLab-Artifacts@<commit> <record-dir>/    one line per record the PR rests on or produced
 ```
 

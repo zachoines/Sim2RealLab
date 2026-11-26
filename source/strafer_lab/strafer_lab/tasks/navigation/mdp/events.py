@@ -444,7 +444,7 @@ def randomize_subgoal_drift(
         env_ids: Indices of environments to re-anchor.
         position_rms_m: RMS displacement of the 2-D offset at gain 1, in metres.
         heading_sigma_deg: Stationary heading sigma at gain 1, in degrees.
-        gain_range: Per-env multiplier band on both magnitudes.
+        gain_range: Per-env multiplier band on the wander's two magnitudes.
         tau_s: Correlation time of the wander, in seconds.
         jump_rate_hz: Poisson rate of loop-closure snaps.
         jump_position_range_m: Snap displacement band, in metres.

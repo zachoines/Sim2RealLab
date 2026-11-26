@@ -10,7 +10,7 @@ the realized magnitude and correlation match the profile asked for, that all
 four referent dims come from one perturbed vector rather than three independent
 corruptions, that the privileged critic still reads truth, that the process is
 inert (and draws nothing) at its neutral parameters, and that the contract
-tiers keep the realistic-vs-robust convention with the jump band shipped off.
+tiers keep the realistic-vs-robust convention, the jump band included.
 
 The harness carries its own numpy implementation on purpose — one is per-env
 torch inside the env, the other numpy inside a rollout script — so the only
@@ -309,24 +309,52 @@ def _jumping(**overrides) -> SubgoalDriftProcess:
 
 
 class TestLoopClosureJumps:
-    def test_the_shipped_band_leaves_the_jump_dormant(self):
-        """The mechanism carries no measured distribution, so both of its knobs
-        default to zero rather than to a guessed shape."""
-        for contract in (REAL_ROBOT_CONTRACT, ROBUST_TRAINING_CONTRACT):
-            drift = contract.localization
-            assert drift.jump_rate_hz == 0.0
-            assert drift.jump_position_range_m == (0.0, 0.0)
-            assert drift.jump_heading_range_deg == (0.0, 0.0)
+    def test_the_shipped_tiers_set_the_design_snap(self):
+        """Design values until the robot measures its closures: the realistic
+        tier at about the closures the SLAM configuration accepted on the
+        sim-in-the-loop rig, the robust tier held to it as the wander is. The
+        field defaults stay off."""
+        real = REAL_ROBOT_CONTRACT.localization
+        robust = ROBUST_TRAINING_CONTRACT.localization
+        assert real.jump_rate_hz == 0.04
+        assert real.jump_position_range_m == (0.0, 0.04)
+        assert real.jump_heading_range_deg == (0.0, 1.2)
+        assert robust.jump_rate_hz == 0.04
+        assert robust.jump_position_range_m == (0.0, 0.04)
+        assert robust.jump_heading_range_deg == (0.0, 1.2)
 
-        torch.manual_seed(8)
-        process = _process(num_envs=128)
-        _roll(process, 500)
+        defaults = LocalizationDriftCfg()
+        assert defaults.jump_rate_hz == 0.0
+        assert defaults.jump_position_range_m == (0.0, 0.0)
+        assert defaults.jump_heading_range_deg == (0.0, 0.0)
+        # The process's own keyword defaults are off too: no snap lands.
+        with torch.random.fork_rng():
+            torch.manual_seed(8)
+            process = _process(num_envs=128)
+            _roll(process, 500)
         assert process.jumps == 0
 
+    def test_the_gain_leaves_the_snap_unscaled(self):
+        """A closure is the SLAM configuration's, not the localization
+        quality's: a still frame snaps by the full band, and so does a wandering one."""
+        with torch.random.fork_rng():
+            torch.manual_seed(13)
+            still = _jumping(num_envs=1, jump_rate_hz=1.0e6)
+            still.step()
+        assert float(torch.linalg.vector_norm(still.offsets[0, :2])) == pytest.approx(0.4, rel=1e-3)
+
+        with torch.random.fork_rng():
+            torch.manual_seed(13)
+            wandering = _jumping(num_envs=1, gain_range=(0.5, 0.5), jump_rate_hz=1.0e6)
+            wandering.step()
+        # One wander step at gain 0.5 moves each axis by about 0.011 m (sd), so 0.06 m is
+        # over five of them; a snap scaled by the gain would land near 0.2 m.
+        assert float(torch.linalg.vector_norm(wandering.offsets[0, :2])) == pytest.approx(0.4, abs=0.06)
+
     def test_a_dormant_jump_leaves_the_rng_stream_untouched(self):
-        """Same claim as the disabled wander, for the half that ships off: a
-        zero band must not cost a draw, or the shipped tiers are not the streams
-        the attribution says they are."""
+        """Same claim as the disabled wander, for a zero jump band: it must not
+        cost a draw, or a configuration with the jump off is not the stream the
+        attribution says it is."""
         torch.manual_seed(9)
         process = _process(num_envs=64, gain_range=(0.0, 0.0), jump_rate_hz=5.0)
         assert process.enabled is False
@@ -587,6 +615,9 @@ class TestContractTiers:
             assert drift.gain_range[0] == 0.0
             assert drift.gain_range[1] > 0.0
         assert robust.gain_range == real.gain_range
+        assert robust.jump_rate_hz == real.jump_rate_hz
+        assert robust.jump_position_range_m == real.jump_position_range_m
+        assert robust.jump_heading_range_deg == real.jump_heading_range_deg
 
     def test_the_bands_are_the_multiples_of_the_measured_class(self):
         """Both tiers are anchored to one recorded pair rather than to a shape

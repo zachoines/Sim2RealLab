@@ -354,9 +354,12 @@ perturbed vector, so the policy never sees an offset, a range and a bearing that
 no geometry can produce together, and the privileged critic still reads the true
 referent.
 
-Measure this as the movement of `map→odom` itself, not as a position error
-against ground truth: what matters to the policy is how far and how fast the
-frame it reads through wanders. Two numbers are still open and both come from
+Measure this at the robot, not as a position error against ground truth and
+not as the movement of `map→odom` itself: size each change as
+|T_after·o − T_prev·o|, with o the robot's position in `odom`, together with the
+yaw change of `map→odom`. What matters to the policy is how far and how fast the
+frame it reads through moves at the robot; the transform's own step differs from
+that by up to 2r·sin(Δψ/2) at a distance r from the odom origin. Two numbers are still open and both come from
 the same log — the correlation time (shipped as a 2.0 s assumption) and the
 loop-closure jump distribution. Closure snaps are a second error class this
 config carries as a Poisson term, at design values on Realistic and Robust

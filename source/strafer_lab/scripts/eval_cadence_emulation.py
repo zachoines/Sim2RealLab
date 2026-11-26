@@ -1101,12 +1101,15 @@ def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
                         help="Scales both drift magnitudes together, for a sweep at a "
                              "fixed correlation time")
     parser.add_argument("--suppress-env-drift", action="store_true",
-                        help="Drop the environment's own referent-frame drift so the "
+                        help="Drop the environment's own referent-frame drift, its "
+                             "wander and its loop-closure snap together, so the "
                              "knobs above are the only drift in the rollout. Needed "
                              "for a fixed-gain arm on a tier that drifts natively: "
                              "the harness perturbs the referent the env already "
                              "moved, so without this the arm measures the env's band "
-                             "plus the requested gain rather than the gain")
+                             "plus the requested gain rather than the gain. The "
+                             "harness adds no snap, so such an arm differs from "
+                             "training by the snap as well")
     parser.add_argument("--allow-composed-drift", action="store_true",
                         help="Run a drift arm on top of the environment's own drift "
                              "deliberately. The arm then measures the composition, "

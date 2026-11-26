@@ -437,11 +437,13 @@ class LocalizationDriftCfg:
     jump is a loop closure landing: ``map->odom`` moves in a single step, which
     no random walk produces.
 
-    Both magnitudes scale with one per-environment gain because they were
-    measured together and their effects do not separate: the offset component
-    perpendicular to the bearing is what produces bearing error, and at the
-    nominal subgoal lookahead its contribution is the same size as the heading
-    sigma. Sweeping them apart would measure nearly the same thing twice.
+    The wander's two magnitudes scale with one per-environment gain because
+    they were measured together and their effects do not separate: the offset
+    component perpendicular to the bearing is what produces bearing error, and
+    at the nominal subgoal lookahead its contribution is the same size as the
+    heading sigma. Sweeping them apart would measure nearly the same thing
+    twice. The gain does not scale the jump: a closure is the SLAM
+    configuration's, so a still frame still snaps.
     """
 
     enable_drift: bool = False
@@ -454,21 +456,20 @@ class LocalizationDriftCfg:
     """Stationary heading sigma at gain 1, in degrees."""
 
     gain_range: tuple[float, float] = (0.0, 0.0)
-    """Per-env multiplier band [min, max] on both magnitudes, drawn at reset.
-    A max of 0 leaves the wander inert."""
+    """Per-env multiplier band [min, max] on the wander's two magnitudes, drawn
+    at reset. A max of 0 leaves the wander inert; the jump bands are not scaled."""
 
     tau_s: float = 2.0
     """Correlation time of the wander, in seconds. An assumption rather than a
     measurement, bounded by RTAB-Map's 1-10 Hz map->odom refresh."""
 
     jump_rate_hz: float = 0.0
-    """Poisson rate of loop-closure snaps. Zero is off, and off is the default:
-    the closure rate is not a measured quantity here."""
+    """Poisson rate of loop-closure snaps. Zero is off, and off is the default;
+    a tier that sets it sets a design value, not one measured on the robot."""
 
     jump_position_range_m: tuple[float, float] = (0.0, 0.0)
     """Snap displacement band [min, max] in metres, in a random direction. Zero
-    is off; the jump band is a config lever with no measured distribution
-    behind it."""
+    is off; a tier's band is a design value, not one measured on the robot."""
 
     jump_heading_range_deg: tuple[float, float] = (0.0, 0.0)
     """Snap heading band [min, max] in degrees, with a random sign. Zero is off,
@@ -657,9 +658,17 @@ def create_real_robot_contract() -> SimRealContractCfg:
         ),
         localization=LocalizationDriftCfg(
             enable_drift=True,
-            # Up to half the measured class: the realistic tier spans clean
-            # localization to a fraction of what the rig recorded.
+            # The wander, up to half the measured class: from a still frame to a
+            # fraction of what the rig recorded.
             gain_range=(0.0, 0.5),
+            # The loop-closure snap, a design value: about the closures the SLAM
+            # configuration accepted on the sim-in-the-loop rig (neighbour-link
+            # refining off, 40 inliers), one snap per cluster of accepted closures,
+            # at their average rate. The gain does not scale it, so a still frame
+            # still snaps.
+            jump_rate_hz=0.04,
+            jump_position_range_m=(0.0, 0.04),
+            jump_heading_range_deg=(0.0, 1.2),
         ),
     )
 
@@ -761,6 +770,10 @@ def create_robust_training_contract() -> SimRealContractCfg:
             # a harder distribution to learn. Re-derive both bands when the
             # rig measures the steady-state sigma and tau directly.
             gain_range=(0.0, 0.5),
+            # The loop-closure snap is held to the realistic tier's, as the wander is.
+            jump_rate_hz=0.04,
+            jump_position_range_m=(0.0, 0.04),
+            jump_heading_range_deg=(0.0, 1.2),
         ),
     )
 

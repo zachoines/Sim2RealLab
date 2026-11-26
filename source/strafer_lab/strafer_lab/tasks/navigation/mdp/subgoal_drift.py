@@ -15,8 +15,8 @@ Two error classes live on this axis and both are modelled here as one process:
 - A discontinuous snap. Accepting a loop closure moves ``map->odom`` in one
   step, which no correlated random walk produces. Modelled as a Poisson jump
   added into the same state, so a jump then relaxes on the same time constant.
-  Its rate and band default to zero, because no measured closure distribution
-  backs them; turning them on is a config change, not a code change.
+  Its rate and band default to zero and are set per tier; the per-env gain
+  scales the wander only, so a still frame still snaps.
 
 The magnitudes are per environment and drawn at reset, so a training batch
 spans a band of localization qualities rather than one point. State is zeroed
@@ -102,10 +102,10 @@ class SubgoalDriftProcess:
             seconds, so the process needs the period to discretise itself.
         position_rms_m: RMS displacement of the 2-D offset at gain 1, in metres.
         heading_sigma_deg: Stationary heading sigma at gain 1, in degrees.
-        gain_range: Per-env multiplier band ``[min, max]`` on both magnitudes,
-            drawn at reset. A max of 0 leaves the wander inert. The two
-            magnitudes scale together because they were measured together and
-            do not separate in effect.
+        gain_range: Per-env multiplier band ``[min, max]`` on the wander's two
+            magnitudes, drawn at reset. A max of 0 leaves the wander inert. The
+            two scale together because they were measured together and do not
+            separate in effect; the jump bands are not scaled.
         tau_s: Correlation time of the wander, in seconds.
         jump_rate_hz: Poisson rate of discontinuous snaps.
         jump_position_range_m: Jump displacement band ``[min, max]``, in metres,
@@ -168,8 +168,7 @@ class SubgoalDriftProcess:
 
         self._state = torch.zeros(num_envs, 3, device=device)
         self._sigma = torch.zeros(num_envs, 3, device=device)
-        # Counted rather than inferred: the shipped jump band is zero, so a
-        # non-zero count is the signal that the dormant class was turned on.
+        # Counted rather than inferred, so a test reads how many snaps landed.
         self.jumps = 0
         self._last_step: int | None = None
 

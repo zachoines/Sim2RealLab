@@ -55,8 +55,8 @@ TIERS = {"realistic": REAL_ROBOT_CONTRACT, "robust": ROBUST_TRAINING_CONTRACT}
 _FIXED_PATH_FINGERPRINTS = {
     ("realistic", "scalar"): "3d0d224c8e2fb5411a8472bd549cd05eeaa15af17c64761d986a894e56fdd3a7",
     ("realistic", "avx2"): "32c0c59c02f7a6558576da5fce0d25a1e911df68dd8e2896cd6f4a511c952089",
-    ("robust", "scalar"): "9401dc6518c944fe56f4f810cd5161b742094b379859f8594116e4016127ead1",
-    ("robust", "avx2"): "f95bcff5383cb134f7a5a5dd0d0a54fef2442fe1d4e991a358d52882c8602d80",
+    ("robust", "scalar"): "9a61d640b46f09c2373e9143fb98efe01f80fc0e231ad021f89633202073e4a9",
+    ("robust", "avx2"): "64e0c28d36c3b49036e8006c976d46ea1a8475189e32a9a6f105cb37e175ade9",
 }
 
 
@@ -73,7 +73,6 @@ def _cfg(contract, **overrides) -> DepthNoiseModelCfg:
     """
     cfg = _cfg_live(contract, **overrides)
     cfg.frame_drop_prob = 0.0
-    cfg.failure_probability = 0.0
     cfg.hold_fraction_range = (0.0, 0.0)
     cfg.latency_steps = 0
     cfg.latency_steps_range = None

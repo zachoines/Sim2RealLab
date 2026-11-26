@@ -257,9 +257,6 @@ class DepthCameraNoiseCfg:
     hole_probability: float = 0.01
     """Probability of a pixel the stereo match could not resolve."""
 
-    hole_cluster_size: int = 3
-    """Average size of hole clusters in pixels."""
-
     # Range limits
     min_range_m: float = DEPTH_NEARFIELD_FILL
     """Depth in meters below which a reading is treated as unresolvable, and the
@@ -330,28 +327,23 @@ class RGBCameraNoiseCfg:
 
 @configclass 
 class SensorFailureCfg:
-    """Sensor failure modes for robustness training.
-    
-    Simulates catastrophic sensor failures to train robust policies.
-    """
+    """Sensor failure modes for robustness training: a sensor that stops reporting for a step."""
     
     enable_failures: bool = False
     """Enable random sensor failures."""
     
-    # IMU failures
-    imu_failure_probability: float = 0.0001
-    """Probability of IMU failure per step (returns zeros)."""
-    
+    # A held source shows its previous reading, as the deployed node's cache does. Each IMU term is drawn on its own,
+    # where the robot's one IMU message holds both; the encoders are drawn apart from the body velocity, which the
+    # robot's odom holds with them.
     imu_stuck_probability: float = 0.0001
-    """Probability of IMU getting stuck (returns last value)."""
-    
-    # Encoder failures
-    encoder_failure_probability: float = 0.0001
-    """Probability of encoder failure per step (returns zeros)."""
-    
-    # Camera failures
+    """Probability per step that an IMU term repeats its previous reading."""
+
+    encoder_stuck_probability: float = 0.0001
+    """Probability per step that the encoders repeat their previous reading."""
+
     camera_failure_probability: float = 0.001
-    """Probability of camera failure (returns black/max depth)."""
+    """Probability per step of an RGB camera failure (a black frame). No registered ID observes RGB. A failed depth
+    frame is a dropped one instead (the depth camera's frame_drop_probability), which repeats the previous frame."""
 
 
 # =============================================================================
@@ -637,7 +629,8 @@ def create_robust_training_contract() -> SimRealContractCfg:
                 # cover rather than picking one of them.
                 disparity_noise_px_range=(0.002, 0.16),
                 hole_probability=0.03,  # 3x typical
-                frame_drop_probability=0.01,  # 10x typical
+                # 10x typical, plus the 0.001 of a failed frame, which repeats the previous one as a drop does
+                frame_drop_probability=0.011,
                 # Held to the realistic tier's law entirely, burst included.
                 # The fraction is drawn per env at reset, so the top of the
                 # band is the worst arrival rate a training episode can draw:
@@ -659,8 +652,9 @@ def create_robust_training_contract() -> SimRealContractCfg:
             ),
             failures=SensorFailureCfg(
                 enable_failures=True,
-                imu_failure_probability=0.0001,
-                encoder_failure_probability=0.0001,
+                # Two causes of a held IMU reading, 1e-4 each
+                imu_stuck_probability=0.0002,
+                encoder_stuck_probability=0.0001,
                 camera_failure_probability=0.001,
             ),
         ),
@@ -705,9 +699,8 @@ def get_imu_accel_noise(contract: SimRealContractCfg) -> IMUNoiseModelCfg | None
     sample_rate = contract.timing.control_frequency_hz
     std = contract.sensors.imu.accel_noise_density * math.sqrt(sample_rate)
 
-    # Get failure probabilities from SensorFailureCfg
+    # Get the stuck probability from SensorFailureCfg
     failures = contract.sensors.failures
-    failure_prob = failures.imu_failure_probability if failures.enable_failures else 0.0
     stuck_prob = failures.imu_stuck_probability if failures.enable_failures else 0.0
 
     return IMUNoiseModelCfg(
@@ -719,7 +712,6 @@ def get_imu_accel_noise(contract: SimRealContractCfg) -> IMUNoiseModelCfg | None
                           contract.sensors.imu.accel_bias_stability),
         accel_bias_drift_rate=contract.sensors.imu.accel_random_walk,
         output_size=3,
-        failure_probability=failure_prob,
         stuck_probability=stuck_prob,
         latency_steps=contract.timing.imu_latency_steps,
     )
@@ -742,9 +734,8 @@ def get_imu_gyro_noise(contract: SimRealContractCfg) -> IMUNoiseModelCfg | None:
     sample_rate = contract.timing.control_frequency_hz
     std = contract.sensors.imu.gyro_noise_density * math.sqrt(sample_rate)
 
-    # Get failure probabilities from SensorFailureCfg
+    # Get the stuck probability from SensorFailureCfg
     failures = contract.sensors.failures
-    failure_prob = failures.imu_failure_probability if failures.enable_failures else 0.0
     stuck_prob = failures.imu_stuck_probability if failures.enable_failures else 0.0
 
     return IMUNoiseModelCfg(
@@ -756,7 +747,6 @@ def get_imu_gyro_noise(contract: SimRealContractCfg) -> IMUNoiseModelCfg | None:
                          contract.sensors.imu.gyro_bias_stability),
         gyro_bias_drift_rate=contract.sensors.imu.gyro_random_walk,
         output_size=3,
-        failure_probability=failure_prob,
         stuck_probability=stuck_prob,
         latency_steps=contract.timing.imu_latency_steps,
     )
@@ -771,9 +761,9 @@ def get_encoder_noise(contract: SimRealContractCfg) -> EncoderNoiseModelCfg | No
     if not contract.sensors.encoders.enable_noise:
         return None
 
-    # Get failure probability from SensorFailureCfg
+    # Get the stuck probability from SensorFailureCfg
     failures = contract.sensors.failures
-    failure_prob = failures.encoder_failure_probability if failures.enable_failures else 0.0
+    stuck_prob = failures.encoder_stuck_probability if failures.enable_failures else 0.0
 
     return EncoderNoiseModelCfg(
         noise_cfg=GaussianNoiseCfg(std=contract.sensors.encoders.velocity_noise_std),
@@ -781,7 +771,7 @@ def get_encoder_noise(contract: SimRealContractCfg) -> EncoderNoiseModelCfg | No
         velocity_noise_std=contract.sensors.encoders.velocity_noise_std,
         missed_tick_prob=contract.sensors.encoders.missed_tick_probability,
         extra_tick_prob=contract.sensors.encoders.extra_tick_probability,
-        failure_probability=failure_prob,
+        stuck_probability=stuck_prob,
         latency_steps=contract.timing.encoder_latency_steps,
     )
 
@@ -801,10 +791,6 @@ def get_depth_noise(contract: SimRealContractCfg) -> DepthNoiseModelCfg | None:
     cfg = contract.sensors.depth_camera
     noise_at_1m = cfg.disparity_noise_px / (cfg.focal_length_px * cfg.baseline_m)
 
-    # Get failure probability from SensorFailureCfg
-    failures = contract.sensors.failures
-    failure_prob = failures.camera_failure_probability if failures.enable_failures else 0.0
-
     return DepthNoiseModelCfg(
         noise_cfg=GaussianNoiseCfg(std=noise_at_1m),
         baseline_m=cfg.baseline_m,
@@ -819,7 +805,6 @@ def get_depth_noise(contract: SimRealContractCfg) -> DepthNoiseModelCfg | None:
         hold_run_range=cfg.hold_run_range,
         hold_burst_weight=cfg.hold_burst_weight,
         hold_burst_run_steps=cfg.hold_burst_run_steps,
-        failure_probability=failure_prob,
         latency_steps=contract.timing.depth_latency_steps,
         latency_steps_range=contract.timing.depth_latency_steps_range,
     )

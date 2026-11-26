@@ -71,7 +71,6 @@ def _make_encoder(latency_steps: int = 0) -> EncoderNoiseModel:
         max_velocity=3000.0,
         missed_tick_prob=0.0,
         extra_tick_prob=0.0,
-        failure_probability=0.0,
         latency_steps=latency_steps,
         output_size=4,
     )
@@ -90,7 +89,6 @@ def _make_depth(latency_steps: int = 1) -> DepthNoiseModel:
         frame_drop_prob=0.0,
         min_range=0.0,
         max_range=100.0,  # very high to avoid clamping
-        failure_probability=0.0,
         latency_steps=latency_steps,
     )
     return DepthNoiseModel(cfg, N_ENVS, DEVICE)

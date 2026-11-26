@@ -3,14 +3,18 @@
 
 """Unit tests for sensor failure modes across all noise models.
 
-Each noise model supports a ``failure_probability`` field that causes the
-sensor to return a specific "failure value" on any given step.  The IMU model
-also supports ``stuck_probability`` (returns previous output).
+A failed IMU term or encoder repeats its previous reading (``stuck_probability``), as a held source does in the deployed
+node's cache (each IMU term is drawn on its own, where the robot's one IMU message holds both); on an env's first step
+after a reset there is no previous reading and the current one passes. The rate cases are seeded, so a read is
+reproducible, and each is tested two-sided at alpha 1e-6, since at alpha 0.05 a seeded case is a fixed 1-in-20 draw on
+each device's random stream. At 80 000 samples a rate off by 0.01 still fails (z about 8). The depth model has no
+failure mode of its own: a failed frame is a dropped one, which repeats the previous frame. The RGB model returns a
+black frame (``failure_probability``); no registered ID observes RGB.
 
 These tests validate:
-1. Failure output matches the documented value (zeros, max_range, or black).
-2. Stuck mode returns the previous sample unchanged.
-3. Observed failure/stuck rates match the configured probability (binomial test).
+1. A stuck output equals the previous output bit for bit, and a reset forgets it.
+2. Observed stuck rates match the configured probability (binomial test).
+3. No depth output is all max_range from a failure, and the RGB failure output is black.
 
 All tests run the noise models in isolation (no Isaac Sim environment needed
 beyond the AppLauncher started by root conftest.py).
@@ -51,16 +55,14 @@ HIGH_FAIL_PROB = 1.0
 # Moderate failure prob for rate-matching tests
 RATE_FAIL_PROB = 0.15
 RATE_STUCK_PROB = 0.10
+RATE_CONFIDENCE = 1.0 - 1e-6  # the rate cases' two-sided level: a correct model does not fail by chance
 
 
 # =====================================================================
 # IMU Sensor Failures
 # =====================================================================
 
-def _make_imu_with_failure(
-    failure_prob: float = 0.0,
-    stuck_prob: float = 0.0,
-) -> IMUNoiseModel:
+def _make_imu(stuck_prob: float = 0.0) -> IMUNoiseModel:
     cfg = IMUNoiseModelCfg(
         sensor_type="accel",
         accel_noise_std=0.01,
@@ -68,109 +70,50 @@ def _make_imu_with_failure(
         accel_bias_drift_rate=0.0,
         output_size=3,
         latency_steps=0,
-        failure_probability=failure_prob,
         stuck_probability=stuck_prob,
     )
     return IMUNoiseModel(cfg, N_ENVS, DEVICE)
 
 
-def test_imu_failure_returns_zeros():
-    """With failure_probability=1.0, every output row must be all zeros."""
-    model = _make_imu_with_failure(failure_prob=HIGH_FAIL_PROB)
-
-    data = torch.ones(N_ENVS, 3, device=DEVICE) * 5.0
-    for _ in range(50):
-        out = model(data.clone())
-        assert torch.all(out == 0.0), (
-            f"Expected all zeros on failure, got max={out.abs().max().item()}"
-        )
-
-
 def test_imu_stuck_returns_previous():
-    """With stuck_probability=1.0, output should be identical to the previous call.
-
-    On the very first call ``_prev_output`` is None so the model initialises it.
-    From the second call onward every output must exactly equal the previous one.
-    """
-    model = _make_imu_with_failure(stuck_prob=HIGH_FAIL_PROB)
-
-    data = torch.ones(N_ENVS, 3, device=DEVICE)
-
-    # First call — initialises _prev_output
-    first_out = model(data.clone())
-
-    # Subsequent calls with *different* input should still return first_out
+    """With stuck_probability=1.0, every output after the first equals the first, bit for bit."""
+    model = _make_imu(stuck_prob=HIGH_FAIL_PROB)
+    first_out = model(torch.ones(N_ENVS, 3, device=DEVICE))
     for i in range(20):
-        different_data = torch.randn(N_ENVS, 3, device=DEVICE) * 100
-        out = model(different_data)
-        assert torch.allclose(out, first_out, atol=1e-6), (
-            f"Step {i}: stuck output changed. "
-            f"Max diff = {(out - first_out).abs().max().item()}"
-        )
+        out = model(torch.randn(N_ENVS, 3, device=DEVICE) * 100)
+        assert torch.equal(out, first_out), f"step {i}: max diff {(out - first_out).abs().max().item()}"
 
 
-def test_imu_failure_rate_matches_config():
-    """Observed failure rate should match failure_probability (binomial test).
-
-    A "failure" is detected when an entire env row is all zeros despite
-    non-zero input.
-    """
-    model = _make_imu_with_failure(failure_prob=RATE_FAIL_PROB)
-
-    data = torch.ones(N_ENVS, 3, device=DEVICE) * 10.0
-    failures = 0
-    total = 0
-
-    for _ in range(N_TRIALS):
-        out = model(data.clone())
-        # Count envs where entire row is zero (failure event)
-        row_is_zero = (out == 0.0).all(dim=-1)
-        failures += row_is_zero.sum().item()
-        total += N_ENVS
-
-    result = binomial_test(int(failures), total, RATE_FAIL_PROB)
-    print(f"\n  IMU failure rate test:")
-    print(f"    Observed: {result.observed_rate:.4f}")
-    print(f"    Expected: {result.expected_rate}")
-    print(f"    p-value:  {result.p_value:.4f}")
-
-    assert not result.reject_null, (
-        f"IMU failure rate {result.observed_rate:.4f} differs from "
-        f"configured {RATE_FAIL_PROB} (p={result.p_value:.4f})"
-    )
+def test_imu_reset_forgets_the_previous_reading():
+    """After a reset of some envs, their first stuck step passes the current reading; the rest still repeat."""
+    model = _make_imu(stuck_prob=HIGH_FAIL_PROB)
+    first_out = model(torch.ones(N_ENVS, 3, device=DEVICE))
+    model.reset(torch.tensor([2, 5]))
+    data = torch.full((N_ENVS, 3), 7.0, device=DEVICE)
+    out = model(data.clone())
+    kept = [e for e in range(N_ENVS) if e not in (2, 5)]
+    assert torch.equal(out[kept], first_out[kept])
+    assert not torch.equal(out[[2, 5]], first_out[[2, 5]])
+    assert not (out[[2, 5]] == 0.0).all(), "a reset env must not read zeros"
 
 
 def test_imu_stuck_rate_matches_config():
-    """Observed stuck rate should match stuck_probability (binomial test).
-
-    A "stuck" event is detected when an env's output exactly equals the
-    previous output despite changing input.
-    """
-    model = _make_imu_with_failure(stuck_prob=RATE_STUCK_PROB)
-
+    """Observed stuck rate should match stuck_probability (binomial test)."""
+    torch.manual_seed(7)
+    model = _make_imu(stuck_prob=RATE_STUCK_PROB)
     stuck_count = 0
     total = 0
-
     prev_out = model(torch.randn(N_ENVS, 3, device=DEVICE) * 10)
-
     for _ in range(N_TRIALS):
-        data = torch.randn(N_ENVS, 3, device=DEVICE) * 10
-        out = model(data)
-        # A stuck env has identical output to previous step
-        is_stuck = torch.all(out == prev_out, dim=-1)
-        stuck_count += is_stuck.sum().item()
+        out = model(torch.randn(N_ENVS, 3, device=DEVICE) * 10)
+        stuck_count += torch.all(out == prev_out, dim=-1).sum().item()
         total += N_ENVS
         prev_out = out.clone()
-
-    result = binomial_test(int(stuck_count), total, RATE_STUCK_PROB)
-    print(f"\n  IMU stuck rate test:")
-    print(f"    Observed: {result.observed_rate:.4f}")
-    print(f"    Expected: {result.expected_rate}")
-    print(f"    p-value:  {result.p_value:.4f}")
-
+    result = binomial_test(int(stuck_count), total, RATE_STUCK_PROB, confidence_level=RATE_CONFIDENCE)
+    print(f"\n  IMU stuck rate test: observed {result.observed_rate:.4f}, expected {result.expected_rate}, "
+          f"p {result.p_value:.4f}")
     assert not result.reject_null, (
-        f"IMU stuck rate {result.observed_rate:.4f} differs from "
-        f"configured {RATE_STUCK_PROB} (p={result.p_value:.4f})"
+        f"IMU stuck rate {result.observed_rate:.4f} differs from configured {RATE_STUCK_PROB} (p={result.p_value:.4f})"
     )
 
 
@@ -178,122 +121,70 @@ def test_imu_stuck_rate_matches_config():
 # Encoder Sensor Failures
 # =====================================================================
 
-def _make_encoder_with_failure(failure_prob: float = 0.0) -> EncoderNoiseModel:
+def _make_encoder(stuck_prob: float = 0.0) -> EncoderNoiseModel:
     cfg = EncoderNoiseModelCfg(
         enable_quantization=False,
-        velocity_noise_std=0.0,
+        velocity_noise_std=0.01,
         max_velocity=3000.0,
         missed_tick_prob=0.0,
         extra_tick_prob=0.0,
-        failure_probability=failure_prob,
+        stuck_probability=stuck_prob,
         latency_steps=0,
         output_size=4,
     )
     return EncoderNoiseModel(cfg, N_ENVS, DEVICE)
 
 
-def test_encoder_failure_returns_zeros():
-    """With failure_probability=1.0, encoder output must be all zeros."""
-    model = _make_encoder_with_failure(failure_prob=HIGH_FAIL_PROB)
-
-    data = torch.ones(N_ENVS, 4, device=DEVICE) * 1000.0
-    for _ in range(50):
-        out = model(data.clone())
-        assert torch.all(out == 0.0), (
-            f"Expected all zeros on encoder failure, got max={out.abs().max().item()}"
-        )
+def test_encoder_stuck_returns_previous():
+    """With stuck_probability=1.0, every encoder output after the first equals the first, bit for bit."""
+    model = _make_encoder(stuck_prob=HIGH_FAIL_PROB)
+    first_out = model(torch.ones(N_ENVS, 4, device=DEVICE) * 1000.0)
+    for i in range(20):
+        out = model(torch.randn(N_ENVS, 4, device=DEVICE) * 500.0)
+        assert torch.equal(out, first_out), f"step {i}: max diff {(out - first_out).abs().max().item()}"
+        assert not (out == 0.0).all(), "a stuck encoder must not read zeros"
 
 
-def test_encoder_failure_rate_matches_config():
-    """Encoder failure rate should match configured probability."""
-    model = _make_encoder_with_failure(failure_prob=RATE_FAIL_PROB)
-
-    data = torch.ones(N_ENVS, 4, device=DEVICE) * 500.0
-    failures = 0
+def test_encoder_stuck_rate_matches_config():
+    """Encoder stuck rate should match the configured probability."""
+    torch.manual_seed(7)
+    model = _make_encoder(stuck_prob=RATE_STUCK_PROB)
+    stuck_count = 0
     total = 0
-
+    prev_out = model(torch.randn(N_ENVS, 4, device=DEVICE) * 500.0)
     for _ in range(N_TRIALS):
-        out = model(data.clone())
-        row_is_zero = (out == 0.0).all(dim=-1)
-        failures += row_is_zero.sum().item()
+        out = model(torch.randn(N_ENVS, 4, device=DEVICE) * 500.0)
+        stuck_count += torch.all(out == prev_out, dim=-1).sum().item()
         total += N_ENVS
-
-    result = binomial_test(int(failures), total, RATE_FAIL_PROB)
-    print(f"\n  Encoder failure rate test:")
-    print(f"    Observed: {result.observed_rate:.4f}")
-    print(f"    Expected: {result.expected_rate}")
-    print(f"    p-value:  {result.p_value:.4f}")
-
+        prev_out = out.clone()
+    result = binomial_test(int(stuck_count), total, RATE_STUCK_PROB, confidence_level=RATE_CONFIDENCE)
+    print(f"\n  Encoder stuck rate test: observed {result.observed_rate:.4f}, expected {result.expected_rate}, "
+          f"p {result.p_value:.4f}")
     assert not result.reject_null, (
-        f"Encoder failure rate {result.observed_rate:.4f} differs from "
-        f"configured {RATE_FAIL_PROB} (p={result.p_value:.4f})"
+        f"Encoder stuck rate {result.observed_rate:.4f} differs from configured {RATE_STUCK_PROB} "
+        f"(p={result.p_value:.4f})"
     )
 
 
 # =====================================================================
-# Depth Camera Sensor Failures
+# Depth Camera: no failure mode of its own
 # =====================================================================
 
-def _make_depth_with_failure(failure_prob: float = 0.0) -> DepthNoiseModel:
+def test_depth_has_no_all_far_failure():
+    """The depth model has no failure field, and a dropped frame repeats the previous one rather than reading far."""
+    assert not hasattr(DepthNoiseModelCfg(), "failure_probability")
     cfg = DepthNoiseModelCfg(
-        baseline_m=0.095,
-        focal_length_px=673.0,
-        disparity_noise_px=0.0,  # disable noise for clean failure detection
-        hole_probability=0.0,
-        frame_drop_prob=0.0,
-        min_range=0.2,
-        max_range=6.0,
-        failure_probability=failure_prob,
-        latency_steps=0,
-        height=DEPTH_HEIGHT,
-        width=DEPTH_WIDTH,
+        baseline_m=0.095, focal_length_px=673.0, disparity_noise_px=0.0, hole_probability=0.0,
+        frame_drop_prob=HIGH_FAIL_PROB, min_range=0.2, max_range=6.0, latency_steps=0,
+        height=DEPTH_HEIGHT, width=DEPTH_WIDTH,
     )
-    return DepthNoiseModel(cfg, N_ENVS, DEVICE)
-
-
-def test_depth_failure_returns_max_range():
-    """With failure_probability=1.0, depth output must be max_range everywhere."""
-    model = _make_depth_with_failure(failure_prob=HIGH_FAIL_PROB)
-    max_range = model.cfg.max_range
-
-    # Flattened depth image: (N_ENVS, H*W)
+    model = DepthNoiseModel(cfg, N_ENVS, DEVICE)
     n_pixels = DEPTH_HEIGHT * DEPTH_WIDTH
-    data = torch.ones(N_ENVS, n_pixels, device=DEVICE) * 2.0  # 2 metres
+    first_out = model(torch.ones(N_ENVS, n_pixels, device=DEVICE) * 2.0)
     for _ in range(20):
-        out = model(data.clone())
-        assert torch.allclose(out, torch.full_like(out, max_range)), (
-            f"Expected max_range={max_range} on depth failure, "
-            f"got min={out.min().item():.4f} max={out.max().item():.4f}"
-        )
-
-
-def test_depth_failure_rate_matches_config():
-    """Depth camera failure rate should match configured probability."""
-    model = _make_depth_with_failure(failure_prob=RATE_FAIL_PROB)
-    max_range = model.cfg.max_range
-
-    n_pixels = DEPTH_HEIGHT * DEPTH_WIDTH
-    data = torch.ones(N_ENVS, n_pixels, device=DEVICE) * 2.0
-    failures = 0
-    total = 0
-
-    for _ in range(N_TRIALS):
-        out = model(data.clone())
-        # A failed env has ALL pixels == max_range
-        all_max = (out == max_range).all(dim=-1)
-        failures += all_max.sum().item()
-        total += N_ENVS
-
-    result = binomial_test(int(failures), total, RATE_FAIL_PROB)
-    print(f"\n  Depth failure rate test:")
-    print(f"    Observed: {result.observed_rate:.4f}")
-    print(f"    Expected: {result.expected_rate}")
-    print(f"    p-value:  {result.p_value:.4f}")
-
-    assert not result.reject_null, (
-        f"Depth failure rate {result.observed_rate:.4f} differs from "
-        f"configured {RATE_FAIL_PROB} (p={result.p_value:.4f})"
-    )
+        out = model(torch.ones(N_ENVS, n_pixels, device=DEVICE) * 3.0)
+        assert torch.equal(out, first_out)
+        assert not (out == cfg.max_range).all(dim=-1).any()
 
 
 # =====================================================================
@@ -326,6 +217,7 @@ def test_rgb_failure_returns_black():
 
 def test_rgb_failure_rate_matches_config():
     """RGB camera failure rate should match configured probability."""
+    torch.manual_seed(7)
     model = _make_rgb_with_failure(failure_prob=RATE_FAIL_PROB)
 
     n_pixels = DEPTH_HEIGHT * DEPTH_WIDTH
@@ -339,7 +231,7 @@ def test_rgb_failure_rate_matches_config():
         failures += all_zero.sum().item()
         total += N_ENVS
 
-    result = binomial_test(int(failures), total, RATE_FAIL_PROB)
+    result = binomial_test(int(failures), total, RATE_FAIL_PROB, confidence_level=RATE_CONFIDENCE)
     print(f"\n  RGB failure rate test:")
     print(f"    Observed: {result.observed_rate:.4f}")
     print(f"    Expected: {result.expected_rate}")

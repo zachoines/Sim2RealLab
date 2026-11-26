@@ -440,10 +440,9 @@ def _():
     def cell(t):
         if _noise(t, ACC) is None:
             return OFF
-        fail = {_noise(t, n).failure_probability for n in (ACC, GYR)}
         stuck = {_noise(t, n).stuck_probability for n in (ACC, GYR)}
-        assert len(fail) == 1 and len(stuck) == 1, (t, fail, stuck)  # the row speaks of "the IMU"
-        vals = [fail.pop(), stuck.pop(), _noise(t, ENC).failure_probability, _noise(t, DEPTH).failure_probability]
+        assert len(stuck) == 1, (t, stuck)  # the row speaks of "each IMU channel" at one rate
+        vals = [stuck.pop(), _noise(t, ENC).stuck_probability]
         return "none" if not any(vals) else vals
     return {**_tiers(cell), "models": [], "basis": []}
 
@@ -801,14 +800,14 @@ NOISE_FIELDS = {
         "class_type": CHECKED, "func": STRUCTURAL, "noise_cfg": STRUCTURAL, "sensor_type": CHECKED,
         "output_size": STRUCTURAL, "control_frequency_hz": "IMU noise", "accel_noise_std": "IMU noise",
         "accel_bias_range": "IMU noise", "accel_bias_drift_rate": "IMU noise", "gyro_noise_std": "IMU noise",
-        "gyro_bias_range": "IMU noise", "gyro_bias_drift_rate": "IMU noise", "failure_probability": "Sensor dropouts",
+        "gyro_bias_range": "IMU noise", "gyro_bias_drift_rate": "IMU noise",
         "stuck_probability": "Sensor dropouts", "latency_steps": "IMU and encoder latency"},
     "EncoderNoiseModelCfg": {
         "class_type": CHECKED, "func": STRUCTURAL, "noise_cfg": STRUCTURAL, "output_size": STRUCTURAL,
         "enable_quantization": "Wheel encoder noise", "ticks_per_radian": NOT_APPLIED,
         "velocity_noise_std": "Wheel encoder noise", "max_velocity": "Wheel encoder noise",
         "missed_tick_prob": "Wheel encoder noise", "extra_tick_prob": "Wheel encoder noise",
-        "failure_probability": "Sensor dropouts", "latency_steps": "IMU and encoder latency"},
+        "stuck_probability": "Sensor dropouts", "latency_steps": "IMU and encoder latency"},
     "DepthNoiseModelCfg": {
         "class_type": CHECKED, "func": STRUCTURAL, "noise_cfg": STRUCTURAL, "baseline_m": "Depth disparity noise",
         "focal_length_px": "Depth disparity noise", "disparity_noise_px": "Depth disparity noise",
@@ -817,7 +816,7 @@ NOISE_FIELDS = {
         "min_range": "Depth range and grid", "max_range": "Depth range and grid", "too_close_fill": STRUCTURAL,
         "height": "Depth range and grid", "width": "Depth range and grid", "hold_fraction_range": "Depth stream hold",
         "hold_run_range": "Depth stream hold", "hold_burst_weight": "Depth stream hold",
-        "hold_burst_run_steps": "Depth stream hold", "failure_probability": "Sensor dropouts",
+        "hold_burst_run_steps": "Depth stream hold",
         "latency_steps": "Depth latency", "latency_steps_range": "Depth latency"},
 }
 NOISY_TERMS = {ACC: "IMUNoiseModelCfg", GYR: "IMUNoiseModelCfg", ENC: "EncoderNoiseModelCfg",
@@ -907,7 +906,7 @@ def test_every_noise_field_is_documented():
                 assert noise.too_close_fill == "near", name
 
 
-DECLARED_NOT_APPLIED = {"DepthCameraNoiseCfg.hole_cluster_size", "EncoderNoiseCfg.velocity_quantization_ticks_per_step"}
+DECLARED_NOT_APPLIED = {"EncoderNoiseCfg.velocity_quantization_ticks_per_step"}
 RGB_NOT_APPLIED = "RGBCameraNoiseCfg."  # "Not applied on any tier: RGB noise (no registered ID observes RGB)"
 
 
@@ -949,12 +948,12 @@ ANCHORS = {
     "events.py#L401": "def randomize_motor_strength", "events.py#L452": "def randomize_d555_mount_offset",
     "events.py#L354": "def randomize_subgoal_drift", "events.py#L170": "def randomize_friction",
     "events.py#L305": "def randomize_mass", "events.py#L569": "def reset_robot_proc_room",
-    "noise_models.py#L182": "class IMUNoiseModel(",
-    "noise_models.py#L356": "class EncoderNoiseModel(", "noise_models.py#L479": "class DepthNoiseModel(",
+    "noise_models.py#L182": "class IMUNoiseModel(", "noise_models.py#L342": "class EncoderNoiseModel(",
+    "noise_models.py#L476": "class DepthNoiseModel(",
     "observations.py#L45": "def reduce_depth_to_policy_grid", "d555_cfg.py#L145": "focal_length=",
     "composed_env_cfg.py#L572": "num_rerenders_on_reset = 1", "commands.py#L668": "perturb_waypoints(",
-    "proc_room.py#L990": "def generate_proc_room", "sim_real_cfg.py#L682": "IDEAL_SIM_CONTRACT",
-    "sim_real_cfg.py#L260": "hole_cluster_size", "sim_real_cfg.py#L213": "velocity_quantization_ticks_per_step",
+    "proc_room.py#L990": "def generate_proc_room", "sim_real_cfg.py#L676": "IDEAL_SIM_CONTRACT",
+    "sim_real_cfg.py#L213": "velocity_quantization_ticks_per_step",
 }
 
 

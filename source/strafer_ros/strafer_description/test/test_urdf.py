@@ -1,51 +1,48 @@
 """Tests for the strafer_description URDF model."""
 
+import importlib.util
+import math
 import os
 import xml.etree.ElementTree as ET
+from xml.dom import minidom
 
 import pytest
 import xacro
 
+from strafer_description.xacro_args import robot_description, xacro_mappings
 from strafer_shared.constants import (
-    WHEEL_RADIUS, WHEEL_WIDTH, WHEEL_BASE, TRACK_WIDTH,
-    CHASSIS_LENGTH, CHASSIS_WIDTH, CHASSIS_HEIGHT, CHASSIS_GROUND_CLEARANCE,
+    WHEEL_BASE, TRACK_WIDTH,
     CAMERA_OFFSET_X, CAMERA_OFFSET_Y, CAMERA_OFFSET_Z,
-    CAMERA_LENGTH, CAMERA_WIDTH, CAMERA_HEIGHT,
     MASS_WHEEL_ASSEMBLY, MASS_CHASSIS, MASS_CAMERA,
+    FRAME_BASE_LINK, FRAME_D555_LINK, FRAME_D555_COLOR_OPTICAL,
 )
 
 
-XACRO_PATH = os.path.join(
-    os.path.dirname(__file__), os.pardir, "urdf", "strafer.urdf.xacro"
-)
-
-# Mappings matching what description.launch.py passes
-LAUNCH_MAPPINGS = {
-    "wheel_radius": str(WHEEL_RADIUS),
-    "wheel_width": str(WHEEL_WIDTH),
-    "wheel_base": str(WHEEL_BASE),
-    "track_width": str(TRACK_WIDTH),
-    "chassis_length": str(CHASSIS_LENGTH),
-    "chassis_width": str(CHASSIS_WIDTH),
-    "chassis_height": str(CHASSIS_HEIGHT),
-    "chassis_ground_clearance": str(CHASSIS_GROUND_CLEARANCE),
-    "camera_x": str(CAMERA_OFFSET_X),
-    "camera_y": str(CAMERA_OFFSET_Y),
-    "camera_z": str(CAMERA_OFFSET_Z),
-    "camera_length": str(CAMERA_LENGTH),
-    "camera_width": str(CAMERA_WIDTH),
-    "camera_height": str(CAMERA_HEIGHT),
-    "mass_wheel_assembly": str(MASS_WHEEL_ASSEMBLY),
-    "mass_chassis": str(MASS_CHASSIS),
-    "mass_camera": str(MASS_CAMERA),
-}
+PACKAGE_DIR = os.path.join(os.path.dirname(__file__), os.pardir)
+XACRO_PATH = os.path.join(PACKAGE_DIR, "urdf", "strafer.urdf.xacro")
+LAUNCH_FILE = os.path.join(PACKAGE_DIR, "launch", "description.launch.py")
 
 
 @pytest.fixture
 def urdf_root():
-    """Process xacro with constants mappings and return the XML root element."""
-    urdf_xml = xacro.process_file(XACRO_PATH, mappings=LAUNCH_MAPPINGS).toxml()
-    return ET.fromstring(urdf_xml)
+    """Process the xacro as the launch file does and return the XML root element."""
+    return ET.fromstring(robot_description(XACRO_PATH))
+
+
+def _load_launch_file():
+    """Import description.launch.py from the source tree."""
+    spec = importlib.util.spec_from_file_location("description_launch", LAUNCH_FILE)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def _origin(urdf_root, joint_name):
+    """Return a joint's origin xyz and rpy as floats, zero where the URDF leaves one out."""
+    origin = urdf_root.find(f".//joint[@name='{joint_name}']/origin")
+    xyz = [float(v) for v in origin.get("xyz", "0 0 0").split()]
+    rpy = [float(v) for v in origin.get("rpy", "0 0 0").split()]
+    return xyz, rpy
 
 
 def test_xacro_processes_standalone():
@@ -64,8 +61,51 @@ def test_sentinel_defaults_without_mappings():
 
 def test_xacro_processes_with_mappings():
     """Xacro file should process with constants mappings (launch path)."""
-    urdf_xml = xacro.process_file(XACRO_PATH, mappings=LAUNCH_MAPPINGS).toxml()
-    assert len(urdf_xml) > 0
+    assert len(robot_description(XACRO_PATH)) > 0
+
+
+def test_mappings_cover_every_xacro_arg():
+    """Every xacro:arg has a mapping and every mapping an arg, so no -1 default reaches the URDF."""
+    args = {
+        arg.getAttribute("name")
+        for arg in minidom.parse(XACRO_PATH).getElementsByTagName("xacro:arg")
+    }
+    assert set(xacro_mappings()) == args
+
+
+def test_launch_file_uses_robot_description(monkeypatch):
+    """robot_state_publisher receives robot_description() of the package's xacro."""
+    description_launch = _load_launch_file()
+    assert description_launch.robot_description is robot_description
+
+    xacro_paths = []
+    nodes = []
+    real_description = description_launch.robot_description
+    real_node = description_launch.Node
+
+    def share_directory(package):
+        assert package == "strafer_description"
+        return PACKAGE_DIR
+
+    def spy_description(xacro_path):
+        xacro_paths.append(xacro_path)
+        return real_description(xacro_path)
+
+    def record_node(**kwargs):
+        nodes.append(kwargs)
+        return real_node(**kwargs)
+
+    monkeypatch.setattr(description_launch, "get_package_share_directory", share_directory)
+    monkeypatch.setattr(description_launch, "robot_description", spy_description)
+    monkeypatch.setattr(description_launch, "Node", record_node)
+    description_launch.generate_launch_description()
+
+    assert len(xacro_paths) == 1
+    assert os.path.samefile(xacro_paths[0], XACRO_PATH)
+    rsp = [kwargs for kwargs in nodes if kwargs["package"] == "robot_state_publisher"]
+    assert len(rsp) == 1
+    assert len(rsp[0]["parameters"]) == 1
+    assert rsp[0]["parameters"][0]["robot_description"] == robot_description(XACRO_PATH)
 
 
 def test_robot_name(urdf_root):
@@ -136,14 +176,38 @@ def test_wheel_positions_symmetric(urdf_root):
     assert dy == pytest.approx(TRACK_WIDTH, abs=0.001)
 
 
-def test_camera_mount_position(urdf_root):
-    """Camera should be at CAMERA_OFFSET_X/Y/Z from constants."""
+def test_camera_mount_joint(urdf_root):
+    """d555_mount fixes d555_link to base_link."""
     joint = urdf_root.find(".//joint[@name='d555_mount']")
-    origin = joint.find("origin")
-    xyz = [float(v) for v in origin.attrib["xyz"].split()]
-    assert xyz[0] == pytest.approx(CAMERA_OFFSET_X)
-    assert xyz[1] == pytest.approx(CAMERA_OFFSET_Y)
-    assert xyz[2] == pytest.approx(CAMERA_OFFSET_Z)
+    assert joint.attrib["type"] == "fixed"
+    assert joint.find("parent").attrib["link"] == FRAME_BASE_LINK
+    assert joint.find("child").attrib["link"] == FRAME_D555_LINK
+
+
+def test_camera_mount_position(urdf_root):
+    """d555_mount's origin is exactly CAMERA_OFFSET_X/Y/Z, with no rotation.
+
+    The SLAM database key reads this origin from the same three constants, so a
+    rotation or another input here needs the key extended in the same change.
+    """
+    xyz, rpy = _origin(urdf_root, "d555_mount")
+    assert xyz == [CAMERA_OFFSET_X, CAMERA_OFFSET_Y, CAMERA_OFFSET_Z]
+    assert rpy == [0.0, 0.0, 0.0]
+
+
+def test_color_optical_joint(urdf_root):
+    """d555_color_optical_frame sits on d555_link, turned to x right, y down, z forward.
+
+    The SLAM database key does not cover this joint, so an offset or rotation here
+    needs the key extended in the same change.
+    """
+    joint = urdf_root.find(".//joint[@name='d555_color_optical_joint']")
+    assert joint.attrib["type"] == "fixed"
+    assert joint.find("parent").attrib["link"] == FRAME_D555_LINK
+    assert joint.find("child").attrib["link"] == FRAME_D555_COLOR_OPTICAL
+    xyz, rpy = _origin(urdf_root, "d555_color_optical_joint")
+    assert xyz == pytest.approx([0.0, 0.0, 0.0])
+    assert rpy == pytest.approx([-math.pi / 2, 0.0, -math.pi / 2])
 
 
 def test_masses_from_constants(urdf_root):

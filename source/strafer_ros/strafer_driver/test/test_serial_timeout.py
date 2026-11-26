@@ -43,7 +43,10 @@ M1_FORWARD, M2_FORWARD = DUTY_COMMANDS
 # The manual's numbers, written out as in test_port_fence.
 READ_SPEED_M1 = 18
 DRIVE_M1M2_SPEED = 37
-READ_COMMANDS = {CMD_READ_MAIN_BATTERY, 82, CMD_READ_SERIAL_TIMEOUT, 55, 56}
+# The tool's reads: battery, temperature, timeout and gains, then the settings reads (firmware,
+# status, S-pin modes, battery settings, duty acceleration, config, current limits, PWM, idle).
+READ_COMMANDS = {CMD_READ_MAIN_BATTERY, 82, CMD_READ_SERIAL_TIMEOUT, 55, 56,
+                 21, 90, 75, 59, 81, 99, 135, 136, 149, 161}
 DUTY_HOLD_S = 1.0
 NOTICE = "at duty 32/127 for 1 s each: the wheels must be lifted."
 
@@ -148,7 +151,7 @@ class TestDiagnoseRead:
 
     @pytest.mark.parametrize("flags", [(), ("--read-only",)], ids=["default", "read-only"])
     def test_reads_only_without_drive(self, patched, capsys, flags):
-        """No --drive: battery, temperature, timeout and PID reads on each port; nothing else."""
+        """No --drive: battery, temperature, timeout, PID and settings reads on each port only."""
         bus = patched(two_controllers())
 
         rc = run_diagnose(*BOTH, *flags)

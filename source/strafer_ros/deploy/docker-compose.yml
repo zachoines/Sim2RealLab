@@ -115,12 +115,13 @@ services:
       <<: *dds-env
       # slam.launch.py reads these from the environment INSIDE the container, so
       # they must be passed through -- a host export or deploy/.env alone only
-      # reaches compose interpolation. Empty keeps the unkeyed ~/.ros/rtabmap.db.
+      # reaches compose interpolation. Empty keys the database to the camera
+      # mount alone.
       STRAFER_SLAM_TASK_ID: ${STRAFER_SLAM_TASK_ID:-}
       STRAFER_SLAM_SCENE_TOKEN: ${STRAFER_SLAM_SCENE_TOKEN:-}
     volumes:
       - ../strafer_bringup/config/cyclonedds.xml:/opt/strafer/config/cyclonedds.xml:ro
-      - strafer_ros_home:/root/.ros                 # rtabmap.db
+      - strafer_ros_home:/root/.ros                 # rtabmap_<key>.db + sidecar
     command: ros2 launch strafer_slam slam.launch.py
 
   # --- navigation: Nav2 (MPPI controller, costmaps, BT). No hardware. ---------

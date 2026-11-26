@@ -524,8 +524,8 @@ class LocalizationDriftCfg:
     is off; a tier's band is a design value, not one measured on the robot."""
 
     jump_heading_range_deg: tuple[float, float] = (0.0, 0.0)
-    """Snap heading band [min, max] in degrees, with a random sign. Zero is off,
-    for the same reason as the displacement band."""
+    """Snap heading band [min, max] in degrees, with a random sign. Zero is off;
+    a tier's band is a design value, not one measured on the robot."""
 
     tf_age_enable: bool = False
     """Project the goal-shaped observations through a base pose some control

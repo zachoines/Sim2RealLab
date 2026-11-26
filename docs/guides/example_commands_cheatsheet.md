@@ -333,8 +333,8 @@ make launch-sim
 # Different launch args (donut_warmup, viewer, rtabmap_viz) or command: edit the
 #   `command:` in deploy/docker-compose.sim.yml, or iterate live via the dev overlay
 #   (docker compose -f docker-compose.yml -f docker-compose.dev.yml up).
-# Wipe the RTAB-Map database before launching (fresh map):
-#   make clean-map && make launch-sim
+# Wipe the RTAB-Map database before launching (fresh map); clean-map refuses while a container holds it:
+#   make down && make clean-map && make launch-sim
 ```
 
 ## Jetson shell 2 — submit a mission

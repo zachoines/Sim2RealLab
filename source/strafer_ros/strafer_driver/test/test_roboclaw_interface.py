@@ -5,7 +5,7 @@ and auto-detection.
 """
 
 import struct
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock, call, patch
 
 import pytest
 
@@ -283,6 +283,23 @@ class TestRetryLogic:
             rc.read_speed_m1()
 
         assert mock_serial.read.call_count == 3
+
+    def test_retry_pauses_the_retry_pause_between_tries(self):
+        """Each failed try but the last is followed by the retry pause the interface was
+        constructed with."""
+        from strafer_driver.roboclaw_interface import RoboClawInterface, RoboClawTimeoutError
+
+        rc = RoboClawInterface("/dev/fake", 0x80, max_retries=2, retry_pause=0.02)
+        mock_serial = MagicMock()
+        mock_serial.is_open = True
+        rc._serial = mock_serial
+        mock_serial.read.return_value = b""
+
+        with patch("strafer_driver.roboclaw_interface.time.sleep") as sleep:
+            with pytest.raises(RoboClawTimeoutError):
+                rc.read_speed_m1()
+
+        assert sleep.call_args_list == [call(0.02)] * 2
 
 
 class TestAutoDetect:

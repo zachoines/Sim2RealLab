@@ -222,10 +222,14 @@ down: ## Stop + remove the strafer containers (sim + deploy lanes)
 clean: ## Remove colcon build artifacts
 	cd $(COLCON_WS) && rm -rf build/ install/ log/
 
-clean-map: ## Delete the RTAB-Map database (container volumes + any bare-metal copy)
-	-docker volume rm strafer_strafer_ros_home strafer-sim_strafer_ros_home 2>/dev/null
-	-rm -f $(HOME)/.ros/rtabmap.db
-	@echo "RTAB-Map database removed; SLAM starts fresh on next launch."
+clean-map: ## Delete the RTAB-Map databases (container volumes + any bare-metal copy); run make down first
+	@for v in strafer_strafer_ros_home strafer-sim_strafer_ros_home; do \
+		docker volume inspect $$v >/dev/null 2>&1 || continue; \
+		docker volume rm $$v >/dev/null || { echo "clean-map: could not remove $$v; if a container still holds it, run make down first." >&2; exit 1; }; \
+		echo "removed volume $$v"; \
+	done
+	-rm -f $(HOME)/.ros/rtabmap*.db $(HOME)/.ros/rtabmap*.db.scene.json $(HOME)/.ros/rtabmap*.db.scene.json.tmp
+	@echo "RTAB-Map databases removed; SLAM starts fresh on next launch."
 
 # ---------- Kill ----------
 

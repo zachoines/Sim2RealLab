@@ -99,6 +99,7 @@ class RoboClawInterface:
         baud_rate: Serial baud rate.
         read_timeout: Per-command read timeout in seconds.
         max_retries: Number of retries on checksum/timeout failure.
+        retry_pause: Seconds between a failed try and its retry.
     """
 
     def __init__(
@@ -108,12 +109,14 @@ class RoboClawInterface:
         baud_rate: int = 115200,
         read_timeout: float = 0.1,
         max_retries: int = 1,
+        retry_pause: float = 0.005,
     ) -> None:
         self.port = port
         self.address = address
         self.baud_rate = baud_rate
         self.read_timeout = read_timeout
         self.max_retries = max_retries
+        self.retry_pause = retry_pause
         self._lock = threading.Lock()
         self._serial: Optional[serial.Serial] = None
 
@@ -232,7 +235,7 @@ class RoboClawInterface:
             except (RoboClawError, serial.SerialException) as exc:
                 last_exc = exc
                 if attempt < self.max_retries:
-                    time.sleep(0.005)  # brief pause before retry
+                    time.sleep(self.retry_pause)
         raise last_exc
 
     # ------------------------------------------------------------------

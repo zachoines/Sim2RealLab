@@ -13,6 +13,7 @@
       ├── wheel_3_link (RL)  (continuous: wheel_3_drive)
       ├── wheel_4_link (RR)  (continuous: wheel_4_drive)
       └── d555_link          (fixed: camera mount)
+          └── d555_color_optical_frame  (fixed: camera optical axes)
 -->
 <robot xmlns:xacro="http://www.ros.org/wiki/xacro" name="strafer">
 
@@ -202,8 +203,6 @@
   <!-- ================================================================== -->
   <!-- Camera mount: Intel RealSense D555                                 -->
   <!-- Offsets from CAMERA_OFFSET_X/Y/Z in constants.py                   -->
-  <!-- NOTE: perception.launch.py also publishes this as a static TF.     -->
-  <!-- When both are launched, remove the static TF from perception.      -->
   <!-- ================================================================== -->
 
   <link name="d555_link">

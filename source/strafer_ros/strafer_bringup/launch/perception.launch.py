@@ -4,12 +4,6 @@ Launches:
   - base.launch.py:       driver + description
   - strafer_perception:   RealSense D555 (depth + color + IMU) + depth downsampler
 
-NOTE: strafer_description (via base) already publishes the base_link → d555_link
-TF from the URDF. strafer_perception also publishes a static TF for d555_link.
-Both transforms are identical, so the duplicate is harmless. The URDF version
-is the authoritative source; the static TF in perception exists for standalone
-use without description.
-
 Usage:
   ros2 launch strafer_bringup perception.launch.py
   ros2 launch strafer_bringup perception.launch.py front_port:=/dev/roboclaw2

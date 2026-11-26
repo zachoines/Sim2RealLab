@@ -578,9 +578,9 @@ def _():
         p = _event(t, "randomize_subgoal_drift")
         if p is None:
             return OFF
-        assert p["jump_rate_hz"] == 0.0  # the row describes no jumps
         assert _event(t, "randomize_tf_age") is None, t  # the row: the TF-age delay built, off
-        return [*p["gain_range"], p["position_rms_m"], p["heading_sigma_deg"], p["tau_s"]]
+        return [*p["gain_range"], p["position_rms_m"], p["heading_sigma_deg"], p["tau_s"],
+                p["jump_rate_hz"], *p["jump_position_range_m"], *p["jump_heading_range_deg"]]
     for name, cfg in _composed().items():  # "on the goal-objective IDs it moves the goal"
         if name.startswith("StraferNavCfg_RL") and cfg.objective.kind == "goal":
             assert getattr(cfg.events, "randomize_subgoal_drift", None) is not None, name
@@ -991,7 +991,7 @@ ANCHORS = {
     "noise_models.py#L479": "class DepthNoiseModel(",
     "observations.py#L45": "def reduce_depth_to_policy_grid", "d555_cfg.py#L145": "focal_length=",
     "composed_env_cfg.py#L576": "num_rerenders_on_reset = 1", "planner.py#L251": "def perturb_waypoints(",
-    "proc_room.py#L990": "def generate_proc_room", "sim_real_cfg.py#L736": "IDEAL_SIM_CONTRACT",
+    "proc_room.py#L990": "def generate_proc_room", "sim_real_cfg.py#L749": "IDEAL_SIM_CONTRACT",
 }
 
 

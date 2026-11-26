@@ -914,8 +914,8 @@ class TerminationsCfg:
 # Events: tiered domain randomization (Ideal / Realistic / Robust)
 #
 # Structural events (robot reset) are identical across tiers.
-# Domain randomization (friction, mass, motor strength, mount offset,
-# goal noise) scales with realism level.
+# Domain randomization (friction, mass, motor strength, mount offset)
+# scales with realism level.
 # ---------------------------------------------------------------------------
 
 # Structural event shared by all tiers
@@ -970,10 +970,6 @@ class EventsCfg_Realistic:
         func=mdp.randomize_d555_mount_offset, mode="reset",
         params={"max_angle_deg": _D555_MOUNT_ANGLE_REAL_DEG},
     )
-    randomize_goal_noise = EventTerm(
-        func=mdp.randomize_goal_noise, mode="reset",
-        params={"command_name": "goal_command", "noise_std": 0.15},
-    )
     randomize_subgoal_drift = _SUBGOAL_DRIFT_REAL
 
 
@@ -996,10 +992,6 @@ class EventsCfg_Robust:
     randomize_d555_mount = EventTerm(
         func=mdp.randomize_d555_mount_offset, mode="reset",
         params={"max_angle_deg": _D555_MOUNT_ANGLE_ROBUST_DEG},
-    )
-    randomize_goal_noise = EventTerm(
-        func=mdp.randomize_goal_noise, mode="reset",
-        params={"command_name": "goal_command", "noise_std": 0.35},
     )
     randomize_subgoal_drift = _SUBGOAL_DRIFT_ROBUST
 
@@ -1112,10 +1104,6 @@ class EventsCfg_Infinigen_Realistic:
         func=mdp.randomize_d555_mount_offset, mode="reset",
         params={"max_angle_deg": _D555_MOUNT_ANGLE_REAL_DEG},
     )
-    randomize_goal_noise = EventTerm(
-        func=mdp.randomize_goal_noise, mode="reset",
-        params={"command_name": "goal_command", "noise_std": 0.15},
-    )
     randomize_subgoal_drift = _SUBGOAL_DRIFT_REAL
 
 
@@ -1140,10 +1128,6 @@ class EventsCfg_Infinigen_Robust:
     randomize_d555_mount = EventTerm(
         func=mdp.randomize_d555_mount_offset, mode="reset",
         params={"max_angle_deg": _D555_MOUNT_ANGLE_ROBUST_DEG},
-    )
-    randomize_goal_noise = EventTerm(
-        func=mdp.randomize_goal_noise, mode="reset",
-        params={"command_name": "goal_command", "noise_std": 0.35},
     )
     randomize_subgoal_drift = _SUBGOAL_DRIFT_ROBUST
 
@@ -1731,8 +1715,6 @@ class EventsCfg_ProcRoom_Realistic:
         func=mdp.randomize_d555_mount_offset, mode="reset",
         params={"max_angle_deg": _D555_MOUNT_ANGLE_REAL_DEG},
     )
-    # Goal noise disabled for initial training (Phase 1).
-    # Re-enable with noise_std=0.15 for Phase 3 robustness hardening.
     randomize_subgoal_drift = _SUBGOAL_DRIFT_REAL
 
 
@@ -1757,10 +1739,6 @@ class EventsCfg_ProcRoom_Robust:
     randomize_d555_mount = EventTerm(
         func=mdp.randomize_d555_mount_offset, mode="reset",
         params={"max_angle_deg": _D555_MOUNT_ANGLE_ROBUST_DEG},
-    )
-    randomize_goal_noise = EventTerm(
-        func=mdp.randomize_goal_noise, mode="reset",
-        params={"command_name": "goal_command", "noise_std": 0.35},
     )
     randomize_subgoal_drift = _SUBGOAL_DRIFT_ROBUST
 

@@ -32,10 +32,10 @@ def test_acceleration_bounded(action_env):
     action_term = configure_action_term_dynamics(
         action_env, enable_motor=False, enable_delay=False, enable_slew=True
     )
-    physics_dt = action_env.physics_dt
+    step_dt = action_env.step_dt
 
     # Read env 0's actual randomized max acceleration (may differ from nominal)
-    max_accel = (action_term._max_delta_per_step[0, 0] / physics_dt).cpu().item()
+    max_accel = (action_term._max_delta_per_step[0, 0] / step_dt).cpu().item()
 
     step_action = torch.tensor([[1.0, 0.0, 0.0]], device=action_env.device)
     step_action = step_action.repeat(action_env.num_envs, 1)
@@ -47,7 +47,7 @@ def test_acceleration_bounded(action_env):
 
     responses = np.abs(np.array(responses))
     diffs = np.diff(responses)
-    accelerations = diffs / physics_dt
+    accelerations = diffs / step_dt
     max_measured_accel = np.max(np.abs(accelerations))
 
     print(f"\n  Slew rate - acceleration bound:")
@@ -71,7 +71,7 @@ def test_ramp_time_matches_physics(action_env):
     )
     cfg = action_env.cfg.actions.wheel_velocities
     max_accel = cfg.max_acceleration_rad_s2
-    physics_dt = action_env.physics_dt
+    step_dt = action_env.step_dt
 
     step_action = torch.tensor([[1.0, 0.0, 0.0]], device=action_env.device)
     step_action = step_action.repeat(action_env.num_envs, 1)
@@ -83,7 +83,7 @@ def test_ramp_time_matches_physics(action_env):
 
     responses = np.abs(np.array(responses))
     v_final = responses[-1]
-    times = np.arange(len(responses)) * physics_dt
+    times = np.arange(len(responses)) * step_dt
 
     # Expected ramp time
     expected_ramp_time = v_final / max_accel
@@ -93,7 +93,7 @@ def test_ramp_time_matches_physics(action_env):
     measured_ramp_time = times[idx_99]
 
     # Error allowance: +/-2 timesteps
-    max_error = 2 * physics_dt
+    max_error = 2 * step_dt
 
     print(f"\n  Slew rate - ramp time:")
     print(f"    v_final: {v_final:.2f} rad/s")
@@ -114,7 +114,7 @@ def test_linear_ramp_shape(action_env):
     action_term = configure_action_term_dynamics(
         action_env, enable_motor=False, enable_delay=False, enable_slew=True
     )
-    physics_dt = action_env.physics_dt
+    step_dt = action_env.step_dt
 
     step_action = torch.tensor([[1.0, 0.0, 0.0]], device=action_env.device)
     step_action = step_action.repeat(action_env.num_envs, 1)
@@ -132,7 +132,7 @@ def test_linear_ramp_shape(action_env):
     ramp_indices = np.where(ramp_mask)[0]
 
     if len(ramp_indices) > 5:
-        ramp_times = ramp_indices * physics_dt
+        ramp_times = ramp_indices * step_dt
         ramp_values = responses[ramp_indices]
 
         # Linear regression

@@ -116,7 +116,6 @@ from .events import (
     randomize_friction,
     randomize_obstacles,
     randomize_mass,
-    randomize_goal_noise,
     randomize_subgoal_drift,
     randomize_motor_strength,
     randomize_d555_mount_offset,

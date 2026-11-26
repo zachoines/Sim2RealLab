@@ -87,7 +87,7 @@ def test_ideal_vs_realistic_rise_time_welch(action_env):
     """
     step_action = torch.tensor([[1.0, 0.0, 0.0]], device=action_env.device)
     step_action = step_action.repeat(action_env.num_envs, 1)
-    physics_dt = action_env.physics_dt
+    step_dt = action_env.step_dt
 
     # Collect rise times for ideal mode (across all envs and wheels)
     reset_env_and_action_term(action_env, ideal_mode=True)
@@ -101,7 +101,7 @@ def test_ideal_vs_realistic_rise_time_welch(action_env):
             if v_final > 0.01:  # Only count active wheels
                 threshold = 0.632 * v_final
                 rise_idx = np.argmax(response >= threshold)
-                rise_time = rise_idx * physics_dt
+                rise_time = rise_idx * step_dt
                 ideal_rise_times.append(rise_time)
 
     # Collect rise times for realistic mode
@@ -116,7 +116,7 @@ def test_ideal_vs_realistic_rise_time_welch(action_env):
             if v_final > 0.01:
                 threshold = 0.632 * v_final
                 rise_idx = np.argmax(response >= threshold)
-                rise_time = rise_idx * physics_dt
+                rise_time = rise_idx * step_dt
                 realistic_rise_times.append(rise_time)
 
     ideal_rise_times = np.array(ideal_rise_times)

@@ -180,10 +180,10 @@ class MecanumWheelAction(ActionTerm):
         # Motor dynamics (first-order low-pass filter)
         self._enable_motor_dynamics = cfg.enable_motor_dynamics
         if self._enable_motor_dynamics:
-            # Low-pass filter coefficient: alpha = dt / (tau + dt)
-            # where tau = motor time constant, dt = physics step time
-            physics_dt = env.physics_dt
-            self._motor_alpha = physics_dt / (cfg.motor_time_constant + physics_dt)
+            # Low-pass filter coefficient: alpha = dt / (tau + dt), with dt the
+            # control step: the filter advances once per process_actions call
+            control_dt = env.step_dt
+            self._motor_alpha = control_dt / (cfg.motor_time_constant + control_dt)
             self._smoothed_wheel_vels = torch.zeros(env.num_envs, 4, device=env.device)
         
         # Command delay buffer
@@ -221,12 +221,13 @@ class MecanumWheelAction(ActionTerm):
         if self._hold.enabled:
             self._held_command = torch.zeros(env.num_envs, 4, device=env.device)
 
-        # Slew rate limiting (max acceleration) — per-env randomization
+        # Slew rate limiting (max acceleration) — per-env randomization. The limit
+        # applies once per process_actions call, so its step is accel x control step.
         self._enable_slew_rate = cfg.max_acceleration_rad_s2 < float('inf')
         if self._enable_slew_rate:
             self._accel_range = cfg.max_acceleration_range
             self._accel_nominal = cfg.max_acceleration_rad_s2
-            self._physics_dt = env.physics_dt
+            self._control_dt = env.step_dt
             self._num_envs = env.num_envs
             lo, hi = self._accel_range
             if lo < hi:
@@ -234,7 +235,7 @@ class MecanumWheelAction(ActionTerm):
             else:
                 accel_per_env = torch.full((env.num_envs,), self._accel_nominal, device=env.device)
             # Shape (num_envs, 1) for broadcasting with (num_envs, 4) wheel vels
-            self._max_delta_per_step = (accel_per_env * env.physics_dt).unsqueeze(-1)
+            self._max_delta_per_step = (accel_per_env * env.step_dt).unsqueeze(-1)
             self._prev_wheel_vels = torch.zeros(env.num_envs, 4, device=env.device)
         
         # ============================================================
@@ -312,7 +313,7 @@ class MecanumWheelAction(ActionTerm):
                 else:
                     n = env_ids.shape[0]
                 new_accel = lo + (hi - lo) * torch.rand(n, device=self._prev_wheel_vels.device)
-                self._max_delta_per_step[env_ids] = (new_accel * self._physics_dt).unsqueeze(-1)
+                self._max_delta_per_step[env_ids] = (new_accel * self._control_dt).unsqueeze(-1)
 
     @property
     def action_dim(self) -> int:
@@ -469,20 +470,21 @@ class MecanumWheelActionCfg(ActionTermCfg):
     enable_motor_dynamics: bool = False
     """Enable first-order motor response model. Default: False (ideal response)."""
     
-    motor_time_constant: float = 0.05
-    """Motor time constant in seconds. Controls response speed.
-    Real GoBilda 5203 under load: ~50ms. Default: 0.05s."""
+    motor_time_constant: float = 0.2
+    """Time constant in seconds of the first-order wheel lag, which advances once
+    per control step (alpha = dt / (tau + dt), dt the control step). Default:
+    0.2 s."""
     
     # ============================================================
     # Sim-to-Real: Command latency
     # ============================================================
     
     min_delay_steps: int = 0
-    """Minimum command delay in physics steps. Default: 0."""
+    """Minimum command delay in control steps. Default: 0."""
     
     max_delay_steps: int = 0
-    """Maximum command delay in physics steps. Randomized per reset.
-    Default: 0 (no delay)."""
+    """Maximum command delay in control steps. One delay per env, drawn when the
+    term is built. Default: 0 (no delay)."""
 
     # ============================================================
     # Sim-to-Real: Command holds
@@ -514,9 +516,9 @@ class MecanumWheelActionCfg(ActionTermCfg):
     # ============================================================
     
     max_acceleration_rad_s2: float = float('inf')
-    """Maximum wheel angular acceleration in rad/s². Prevents instant velocity changes.
-    Default: inf (no limit)."""
+    """Maximum wheel angular acceleration in rad/s², applied once per control step
+    (a change of at most accel x control step). Default: inf (no limit)."""
 
     max_acceleration_range: tuple[float, float] = (float('inf'), float('inf'))
     """Range for per-env randomization of max acceleration [min, max] rad/s².
-    Models battery discharge and load variation."""
+    A design spread: the motor controllers run from a regulated 12 V supply."""

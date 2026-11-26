@@ -450,8 +450,6 @@ def main() -> int:
     # The goal-objective env's training-only managers read fixed-goal command
     # state (``_goal`` / ``_goal_reached_count``) the rolling subgoal command
     # does not expose. Capture is inference-only, so disable them.
-    if getattr(env_cfg.events, "randomize_goal_noise", None) is not None:
-        env_cfg.events.randomize_goal_noise = None
     if getattr(env_cfg.curriculum, "goal_distance", None) is not None:
         env_cfg.curriculum.goal_distance = None
 

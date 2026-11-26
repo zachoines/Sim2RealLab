@@ -171,27 +171,21 @@ def randomize_friction(
     env: ManagerBasedEnv,
     env_ids: torch.Tensor,
     friction_range: tuple[float, float],
-    roller_friction_threshold: float = 0.9,
 ) -> None:
-    """Randomize floor-contact friction for domain randomization.
+    """Randomize the robot's contact friction for domain randomization.
 
-    Modifies the physics material properties of the robot's non-roller
-    contact surfaces to simulate varying floor conditions (carpet, tile,
-    polished concrete, etc.).
-
-    Roller cover shapes are **preserved** at their USD-baked rubber
-    friction values (static ~1.0).  This is detected automatically on
-    first call: any shape whose initial static friction >= ``roller_friction_threshold``
-    is treated as a rubber roller and excluded from randomization.
+    One draw d per reset env, uniform in ``friction_range``, sets the static
+    friction of every robot collision shape to d and its dynamic friction to
+    0.9 d; restitution is left as it is. The roller covers, the only floor
+    contact on a level floor, take the draw with the rest, so under PhysX's
+    default ``average`` combine mode the wheel-floor static grip is
+    (d + floor) / 2, with the floor's own static friction; the same draw sets
+    the chassis's friction against walls and furniture.
 
     Args:
         env: The environment instance.
         env_ids: Indices of environments to randomize.
-        friction_range: (min, max) friction coefficient range.
-            Typical values: (0.3, 1.2) for indoor surfaces.
-        roller_friction_threshold: Shapes with initial static friction
-            at or above this value are treated as rubber rollers and
-            excluded from randomization.  Default 0.9.
+        friction_range: (min, max) static friction drawn per env.
     """
     if len(env_ids) == 0:
         return
@@ -207,18 +201,6 @@ def randomize_friction(
     materials_device = materials.device
     env_ids_device = env_ids.to(materials_device)
 
-    # On first call, cache initial materials and build a boolean mask of
-    # roller shapes (high friction from USD rubber material) to preserve.
-    if not hasattr(env, "_roller_shape_mask"):
-        env._initial_robot_materials = materials.clone()
-        # Use env 0 as reference — all envs start with identical USD materials
-        env._roller_shape_mask = materials[0, :, 0] >= roller_friction_threshold
-        n_roller = int(env._roller_shape_mask.sum().item())
-        n_total = materials.shape[1]
-        if n_roller > 0:
-            print(f"[randomize_friction] Preserving {n_roller}/{n_total} "
-                  f"roller shapes (rubber, μs≥{roller_friction_threshold})")
-
     # Sample random friction values for each environment being reset
     num_resets = len(env_ids)
     friction_values = (
@@ -227,23 +209,12 @@ def randomize_friction(
         + friction_range[0]
     )
 
-    # Apply friction to all shapes, then restore rollers
+    # Apply friction to every shape of the reset envs
     num_shapes = materials.shape[1]
     friction_expanded = friction_values.unsqueeze(1).expand(-1, num_shapes)
 
     materials[env_ids_device, :, 0] = friction_expanded          # Static friction
     materials[env_ids_device, :, 1] = friction_expanded * 0.9    # Dynamic friction
-
-    # Restore roller shapes to their original rubber friction
-    roller_mask = env._roller_shape_mask
-    if roller_mask.any():
-        ref = env._initial_robot_materials[0]  # (num_shapes, 3)
-        roller_idx = roller_mask.nonzero(as_tuple=False).squeeze(-1)  # (n_rollers,)
-        # ref_vals: (n_rollers, 3) -> broadcast to (num_resets, n_rollers, 3)
-        ref_vals = ref[roller_idx].unsqueeze(0).expand(num_resets, -1, -1)
-        env_sel = env_ids_device.unsqueeze(1).expand(-1, roller_idx.shape[0])
-        shape_sel = roller_idx.unsqueeze(0).expand(num_resets, -1)
-        materials[env_sel, shape_sel] = ref_vals
 
     # Apply the modified materials back to simulation
     # root_view methods expect warp arrays on develop branch — convert back

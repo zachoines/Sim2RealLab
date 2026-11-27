@@ -85,7 +85,7 @@ def test_accel_white_noise_variance():
 
     With bias and drift disabled, model(zeros) returns pure white noise.
     Uses chi-squared variance test on a single axis, at alpha 1e-6 on its
-    own stream: at 5 000 samples a sigma off by 6 % still fails (power 0.9).
+    own stream: at 5 000 samples a sigma off by 6.3 % still fails (power 0.9).
     """
     model = _make_white_noise_only_model("accel")
 
@@ -249,7 +249,7 @@ def test_bias_drift_increases_variance():
     of bias values after 10 steps and after 1 000 steps. The later sample
     should have significantly greater spread at alpha 1e-6: a random
     walk's is ten times the earlier (z about 24 against the 4.8 needed),
-    and a late spread under 1.4 times the early one fails (power 0.9).
+    and a late spread under 1.22 times the early one fails (power 0.9).
     """
     model = _make_full_imu_model("accel")
 

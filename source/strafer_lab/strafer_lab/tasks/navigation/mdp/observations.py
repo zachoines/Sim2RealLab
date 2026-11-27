@@ -725,7 +725,8 @@ def depth_image(
         env: The environment instance.
         sensor_cfg: Scene entity configuration for the camera sensor.
         max_depth: Maximum depth value for inf replacement and clamping.
-        nearfield_clip: Distance (m) below which depth is unreliable (D555 min range).
+        nearfield_clip: Block median (m) under which a cell reads ``nearfield_fill``: the deploy node's near-fill
+            threshold, not the sensor's minimum depth.
         nearfield_fill: Replacement value (m) for nearfield pixels. Should be small
             but nonzero so the policy distinguishes "close object" from "nothing".
         perceived: Read the frame through the D555's stereo validity where the env

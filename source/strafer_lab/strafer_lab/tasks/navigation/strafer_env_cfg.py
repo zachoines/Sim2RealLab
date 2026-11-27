@@ -213,13 +213,15 @@ class StraferSceneCfg(InteractiveSceneCfg):
         spawn=sim_utils.DomeLightCfg(intensity=2000.0, color=(0.8, 0.8, 0.8)),
     )
 
-    # Intel RealSense D555 depth camera (87° FOV, 0.4-6m usable range)
+    # Intel RealSense D555 depth camera (87° FOV; depth from its ~0.244 m minimum, clamped at 6 m)
     # Camera mount: 20cm forward (+X), 25cm up (+Z) from body_link (ROS frame)
     # Rotation: ROS camera frame (Z-forward, X-right, Y-down) aligned to robot frame
     #
     # Near clip set to 0.01m (not 0.4m) so sim renders close objects.
-    # The depth_image() observation handles the D555's real 0.4m blind zone
-    # by filling nearfield pixels with a saturated value (see observations.py).
+    # The depth_image() observation fills a block whose median is under 0.4 m
+    # (the deploy node's near-fill threshold) with a saturated value. The D555
+    # returns depth down to about 0.244 m; nearer, the realistic and robust tiers'
+    # stereo validity writes the far clamp, as the node does (see observations.py).
     d555_camera: TiledCameraCfg = make_d555_camera_cfg(
         data_types=("rgb", "distance_to_image_plane"),
     )
@@ -1002,7 +1004,7 @@ _SUBGOAL_DRIFT_ROBUST = EventTerm(
 
 
 def _tf_age_term(contract) -> EventTerm | None:
-    """The TF-age reset event, after the drift's in each class so its draws come last; None where it is off."""
+    """The TF-age reset event, after the drift's in each class so its draws follow the other events'; None where off."""
     params = get_tf_age_params(contract)
     return None if params is None else EventTerm(func=mdp.randomize_tf_age, mode="reset", params=params)
 
@@ -1012,7 +1014,7 @@ _TF_AGE_ROBUST = _tf_age_term(ROBUST_TRAINING_CONTRACT)
 
 
 def _outage_term(contract) -> EventTerm | None:
-    """The sensor-outage reset event, last in each class so its draws come after the reset's others; None where off."""
+    """The sensor-outage reset event, last in each class. It draws nothing at reset; None where off."""
     params = get_outage_params(contract)
     return None if params is None else EventTerm(func=mdp.randomize_sensor_outages, mode="reset", params=params)
 

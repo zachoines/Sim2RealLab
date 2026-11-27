@@ -150,18 +150,18 @@ The sim-to-real processing pipeline in [actions.py:327-348](../../source/strafer
 
 ### 2a. Command Delay
 
-**Sim**: A circular buffer delays action commands by N physics steps.
+**Sim**: A circular buffer delays action commands by N env steps.
 
 ```python
 # From REAL_ROBOT_CONTRACT (create_real_robot_contract, sim_real_cfg.py)
-action_latency_steps = 1      # 33ms at 30 Hz
-action_latency_steps_range = (0, 2)  # 0-66ms random, sampled per reset
+action_latency_s = POLICY_PERIOD_S                   # 33.3 ms, one control step
+action_latency_range_s = (0.0, 2 * POLICY_PERIOD_S)  # 0-66.7 ms more, drawn per env when the term is built
 
 # Separately, a share of control steps carry no new command at all, so the
 # chassis re-executes the previous one. A delay shifts a command in time;
 # a hold repeats it.
-action_hold_fraction_range = (0.0, 0.05)   # (0.0, 0.25) on Robust
-action_hold_run_range = (1.0, 1.2)         # mean run length, control steps
+action_hold_fraction_range = (0.0, 0.05)   # the same on Robust
+action_hold_run_range_s = (POLICY_PERIOD_S, 1.2 * POLICY_PERIOD_S)  # mean run length, seconds
 ```
 
 **Real-world source**: USB serial write -> RoboClaw command processing -> motor response. Typical round-trip: 2-5ms per command x 4 motors = 8-20ms total. At 50 Hz control rate (20ms period), this is roughly 0.5-1 step of delay.

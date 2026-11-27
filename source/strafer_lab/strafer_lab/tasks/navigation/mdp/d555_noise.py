@@ -12,7 +12,7 @@ geometry: the incidence cosine ``cos φ`` from the back-projected surface normal
   amplitude is ``σ_T = a_T · σ_T0 · cos φ^(−p) · (1 + r · cos 2π frac(d))``.
 - **A static field S**, drawn at each reset and held for the episode in the image (or, per env, decaying with a time
   constant), streaked along the rows. Its amplitude is ``σ_S = a_S · min(σ_S0 + k · G, σ_S,max)``, plus a sub-pixel
-  locking ripple ``b · sin 2π frac(d)``.
+  locking ripple ``a_S · b · sin 2π frac(d)``.
 - **The disparity lattice.** The noisy disparity is rounded to 1/32 px through the measured sub-pixel occupancy (some
   sub-pixel codes never occur), each bin centred on its code so the rounding adds no bias, and the depth to the
   millimetre, as Z16 carries it.
@@ -412,9 +412,12 @@ class D555NoiseProcess:
         return whole + self._lut[(nearest - 32.0 * whole).long()]
 
     def step(self, depth: torch.Tensor, fb: torch.Tensor, max_depth: float) -> tuple[torch.Tensor, torch.Tensor]:
-        """The noisy depth and the invalid blobs of one ``(N, H, W)`` clean frame."""
+        """The noisy depth and the invalid blobs of one ``(N, H, W)`` clean frame; a pixel with no return reads
+        ``max_depth``."""
         c = self.cfg
         n = self.num_envs
+        # no return (non-finite, not positive) reads the far clamp, which takes no noise
+        depth = torch.where(torch.isfinite(depth) & (depth > 0), depth, max_depth)
         disparity, cos_phi, grad, grad_v = surface_geometry(depth, fb, c)
         cos_c = cos_phi.clamp(c.cos_min, 1.0)
         grad_c = grad.clamp(0.0, c.grad_max)

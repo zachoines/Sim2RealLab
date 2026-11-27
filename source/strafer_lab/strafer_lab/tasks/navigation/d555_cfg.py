@@ -94,10 +94,10 @@ D555_IMU_ROT = (0.0, 0.0, 0.0, 1.0)  # identity, XYZW
 # Renderer frustum clip applied to the camera prim. Both ends are
 # sim-only and decoupled from the real D555's depth saturation limit.
 #
-# Near (DEPTH_SIM_CLIP_NEAR = 0.01 m): sim renders below the D555's
-# 0.4 m stereo blind zone so objects don't pop out of view next to the
-# robot. The depth-sensor min-range model (0.4 m saturation to
-# DEPTH_NEARFIELD_FILL) is enforced in software in observations.depth_image.
+# Near (DEPTH_SIM_CLIP_NEAR = 0.01 m): sim renders below the D555's minimum depth (about 0.244 m), so objects
+# don't pop out of view next to the robot. observations.depth_image models the near range: a block median under
+# 0.4 m, the deploy node's near-fill threshold, takes DEPTH_NEARFIELD_FILL, and on the realistic and robust tiers
+# the stereo validity writes a pixel nearer than the minimum as the far clamp.
 #
 # Far (D555_RENDER_FAR_CLIP_M = 50 m): sim renders the entire room.
 # Using DEPTH_CLIP_FAR (6 m) here is wrong — the renderer's frustum cull

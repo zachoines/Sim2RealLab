@@ -119,6 +119,16 @@ def test_a_box_at_1_m_on_a_4_m_wall_shadows_its_left_and_not_its_right():
     assert not bool(invalid[300:].any())  # the box itself and the wall right of it
 
 
+def test_the_band_reads_each_pixels_own_depth():
+    # A 4 m wall with a 1 m box at the right: the band at the left edge is the wall's, f·B/4 + 6.5 = 14.1 px,
+    # not the box's f·B/1 + 6.5 = 37.0 px. A band taken from the row's nearest surface blanks columns 15-36 too.
+    z = torch.full((1, H, W), 4.0)
+    z[0, :, 500:600] = 1.0
+    valid = stereo_validity(z, FB, D555SensorCfg())
+    assert not bool(valid[0, :, :15].any())
+    assert bool(valid[0, :, 15:300].all())
+
+
 @pytest.mark.parametrize("wall,cell", [(0.20, DEPTH_MAX), (0.30, 0.2)])
 def test_a_square_on_wall_below_the_minimum_reads_far_and_above_it_the_near_fill(wall, cell):
     process = D555SensorProcess(1, "cpu", D555SensorCfg())
@@ -141,11 +151,12 @@ def test_an_all_culled_render_gives_the_band_only():
 
 def test_the_process_draws_from_its_own_generator():
     cfg = D555SensorCfg(fb_scale_range=(0.98, 1.06))
-    torch.manual_seed(11)
-    before = torch.get_rng_state()
-    a = D555SensorProcess(64, "cpu", cfg, seed=7)
-    a.reset(None)
-    assert torch.equal(torch.get_rng_state(), before)  # no other term's stream moves
+    with torch.random.fork_rng():
+        torch.manual_seed(11)
+        before = torch.get_rng_state()
+        a = D555SensorProcess(64, "cpu", cfg, seed=7)
+        a.reset(None)
+        assert torch.equal(torch.get_rng_state(), before)  # no other term's stream moves
     b = D555SensorProcess(64, "cpu", cfg, seed=7)
     b.reset(None)
     assert torch.equal(a.fb, b.fb)
@@ -164,22 +175,37 @@ def test_the_event_creates_the_process_once_seeded_from_the_env():
                   min_depth_m=D555_MIN_DEPTH_M, occlusion_tol_px=STEREO_OCCLUSION_TOL_PX, invalid_depth_m=DEPTH_MAX,
                   max_return_m=D555_RENDER_FAR_CLIP_M)
     envs = [types.SimpleNamespace(num_envs=8, device="cpu", cfg=types.SimpleNamespace(seed=5)) for _ in range(2)]
-    torch.manual_seed(1)
-    events.randomize_d555_sensor(envs[0], torch.arange(8), **params)
-    torch.manual_seed(2)
-    events.randomize_d555_sensor(envs[1], torch.arange(8), **params)
+    with torch.random.fork_rng():
+        torch.manual_seed(1)
+        events.randomize_d555_sensor(envs[0], torch.arange(8), **params)
+        torch.manual_seed(2)
+        events.randomize_d555_sensor(envs[1], torch.arange(8), **params)
     assert torch.equal(envs[0]._d555_sensor.fb, envs[1]._d555_sensor.fb)  # the env's seed, not the global stream
     process = envs[0]._d555_sensor
     events.randomize_d555_sensor(envs[0], torch.tensor([1]), **params)
     assert envs[0]._d555_sensor is process
 
 
+def test_the_event_builds_the_process_from_its_params():
+    from strafer_lab.tasks.navigation.mdp import events
+
+    # Non-default values in every field, so a dropped or swapped kwarg shows.
+    params = dict(fb_px_m=31.0, fb_scale_range=(0.9, 1.1), margin_px=4.0, core_px=9.0, min_depth_m=0.3,
+                  occlusion_tol_px=0.7, invalid_depth_m=5.5, max_return_m=40.0)
+    env = types.SimpleNamespace(num_envs=16, device="cpu", cfg=types.SimpleNamespace(seed=3))
+    events.randomize_d555_sensor(env, torch.arange(16), **params)
+    cfg = env._d555_sensor.cfg
+    assert cfg == D555SensorCfg(**params)
+    assert float(env._d555_sensor.fb.std()) > 0  # the robust spread reached the draws
+
+
 def test_off_the_term_draws_nothing_and_with_a_process_the_critic_is_untouched():
     raw = _scene(3, n=2)[..., None]
-    torch.manual_seed(4)
-    before = torch.get_rng_state()
-    off = _term(_env(raw.clone()))
-    assert torch.equal(torch.get_rng_state(), before)
+    with torch.random.fork_rng():
+        torch.manual_seed(4)
+        before = torch.get_rng_state()
+        off = _term(_env(raw.clone()))
+        assert torch.equal(torch.get_rng_state(), before)
     process = D555SensorProcess(2, "cpu", D555SensorCfg())
     assert torch.equal(_term(_env(raw.clone(), process), perceived=False), off)
     assert not torch.equal(_term(_env(raw.clone(), process)), off)
@@ -215,15 +241,16 @@ def test_the_contracts_fb_is_the_policy_cameras_fx_times_the_baseline_and_off_is
 def test_no_noise_at_the_clamp_consumes_the_same_draws():
     from strafer_lab.tasks.navigation.mdp.noise_models import DepthNoiseModelCfg
 
-    data = torch.rand(4, 3600) * 5.0 + 0.5
-    data[:, :300] = DEPTH_MAX
-    outs, states = [], []
-    for flag in (False, True):
-        cfg = DepthNoiseModelCfg(hole_probability=0.0, frame_drop_prob=0.0, noise_free_at_max_range=flag)
-        model = cfg.class_type(cfg, 4, "cpu")
-        torch.manual_seed(6)
-        outs.append(model(data.clone()))
-        states.append(torch.get_rng_state())
+    with torch.random.fork_rng():
+        data = torch.rand(4, 3600) * 5.0 + 0.5
+        data[:, :300] = DEPTH_MAX
+        outs, states = [], []
+        for flag in (False, True):
+            cfg = DepthNoiseModelCfg(hole_probability=0.0, frame_drop_prob=0.0, noise_free_at_max_range=flag)
+            model = cfg.class_type(cfg, 4, "cpu")
+            torch.manual_seed(6)
+            outs.append(model(data.clone()))
+            states.append(torch.get_rng_state())
     assert torch.equal(states[0], states[1])
     assert bool((outs[1][:, :300] == DEPTH_MAX).all()) and not bool((outs[0][:, :300] == DEPTH_MAX).all())
     assert torch.equal(outs[0][:, 300:], outs[1][:, 300:])

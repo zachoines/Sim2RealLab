@@ -1037,7 +1037,7 @@ ANCHORS = {
     "events.py#L365": "def randomize_mass", "events.py#L767": "def reset_robot_proc_room",
     "noise_models.py#L188": "class IMUNoiseModel(", "noise_models.py#L360": "class EncoderNoiseModel(",
     "noise_models.py#L492": "class DepthNoiseModel(", "d555_noise.py#L50": "class D555NoiseCfg",
-    "d555_sensor.py#L69": "def stereo_validity",
+    "d555_sensor.py#L71": "def stereo_validity",
     "observations.py#L46": "def reduce_depth_to_policy_grid", "d555_cfg.py#L145": "focal_length=",
     "composed_env_cfg.py#L586": "num_rerenders_on_reset = 1", "planner.py#L251": "def perturb_waypoints(",
     "proc_room.py#L990": "def generate_proc_room", "sim_real_cfg.py#L863": "IDEAL_SIM_CONTRACT",

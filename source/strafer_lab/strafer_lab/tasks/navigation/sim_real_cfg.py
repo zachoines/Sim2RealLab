@@ -347,7 +347,7 @@ class DepthCameraNoiseCfg:
     # Range limits
     min_range_m: float = DEPTH_NEARFIELD_FILL
     """Depth in meters below which a reading is treated as unresolvable, and the
-    value written there. It sits below the D555's own 0.4 m floor on purpose:
+    value written there. It sits below the deploy node's 0.4 m near-fill threshold on purpose:
     it is the near fill the observation term has already written at those
     pixels, so the comparison cannot reclassify them."""
 

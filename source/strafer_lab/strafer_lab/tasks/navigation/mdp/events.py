@@ -505,8 +505,8 @@ def randomize_sensor_outages(
     """End the reset envs' sensor outages and their stale-source stop.
 
     The process is created on the first call and lives on the env, where the action term advances it once per control
-    step; the noise models read it through ``sensor_outage.current_outage``. The term is the last of its class, so its
-    draws come after the reset's others.
+    step; the noise models read it through ``sensor_outage.current_outage``. The reset draws nothing: the process draws
+    in ``advance``, first in each step's action, before the command hold's and the noise models' draws of that step.
 
     Args:
         env: The environment instance.

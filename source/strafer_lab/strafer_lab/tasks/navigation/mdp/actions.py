@@ -2,7 +2,7 @@
 
 Includes sim-to-real transfer features:
 - Motor dynamics (first-order response)
-- Command latency (delay buffer)
+- Command latency (delay buffer, and a sub-step part in apply_actions)
 - Velocity smoothing
 """
 
@@ -194,28 +194,36 @@ class MecanumWheelAction(ActionTerm):
             self._set_motor_tau(torch.full((env.num_envs,), cfg.motor_time_constant, dtype=torch.float64))
             self._smoothed_wheel_vels = torch.zeros(env.num_envs, 4, device=env.device)
         
-        # Command delay buffer
-        self._enable_command_delay = cfg.max_delay_steps > 0
+        # Command delay, in seconds: whole env steps in the delay buffer, the part under one env step held at the
+        # start of each step's sub-steps. Converted here; the same at a decimation whose env step divides its ends.
+        self._decimation = max(1, int(round(env.step_dt / env.physics_dt)))
+        self._delay_steps_range = _whole_units(cfg.delay_range_s, env.step_dt, "delay_range_s", "env step",
+                                               "substep_delay_range_s")
+        self._substep_ticks_range = _whole_units(cfg.substep_delay_range_s, env.physics_dt, "substep_delay_range_s",
+                                                 "physics tick", None)
+        self._redraw_delay = cfg.delay_redraw_on_reset
+        delay_lo, delay_hi = self._delay_steps_range
+        tick_hi = self._substep_ticks_range[1]
+        history = delay_hi + tick_hi // self._decimation
+        self._enable_command_delay = history > 0
+        self._enable_substep_delay = tick_hi > 0
+        self._delay_env_steps = torch.full((env.num_envs,), delay_hi, dtype=torch.int, device=env.device)
+        self._substep_ticks = torch.zeros(env.num_envs, dtype=torch.int, device=env.device)
         if self._enable_command_delay:
             self._action_delay_buffer = DelayBuffer(
-                history_length=cfg.max_delay_steps,
+                history_length=history,
                 batch_size=env.num_envs,
                 device=env.device,
             )
             # Set random delay per environment
-            if cfg.min_delay_steps < cfg.max_delay_steps:
-                time_lags = torch.randint(
-                    low=cfg.min_delay_steps,
-                    high=cfg.max_delay_steps + 1,
+            if delay_lo < delay_hi:
+                self._delay_env_steps = torch.randint(
+                    low=delay_lo,
+                    high=delay_hi + 1,
                     size=(env.num_envs,),
                     dtype=torch.int,
                     device=env.device,
                 )
-            else:
-                time_lags = torch.full(
-                    (env.num_envs,), cfg.max_delay_steps, dtype=torch.int, device=env.device
-                )
-            self._action_delay_buffer.set_time_lag(time_lags)
 
         # Command holds: no new command this control step, so the chassis keeps
         # executing the last one it received. Distinct from the delay buffer
@@ -224,7 +232,7 @@ class MecanumWheelAction(ActionTerm):
             env.num_envs,
             env.device,
             hold_fraction_range=cfg.hold_fraction_range,
-            hold_run_range=cfg.hold_run_range,
+            hold_run_range=tuple(round(s / env.step_dt, 9) for s in cfg.hold_run_range_s),
         )
         if self._hold.enabled:
             self._held_command = torch.zeros(env.num_envs, 4, device=env.device)
@@ -267,6 +275,14 @@ class MecanumWheelAction(ActionTerm):
             self._speed_scale = torch.ones(env.num_envs, device=env.device)
             self._draw_speed_scale(None)
 
+        # The delay's sub-step part, drawn after every draw above so a band leaves their order alone
+        if self._enable_substep_delay:
+            self._draw_substep(None)
+            self._applied = torch.zeros(env.num_envs, 4, device=env.device)
+            self._prev_applied = torch.zeros(env.num_envs, 4, device=env.device)
+            self._substep = 0
+        self._set_delay_lag(None)
+
         # Log configuration
         print(f"[MecanumWheelAction] Initialized with:")
         print(f"  Wheel radius: {self._wheel_radius*1000:.1f} mm")
@@ -279,8 +295,9 @@ class MecanumWheelAction(ActionTerm):
         print(f"  Joint reorder (kinematic->USD): {self._joint_reorder.tolist()}")
         print(f"  Wheel axis signs (FL,FR,RL,RR): {self._wheel_axis_signs.tolist()}")
         print(f"  Motor dynamics: {self._enable_motor_dynamics} (tau={cfg.motor_time_constant}s)")
-        print(f"  Command delay: {self._enable_command_delay} (steps={cfg.min_delay_steps}-{cfg.max_delay_steps})")
-        print(f"  Command hold: {self._hold.enabled} (fraction={cfg.hold_fraction_range}, run={cfg.hold_run_range})")
+        print(f"  Command delay: {self._enable_command_delay} (band={cfg.delay_range_s} s, sub-step band="
+              f"{cfg.substep_delay_range_s} s, redrawn at reset: {self._redraw_delay})")
+        print(f"  Command hold: {self._hold.enabled} (fraction={cfg.hold_fraction_range}, run={cfg.hold_run_range_s} s)")
         print(f"  Slew rate limit: {self._enable_slew_rate} (max_accel={cfg.max_acceleration_rad_s2} rad/s², range={cfg.max_acceleration_range})")
         print(f"  Command envelope: {self._speed_scale_range is not None} (scale range={self._speed_scale_range})")
 
@@ -329,10 +346,44 @@ class MecanumWheelAction(ActionTerm):
                 new_accel = lo + (hi - lo) * torch.rand(n, device=self._prev_wheel_vels.device)
                 self._max_delta_per_step[env_ids] = (new_accel * self._control_dt).unsqueeze(-1)
 
-        # Redraw the per-env time constant, the reset's last draw
+        # Redraw the per-env time constant
         if self._enable_motor_dynamics and self._tau_range is not None:
             n = self._motor_alpha.shape[0] if all_envs else env_ids.shape[0]
             self._set_motor_tau(self._draw_tau(n, self._motor_alpha.device), None if all_envs else env_ids)
+
+        # The delay's redraw and its sub-step part, the reset's last draws
+        ids = None if all_envs else env_ids
+        redraw = self._redraw_delay and self._enable_command_delay and self._delay_steps_range[0] < self._delay_steps_range[1]
+        if redraw:
+            self._draw_delay(ids)
+        if self._enable_substep_delay:
+            self._draw_substep(ids)
+            self._applied[env_ids] = 0.0
+        if redraw or self._enable_substep_delay:
+            self._set_delay_lag(ids)
+
+    def _draw_delay(self, env_ids: torch.Tensor | None) -> None:
+        lo, hi = self._delay_steps_range
+        n = self._delay_env_steps.shape[0] if env_ids is None else env_ids.shape[0]
+        draw = torch.randint(lo, hi + 1, (n,), dtype=torch.int, device=self._delay_env_steps.device)
+        self._delay_env_steps[slice(None) if env_ids is None else env_ids] = draw
+
+    def _draw_substep(self, env_ids: torch.Tensor | None) -> None:
+        lo, hi = self._substep_ticks_range
+        n = self._substep_ticks.shape[0] if env_ids is None else env_ids.shape[0]
+        draw = torch.randint(lo, hi + 1, (n,), dtype=torch.int, device=self._substep_ticks.device)
+        self._substep_ticks[slice(None) if env_ids is None else env_ids] = draw
+
+    def _set_delay_lag(self, env_ids: torch.Tensor | None) -> None:
+        """The buffer's lag in whole env steps: the drawn delay plus the sub-step part's whole steps (at decimation 1
+        every tick is a step, so the sub-step part carries into the buffer and the delay keeps its seconds)."""
+        if not self._enable_command_delay:
+            return
+        lag = self._delay_env_steps + self._substep_ticks // self._decimation
+        if env_ids is None:
+            self._action_delay_buffer.set_time_lag(lag)
+        else:
+            self._action_delay_buffer.set_time_lag(lag[env_ids], env_ids)
 
     def _draw_tau(self, n: int, device) -> torch.Tensor:
         lo, hi = self._tau_range
@@ -449,10 +500,35 @@ class MecanumWheelAction(ActionTerm):
             wheel_vels = self._smoothed_wheel_vels
         
         self._processed_actions = wheel_vels
+        if self._enable_substep_delay:
+            self._prev_applied = self._applied.clone()
+            self._substep = 0
 
     def apply_actions(self):
-        """Apply wheel velocity targets to the robot."""
-        self._asset.set_joint_velocity_target(self._processed_actions, joint_ids=self._joint_ids)
+        """Apply wheel velocity targets to the robot. With a sub-step delay, an env keeps the previous step's target for
+        the first k of this step's physics sub-steps, k its drawn ticks less the whole steps the buffer carries."""
+        target = self._processed_actions
+        if self._enable_substep_delay:
+            held = (self._substep < self._substep_ticks % self._decimation).unsqueeze(-1)
+            target = torch.where(held, self._prev_applied, target)
+            self._applied = target
+            self._substep += 1
+        self._asset.set_joint_velocity_target(target, joint_ids=self._joint_ids)
+
+
+def _whole_units(band_s, unit_s: float, name: str, unit: str, remainder_field: str | None) -> tuple[int, int]:
+    """A band in seconds as whole units (env steps or physics ticks), ends within 1e-6 of a unit."""
+    lo, hi = sorted(float(x) for x in band_s)
+    if lo < 0.0:
+        raise ValueError(f"{name} {band_s} is negative")
+    units = []
+    for end in (lo, hi):
+        n = end / unit_s
+        if abs(n - round(n)) > 1e-6:
+            where = f"; the part under one {unit} goes in {remainder_field}" if remainder_field else ""
+            raise ValueError(f"{name} end {end} s is not a whole {unit} ({unit_s} s){where}")
+        units.append(int(round(n)))
+    return units[0], units[1]
 
 
 @configclass
@@ -521,12 +597,23 @@ class MecanumWheelActionCfg(ActionTermCfg):
     # Sim-to-Real: Command latency
     # ============================================================
     
-    min_delay_steps: int = 0
-    """Minimum command delay in control steps. Default: 0."""
-    
-    max_delay_steps: int = 0
-    """Maximum command delay in control steps. One delay per env, drawn when the
-    term is built. Default: 0 (no delay)."""
+    delay_range_s: tuple[float, float] = (0.0, 0.0)
+    """Command delay band [min, max] in seconds. Converted to whole env steps when the
+    term is built (each end must be one, within 1e-6 of a step) and drawn per env
+    uniformly over them; the part under one env step is ``substep_delay_range_s``.
+    In seconds, so the delay means the same at a decimation whose env step divides the
+    band's ends (1, 2 or 4 for the tiers). Default: (0, 0), none."""
+
+    delay_redraw_on_reset: bool = False
+    """Redraw each env's delay at its resets, after the reset's other draws. Default:
+    False (one delay per env, drawn when the term is built)."""
+
+    substep_delay_range_s: tuple[float, float] = (0.0, 0.0)
+    """The delay's part under one env step, a band [min, max] in seconds converted to
+    physics ticks (each end within 1e-6 of a tick), drawn per env when the term is built
+    and at each reset, after the reset's other draws. An env keeps the previous step's
+    wheel target for that many of the step's physics sub-steps; ticks of a whole env step
+    or more go into the delay buffer. Default: (0, 0), none."""
 
     # ============================================================
     # Sim-to-Real: Command holds
@@ -537,9 +624,9 @@ class MecanumWheelActionCfg(ActionTermCfg):
     arrives and the previous one is re-executed, sampled at reset. A max of 0
     leaves the hold process inert."""
 
-    hold_run_range: tuple[float, float] = (1.0, 1.0)
-    """Per-env mean hold-run length [min, max] in control steps, sampled at
-    reset."""
+    hold_run_range_s: tuple[float, float] = (0.0, 0.0)
+    """Per-env mean hold-run length [min, max] in seconds, sampled at reset, converted
+    to env steps when the term is built; a run shorter than one env step is one."""
 
     # ============================================================
     # Command envelope

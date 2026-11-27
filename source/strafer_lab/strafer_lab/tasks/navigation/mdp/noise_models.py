@@ -227,23 +227,22 @@ class IMUNoiseModel(NoiseModel):
         self._prev_output = None
         self._has_prev = torch.zeros(num_envs, dtype=torch.bool, device=device)
 
-        # Delay buffer for observation latency
-        self._delay_buffer = DelayBuffer(
-            num_envs, self.cfg.output_size, self.cfg.latency_steps, device
-        ) if self.cfg.latency_steps > 0 else None
-
         # Initialize with random bias
+        self._delay_buffer = None
         self.reset()
 
+        # Delay buffer for observation latency, built after the first bias draw so a latency band draws after it
+        latency_range = self.cfg.latency_steps_range
+        self._delay_buffer = DelayBuffer(
+            num_envs, self.cfg.output_size, self.cfg.latency_steps, device, delay_steps_range=latency_range
+        ) if self.cfg.latency_steps > 0 or latency_range is not None else None
+
     def reset(self, env_ids: Sequence[int] | None = None):
-        """Reset bias to random values within range, and forget the previous reading."""
+        """Reset bias to random values within range, forget the previous reading, and reset the delay buffer (whose
+        latency band, if set, draws after the bias)."""
         if env_ids is None:
             env_ids = slice(None)
         self._has_prev[env_ids] = False
-
-        # Reset delay buffer
-        if self._delay_buffer is not None:
-            self._delay_buffer.reset(env_ids if env_ids != slice(None) else None)
 
         # Sample new bias values from configured range
         bias_min, bias_max = self._bias_range
@@ -251,6 +250,10 @@ class IMUNoiseModel(NoiseModel):
             torch.rand(self._get_num_envs(env_ids), self.cfg.output_size, device=self._device)
             * (bias_max - bias_min) + bias_min
         )
+
+        # Reset delay buffer
+        if self._delay_buffer is not None:
+            self._delay_buffer.reset(env_ids if env_ids != slice(None) else None)
 
     def _get_num_envs(self, env_ids) -> int:
         """Get number of environments from env_ids."""
@@ -338,6 +341,10 @@ class IMUNoiseModelCfg(NoiseModelCfg):
     # Observation latency
     latency_steps: int = 0
     """Observation latency in control steps. 0 = no delay."""
+
+    latency_steps_range: tuple[int, int] | None = None
+    """Absolute per-env latency band [min, max] in control steps, drawn at every reset
+    after the bias. None keeps the fixed ``latency_steps`` for every env."""
 
 
 # =============================================================================

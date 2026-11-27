@@ -42,7 +42,7 @@ def _isolated(tier, *, lag, accel=None):
     """The tier's term with one stage on: the motor lag, or the acceleration limit pinned at `accel`."""
     cfg = _cfg(tier)
     t = cfg.actions.wheel_velocities.copy()
-    t.min_delay_steps = t.max_delay_steps = 0
+    t.delay_range_s = (0.0, 0.0)
     t.hold_fraction_range = (0.0, 0.0)
     t.speed_scale_range = None
     t.enable_motor_dynamics = lag

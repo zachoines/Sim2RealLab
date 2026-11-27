@@ -153,8 +153,7 @@ def test_action_params_has_required_keys(name, contract):
         "max_wheel_angular_vel",
         "enable_motor_dynamics",
         "motor_time_constant",
-        "min_delay_steps",
-        "max_delay_steps",
+        "delay_range_s",
         "max_acceleration_rad_s2",
     }
     missing = required_keys - set(params.keys())

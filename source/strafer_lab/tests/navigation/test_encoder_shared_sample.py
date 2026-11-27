@@ -90,12 +90,110 @@ def test_a_body_velocity_model_needs_an_encoder_model_before_it():
 
 
 def test_the_noise_is_applied_once_at_the_tiers_sigma():
-    torch.manual_seed(2)
-    for tier, sigma in (("Real", 60.0), ("Robust", 150.0)):
-        enc, _ = _pair(tier, num_envs=512, latency_steps=0, stuck_probability=0.0)
-        clean = torch.full((512, 4), 800.0)
-        residuals = torch.cat([enc(clean) - clean for _ in range(20)])
-        assert float(residuals.std()) == pytest.approx(math.sqrt(sigma ** 2 + 1.0 / 12.0), rel=0.03), tier
+    with torch.random.fork_rng():
+        torch.manual_seed(2)
+        for tier, sigma in (("Real", 60.0), ("Robust", 150.0)):
+            enc, _ = _pair(tier, num_envs=512, latency_steps=0, stuck_probability=0.0)
+            clean = torch.full((512, 4), 800.0)
+            residuals = torch.cat([enc(clean) - clean for _ in range(20)])
+            assert float(residuals.std()) == pytest.approx(math.sqrt(sigma ** 2 + 1.0 / 12.0), rel=0.03), tier
+
+
+def test_a_stuck_encoder_holds_the_body_velocity_with_it():
+    """A held encoder reading is the reading the body velocity takes: one reading, held together."""
+    from strafer_lab.tasks.navigation.mdp import observations as o
+
+    with torch.random.fork_rng():
+        torch.manual_seed(0)
+        enc, body = _pair("Robust", stuck_probability=0.5)
+        gen = torch.Generator().manual_seed(1)
+        inv, k_rad = _fk(torch.zeros(1))
+        held = 0
+        previous = None
+        for k in range(25):
+            ticks = (30.0 * torch.rand(N, 4, generator=gen) - 15.0) * o.RADIANS_TO_ENCODER_TICKS
+            noisy = enc(ticks)
+            out = body(torch.zeros(N, 2))
+            assert torch.allclose(out, ((noisy * k_rad) @ inv.T)[:, :2], atol=1e-6), k
+            if previous is not None:
+                held += int((noisy == previous).all(dim=1).sum())
+            previous = noisy.clone()
+        assert held > 0  # the hold fired, so the case saw held readings
+
+
+# The policy group as the observation manager composes it: the encoder and body-velocity terms keep their real
+# functions over a stand-in robot; every other term returns a constant of its width.
+_STUBBED_WIDTHS = {"imu_linear_acceleration": 3, "imu_angular_velocity": 3, "goal_position": 2, "goal_distance": 1,
+                   "goal_heading_to_goal": 1, "last_action": 3, "depth_image": 3600}
+
+
+def _manager_over(name, zero_noise):
+    import types
+
+    import warp as wp
+    from isaaclab.managers import ObservationManager
+    from strafer_lab.tasks.navigation import composed_env_cfg as composed
+
+    cfg = getattr(composed, name)()
+    if zero_noise:
+        enc = cfg.observations.policy.wheel_encoder_velocities.noise
+        enc.velocity_noise_std, enc.enable_quantization, enc.latency_steps, enc.stuck_probability = 0.0, False, 0, 0.0
+    for group in ("policy", "critic"):
+        for term_name, term in list(vars(getattr(cfg.observations, group)).items()):
+            if hasattr(term, "func") and term_name in _STUBBED_WIDTHS:
+                width = _STUBBED_WIDTHS[term_name]
+                term.func = (lambda w: (lambda env: torch.full((env.num_envs, w), 0.1)))(width)
+                term.params = {}
+    for group in list(vars(cfg.observations)):
+        if group not in ("policy", "critic"):
+            setattr(cfg.observations, group, None)
+    robot = types.SimpleNamespace(joint_names=["wheel_1_drive", "wheel_2_drive", "wheel_3_drive", "wheel_4_drive",
+                                               "other"], data=types.SimpleNamespace(joint_vel=None))
+    env = types.SimpleNamespace(num_envs=16, device="cpu", scene={"robot": robot},
+                                sim=types.SimpleNamespace(is_playing=lambda: True))
+    gen = torch.Generator().manual_seed(3)
+
+    def drive():
+        joint_vel = torch.zeros(16, 5)
+        joint_vel[:, :4] = 20.0 * torch.rand(16, 4, generator=gen) - 10.0
+        robot.data.joint_vel = wp.from_torch(joint_vel.contiguous())
+
+    drive()
+    manager = ObservationManager(cfg.observations, env)
+    names = manager._group_obs_term_names["policy"]
+    widths = [d[-1] for d in manager._group_obs_term_dim["policy"]]
+    starts = dict(zip(names, [sum(widths[:i]) for i in range(len(widths))]))
+    span = {n: slice(starts[n], starts[n] + w) for n, w in zip(names, widths)}
+    return manager, drive, span, cfg.observations.policy
+
+
+@pytest.mark.parametrize("name", ["StraferNavCfg_RLDepthSubgoal_Real", "StraferNavCfg_RLDepthSubgoal_Robust",
+                                  "StraferNavCfg_RLNoCamSubgoal_Real", "StraferNavCfg_RLDepth_Robust"])
+def test_through_the_observation_manager_the_body_velocity_is_the_encoder_reading(name):
+    """The manager scales each term's tensor in place after its noise model; the body velocity must not see the
+    encoder term's scale. At zero noise it equals the critic's clean term; at the tier's noise it is the kinematics
+    of the policy's own encoder reading."""
+    from strafer_lab.tasks.navigation.mdp import observations as o
+
+    inv, k_rad = _fk(torch.zeros(1))
+    for zero_noise in (True, False):
+        with torch.random.fork_rng():
+            torch.manual_seed(11)
+            manager, drive, span, policy = _manager_over(name, zero_noise)
+            enc_scale, body_scale = getattr(policy, ENC).scale, getattr(policy, BODY).scale
+            manager.reset()
+            for step in range(6):
+                drive()
+                if step == 3:
+                    manager.reset(torch.tensor([0, 5]))
+                out = manager.compute()
+                body = out["policy"][:, span[BODY]]
+                if zero_noise:
+                    assert torch.equal(body, out["critic"][:, span[BODY]]), (name, step)
+                else:
+                    reading = out["policy"][:, span[ENC]] / enc_scale
+                    expected = ((reading * k_rad) @ inv.T)[:, :2] * body_scale
+                    assert torch.allclose(body, expected, rtol=1e-4, atol=1e-6), (name, step)
 
 
 def test_the_composed_groups_pair_the_two_models_and_leave_the_critic_clean():

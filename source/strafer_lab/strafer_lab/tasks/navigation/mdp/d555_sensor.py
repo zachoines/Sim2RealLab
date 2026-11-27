@@ -118,7 +118,9 @@ class D555SensorProcess:
 def sensor_frame(depth: torch.Tensor, process: D555SensorProcess) -> tuple[torch.Tensor, torch.Tensor]:
     """The frame the sensor returns: invalid pixels written ``invalid_depth_m``, and the validity mask.
 
-    Takes ``(N, H, W)`` or ``(N, H, W, 1)`` depth in metres and returns both in that shape.
+    Takes ``(N, H, W)`` or ``(N, H, W, 1)`` depth in metres and returns both in that shape. Any depth is accepted: a
+    non-finite or non-positive pixel is invalid, and the noise reads it as the far clamp, ``invalid_depth_m``, at or
+    beyond which a pixel takes no noise.
     """
     squeeze = depth.dim() == 4
     z = depth[..., 0] if squeeze else depth

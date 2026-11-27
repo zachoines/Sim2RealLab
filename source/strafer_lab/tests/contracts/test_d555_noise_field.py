@@ -192,6 +192,17 @@ def test_the_far_clamp_gets_no_noise():
     assert bool((frame == 6.0).all())
 
 
+@pytest.mark.parametrize("bad", [0.0, float("nan"), float("inf")])
+def test_a_pixel_with_no_return_reads_the_far_clamp_and_the_frame_stays_finite(bad):
+    p = _process()
+    z = _wall(2.0)
+    z[0, 100, 100] = bad
+    frame, valid = sensor_frame(z[..., None], p)
+    assert not bool(valid[0, 100, 100, 0])
+    assert float(frame[0, 100, 100, 0]) == D555SensorCfg().invalid_depth_m
+    assert bool(torch.isfinite(frame).all())
+
+
 def test_the_per_env_spread_draws_inside_its_bands():
     cfg = D555NoiseCfg(amp_t_range=(0.5, 2.0), amp_s_range=(0.5, 2.0), clean_fraction=0.1, s_static_probability=0.5,
                        s_tau_range_s=(1.0, 10.0), patch_share_range=(0.0, 0.04), patch_zero_probability=0.25)

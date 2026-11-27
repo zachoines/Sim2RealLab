@@ -421,7 +421,7 @@ class EncoderNoiseModel(NoiseModel):
         if self._delay_buffer is not None:
             noisy_data = self._delay_buffer(noisy_data)
 
-        self.last_output = noisy_data
+        self.last_output = noisy_data.clone()  # the manager scales the returned tensor in place
         return noisy_data
 
 

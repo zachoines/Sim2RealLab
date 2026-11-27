@@ -94,7 +94,7 @@ class TimingCfg:
     rgb_latency_steps: int = 1
     """RGB camera latency in control steps. Image processing adds delay (~33-66ms)."""
 
-    # Action latency (policy → actuator), in seconds, so it means the same at any decimation
+    # Action latency (policy → actuator), in seconds: the same at a decimation whose env step divides the band's ends
     action_latency_s: float = 0.0
     """Fixed command latency in seconds, added to the band below."""
 
@@ -488,9 +488,9 @@ class LocalizationDriftCfg:
     """Control steps between redraws of every env's age (0.5 s at 30 Hz)."""
 
     replan_enable: bool = False
-    """Re-plan each subgoal episode's path from the robot's pose on the period
-    below, as the robot's subgoal generator does. Off by default: the path is
-    planned once at reset."""
+    """Re-plan each subgoal episode's path from the robot's pose on the period below, re-rooting it under the robot as
+    the subgoal generator's legacy ``rolling`` anchoring does (selectable at deploy; the shipped ``mission`` anchoring
+    keeps one path per goal and replaces it only on admission). Off by default: the path is planned once at reset."""
 
     replan_period_s: float = 0.5
     """The replan period in seconds. It mirrors the subgoal generator node's

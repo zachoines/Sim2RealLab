@@ -765,8 +765,8 @@ def depth_image(
     # rescue, before the nearfield fill.
     depth = reduce_depth_to_policy_grid(depth)
 
-    # Nearfield fill: pixels closer than D555's min range get a saturated
-    # low value instead of their actual depth.  This prevents the policy
+    # Nearfield fill: a cell whose block median is under nearfield_clip (the
+    # deploy node's near-fill threshold) gets a saturated low value.  This prevents the policy
     # from seeing through clipped geometry and provides a "something very
     # close" signal that transfers to the real sensor.
     depth = torch.where(

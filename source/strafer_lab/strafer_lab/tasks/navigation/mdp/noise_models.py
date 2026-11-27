@@ -846,7 +846,7 @@ class DepthNoiseModelCfg(NoiseModelCfg):
     hole_probability: float = 0.01
 
     # Range limits
-    # Below the D555's own 0.4 m floor on purpose: this is the near fill, and
+    # Below the deploy node's 0.4 m near-fill threshold on purpose: this is the near fill, and
     # too_close_fill decides whether a reading below it takes that value.
     min_range: float = DEPTH_NEARFIELD_FILL
     max_range: float = 6.0  # meters (D555 max range at optimal accuracy)

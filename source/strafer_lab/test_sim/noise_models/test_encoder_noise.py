@@ -93,8 +93,10 @@ def test_encoder_noise_std_matches_config(noisy_env):
 
     Note: Unlike IMU noise, encoder noise has NO drift component,
     so we can directly measure std without using first-differences.
-    Tested at alpha 1e-6 on its own stream: at 102 400 samples a sigma off
-    by 1.4 % still fails (power 0.9).
+    Tested on its own stream at a nominal alpha 1e-6: the samples are
+    deviations from 256 per-(env, wheel) means, so its true size is 7.7e-6.
+    At 102 400 samples a sigma 1.4 % low fails with power 0.98, and one
+    1.4 % high with power 0.80.
     """
     obs = collect_stationary_observations(noisy_env, N_SAMPLES_STEPS)
 

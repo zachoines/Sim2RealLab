@@ -2,7 +2,7 @@
 
 Implements realistic sensor noise models that go beyond simple Gaussian noise:
 - IMU: bias drift, temperature effects
-- Encoders: quantization, missed ticks
+- Encoders: the reported speed's lag, quantization
 - Cameras: depth-dependent noise, holes, dropped frames
 - Observation latency: per-sensor delay buffers
 
@@ -390,7 +390,7 @@ class EncoderNoiseModel(NoiseModel):
         Expects RAW input data in ticks/sec (not normalized).
         Noise is applied in physical units for realism.
 
-        Pipeline: raw obs → noise → scale (normalize) → clip
+        Pipeline: raw obs → noise → clip → scale; the observation manager clips and scales the return in place.
 
         Failure mode:
         - stuck_probability: the encoders repeat their previous reading (on an env's first step after a reset there

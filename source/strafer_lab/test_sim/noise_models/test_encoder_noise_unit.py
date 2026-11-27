@@ -56,7 +56,7 @@ def test_velocity_noise_std():
     stream, restored after it, so it fixes no later case's draws; the
     variance ratio's interval is its chi-squared sampling interval at the
     sample size, two-sided at alpha 1e-6, so a correct model does not fail
-    by chance. At 5 000 samples a sigma off by 6 % still fails (power 0.9).
+    by chance. At 5 000 samples a sigma off by 6.3 % still fails (power 0.9).
     """
     expected_std = TEST_VEL_NOISE_FRACTION * TEST_MAX_VELOCITY
     cfg = EncoderNoiseModelCfg(

@@ -5,9 +5,11 @@
 
 The D555 matches its left imager against the right one, and the depth image is the left imager's view. A pixel has no
 depth where its match would fall outside the right image, the left band ``u < f·B / z(u) + m``, and where the right
-imager cannot see it, behind a nearer surface to its right: the right-image column ``r = u - f·B / z`` of some pixel to
-its right lies left of its own (a pixel's shadow sits on the left of the surface that casts it). It also returns none
-for a surface nearer than its matcher's disparity range reaches, nor where nothing returns at all.
+imager cannot see it, behind a nearer surface to its right. The mask marks the second by the ordering rule: a pixel
+whose right-image column ``r = u - f·B / z`` lies more than a tolerance right of that of a pixel to its right (a
+shadow sits left of the surface casting it). Beside a surface narrower than its disparity step the rule marks about
+the whole step, wider than the true shadow. It also returns none for a surface nearer than its matcher's disparity
+range reaches, nor where nothing returns at all.
 
 The deploy node writes every invalid pixel as the far clamp before the 8×8 block median, so a block with 33 or more of
 64 invalid pixels reads far. :func:`sensor_frame` does the same to a rendered frame, ahead of the shared reduction

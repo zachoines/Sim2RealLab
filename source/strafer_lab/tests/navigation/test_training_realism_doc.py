@@ -1010,7 +1010,7 @@ ANCHORS = {
     "events.py#L424": "def randomize_subgoal_drift", "events.py#L178": "class randomize_wheel_grip(",
     "events.py#L362": "def randomize_mass", "events.py#L759": "def reset_robot_proc_room",
     "noise_models.py#L188": "class IMUNoiseModel(", "noise_models.py#L360": "class EncoderNoiseModel(",
-    "noise_models.py#L492": "class DepthNoiseModel(", "d555_sensor.py#L65": "def stereo_validity",
+    "noise_models.py#L492": "class DepthNoiseModel(", "d555_sensor.py#L67": "def stereo_validity",
     "observations.py#L46": "def reduce_depth_to_policy_grid", "d555_cfg.py#L145": "focal_length=",
     "composed_env_cfg.py#L579": "num_rerenders_on_reset = 1", "planner.py#L251": "def perturb_waypoints(",
     "proc_room.py#L990": "def generate_proc_room", "sim_real_cfg.py#L827": "IDEAL_SIM_CONTRACT",

@@ -526,8 +526,8 @@ def randomize_d555_mount_offset(
 
     The Intel RealSense D555 is bolted to a bracket on the chassis. Small
     mounting imprecision means the sensor frame differs slightly from the
-    nominal body frame. Since the IMU, depth camera, and RGB camera all
-    share the same physical housing, they share a single random rotation.
+    nominal body frame. The IMU and the cameras share one housing, so one
+    random rotation is drawn for it; the perception camera does not take it.
 
     This event samples a small random rotation (roll, pitch, yaw each
     within ±max_angle_deg) per environment and stores it as a quaternion
@@ -539,8 +539,8 @@ def randomize_d555_mount_offset(
     With a nonzero ``max_translation_m`` it also draws, after the angles, a
     per-env translation of the housing in the body frame, uniform within
     ±max_translation_m per axis, stored on ``env._d555_mount_translation``;
-    the IMU observation adds its lever arm and the camera prim moves by it.
-    At (0, 0, 0) nothing is drawn and no translation is stored.
+    the IMU observation adds its lever arm; the camera prim moves by it on
+    the variants that carry it. At (0, 0, 0) nothing is drawn or stored.
 
     Args:
         env: The environment instance.

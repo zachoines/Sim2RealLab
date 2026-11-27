@@ -6,7 +6,7 @@
 Functions under test (``strafer_lab.tasks.navigation.mdp.events``):
 
 * ``reset_robot_state``            — reset robot pose at episode start.
-* ``randomize_friction``           — per-env friction on every robot collision shape.
+* ``randomize_wheel_grip``         — per-env wheel-floor grip on the roller covers (all shapes by default).
 * ``randomize_mass``               — per-env body mass randomization.
 * ``randomize_motor_strength``     — per-joint effort limit randomization.
 * ``randomize_d555_mount_offset``  — D555 mounting angle randomization.
@@ -27,7 +27,7 @@ QX, QY, QZ, QW = 0, 1, 2, 3
 
 from strafer_lab.tasks.navigation.mdp.events import (
     reset_robot_state,
-    randomize_friction,
+    randomize_wheel_grip,
     randomize_mass,
     randomize_motor_strength,
     randomize_d555_mount_offset,
@@ -132,23 +132,36 @@ def test_reset_robot_state_partial_env_ids(env):
 
 
 # =====================================================================
-# randomize_friction — Tests
+# randomize_wheel_grip — Tests
 # =====================================================================
 
 
-def test_randomize_friction_within_range(env):
+def _grip(env, env_ids, cover_range, **kw):
+    """The grip term with the covers' static band ``cover_range`` against the 0.5 floor (grip = (cover + 0.5) / 2)."""
+    from types import SimpleNamespace
+
+    lo, hi = cover_range
+    params = dict(grip_range=((lo + 0.5) / 2, (hi + 0.5) / 2), floor_friction=0.5, dynamic_ratio=0.9,
+                  chassis_mode="same", chassis_friction=0.5, chassis_friction_range=None)
+    params.update(kw)
+    term = randomize_wheel_grip(SimpleNamespace(params=params), env)
+    term(env, env_ids, **params)
+    return term
+
+
+def test_randomize_wheel_grip_within_range(env):
     """Friction values after randomization must lie within the specified range."""
     env.reset()
     env_ids = torch.arange(env.num_envs, device=env.device)
     friction_range = (0.3, 1.2)
 
-    randomize_friction(env, env_ids, friction_range)
+    _grip(env, env_ids, friction_range)
 
     robot = env.scene["robot"]
     materials = wp.to_torch(robot.root_view.get_material_properties())
     static_friction = materials[:, :, 0]
 
-    print(f"\n  randomize_friction:")
+    print(f"\n  randomize_wheel_grip:")
     print(f"    Static friction range: [{static_friction.min().item():.3f}, "
           f"{static_friction.max().item():.3f}]")
 
@@ -161,12 +174,12 @@ def test_randomize_friction_within_range(env):
     )
 
 
-def test_randomize_friction_dynamic_less_than_static(env):
+def test_randomize_wheel_grip_dynamic_less_than_static(env):
     """Dynamic friction should be less than or equal to static friction."""
     env.reset()
     env_ids = torch.arange(env.num_envs, device=env.device)
 
-    randomize_friction(env, env_ids, (0.3, 1.2))
+    _grip(env, env_ids, (0.3, 1.2))
 
     robot = env.scene["robot"]
     materials = wp.to_torch(robot.root_view.get_material_properties())
@@ -182,13 +195,28 @@ def test_randomize_friction_dynamic_less_than_static(env):
     )
 
 
-def test_randomize_friction_empty_env_ids(env):
+def test_randomize_wheel_grip_empty_env_ids(env):
     """Passing empty env_ids should be a no-op (no crash)."""
     env.reset()
     empty_ids = torch.tensor([], dtype=torch.long, device=env.device)
 
     # Should not raise
-    randomize_friction(env, empty_ids, (0.3, 1.2))
+    _grip(env, empty_ids, (0.3, 1.2))
+
+
+def test_randomize_wheel_grip_resolves_the_forty_roller_covers(env):
+    """On the robot asset the covers are 40 shapes, and outside "same" the chassis rows take their own value."""
+    env.reset()
+    env_ids = torch.arange(env.num_envs, device=env.device)
+    term = _grip(env, env_ids, (0.6, 1.2), chassis_mode="fixed", chassis_friction=0.45)
+    assert len(term._cover_rows) == 40
+    materials = wp.to_torch(env.scene["robot"].root_view.get_material_properties())
+    rows = term._cover_rows.to(materials.device)
+    is_cover = torch.zeros(materials.shape[1], dtype=torch.bool, device=materials.device)
+    is_cover[rows] = True
+    assert torch.allclose(materials[:, ~is_cover, 0], torch.full_like(materials[:, ~is_cover, 0], 0.45))
+    covers = materials[:, is_cover, 0]
+    assert bool(((covers >= 0.6 - 1e-6) & (covers <= 1.2 + 1e-6)).all())
 
 
 # =====================================================================

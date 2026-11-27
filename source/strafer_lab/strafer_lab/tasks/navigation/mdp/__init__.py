@@ -116,7 +116,7 @@ from .events import (
     reset_robot_state,
     reset_robot_state_on_floor,
     reset_robot_proc_room,
-    randomize_friction,
+    randomize_wheel_grip,
     randomize_obstacles,
     randomize_mass,
     randomize_subgoal_drift,

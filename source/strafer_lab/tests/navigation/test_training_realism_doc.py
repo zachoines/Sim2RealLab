@@ -247,9 +247,9 @@ def _usd_mass():
 
 
 def _friction_run(t):
-    """randomize_friction on a stand-in robot whose shapes carry the physics materials their USD resolves (the sim's
-    default where none resolves, as PhysX applies it); returns the dynamic / static ratio it writes, and the number of
-    shapes it writes, after checking it writes every one within the draw's range."""
+    """The friction event (the wheel-grip term) on a stand-in robot whose shapes carry the physics materials their USD
+    resolves (the sim's default where none resolves, as PhysX applies it); returns the dynamic / static ratio it
+    writes, and the number of shapes it writes, after checking it writes every one within the covers' range."""
     import warp as wp
 
     from strafer_lab.tasks.navigation.mdp import events
@@ -261,14 +261,21 @@ def _friction_run(t):
     written = {}
     view = SimpleNamespace(get_material_properties=lambda: table.clone(),
                            set_material_properties=lambda m, ids: written.setdefault("m", wp.to_torch(m).clone()))
-    env = SimpleNamespace(scene={"robot": SimpleNamespace(root_view=view)})
-    events.randomize_friction(env, torch.arange(8), **params)
+    env = SimpleNamespace(scene={"robot": SimpleNamespace(root_view=view)}, num_envs=8, device="cpu")
+    term = events.randomize_wheel_grip(SimpleNamespace(params=params), env)
+    term(env, torch.arange(8), **params)
     out = written["m"]
-    lo, hi = params["friction_range"]
-    assert bool(((out[..., 0] >= lo) & (out[..., 0] <= hi)).all())  # every shape takes the draw
+    lo, hi = _cover_band(params)
+    assert bool(((out[..., 0] >= lo - 1e-6) & (out[..., 0] <= hi + 1e-6)).all())  # every shape takes the draw
     ratio = out[..., 1] / out[..., 0]
     assert float(ratio.max() - ratio.min()) < 1e-6
     return float(ratio.mean()), out.shape[1]
+
+
+def _cover_band(params):
+    """The roller covers' static band the term writes: 2 grip - floor, PhysX averaging the two materials."""
+    lo, hi = params["grip_range"]
+    return 2 * lo - params["floor_friction"], 2 * hi - params["floor_friction"]
 
 
 def _signature_default(func, name):
@@ -600,14 +607,16 @@ def _():
         p = _event(t, "randomize_friction")
         if p is None:
             return OFF
+        assert p["chassis_mode"] == "same", t  # the row: the chassis takes the covers' value
         ratio, drawn = _friction_run(t)
         floor = _floor_static(t)
-        lo, hi = p["friction_range"]
-        grip = [(lo + floor) / 2.0, (hi + floor) / 2.0]  # PhysX averages the two materials' coefficients
+        assert p["floor_friction"] == floor, t  # the term draws against the scene's floor
+        grip = list(p["grip_range"])
+        cover = list(_cover_band(p))  # PhysX averages the two materials' coefficients
         if t == "real":
             covers = sum(authored for _, authored in _usd_shapes())
-            return [lo, hi, ratio, drawn, covers, floor, *grip]
-        return [lo, hi, *grip]
+            return [*grip, floor, *cover, ratio, drawn, covers]
+        return [*grip, *cover]
     # The covers author a rubber material that resolves as no physics material, so where no draw runs (the ideal
     # tier) every shape keeps the sim's default. A cover whose material resolved would change that grip.
     assert not [r for r, _ in _usd_shapes() if r is not None], "a collision shape now resolves a physics material"
@@ -971,9 +980,9 @@ ANCHORS = {
     "actions.py#L254": "_max_delta_per_step", "actions.py#L395": "torch.expm1(",
     "actions.py#L304": "def _draw_speed_scale",
     "actions.py#L451": "l1_clamp_twist_batched(", "actions.py#L572": "max_wheel_angular_vel",
-    "events.py#L401": "def randomize_motor_strength", "events.py#L452": "def randomize_d555_mount_offset",
-    "events.py#L354": "def randomize_subgoal_drift", "events.py#L170": "def randomize_friction",
-    "events.py#L305": "def randomize_mass", "events.py#L569": "def reset_robot_proc_room",
+    "events.py#L455": "def randomize_motor_strength", "events.py#L506": "def randomize_d555_mount_offset",
+    "events.py#L408": "def randomize_subgoal_drift", "events.py#L175": "class randomize_wheel_grip(",
+    "events.py#L359": "def randomize_mass", "events.py#L623": "def reset_robot_proc_room",
     "noise_models.py#L187": "class IMUNoiseModel(", "noise_models.py#L354": "class EncoderNoiseModel(",
     "noise_models.py#L480": "class DepthNoiseModel(",
     "observations.py#L45": "def reduce_depth_to_policy_grid", "d555_cfg.py#L145": "focal_length=",

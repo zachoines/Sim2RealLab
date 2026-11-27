@@ -1,10 +1,11 @@
 # Copyright (c) 2025, Strafer Lab Project
 # SPDX-License-Identifier: BSD-3-Clause
 
-"""Tests for domain-randomization events (friction randomization).
+"""Tests for domain-randomization events (the wheel-floor grip).
 
-``randomize_friction`` sets the friction of every robot collision shape at
-episode reset, the roller covers' floor contact included.
+``randomize_wheel_grip`` sets, by default, the friction of every robot
+collision shape at episode reset to the roller covers' value, 2 x the drawn
+grip - the floor's; the tests below state the covers' band.
 
 These tests verify:
 1. Sampled friction values fall within the configured range.
@@ -23,7 +24,17 @@ import pytest
 import numpy as np
 import warp as wp
 
-from strafer_lab.tasks.navigation.mdp.events import randomize_friction
+from types import SimpleNamespace
+
+from strafer_lab.tasks.navigation.mdp.events import randomize_wheel_grip
+
+
+def randomize_friction(env, env_ids, friction_range):
+    """The grip term whose covers' static band is ``friction_range`` against the 0.5 floor."""
+    lo, hi = friction_range
+    params = dict(grip_range=((lo + 0.5) / 2, (hi + 0.5) / 2), floor_friction=0.5, dynamic_ratio=0.9,
+                  chassis_mode="same", chassis_friction=0.5, chassis_friction_range=None)
+    randomize_wheel_grip(SimpleNamespace(params=params), env)(env, env_ids, **params)
 
 
 # =====================================================================
@@ -126,7 +137,7 @@ def test_friction_varies_across_envs(env):
 
 
 def test_friction_partial_env_randomization(env):
-    """Verify randomize_friction only modifies the specified env_ids."""
+    """Verify the grip term only modifies the specified env_ids."""
     # First set ALL envs to a known friction
     all_ids = torch.arange(env.num_envs, device=env.device)
     randomize_friction(env, all_ids, friction_range=(0.5, 0.5))

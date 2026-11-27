@@ -980,14 +980,14 @@ ANCHORS = {
     "actions.py#L254": "_max_delta_per_step", "actions.py#L395": "torch.expm1(",
     "actions.py#L304": "def _draw_speed_scale",
     "actions.py#L451": "l1_clamp_twist_batched(", "actions.py#L572": "max_wheel_angular_vel",
-    "events.py#L455": "def randomize_motor_strength", "events.py#L506": "def randomize_d555_mount_offset",
-    "events.py#L408": "def randomize_subgoal_drift", "events.py#L175": "class randomize_wheel_grip(",
-    "events.py#L359": "def randomize_mass", "events.py#L623": "def reset_robot_proc_room",
-    "noise_models.py#L187": "class IMUNoiseModel(", "noise_models.py#L354": "class EncoderNoiseModel(",
-    "noise_models.py#L480": "class DepthNoiseModel(",
+    "events.py#L468": "def randomize_motor_strength", "events.py#L519": "def randomize_d555_mount_offset",
+    "events.py#L421": "def randomize_subgoal_drift", "events.py#L175": "class randomize_wheel_grip(",
+    "events.py#L359": "def randomize_mass", "events.py#L657": "def reset_robot_proc_room",
+    "noise_models.py#L187": "class IMUNoiseModel(", "noise_models.py#L353": "class EncoderNoiseModel(",
+    "noise_models.py#L479": "class DepthNoiseModel(",
     "observations.py#L45": "def reduce_depth_to_policy_grid", "d555_cfg.py#L145": "focal_length=",
     "composed_env_cfg.py#L572": "num_rerenders_on_reset = 1", "commands.py#L668": "perturb_waypoints(",
-    "proc_room.py#L990": "def generate_proc_room", "sim_real_cfg.py#L706": "IDEAL_SIM_CONTRACT",
+    "proc_room.py#L990": "def generate_proc_room", "sim_real_cfg.py#L714": "IDEAL_SIM_CONTRACT",
 }
 
 

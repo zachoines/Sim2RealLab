@@ -945,6 +945,37 @@ _RESET_ROBOT = EventTerm(
 # one realization it produces, so the band is set here and nowhere else.
 _D555_MOUNT_ANGLE_REAL_DEG = 1.0
 _D555_MOUNT_ANGLE_ROBUST_DEG = 3.0
+# The housing's translation band per body axis, in metres; (0, 0, 0) draws nothing.
+_D555_MOUNT_TRANSLATION_REAL_M = (0.0, 0.0, 0.0)
+_D555_MOUNT_TRANSLATION_ROBUST_M = (0.0, 0.0, 0.0)
+
+# The payload on the chassis body: what the robot carries that the asset's mechanical chassis does not (the camera,
+# the motor controllers, the pack, the Jetson, the wiring). Its mass in kg, and the shift of body_link's centre of mass
+# it makes, m (p - c0) / (M0 + m) in body_link's frame (p the payload's centre of mass, M0 and c0 the body's). Added
+# once at startup through Isaac Lab's own terms, before the per-reset mass factor reads the masses; at 0 kg no term is
+# installed.
+_PAYLOAD_MASS_KG = 0.0
+_PAYLOAD_COM_SHIFT_M = (0.0, 0.0, 0.0)
+
+
+def _payload_terms() -> tuple[EventTerm | None, EventTerm | None]:
+    """The payload's two startup terms on body_link, or (None, None) at no payload."""
+    if _PAYLOAD_MASS_KG <= 0.0:
+        return None, None
+    body = SceneEntityCfg("robot", body_names="body_link")
+    mass = EventTerm(
+        func=mdp.randomize_rigid_body_mass, mode="startup",
+        params={"asset_cfg": body, "mass_distribution_params": (_PAYLOAD_MASS_KG, _PAYLOAD_MASS_KG),
+                "operation": "add", "recompute_inertia": True},
+    )
+    com = EventTerm(
+        func=mdp.randomize_rigid_body_com, mode="startup",
+        params={"asset_cfg": body, "com_range": {k: (v, v) for k, v in zip("xyz", _PAYLOAD_COM_SHIFT_M)}},
+    )
+    return mass, com
+
+
+_PAYLOAD_MASS_TERM, _PAYLOAD_COM_TERM = _payload_terms()
 
 # Referent-frame drift, one term per realism tier, declared last in every event
 # cfg that carries it: the draw it adds must not shift the random stream the
@@ -969,6 +1000,8 @@ class EventsCfg_Ideal:
 class EventsCfg_Realistic:
     """Realistic: moderate domain randomization for sim-to-real transfer."""
     reset_robot = _RESET_ROBOT
+    add_payload_mass = _PAYLOAD_MASS_TERM
+    shift_payload_com = _PAYLOAD_COM_TERM
     randomize_friction = EventTerm(
         func=mdp.randomize_wheel_grip, mode="reset",
         params={"grip_range": (0.55, 0.85), "floor_friction": _FLOOR_FRICTION, "dynamic_ratio": 0.9,
@@ -984,7 +1017,7 @@ class EventsCfg_Realistic:
     )
     randomize_d555_mount = EventTerm(
         func=mdp.randomize_d555_mount_offset, mode="reset",
-        params={"max_angle_deg": _D555_MOUNT_ANGLE_REAL_DEG},
+        params={"max_angle_deg": _D555_MOUNT_ANGLE_REAL_DEG, "max_translation_m": _D555_MOUNT_TRANSLATION_REAL_M},
     )
     randomize_subgoal_drift = _SUBGOAL_DRIFT_REAL
 
@@ -993,6 +1026,8 @@ class EventsCfg_Realistic:
 class EventsCfg_Robust:
     """Robust: aggressive domain randomization for worst-case robustness."""
     reset_robot = _RESET_ROBOT
+    add_payload_mass = _PAYLOAD_MASS_TERM
+    shift_payload_com = _PAYLOAD_COM_TERM
     randomize_friction = EventTerm(
         func=mdp.randomize_wheel_grip, mode="reset",
         params={"grip_range": (0.40, 1.00), "floor_friction": _FLOOR_FRICTION, "dynamic_ratio": 0.9,
@@ -1008,7 +1043,7 @@ class EventsCfg_Robust:
     )
     randomize_d555_mount = EventTerm(
         func=mdp.randomize_d555_mount_offset, mode="reset",
-        params={"max_angle_deg": _D555_MOUNT_ANGLE_ROBUST_DEG},
+        params={"max_angle_deg": _D555_MOUNT_ANGLE_ROBUST_DEG, "max_translation_m": _D555_MOUNT_TRANSLATION_ROBUST_M},
     )
     randomize_subgoal_drift = _SUBGOAL_DRIFT_ROBUST
 
@@ -1105,6 +1140,8 @@ class EventsCfg_Infinigen_Realistic:
     reset_robot = _RESET_ROBOT_INFINIGEN
     lift_ground = _LIFT_GROUND_INFINIGEN
     stamp_d555_opencv_pinhole = _STAMP_D555_OPENCV_PINHOLE
+    add_payload_mass = _PAYLOAD_MASS_TERM
+    shift_payload_com = _PAYLOAD_COM_TERM
     randomize_friction = EventTerm(
         func=mdp.randomize_wheel_grip, mode="reset",
         params={"grip_range": (0.55, 0.85), "floor_friction": _FLOOR_FRICTION, "dynamic_ratio": 0.9,
@@ -1120,7 +1157,7 @@ class EventsCfg_Infinigen_Realistic:
     )
     randomize_d555_mount = EventTerm(
         func=mdp.randomize_d555_mount_offset, mode="reset",
-        params={"max_angle_deg": _D555_MOUNT_ANGLE_REAL_DEG},
+        params={"max_angle_deg": _D555_MOUNT_ANGLE_REAL_DEG, "max_translation_m": _D555_MOUNT_TRANSLATION_REAL_M},
     )
     randomize_subgoal_drift = _SUBGOAL_DRIFT_REAL
 
@@ -1131,6 +1168,8 @@ class EventsCfg_Infinigen_Robust:
     reset_robot = _RESET_ROBOT_INFINIGEN
     lift_ground = _LIFT_GROUND_INFINIGEN
     stamp_d555_opencv_pinhole = _STAMP_D555_OPENCV_PINHOLE
+    add_payload_mass = _PAYLOAD_MASS_TERM
+    shift_payload_com = _PAYLOAD_COM_TERM
     randomize_friction = EventTerm(
         func=mdp.randomize_wheel_grip, mode="reset",
         params={"grip_range": (0.40, 1.00), "floor_friction": _FLOOR_FRICTION, "dynamic_ratio": 0.9,
@@ -1146,7 +1185,7 @@ class EventsCfg_Infinigen_Robust:
     )
     randomize_d555_mount = EventTerm(
         func=mdp.randomize_d555_mount_offset, mode="reset",
-        params={"max_angle_deg": _D555_MOUNT_ANGLE_ROBUST_DEG},
+        params={"max_angle_deg": _D555_MOUNT_ANGLE_ROBUST_DEG, "max_translation_m": _D555_MOUNT_TRANSLATION_ROBUST_M},
     )
     randomize_subgoal_drift = _SUBGOAL_DRIFT_ROBUST
 
@@ -1718,6 +1757,8 @@ class EventsCfg_ProcRoom_Realistic:
     randomize_difficulty = _RANDOMIZE_PROC_ROOM_DIFFICULTY
     generate_room = _GENERATE_PROC_ROOM
     reset_robot = _RESET_ROBOT_PROC_ROOM
+    add_payload_mass = _PAYLOAD_MASS_TERM
+    shift_payload_com = _PAYLOAD_COM_TERM
     randomize_friction = EventTerm(
         func=mdp.randomize_wheel_grip, mode="reset",
         params={"grip_range": (0.55, 0.85), "floor_friction": _FLOOR_FRICTION, "dynamic_ratio": 0.9,
@@ -1733,7 +1774,7 @@ class EventsCfg_ProcRoom_Realistic:
     )
     randomize_d555_mount = EventTerm(
         func=mdp.randomize_d555_mount_offset, mode="reset",
-        params={"max_angle_deg": _D555_MOUNT_ANGLE_REAL_DEG},
+        params={"max_angle_deg": _D555_MOUNT_ANGLE_REAL_DEG, "max_translation_m": _D555_MOUNT_TRANSLATION_REAL_M},
     )
     randomize_subgoal_drift = _SUBGOAL_DRIFT_REAL
 
@@ -1744,6 +1785,8 @@ class EventsCfg_ProcRoom_Robust:
     randomize_difficulty = _RANDOMIZE_PROC_ROOM_DIFFICULTY
     generate_room = _GENERATE_PROC_ROOM
     reset_robot = _RESET_ROBOT_PROC_ROOM
+    add_payload_mass = _PAYLOAD_MASS_TERM
+    shift_payload_com = _PAYLOAD_COM_TERM
     randomize_friction = EventTerm(
         func=mdp.randomize_wheel_grip, mode="reset",
         params={"grip_range": (0.40, 1.00), "floor_friction": _FLOOR_FRICTION, "dynamic_ratio": 0.9,
@@ -1759,7 +1802,7 @@ class EventsCfg_ProcRoom_Robust:
     )
     randomize_d555_mount = EventTerm(
         func=mdp.randomize_d555_mount_offset, mode="reset",
-        params={"max_angle_deg": _D555_MOUNT_ANGLE_ROBUST_DEG},
+        params={"max_angle_deg": _D555_MOUNT_ANGLE_ROBUST_DEG, "max_translation_m": _D555_MOUNT_TRANSLATION_ROBUST_M},
     )
     randomize_subgoal_drift = _SUBGOAL_DRIFT_ROBUST
 

@@ -1,7 +1,7 @@
 """Custom noise models for sim-to-real transfer.
 
 Implements realistic sensor noise models that go beyond simple Gaussian noise:
-- IMU: bias drift, temperature effects
+- IMU: bias drift
 - Encoders: the reported speed's lag, quantization
 - Cameras: depth-dependent noise, holes, dropped frames
 - Observation latency: per-sensor delay buffers
@@ -190,7 +190,6 @@ class IMUNoiseModel(NoiseModel):
     Models realistic IMU behavior:
     - Additive white Gaussian noise
     - Slowly drifting bias (random walk)
-    - Optional temperature-dependent effects
     - A stuck sensor, which repeats its previous reading
 
     The model uses sensor_type to determine which parameters to use:

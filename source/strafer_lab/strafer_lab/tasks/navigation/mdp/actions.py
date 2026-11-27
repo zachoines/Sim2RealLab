@@ -195,7 +195,7 @@ class MecanumWheelAction(ActionTerm):
             self._smoothed_wheel_vels = torch.zeros(env.num_envs, 4, device=env.device)
         
         # Command delay, in seconds: whole env steps in the delay buffer, the part under one env step held at the
-        # start of each step's physics sub-steps. Converted here, so it means the same at any decimation.
+        # start of each step's sub-steps. Converted here; the same at a decimation whose env step divides its ends.
         self._decimation = max(1, int(round(env.step_dt / env.physics_dt)))
         self._delay_steps_range = _whole_units(cfg.delay_range_s, env.step_dt, "delay_range_s", "env step",
                                                "substep_delay_range_s")
@@ -601,7 +601,8 @@ class MecanumWheelActionCfg(ActionTermCfg):
     """Command delay band [min, max] in seconds. Converted to whole env steps when the
     term is built (each end must be one, within 1e-6 of a step) and drawn per env
     uniformly over them; the part under one env step is ``substep_delay_range_s``.
-    In seconds, so the delay means the same at any decimation. Default: (0, 0), none."""
+    In seconds, so the delay means the same at a decimation whose env step divides the
+    band's ends (1, 2 or 4 for the tiers). Default: (0, 0), none."""
 
     delay_redraw_on_reset: bool = False
     """Redraw each env's delay at its resets, after the reset's other draws. Default:

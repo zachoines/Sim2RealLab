@@ -553,10 +553,10 @@ class SubgoalCommand(CommandTerm):
         self._distance_to_subgoal = torch.zeros(env.num_envs, device=device)
         # 1.0 on envs whose last plan fell back to a straight segment.
         self._path_fallback = torch.zeros(env.num_envs, device=device)
-        # Total turning (rad) of each env's planned path, measured before the
-        # waypoint perturbation on the part the cursor installs; 0 on a
-        # straight-segment fallback. A plain buffer, not a metric: it is state
-        # the time-out term reads, not a logged statistic.
+        # Total turning (rad) of each env's reset plan, measured before the
+        # waypoint perturbation on the part the cursor installs at reset; 0 on
+        # a straight-segment fallback. A replan leaves it. A plain buffer, not a
+        # metric: it is state the time-out term reads, not a logged statistic.
         self._path_turning = torch.zeros(env.num_envs, device=device)
         # The reset plan's arc length (m), held as the turning is: a replan installs a shorter path from the robot's
         # position, and the episode's time-out is the reset plan's.
@@ -610,7 +610,7 @@ class SubgoalCommand(CommandTerm):
 
     @property
     def path_turning(self) -> torch.Tensor:
-        """Each env's planned path's total turning in radians, shape (num_envs,)."""
+        """Each env's reset plan's total turning in radians, shape (num_envs,)."""
         return self._path_turning
 
     """
@@ -860,8 +860,11 @@ class SubgoalCommandCfg(CommandTermCfg):
     replan_period_s: float | None = None
     """When set, each env's path is re-planned from the robot's position to the
     episode's goal every ``replan_period_s`` seconds (whole control steps), with
-    the reset's planner and waypoint perturbation, as the robot's subgoal
-    generator re-plans. ``None`` plans once at reset."""
+    the reset's planner and waypoint perturbation. That re-roots the path under
+    the robot on the period, as the subgoal generator's legacy ``rolling``
+    anchoring does (selectable at deploy); the shipped ``mission`` anchoring
+    keeps one path per goal and replaces it only on admission. ``None`` plans
+    once at reset."""
 
     min_goal_distance: float = 1.0
     """Minimum straight-line distance (meters) between the robot and the

@@ -1000,7 +1000,7 @@ _SUBGOAL_DRIFT_ROBUST = EventTerm(
 
 
 def _tf_age_term(contract) -> EventTerm | None:
-    """The TF-age reset event, after the drift's in each class so its draws come last; None where it is off."""
+    """The TF-age reset event, after the drift's in each class so its draws follow the other events'; None where off."""
     params = get_tf_age_params(contract)
     return None if params is None else EventTerm(func=mdp.randomize_tf_age, mode="reset", params=params)
 
@@ -1010,7 +1010,7 @@ _TF_AGE_ROBUST = _tf_age_term(ROBUST_TRAINING_CONTRACT)
 
 
 def _outage_term(contract) -> EventTerm | None:
-    """The sensor-outage reset event, last in each class so its draws come after the reset's others; None where off."""
+    """The sensor-outage reset event, last in each class. It draws nothing at reset; None where off."""
     params = get_outage_params(contract)
     return None if params is None else EventTerm(func=mdp.randomize_sensor_outages, mode="reset", params=params)
 

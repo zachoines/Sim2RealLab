@@ -403,7 +403,7 @@ class EncoderNoiseModel(NoiseModel):
         Expects RAW input data in ticks/sec (not normalized).
         Noise is applied in physical units for realism.
 
-        Pipeline: raw obs → noise → scale (normalize) → clip
+        Pipeline: raw obs → noise → clip → scale; the observation manager clips and scales the return in place.
 
         Failure mode:
         - stuck_probability: the encoders repeat their previous reading (on an env's first step after a reset there
@@ -440,7 +440,7 @@ class EncoderNoiseModel(NoiseModel):
         if self._delay_buffer is not None:
             noisy_data = self._delay_buffer(noisy_data)
 
-        self.last_output = noisy_data
+        self.last_output = noisy_data.clone()  # the manager scales the returned tensor in place
         return noisy_data
 
 

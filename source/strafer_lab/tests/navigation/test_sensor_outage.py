@@ -82,6 +82,45 @@ def test_a_reset_ends_the_envs_outage_and_stop():
     assert int(p.age("imu")[1]) == 0
 
 
+def test_the_rates_are_converted_from_hz_to_a_per_step_probability():
+    p = _process(rates={"imu": 0.3, "driver": 0.6, "depth": 0.9}, usb=1.5)  # every rate below 1 / step
+    assert p._p_start == pytest.approx({"imu": 0.3 * STEP, "driver": 0.6 * STEP, "depth": 0.9 * STEP})
+    assert p._p_usb == pytest.approx(1.5 * STEP)
+
+
+def test_a_depth_only_outage_stops_from_its_own_bound():
+    p = _process(rates={"depth": 30.0}, lengths=(20 * STEP, 20 * STEP), n=1)  # starts on the first step, 20 long
+    stopped = []
+    for _ in range(20):
+        p.advance()
+        p._p_start["depth"] = 0.0  # one outage only
+        stopped.append(bool(p.stopped[0]))
+    assert stopped[:14] == [False] * 14 and stopped[14:] == [True] * 6  # the 15th stale step stops
+
+
+def test_both_ends_of_the_length_band_are_drawn():
+    with torch.random.fork_rng():
+        torch.manual_seed(0)
+        p = _process(rates={"imu": 30.0}, lengths=(3 * STEP, 4 * STEP), n=512)
+        p.advance()
+    assert set((p._remaining["imu"] + 1).tolist()) == {3, 4}
+
+
+def test_a_back_to_back_outage_keeps_the_source_stale_and_stopped():
+    p = _process(rates={"driver": 30.0}, lengths=(6 * STEP, 6 * STEP), n=1)
+    stopped = []
+    for k in range(10):
+        p.advance()
+        stopped.append(bool(p.stopped[0]))
+        if k == 0:
+            p._p_start["driver"] = 0.0
+        if k == 4:
+            p._p_start["driver"] = 1.0  # a second outage starts on the step after the first ends
+        if k == 6:
+            p._p_start["driver"] = 0.0
+    assert int(p.age("driver")[0]) == 10 and stopped[5:] == [True] * 5
+
+
 def _tier(tier="Real"):
     from strafer_lab.tasks.navigation import composed_env_cfg as composed
 
@@ -156,7 +195,29 @@ def test_while_stopped_the_commanded_twist_is_zero_and_last_action_holds():
     assert term._raw_actions.tolist() == b.tolist()  # the policy's own action is kept
 
 
-def test_the_event_draws_after_the_classs_other_draws_and_off_installs_nothing():
+def test_the_action_term_advances_the_process_once_per_step_and_drives_before_the_bound():
+    import math
+
+    from strafer_lab.tasks.navigation.mdp import events
+
+    cfg = _tier()
+    t = cfg.actions.wheel_velocities.copy()
+    t.delay_range_s, t.hold_fraction_range, t.speed_scale_range = (0.0, 0.0), (0.0, 0.0), None
+    t.enable_motor_dynamics, t.max_acceleration_rad_s2, t.max_acceleration_range = False, math.inf, (math.inf, math.inf)
+    env = SimpleNamespace(scene={t.asset_name: _Asset()}, device="cpu", num_envs=1, physics_dt=cfg.sim.dt, step_dt=STEP)
+    term = t.class_type(t, env)
+    events.randomize_sensor_outages(env, torch.arange(1), start_rate_hz={}, usb_stall_rate_hz=0.0,
+                                    length_s_range=(1.0, 1.0), timeout_s=TIMEOUTS)
+    env._sensor_outages._remaining["driver"][0] = 30  # the driver goes stale on the next step
+    moving = []
+    for _ in range(7):
+        term.process_actions(torch.tensor([[0.5, 0.0, 0.0]]))
+        moving.append(float(term.processed_actions.abs().max()) > 0)
+    assert moving == [True] * 5 + [False] * 2  # five stale steps drive, the sixth stops
+    assert int(env._sensor_outages.age("driver")[0]) == 7  # one advance per step
+
+
+def test_the_event_is_last_in_its_class_and_off_installs_nothing():
     for tier in ("Real", "Robust"):
         cfg = _tier(tier)
         names = list(vars(cfg.events))

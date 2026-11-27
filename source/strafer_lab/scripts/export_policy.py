@@ -285,11 +285,15 @@ def write_metadata_sidecar(
             ``git rev-parse HEAD`` when ``None``.
         export_timestamp: ISO 8601 timestamp; auto-set to ``datetime.now``
             when ``None``.
-        training_env_id: The task the checkpoint trained on, from its run's
-            ``train_manifest.json``. Recorded as ``null`` where the run wrote
-            no manifest: absent and explicit rather than guessed.
+        training_env_id: The task of the leg that wrote the checkpoint, from
+            its run's ``train_manifest.json``; a resumed run's earlier legs,
+            whose tasks may differ, are in that manifest's ``resume_chain``.
+            Recorded as ``null`` where the run wrote no manifest: absent and
+            explicit rather than guessed.
         training_manifest: The manifest ``training_env_id`` was read from,
-            or ``None`` (recorded as ``null``).
+            or ``None`` (recorded as ``null``). Recorded by its file name,
+            which sits in ``source_checkpoint``'s run directory, so the
+            sidecar carries no host path.
 
     Returns:
         The resolved sidecar ``Path``.
@@ -334,7 +338,7 @@ def write_metadata_sidecar(
         "git_commit": git_commit,
         "export_timestamp": export_timestamp,
         "training_env_id": training_env_id,
-        "training_manifest": None if training_manifest is None else str(training_manifest),
+        "training_manifest": None if training_manifest is None else Path(training_manifest).name,
     }
     if "onnx" in formats_list:
         payload["onnx_opset"] = onnx_opset if onnx_opset is not None else _DEFAULT_ONNX_OPSET

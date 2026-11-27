@@ -100,6 +100,6 @@ def test_the_export_sidecar_carries_the_training_env_beside_the_export_env(tmp_p
     payload = json.loads(sidecar.read_text())
     assert payload["env_id"] == "Isaac-Strafer-Nav-RLDepth-Subgoal-Real-Play-v0"
     assert payload["training_env_id"] == "Isaac-Strafer-Nav-RLDepth-Subgoal-Robust-v0"
-    assert payload["training_manifest"] == str(ckpt.parent / MANIFEST_NAME)
+    assert payload["training_manifest"] == MANIFEST_NAME  # the file beside the checkpoint, no host path
     bare = json.loads(export_policy.write_metadata_sidecar(tmp_path / "out" / "bare", **common).read_text())
     assert bare["training_env_id"] is None and bare["training_manifest"] is None  # absent, and said so

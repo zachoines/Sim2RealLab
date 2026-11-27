@@ -225,12 +225,14 @@ constant, so re-exporting is what moves the deploy cadence.
 
 ## A run directory without a manifest
 A run directory without a manifest is matched to its task in two steps:
-1. its training stdout, where it was captured as the in-tree
-   `logs/rsl_rl/**/*_stdout.log`: the header prints `Environment: <task id>`,
-   and a few lines later `Logging to: <run dir>`;
-2. failing that, the machine's Kit log for the launch, which records the
-   full command line under a timestamp that matches the run directory's to
-   the second.
+1. its training stdout, where an operator captured it (the training script
+   writes no stdout log itself; captures such as `logs/rsl_rl/**/*_stdout.log`
+   are git-ignored, so they stay on the machine that trained): the header
+   prints `Environment: <task id>`, and later `Logging to: <run dir>`;
+2. failing that, the machine's Kit log whose command line names the run's
+   `--log_dir`, and whose file-name time (local) is the latest before the run
+   directory's. The gap is Kit's boot plus the env build, seconds to minutes.
+   The log's line stamps are UTC.
 
 ## NoCam — TorchScript only
 ```bash

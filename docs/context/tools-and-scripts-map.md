@@ -57,7 +57,7 @@ entry-point scripts](repo-topology.md#key-entry-point-scripts).
 - `phase_profiler` — per-phase timing for the training/capture loops.
 
 **Run provenance**
-- `train_manifest` — the training run's `train_manifest.json`, written at run start (task ID, git SHA and dirty flag, seed, env count, iterations, command line, resume chain); `export_policy` reads it into the sidecar's `training_env_id`.
+- `train_manifest` — the training run's `train_manifest.json`, written at run start (task ID, git SHA and dirty flag, seed, env count, iterations, command line, resume chain); `export_policy` reads it into the sidecar's `training_env_id` and records its file name as `training_manifest`.
 
 An export sidecar's `env_id` is the export env, not the training task. Read `training_env_id`, or the run's manifest.
 

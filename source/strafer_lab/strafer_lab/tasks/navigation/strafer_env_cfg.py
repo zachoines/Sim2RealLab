@@ -75,6 +75,7 @@ from .sim_real_cfg import (
     get_subgoal_drift_params,
     get_tf_age_params,
     get_outage_params,
+    get_d555_sensor_params,
     get_last_action_hold,
     get_replan_period,
 )
@@ -210,13 +211,15 @@ class StraferSceneCfg(InteractiveSceneCfg):
         spawn=sim_utils.DomeLightCfg(intensity=2000.0, color=(0.8, 0.8, 0.8)),
     )
 
-    # Intel RealSense D555 depth camera (87° FOV, 0.4-6m usable range)
+    # Intel RealSense D555 depth camera (87° FOV; depth from its ~0.244 m minimum, clamped at 6 m)
     # Camera mount: 20cm forward (+X), 25cm up (+Z) from body_link (ROS frame)
     # Rotation: ROS camera frame (Z-forward, X-right, Y-down) aligned to robot frame
     #
     # Near clip set to 0.01m (not 0.4m) so sim renders close objects.
-    # The depth_image() observation handles the D555's real 0.4m blind zone
-    # by filling nearfield pixels with a saturated value (see observations.py).
+    # The depth_image() observation fills a block whose median is under 0.4 m
+    # (the deploy node's near-fill threshold) with a saturated value. The D555
+    # returns depth down to about 0.244 m; nearer, the realistic and robust tiers'
+    # stereo validity writes the far clamp, as the node does (see observations.py).
     d555_camera: TiledCameraCfg = make_d555_camera_cfg(
         data_types=("rgb", "distance_to_image_plane"),
     )
@@ -508,6 +511,8 @@ _IMU_ACCEL_PARAMS = {"sensor_cfg": SceneEntityCfg("d555_imu")}
 _IMU_GYRO_PARAMS = {"sensor_cfg": SceneEntityCfg("d555_imu")}
 _ENCODER_PARAMS = {}  # No params needed - raw output
 _DEPTH_PARAMS = {"sensor_cfg": SceneEntityCfg("d555_camera"), "max_depth": DEPTH_MAX}
+# The privileged critic reads the clean render, never the sensor's invalid pixels
+_CRITIC_DEPTH_PARAMS = {**_DEPTH_PARAMS, "perceived": False}
 _RGB_PARAMS = {"sensor_cfg": SceneEntityCfg("d555_camera")}  # Returns [0,1] directly
 
 
@@ -544,7 +549,7 @@ class ObsCfg_Full_Ideal:
         goal_heading_to_goal = ObsTerm(func=mdp.goal_heading_to_goal, params={"command_name": "goal_command", "perceived": False}, scale=_HEADING_SCALE)
         body_velocity_xy = ObsTerm(func=mdp.body_velocity_xy, scale=_BODY_VEL_SCALE)
         last_action = ObsTerm(func=mdp.last_action)
-        depth_image = ObsTerm(func=mdp.depth_image, params=_DEPTH_PARAMS, scale=_DEPTH_SCALE)
+        depth_image = ObsTerm(func=mdp.depth_image, params=_CRITIC_DEPTH_PARAMS, scale=_DEPTH_SCALE)
         rgb_image = ObsTerm(func=mdp.rgb_image, params=_RGB_PARAMS)
         def __post_init__(self):
             self.enable_corruption = False
@@ -582,7 +587,7 @@ class ObsCfg_Depth_Ideal:
         goal_heading_to_goal = ObsTerm(func=mdp.goal_heading_to_goal, params={"command_name": "goal_command", "perceived": False}, scale=_HEADING_SCALE)
         body_velocity_xy = ObsTerm(func=mdp.body_velocity_xy, scale=_BODY_VEL_SCALE)
         last_action = ObsTerm(func=mdp.last_action)
-        depth_image = ObsTerm(func=mdp.depth_image, params=_DEPTH_PARAMS, scale=_DEPTH_SCALE)
+        depth_image = ObsTerm(func=mdp.depth_image, params=_CRITIC_DEPTH_PARAMS, scale=_DEPTH_SCALE)
         def __post_init__(self):
             self.enable_corruption = False
             self.concatenate_terms = True
@@ -669,7 +674,7 @@ class ObsCfg_Full_Realistic:
         goal_heading_to_goal = ObsTerm(func=mdp.goal_heading_to_goal, params={"command_name": "goal_command", "perceived": False}, scale=_HEADING_SCALE)
         body_velocity_xy = ObsTerm(func=mdp.body_velocity_xy, scale=_BODY_VEL_SCALE)
         last_action = ObsTerm(func=mdp.last_action)
-        depth_image = ObsTerm(func=mdp.depth_image, params=_DEPTH_PARAMS, scale=_DEPTH_SCALE)
+        depth_image = ObsTerm(func=mdp.depth_image, params=_CRITIC_DEPTH_PARAMS, scale=_DEPTH_SCALE)
         rgb_image = ObsTerm(func=mdp.rgb_image, params=_RGB_PARAMS)
         def __post_init__(self):
             self.enable_corruption = False
@@ -707,7 +712,7 @@ class ObsCfg_Depth_Realistic:
         goal_heading_to_goal = ObsTerm(func=mdp.goal_heading_to_goal, params={"command_name": "goal_command", "perceived": False}, scale=_HEADING_SCALE)
         body_velocity_xy = ObsTerm(func=mdp.body_velocity_xy, scale=_BODY_VEL_SCALE)
         last_action = ObsTerm(func=mdp.last_action)
-        depth_image = ObsTerm(func=mdp.depth_image, params=_DEPTH_PARAMS, scale=_DEPTH_SCALE)
+        depth_image = ObsTerm(func=mdp.depth_image, params=_CRITIC_DEPTH_PARAMS, scale=_DEPTH_SCALE)
         def __post_init__(self):
             self.enable_corruption = False
             self.concatenate_terms = True
@@ -794,7 +799,7 @@ class ObsCfg_Full_Robust:
         goal_heading_to_goal = ObsTerm(func=mdp.goal_heading_to_goal, params={"command_name": "goal_command", "perceived": False}, scale=_HEADING_SCALE)
         body_velocity_xy = ObsTerm(func=mdp.body_velocity_xy, scale=_BODY_VEL_SCALE)
         last_action = ObsTerm(func=mdp.last_action)
-        depth_image = ObsTerm(func=mdp.depth_image, params=_DEPTH_PARAMS, scale=_DEPTH_SCALE)
+        depth_image = ObsTerm(func=mdp.depth_image, params=_CRITIC_DEPTH_PARAMS, scale=_DEPTH_SCALE)
         rgb_image = ObsTerm(func=mdp.rgb_image, params=_RGB_PARAMS)
         def __post_init__(self):
             self.enable_corruption = False
@@ -832,7 +837,7 @@ class ObsCfg_Depth_Robust:
         goal_heading_to_goal = ObsTerm(func=mdp.goal_heading_to_goal, params={"command_name": "goal_command", "perceived": False}, scale=_HEADING_SCALE)
         body_velocity_xy = ObsTerm(func=mdp.body_velocity_xy, scale=_BODY_VEL_SCALE)
         last_action = ObsTerm(func=mdp.last_action)
-        depth_image = ObsTerm(func=mdp.depth_image, params=_DEPTH_PARAMS, scale=_DEPTH_SCALE)
+        depth_image = ObsTerm(func=mdp.depth_image, params=_CRITIC_DEPTH_PARAMS, scale=_DEPTH_SCALE)
         def __post_init__(self):
             self.enable_corruption = False
             self.concatenate_terms = True
@@ -1016,6 +1021,17 @@ _OUTAGES_REAL = _outage_term(REAL_ROBOT_CONTRACT)
 _OUTAGES_ROBUST = _outage_term(ROBUST_TRAINING_CONTRACT)
 
 
+def _d555_sensor_term(contract) -> EventTerm | None:
+    """The stereo-validity reset event; its draws come from its own generator, so its place in the class moves no
+    other term's stream. None where the mask is off."""
+    params = get_d555_sensor_params(contract)
+    return None if params is None else EventTerm(func=mdp.randomize_d555_sensor, mode="reset", params=params)
+
+
+_D555_SENSOR_REAL = _d555_sensor_term(REAL_ROBOT_CONTRACT)
+_D555_SENSOR_ROBUST = _d555_sensor_term(ROBUST_TRAINING_CONTRACT)
+
+
 @configclass
 class EventsCfg_Ideal:
     """Ideal: no domain randomization. For debugging and ablation."""
@@ -1047,6 +1063,7 @@ class EventsCfg_Realistic:
     )
     randomize_subgoal_drift = _SUBGOAL_DRIFT_REAL
     randomize_tf_age = _TF_AGE_REAL
+    randomize_d555_sensor = _D555_SENSOR_REAL
     randomize_sensor_outages = _OUTAGES_REAL
 
 
@@ -1075,6 +1092,7 @@ class EventsCfg_Robust:
     )
     randomize_subgoal_drift = _SUBGOAL_DRIFT_ROBUST
     randomize_tf_age = _TF_AGE_ROBUST
+    randomize_d555_sensor = _D555_SENSOR_ROBUST
     randomize_sensor_outages = _OUTAGES_ROBUST
 
 
@@ -1191,6 +1209,7 @@ class EventsCfg_Infinigen_Realistic:
     )
     randomize_subgoal_drift = _SUBGOAL_DRIFT_REAL
     randomize_tf_age = _TF_AGE_REAL
+    randomize_d555_sensor = _D555_SENSOR_REAL
     randomize_sensor_outages = _OUTAGES_REAL
 
 
@@ -1221,6 +1240,7 @@ class EventsCfg_Infinigen_Robust:
     )
     randomize_subgoal_drift = _SUBGOAL_DRIFT_ROBUST
     randomize_tf_age = _TF_AGE_ROBUST
+    randomize_d555_sensor = _D555_SENSOR_ROBUST
     randomize_sensor_outages = _OUTAGES_ROBUST
 
 
@@ -1812,6 +1832,7 @@ class EventsCfg_ProcRoom_Realistic:
     )
     randomize_subgoal_drift = _SUBGOAL_DRIFT_REAL
     randomize_tf_age = _TF_AGE_REAL
+    randomize_d555_sensor = _D555_SENSOR_REAL
     randomize_sensor_outages = _OUTAGES_REAL
 
 
@@ -1842,6 +1863,7 @@ class EventsCfg_ProcRoom_Robust:
     )
     randomize_subgoal_drift = _SUBGOAL_DRIFT_ROBUST
     randomize_tf_age = _TF_AGE_ROBUST
+    randomize_d555_sensor = _D555_SENSOR_ROBUST
     randomize_sensor_outages = _OUTAGES_ROBUST
 
 

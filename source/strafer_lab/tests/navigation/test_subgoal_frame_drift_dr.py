@@ -557,6 +557,7 @@ class TestDriftedObservationTerms:
             "goal_distance",
             "goal_heading_to_goal",
             "goal_heading_relative",
+            "depth_image",  # its switch is the stereo validity's, under the same opt-out rule
         }
 
     def test_an_env_without_the_process_reads_truth(self):

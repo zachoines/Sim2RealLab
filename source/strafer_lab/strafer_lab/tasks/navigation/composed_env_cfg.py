@@ -530,6 +530,9 @@ class _ComposedStraferNavEnvCfg(base._BaseStraferNavEnvCfg):
             self.events, "randomize_subgoal_drift"
         ):
             self.events.randomize_subgoal_drift = None
+        # The stereo validity reads the policy camera's depth; a profile without one has none to read
+        if profile == "nocam" and hasattr(self.events, "randomize_d555_sensor"):
+            self.events.randomize_d555_sensor = None
         if objective == "subgoal":
             try:
                 self.commands = _COMMANDS_BY_SOURCE_SUBGOAL[kind]()

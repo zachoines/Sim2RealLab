@@ -484,7 +484,8 @@ def _():
 
         def mm(z):
             return 1000.0 * z * z * d.disparity_noise_px / (f * b)
-        return [d.disparity_noise_px, d.width, d.height, f, b, mm(1.0), 1, mm(2.0), 2, mm(d.max_range), d.max_range]
+        out = [d.disparity_noise_px, d.width, d.height, f, b, mm(1.0), 1, mm(2.0), 2, mm(d.max_range), d.max_range]
+        return out + [d.max_range] if d.noise_free_at_max_range else out
     return {**_tiers(cell), "models": [], "basis": []}
 
 
@@ -497,9 +498,28 @@ def _():
         if d is None:
             return OFF
         assert d.hole_fill == "median"
+        if d.hole_probability == 0:
+            assert _event(t, "randomize_d555_sensor") is not None, t  # the row: the stereo validity replaces them
+            return [d.frame_drop_prob]
         return [d.hole_probability, d.frame_drop_prob]
     blocks = [k.PERCEPTION_HEIGHT // k.DEPTH_HEIGHT, k.PERCEPTION_WIDTH // k.DEPTH_WIDTH]
     return {**_tiers(cell), "models": blocks, "basis": []}
+
+
+@row("Depth stereo validity", {"measured", "design"})
+def _():
+    def cell(t):
+        p = _event(t, "randomize_d555_sensor")
+        if p is None:
+            return OFF
+        d = _noise(t, DEPTH)
+        assert d.hole_probability == 0 and d.noise_free_at_max_range, t  # the row: no cell holes, no sigma at the clamp
+        assert p["core_px"] == 0 and p["invalid_depth_m"] == d.max_range, t
+        assert _c(t).observations.critic.depth_image.params["perceived"] is False, t
+        out = [p["margin_px"], p["fb_px_m"], p["occlusion_tol_px"], p["min_depth_m"], p["invalid_depth_m"]]
+        lo, hi = p["fb_scale_range"]
+        return out if lo == hi == 1.0 else out + [lo, hi]
+    return {**_tiers(cell), "models": [], "basis": []}
 
 
 @row("Depth stream hold", {"design"})
@@ -782,6 +802,7 @@ EVENT_ROWS = {
     "randomize_friction": "Friction", "randomize_mass": "Mass", "randomize_motor_strength": "Motor strength",
     "randomize_d555_mount": "Mount misalignment", "jitter_d555_camera_prim": "Mount misalignment",
     "randomize_subgoal_drift": "Subgoal-frame drift", "randomize_tf_age": "Subgoal-frame drift",
+    "randomize_d555_sensor": "Depth stereo validity",
 }
 
 
@@ -846,7 +867,8 @@ NOISE_FIELDS = {
     "DepthNoiseModelCfg": {
         "class_type": CHECKED, "func": STRUCTURAL, "noise_cfg": STRUCTURAL, "baseline_m": "Depth disparity noise",
         "focal_length_px": "Depth disparity noise", "disparity_noise_px": "Depth disparity noise",
-        "disparity_noise_px_range": "Depth disparity noise", "hole_probability": "Depth holes and lost frames",
+        "disparity_noise_px_range": "Depth disparity noise", "noise_free_at_max_range": "Depth disparity noise",
+        "hole_probability": "Depth holes and lost frames",
         "hole_fill": "Depth holes and lost frames", "frame_drop_prob": "Depth holes and lost frames",
         "min_range": "Depth range and grid", "max_range": "Depth range and grid", "too_close_fill": STRUCTURAL,
         "height": "Depth range and grid", "width": "Depth range and grid", "hold_fraction_range": "Depth stream hold",
@@ -984,14 +1006,14 @@ ANCHORS = {
     "actions.py#L254": "_max_delta_per_step", "actions.py#L395": "torch.expm1(",
     "actions.py#L304": "def _draw_speed_scale",
     "actions.py#L458": "l1_clamp_twist_batched(", "actions.py#L579": "max_wheel_angular_vel",
-    "events.py#L527": "def randomize_motor_strength", "events.py#L578": "def randomize_d555_mount_offset",
-    "events.py#L423": "def randomize_subgoal_drift", "events.py#L177": "class randomize_wheel_grip(",
-    "events.py#L361": "def randomize_mass", "events.py#L716": "def reset_robot_proc_room",
+    "events.py#L570": "def randomize_motor_strength", "events.py#L621": "def randomize_d555_mount_offset",
+    "events.py#L424": "def randomize_subgoal_drift", "events.py#L178": "class randomize_wheel_grip(",
+    "events.py#L362": "def randomize_mass", "events.py#L759": "def reset_robot_proc_room",
     "noise_models.py#L188": "class IMUNoiseModel(", "noise_models.py#L360": "class EncoderNoiseModel(",
-    "noise_models.py#L492": "class DepthNoiseModel(",
-    "observations.py#L45": "def reduce_depth_to_policy_grid", "d555_cfg.py#L145": "focal_length=",
-    "composed_env_cfg.py#L576": "num_rerenders_on_reset = 1", "planner.py#L251": "def perturb_waypoints(",
-    "proc_room.py#L990": "def generate_proc_room", "sim_real_cfg.py#L782": "IDEAL_SIM_CONTRACT",
+    "noise_models.py#L492": "class DepthNoiseModel(", "d555_sensor.py#L67": "def stereo_validity",
+    "observations.py#L46": "def reduce_depth_to_policy_grid", "d555_cfg.py#L145": "focal_length=",
+    "composed_env_cfg.py#L579": "num_rerenders_on_reset = 1", "planner.py#L251": "def perturb_waypoints(",
+    "proc_room.py#L990": "def generate_proc_room", "sim_real_cfg.py#L827": "IDEAL_SIM_CONTRACT",
 }
 
 

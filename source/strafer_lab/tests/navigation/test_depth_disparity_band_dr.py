@@ -53,10 +53,10 @@ TIERS = {"realistic": REAL_ROBOT_CONTRACT, "robust": ROBUST_TRAINING_CONTRACT}
 # scalar one round a few float32 draws an ulp apart. One x86 machine re-freezes
 # both: "avx2" run natively, "scalar" under ATEN_CPU_CAPABILITY=default.
 _FIXED_PATH_FINGERPRINTS = {
-    ("realistic", "scalar"): "3d0d224c8e2fb5411a8472bd549cd05eeaa15af17c64761d986a894e56fdd3a7",
-    ("realistic", "avx2"): "32c0c59c02f7a6558576da5fce0d25a1e911df68dd8e2896cd6f4a511c952089",
-    ("robust", "scalar"): "9a61d640b46f09c2373e9143fb98efe01f80fc0e231ad021f89633202073e4a9",
-    ("robust", "avx2"): "64e0c28d36c3b49036e8006c976d46ea1a8475189e32a9a6f105cb37e175ade9",
+    ("realistic", "scalar"): "b588e8754149082c732066bd37c22ee9ee5470ec4870d4e97133f9ab0dfae001",
+    ("realistic", "avx2"): "9b2e1c20f30ea1461534a15a876ba094b4624789daa046454c2f9c6878d02eff",
+    ("robust", "scalar"): "ef761b6a5000d9fceb4c55be36451991cf7ea018b1a298114f9601447443df05",
+    ("robust", "avx2"): "6c04db8fdeba2cb118f49e7f1ce3869fca2e9a5617966b990bfcad2fa1fcf1c7",
 }
 
 

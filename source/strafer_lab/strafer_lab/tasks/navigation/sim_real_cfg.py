@@ -32,7 +32,12 @@ from __future__ import annotations
 from isaaclab.utils.configclass import configclass
 from isaaclab.utils.noise import GaussianNoiseCfg
 
-from strafer_shared.constants import DEPTH_NEARFIELD_FILL, MAX_WHEEL_ANGULAR_VEL, POLICY_PERIOD_S
+from strafer_shared.constants import (
+    D555_MEASURED_FX_PX, D555_MIN_DEPTH_M, D555_RENDER_FAR_CLIP_M, DEPTH_NEARFIELD_FILL, MAX_WHEEL_ANGULAR_VEL,
+    POLICY_PERIOD_S,
+)
+
+from strafer_lab.tasks.navigation.mdp.d555_sensor import STEREO_MARGIN_PX, STEREO_OCCLUSION_TOL_PX
 
 # Import custom noise models that generate independent per-environment noise
 from strafer_lab.tasks.navigation.mdp.noise_models import (
@@ -292,10 +297,31 @@ class DepthCameraNoiseCfg:
     hole_probability: float = 0.01
     """Probability of a pixel the stereo match could not resolve."""
 
+    # The stereo validity at render resolution (off by default)
+    stereo_mask_enable: bool = False
+    """Compute the sensor's invalid pixels on the rendered frame (the left band, the occlusion shadows, the near limit)
+    and write them as the far clamp before the block median, as the deploy node does. The mask replaces the cell holes,
+    so ``hole_probability`` must be 0 with it on, and cells at the clamp take no disparity noise."""
+
+    stereo_fb_scale_range: tuple[float, float] = (1.0, 1.0)
+    """Per-env scale on the mask's f·B (the policy camera's fx times ``baseline_m``), drawn at each reset."""
+
+    stereo_margin_px: float = STEREO_MARGIN_PX
+    """Width of the left band beyond the disparity, in px at the render resolution."""
+
+    stereo_core_px: float = 0.0
+    """A fixed width the left band never falls below, in px."""
+
+    stereo_min_depth_m: float = D555_MIN_DEPTH_M
+    """Depth below which the sensor returns none, in m."""
+
+    stereo_occlusion_tol_px: float = STEREO_OCCLUSION_TOL_PX
+    """Right-image overlap beyond which a pixel is occluded, in px."""
+
     # Range limits
     min_range_m: float = DEPTH_NEARFIELD_FILL
     """Depth in meters below which a reading is treated as unresolvable, and the
-    value written there. It sits below the D555's own 0.4 m floor on purpose:
+    value written there. It sits below the deploy node's 0.4 m near-fill threshold on purpose:
     it is the near fill the observation term has already written at those
     pixels, so the comparison cannot reclassify them."""
 
@@ -641,7 +667,15 @@ def create_real_robot_contract() -> SimRealContractCfg:
                 baseline_m=0.095,
                 focal_length_px=673.0,
                 disparity_noise_px=0.08,
-                hole_probability=0.01,
+                # The sensor's stereo validity on the rendered frame, fitted on the robot's frames at mount height:
+                # the left band f·B/z + 6.5 px with no core, the occlusion shadows at 0.5 px. It replaces the cell
+                # holes. The 0.244 m minimum is the bench sensor's nearest finite return, near where a 126-disparity
+                # search ends at 640x360 (f·B / 126, 0.242 m), not measured at mount height.
+                stereo_mask_enable=True,
+                stereo_margin_px=STEREO_MARGIN_PX,
+                stereo_core_px=0.0,
+                stereo_min_depth_m=D555_MIN_DEPTH_M,
+                hole_probability=0.0,
                 frame_drop_probability=0.001,
                 # Design: a band around the sim-in-the-loop bridge's depth
                 # arrival rate, from clean to somewhat worse, not a robot-side
@@ -730,7 +764,18 @@ def create_robust_training_contract() -> SimRealContractCfg:
                 # depth, so the tier spans the range the per-band matches
                 # cover rather than picking one of them.
                 disparity_noise_px_range=(0.002, 0.16),
-                hole_probability=0.03,  # 3x typical
+                # The sensor's stereo validity on the rendered frame, fitted on the robot's frames at mount height:
+                # the left band f·B/z + 6.5 px with no core, the occlusion shadows at 0.5 px. It replaces the cell
+                # holes. The 0.244 m minimum is the bench sensor's nearest finite return, near where a 126-disparity
+                # search ends at 640x360 (f·B / 126, 0.242 m), not measured at mount height.
+                stereo_mask_enable=True,
+                stereo_margin_px=STEREO_MARGIN_PX,
+                stereo_core_px=0.0,
+                stereo_min_depth_m=D555_MIN_DEPTH_M,
+                # Design: f·B scaled per env around the nominal 30.545 px m, bracketing the band's fitted slope
+                # (about 31.8) and the depth lattice's estimate (31.2-32.2)
+                stereo_fb_scale_range=(0.98, 1.06),
+                hole_probability=0.0,
                 # 10x typical, plus the 0.001 of a failed frame, which repeats the previous one as a drop does
                 frame_drop_probability=0.011,
                 # Held to the realistic tier's law entirely, burst included.
@@ -908,6 +953,8 @@ def get_depth_noise(contract: SimRealContractCfg) -> DepthNoiseModelCfg | None:
 
     # Compute noise at 1m for informational GaussianNoiseCfg
     cfg = contract.sensors.depth_camera
+    if cfg.stereo_mask_enable and cfg.hole_probability > 0:
+        raise ValueError("the stereo mask replaces the cell holes; set hole_probability to 0 with it on")
     noise_at_1m = cfg.disparity_noise_px / (cfg.focal_length_px * cfg.baseline_m)
 
     return DepthNoiseModelCfg(
@@ -917,6 +964,7 @@ def get_depth_noise(contract: SimRealContractCfg) -> DepthNoiseModelCfg | None:
         disparity_noise_px=cfg.disparity_noise_px,
         disparity_noise_px_range=cfg.disparity_noise_px_range,
         hole_probability=cfg.hole_probability,
+        noise_free_at_max_range=cfg.stereo_mask_enable,
         min_range=cfg.min_range_m,
         max_range=cfg.max_range_m,
         frame_drop_prob=cfg.frame_drop_probability,
@@ -978,6 +1026,23 @@ def get_action_config_params(contract: SimRealContractCfg) -> dict:
         "max_acceleration_rad_s2": contract.actuator.max_acceleration_rad_s2,
         "max_acceleration_range": contract.actuator.max_acceleration_range,
         "speed_scale_range": contract.actuator.speed_scale_range,
+    }
+
+
+def get_d555_sensor_params(contract: SimRealContractCfg) -> dict | None:
+    """The ``randomize_d555_sensor`` event's params, or None where the stereo mask is off (the caller omits the term)."""
+    d = contract.sensors.depth_camera
+    if not d.stereo_mask_enable:
+        return None
+    return {
+        "fb_px_m": D555_MEASURED_FX_PX * d.baseline_m,
+        "fb_scale_range": d.stereo_fb_scale_range,
+        "margin_px": d.stereo_margin_px,
+        "core_px": d.stereo_core_px,
+        "min_depth_m": d.stereo_min_depth_m,
+        "occlusion_tol_px": d.stereo_occlusion_tol_px,
+        "invalid_depth_m": d.max_range_m,
+        "max_return_m": D555_RENDER_FAR_CLIP_M,
     }
 
 

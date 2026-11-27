@@ -28,6 +28,7 @@ from isaaclab.managers import ManagerTermBase
 from .subgoal_drift import SubgoalDriftProcess
 from .tf_age import TfAgeProcess
 from .sensor_outage import OutageProcess
+from .d555_sensor import D555SensorCfg, D555SensorProcess
 
 logger = logging.getLogger(__name__)
 
@@ -521,6 +522,48 @@ def randomize_sensor_outages(
         process = OutageProcess(env.num_envs, env.device, env.step_dt, start_rate_hz, usb_stall_rate_hz,
                                 length_s_range, timeout_s)
         env._sensor_outages = process
+    process.reset(env_ids)
+
+
+
+def randomize_d555_sensor(
+    env: ManagerBasedEnv,
+    env_ids: torch.Tensor,
+    fb_px_m: float,
+    fb_scale_range: tuple[float, float],
+    margin_px: float,
+    core_px: float,
+    min_depth_m: float,
+    occlusion_tol_px: float,
+    invalid_depth_m: float,
+    max_return_m: float,
+) -> None:
+    """Redraw the reset envs' stereo-validity scale.
+
+    The process is created on the first call and lives on the env, where the perceived depth term reads it
+    (``mdp.d555_sensor``). Its draws come from its own generator, seeded from the env's seed, so no other term's
+    stream moves.
+
+    Args:
+        env: The environment instance.
+        env_ids: Indices of environments to reset.
+        fb_px_m: Focal length at the render resolution (px) times the stereo baseline (m).
+        fb_scale_range: Per-env scale band on ``fb_px_m``.
+        margin_px: Width of the left band beyond the disparity, in px.
+        core_px: A fixed width the left band never falls below, in px.
+        min_depth_m: Depth below which the sensor returns none, in m.
+        occlusion_tol_px: Right-image overlap beyond which a pixel is occluded, in px.
+        invalid_depth_m: Depth written at an invalid pixel.
+        max_return_m: Depth beyond which nothing returns.
+    """
+    process = getattr(env, "_d555_sensor", None)
+    if process is None:
+        cfg = D555SensorCfg(fb_px_m=fb_px_m, fb_scale_range=tuple(fb_scale_range), margin_px=margin_px,
+                            core_px=core_px, min_depth_m=min_depth_m, occlusion_tol_px=occlusion_tol_px,
+                            invalid_depth_m=invalid_depth_m, max_return_m=max_return_m)
+        seed = getattr(getattr(env, "cfg", None), "seed", None)
+        process = D555SensorProcess(env.num_envs, env.device, cfg, seed=0 if seed is None else int(seed))
+        env._d555_sensor = process
     process.reset(env_ids)
 
 

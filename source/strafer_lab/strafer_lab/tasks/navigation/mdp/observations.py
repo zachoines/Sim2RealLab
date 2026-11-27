@@ -31,6 +31,7 @@ from strafer_shared.constants import (
 )
 from strafer_shared.mecanum_kinematics import INVERSE_KINEMATIC_MATRIX
 
+from .d555_sensor import sensor_frame
 from .subgoal_drift import drift_referent
 
 # XYZW quaternion component indices (Isaac Lab 3.0 convention)
@@ -693,6 +694,7 @@ def depth_image(
     max_depth: float = DEPTH_MAX,
     nearfield_clip: float = DEPTH_MIN,
     nearfield_fill: float = DEPTH_NEARFIELD_FILL,
+    perceived: bool = True,
 ) -> torch.Tensor:
     """Get flattened depth image from D555 camera in RAW meters.
 
@@ -709,21 +711,29 @@ def depth_image(
     term downstream sees the policy grid either way.
 
     Nearfield handling:
-        The real D555 camera cannot resolve depth below ~0.4m.  In sim the near
-        clip is set to 0.01m so objects are still rendered at close range.  Any
-        pixel with depth < ``nearfield_clip`` is replaced with ``nearfield_fill``
-        — a small constant that signals "something very close" to the policy.
-        This prevents the camera from "seeing through" close objects (whose
-        clipped faces would otherwise reveal empty interiors or far walls) and
-        matches the real sensor's saturated near-field behavior.
+        The deploy node fills every block whose median is under 0.4 m
+        (``nearfield_clip``) with ``nearfield_fill``, a small constant that
+        signals "something very close"; this term does the same after the
+        same reduction. In sim the near clip is 0.01 m, so close objects still
+        render and the camera cannot "see through" their clipped faces. The
+        sensor itself returns depth nearer than 0.4 m down to its minimum
+        (0.244 m on the bench); nearer than that it returns none, which the
+        node reads far. Where the env has the stereo validity, the perceived
+        term writes those pixels far too, before the reduction.
 
     Args:
         env: The environment instance.
         sensor_cfg: Scene entity configuration for the camera sensor.
         max_depth: Maximum depth value for inf replacement and clamping.
-        nearfield_clip: Distance (m) below which depth is unreliable (D555 min range).
+        nearfield_clip: Block median (m) under which a cell reads ``nearfield_fill``: the deploy node's near-fill
+            threshold, not the sensor's minimum depth.
         nearfield_fill: Replacement value (m) for nearfield pixels. Should be small
             but nonzero so the policy distinguishes "close object" from "nothing".
+        perceived: Read the frame through the D555's stereo validity where the env
+            has a sensor process (``mdp.d555_sensor``): its invalid pixels are
+            written as the far clamp before the block median, as the deploy node
+            writes them. The privileged critic passes False and reads the clean
+            render.
 
     Returns:
         Flattened depth image in meters. Shape: (num_envs, height * width)
@@ -741,12 +751,22 @@ def depth_image(
         depth
     )
 
+    # The sensor's invalid pixels, at render resolution, before the reduction
+    process = getattr(env, "_d555_sensor", None)
+    if perceived and process is not None:
+        if tuple(depth.shape[1:3]) != (PERCEPTION_HEIGHT, PERCEPTION_WIDTH):
+            raise ValueError(
+                f"the stereo validity is computed at {PERCEPTION_HEIGHT}x{PERCEPTION_WIDTH}; "
+                f"the camera renders {depth.shape[1]}x{depth.shape[2]}"
+            )
+        depth, _ = sensor_frame(depth, process)
+
     # Ordered as obs_pipeline.downsample_depth has it: after the non-finite
     # rescue, before the nearfield fill.
     depth = reduce_depth_to_policy_grid(depth)
 
-    # Nearfield fill: pixels closer than D555's min range get a saturated
-    # low value instead of their actual depth.  This prevents the policy
+    # Nearfield fill: a cell whose block median is under nearfield_clip (the
+    # deploy node's near-fill threshold) gets a saturated low value.  This prevents the policy
     # from seeing through clipped geometry and provides a "something very
     # close" signal that transfers to the real sensor.
     depth = torch.where(

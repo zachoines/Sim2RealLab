@@ -1,0 +1,121 @@
+# Copyright (c) 2025, Strafer Lab Project
+# SPDX-License-Identifier: BSD-3-Clause
+
+"""The D555's stereo validity at render resolution: which pixels the sensor returns no depth for.
+
+The D555 matches its left imager against the right one, and the depth image is the left imager's view. A pixel has no
+depth where its match would fall outside the right image, the left band ``u < f·B / z(u) + m``, and where the right
+imager cannot see it, behind a nearer surface to its right. The mask marks the second by the ordering rule: a pixel
+whose right-image column ``r = u - f·B / z`` lies more than a tolerance right of that of a pixel to its right (a
+shadow sits left of the surface casting it). Beside a surface narrower than its disparity step the rule marks about
+the whole step, wider than the true shadow. It also returns none for a surface nearer than its matcher's disparity
+range reaches, nor where nothing returns at all.
+
+The deploy node writes every invalid pixel as the far clamp before the 8×8 block median, so a block with 33 or more of
+64 invalid pixels reads far. :func:`sensor_frame` does the same to a rendered frame, ahead of the shared reduction
+(``observations.reduce_depth_to_policy_grid``), so the training field reads what the node's would.
+
+The per-env state is a scale on ``f·B`` drawn at each reset from the process's own generator, seeded from the env's
+seed, so no other term's random stream moves.
+"""
+
+from __future__ import annotations
+
+from collections.abc import Sequence
+from dataclasses import dataclass
+
+import torch
+
+from strafer_shared.constants import (
+    D555_BASELINE_M, D555_MEASURED_FX_PX, D555_MIN_DEPTH_M, D555_RENDER_FAR_CLIP_M, DEPTH_MAX,
+)
+
+# The mask's band margin and occlusion tolerance, fitted on the robot's frames at mount height
+STEREO_MARGIN_PX = 6.5
+STEREO_OCCLUSION_TOL_PX = 0.5
+
+
+@dataclass(frozen=True)
+class D555SensorCfg:
+    """The stereo-validity mask's parameters."""
+
+    fb_px_m: float = D555_MEASURED_FX_PX * D555_BASELINE_M
+    """Focal length (px, at the render resolution) times the stereo baseline (m)."""
+
+    fb_scale_range: tuple[float, float] = (1.0, 1.0)
+    """Per-env scale on ``fb_px_m``, drawn uniformly at each reset."""
+
+    margin_px: float = STEREO_MARGIN_PX
+    """Width of the left band beyond the disparity, in px."""
+
+    core_px: float = 0.0
+    """A fixed width the left band never falls below, in px."""
+
+    min_depth_m: float = D555_MIN_DEPTH_M
+    """Depth below which the sensor returns none, in m."""
+
+    occlusion_tol_px: float = STEREO_OCCLUSION_TOL_PX
+    """Right-image overlap, in px, beyond which a pixel is occluded."""
+
+    invalid_depth_m: float = DEPTH_MAX
+    """Depth written at an invalid pixel, the deploy node's far clamp."""
+
+    max_return_m: float = D555_RENDER_FAR_CLIP_M
+    """Depth beyond which nothing returns, the render's far clip."""
+
+
+def stereo_validity(depth: torch.Tensor, fb: torch.Tensor | float, cfg: D555SensorCfg) -> torch.Tensor:
+    """Pixels the sensor returns depth for, on ``(N, H, W)`` depth in metres with ``fb`` per env (``(N,)``) or one value.
+
+    Invalid: the left band, the occlusion shadows, depth below ``min_depth_m``, and no return (non-finite, not positive,
+    or beyond ``max_return_m``). A pixel with no return has zero disparity, so it casts no shadow.
+    """
+    width = depth.shape[-1]
+    fb = torch.as_tensor(fb, dtype=depth.dtype, device=depth.device).reshape(-1, 1, 1)
+    returned = torch.isfinite(depth) & (depth > 0) & (depth <= cfg.max_return_m)
+    disparity = torch.where(returned, fb / depth.clamp(min=1e-3), torch.zeros_like(depth))
+    u = torch.arange(width, dtype=depth.dtype, device=depth.device)
+    band = (u < cfg.core_px) | (u < disparity + cfg.margin_px)
+    r = u - disparity
+    # The minimum of r over the pixels strictly right of each pixel
+    right_min = torch.flip(torch.cummin(torch.flip(r, dims=[-1]), dim=-1).values, dims=[-1])
+    beyond = torch.cat([right_min[..., 1:], torch.full_like(r[..., :1], float("inf"))], dim=-1)
+    occluded = beyond < r - cfg.occlusion_tol_px
+    return returned & ~band & ~occluded & (depth >= cfg.min_depth_m)
+
+
+class D555SensorProcess:
+    """Per-env stereo-validity state: the ``f·B`` each env's mask is computed with."""
+
+    def __init__(self, num_envs: int, device, cfg: D555SensorCfg, seed: int = 0):
+        self.cfg = cfg
+        self.num_envs = num_envs
+        self.device = device
+        self._generator = torch.Generator(device=device)
+        self._generator.manual_seed(int(seed))
+        self.fb = torch.full((num_envs,), float(cfg.fb_px_m), device=device)
+
+    def reset(self, env_ids: Sequence[int] | torch.Tensor | None = None) -> None:
+        """Redraw the reset envs' ``f·B`` scale; a band of one value draws nothing."""
+        lo, hi = (float(x) for x in self.cfg.fb_scale_range)
+        if lo == hi:
+            self.fb.fill_(self.cfg.fb_px_m * lo)
+            return
+        ids = (torch.arange(self.num_envs, device=self.device) if env_ids is None
+               else torch.as_tensor(env_ids, dtype=torch.long, device=self.device))
+        draw = torch.rand(len(ids), generator=self._generator, device=self.device)
+        self.fb[ids] = self.cfg.fb_px_m * (lo + (hi - lo) * draw)
+
+
+def sensor_frame(depth: torch.Tensor, process: D555SensorProcess) -> tuple[torch.Tensor, torch.Tensor]:
+    """The frame the sensor returns: invalid pixels written ``invalid_depth_m``, and the validity mask.
+
+    Takes ``(N, H, W)`` or ``(N, H, W, 1)`` depth in metres and returns both in that shape.
+    """
+    squeeze = depth.dim() == 4
+    z = depth[..., 0] if squeeze else depth
+    valid = stereo_validity(z, process.fb, process.cfg)
+    out = torch.where(valid, z, torch.full_like(z, process.cfg.invalid_depth_m))
+    if squeeze:
+        return out.unsqueeze(-1), valid.unsqueeze(-1)
+    return out, valid

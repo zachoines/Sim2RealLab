@@ -27,6 +27,7 @@ from isaaclab.managers import ManagerTermBase
 
 from .subgoal_drift import SubgoalDriftProcess
 from .tf_age import TfAgeProcess
+from .sensor_outage import OutageProcess
 
 logger = logging.getLogger(__name__)
 
@@ -489,6 +490,37 @@ def randomize_tf_age(
     if process is None:
         process = TfAgeProcess(env.num_envs, env.device, age_steps_range, interval_steps)
         env._tf_age = process
+    process.reset(env_ids)
+
+
+
+def randomize_sensor_outages(
+    env: ManagerBasedEnv,
+    env_ids: torch.Tensor,
+    start_rate_hz: dict,
+    usb_stall_rate_hz: float,
+    length_s_range: tuple[float, float],
+    timeout_s: dict,
+) -> None:
+    """End the reset envs' sensor outages and their stale-source stop.
+
+    The process is created on the first call and lives on the env, where the action term advances it once per control
+    step; the noise models read it through ``sensor_outage.current_outage``. The reset draws nothing: the process draws
+    in ``advance``, first in each step's action, before the command hold's and the noise models' draws of that step.
+
+    Args:
+        env: The environment instance.
+        env_ids: Indices of environments to reset.
+        start_rate_hz: Outage start rate per source ("imu", "driver", "depth"), in Hz.
+        usb_stall_rate_hz: Rate of a shared stall of the IMU and the depth, in Hz.
+        length_s_range: Outage length band [min, max], in seconds.
+        timeout_s: The node's staleness timeout per source, in seconds.
+    """
+    process = getattr(env, "_sensor_outages", None)
+    if process is None:
+        process = OutageProcess(env.num_envs, env.device, env.step_dt, start_rate_hz, usb_stall_rate_hz,
+                                length_s_range, timeout_s)
+        env._sensor_outages = process
     process.reset(env_ids)
 
 

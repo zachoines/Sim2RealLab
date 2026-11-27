@@ -427,7 +427,14 @@ class MecanumWheelAction(ActionTerm):
         """
         # Store raw actions
         self._raw_actions = actions.clone()
-        
+
+        # The node's stale-source stop: while a sensor is stale past its timeout the commanded twist is zero, and the
+        # wheels come to rest through the plant below as the robot's do
+        outage = getattr(self._env, "_sensor_outages", None)
+        if outage is not None:
+            outage.advance()
+            actions = torch.where(outage.stopped.unsqueeze(-1), torch.zeros_like(actions), actions)
+
         # Clamp to valid range
         clamped_actions = torch.clamp(actions, -1.0, 1.0)
 

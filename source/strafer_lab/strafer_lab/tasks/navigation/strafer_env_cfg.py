@@ -74,6 +74,8 @@ from .sim_real_cfg import (
     get_action_config_params,
     get_subgoal_drift_params,
     get_tf_age_params,
+    get_outage_params,
+    get_last_action_hold,
     get_replan_period,
 )
 from .ceiling_surface import CeilingSurfaceCfg
@@ -632,6 +634,7 @@ class ObsCfg_NoCam_Ideal:
 _REAL_ACCEL_NOISE = get_imu_accel_noise(REAL_ROBOT_CONTRACT)
 _REAL_GYRO_NOISE = get_imu_gyro_noise(REAL_ROBOT_CONTRACT)
 _REAL_ENCODER_NOISE = get_encoder_noise(REAL_ROBOT_CONTRACT)
+_LAST_ACTION_HOLD_REAL = get_last_action_hold(REAL_ROBOT_CONTRACT)
 _REAL_BODY_VEL_NOISE = get_body_velocity_noise(REAL_ROBOT_CONTRACT)
 _REAL_DEPTH_NOISE = get_depth_noise(REAL_ROBOT_CONTRACT)
 _REAL_RGB_NOISE = get_rgb_noise(REAL_ROBOT_CONTRACT)
@@ -649,7 +652,7 @@ class ObsCfg_Full_Realistic:
         goal_distance = ObsTerm(func=mdp.goal_distance, params={"command_name": "goal_command"}, scale=_GOAL_DIST_SCALE)
         goal_heading_to_goal = ObsTerm(func=mdp.goal_heading_to_goal, params={"command_name": "goal_command"}, scale=_HEADING_SCALE)
         body_velocity_xy = ObsTerm(func=mdp.body_velocity_xy, noise=_REAL_BODY_VEL_NOISE, scale=_BODY_VEL_SCALE)
-        last_action = ObsTerm(func=mdp.last_action)
+        last_action = ObsTerm(func=mdp.last_action, noise=_LAST_ACTION_HOLD_REAL)
         depth_image = ObsTerm(func=mdp.depth_image, params=_DEPTH_PARAMS, noise=_REAL_DEPTH_NOISE, scale=_DEPTH_SCALE)
         rgb_image = ObsTerm(func=mdp.rgb_image, params=_RGB_PARAMS, noise=_REAL_RGB_NOISE)
         def __post_init__(self):
@@ -688,7 +691,7 @@ class ObsCfg_Depth_Realistic:
         goal_distance = ObsTerm(func=mdp.goal_distance, params={"command_name": "goal_command"}, scale=_GOAL_DIST_SCALE)
         goal_heading_to_goal = ObsTerm(func=mdp.goal_heading_to_goal, params={"command_name": "goal_command"}, scale=_HEADING_SCALE)
         body_velocity_xy = ObsTerm(func=mdp.body_velocity_xy, noise=_REAL_BODY_VEL_NOISE, scale=_BODY_VEL_SCALE)
-        last_action = ObsTerm(func=mdp.last_action)
+        last_action = ObsTerm(func=mdp.last_action, noise=_LAST_ACTION_HOLD_REAL)
         depth_image = ObsTerm(func=mdp.depth_image, params=_DEPTH_PARAMS, noise=_REAL_DEPTH_NOISE, scale=_DEPTH_SCALE)
         def __post_init__(self):
             self.enable_corruption = True
@@ -725,7 +728,7 @@ class ObsCfg_NoCam_Realistic:
         goal_distance = ObsTerm(func=mdp.goal_distance, params={"command_name": "goal_command"}, scale=_GOAL_DIST_SCALE)
         goal_heading_to_goal = ObsTerm(func=mdp.goal_heading_to_goal, params={"command_name": "goal_command"}, scale=_HEADING_SCALE)
         body_velocity_xy = ObsTerm(func=mdp.body_velocity_xy, noise=_REAL_BODY_VEL_NOISE, scale=_BODY_VEL_SCALE)
-        last_action = ObsTerm(func=mdp.last_action)
+        last_action = ObsTerm(func=mdp.last_action, noise=_LAST_ACTION_HOLD_REAL)
         def __post_init__(self):
             self.enable_corruption = True
             self.concatenate_terms = True
@@ -756,6 +759,7 @@ class ObsCfg_NoCam_Realistic:
 _ROBUST_ACCEL_NOISE = get_imu_accel_noise(ROBUST_TRAINING_CONTRACT)
 _ROBUST_GYRO_NOISE = get_imu_gyro_noise(ROBUST_TRAINING_CONTRACT)
 _ROBUST_ENCODER_NOISE = get_encoder_noise(ROBUST_TRAINING_CONTRACT)
+_LAST_ACTION_HOLD_ROBUST = get_last_action_hold(ROBUST_TRAINING_CONTRACT)
 _ROBUST_BODY_VEL_NOISE = get_body_velocity_noise(ROBUST_TRAINING_CONTRACT)
 _ROBUST_DEPTH_NOISE = get_depth_noise(ROBUST_TRAINING_CONTRACT)
 _ROBUST_RGB_NOISE = get_rgb_noise(ROBUST_TRAINING_CONTRACT)
@@ -773,7 +777,7 @@ class ObsCfg_Full_Robust:
         goal_distance = ObsTerm(func=mdp.goal_distance, params={"command_name": "goal_command"}, scale=_GOAL_DIST_SCALE)
         goal_heading_to_goal = ObsTerm(func=mdp.goal_heading_to_goal, params={"command_name": "goal_command"}, scale=_HEADING_SCALE)
         body_velocity_xy = ObsTerm(func=mdp.body_velocity_xy, noise=_ROBUST_BODY_VEL_NOISE, scale=_BODY_VEL_SCALE)
-        last_action = ObsTerm(func=mdp.last_action)
+        last_action = ObsTerm(func=mdp.last_action, noise=_LAST_ACTION_HOLD_ROBUST)
         depth_image = ObsTerm(func=mdp.depth_image, params=_DEPTH_PARAMS, noise=_ROBUST_DEPTH_NOISE, scale=_DEPTH_SCALE)
         rgb_image = ObsTerm(func=mdp.rgb_image, params=_RGB_PARAMS, noise=_ROBUST_RGB_NOISE)
         def __post_init__(self):
@@ -812,7 +816,7 @@ class ObsCfg_Depth_Robust:
         goal_distance = ObsTerm(func=mdp.goal_distance, params={"command_name": "goal_command"}, scale=_GOAL_DIST_SCALE)
         goal_heading_to_goal = ObsTerm(func=mdp.goal_heading_to_goal, params={"command_name": "goal_command"}, scale=_HEADING_SCALE)
         body_velocity_xy = ObsTerm(func=mdp.body_velocity_xy, noise=_ROBUST_BODY_VEL_NOISE, scale=_BODY_VEL_SCALE)
-        last_action = ObsTerm(func=mdp.last_action)
+        last_action = ObsTerm(func=mdp.last_action, noise=_LAST_ACTION_HOLD_ROBUST)
         depth_image = ObsTerm(func=mdp.depth_image, params=_DEPTH_PARAMS, noise=_ROBUST_DEPTH_NOISE, scale=_DEPTH_SCALE)
         def __post_init__(self):
             self.enable_corruption = True
@@ -849,7 +853,7 @@ class ObsCfg_NoCam_Robust:
         goal_distance = ObsTerm(func=mdp.goal_distance, params={"command_name": "goal_command"}, scale=_GOAL_DIST_SCALE)
         goal_heading_to_goal = ObsTerm(func=mdp.goal_heading_to_goal, params={"command_name": "goal_command"}, scale=_HEADING_SCALE)
         body_velocity_xy = ObsTerm(func=mdp.body_velocity_xy, noise=_ROBUST_BODY_VEL_NOISE, scale=_BODY_VEL_SCALE)
-        last_action = ObsTerm(func=mdp.last_action)
+        last_action = ObsTerm(func=mdp.last_action, noise=_LAST_ACTION_HOLD_ROBUST)
         def __post_init__(self):
             self.enable_corruption = True
             self.concatenate_terms = True
@@ -1002,6 +1006,16 @@ _TF_AGE_REAL = _tf_age_term(REAL_ROBOT_CONTRACT)
 _TF_AGE_ROBUST = _tf_age_term(ROBUST_TRAINING_CONTRACT)
 
 
+def _outage_term(contract) -> EventTerm | None:
+    """The sensor-outage reset event, last in each class. It draws nothing at reset; None where off."""
+    params = get_outage_params(contract)
+    return None if params is None else EventTerm(func=mdp.randomize_sensor_outages, mode="reset", params=params)
+
+
+_OUTAGES_REAL = _outage_term(REAL_ROBOT_CONTRACT)
+_OUTAGES_ROBUST = _outage_term(ROBUST_TRAINING_CONTRACT)
+
+
 @configclass
 class EventsCfg_Ideal:
     """Ideal: no domain randomization. For debugging and ablation."""
@@ -1033,6 +1047,7 @@ class EventsCfg_Realistic:
     )
     randomize_subgoal_drift = _SUBGOAL_DRIFT_REAL
     randomize_tf_age = _TF_AGE_REAL
+    randomize_sensor_outages = _OUTAGES_REAL
 
 
 @configclass
@@ -1060,6 +1075,7 @@ class EventsCfg_Robust:
     )
     randomize_subgoal_drift = _SUBGOAL_DRIFT_ROBUST
     randomize_tf_age = _TF_AGE_ROBUST
+    randomize_sensor_outages = _OUTAGES_ROBUST
 
 
 @configclass
@@ -1175,6 +1191,7 @@ class EventsCfg_Infinigen_Realistic:
     )
     randomize_subgoal_drift = _SUBGOAL_DRIFT_REAL
     randomize_tf_age = _TF_AGE_REAL
+    randomize_sensor_outages = _OUTAGES_REAL
 
 
 @configclass
@@ -1204,6 +1221,7 @@ class EventsCfg_Infinigen_Robust:
     )
     randomize_subgoal_drift = _SUBGOAL_DRIFT_ROBUST
     randomize_tf_age = _TF_AGE_ROBUST
+    randomize_sensor_outages = _OUTAGES_ROBUST
 
 
 @configclass
@@ -1794,6 +1812,7 @@ class EventsCfg_ProcRoom_Realistic:
     )
     randomize_subgoal_drift = _SUBGOAL_DRIFT_REAL
     randomize_tf_age = _TF_AGE_REAL
+    randomize_sensor_outages = _OUTAGES_REAL
 
 
 @configclass
@@ -1823,6 +1842,7 @@ class EventsCfg_ProcRoom_Robust:
     )
     randomize_subgoal_drift = _SUBGOAL_DRIFT_ROBUST
     randomize_tf_age = _TF_AGE_ROBUST
+    randomize_sensor_outages = _OUTAGES_ROBUST
 
 
 # The enclosed room's event terms: difficulty drawn on levels 4-7, and the

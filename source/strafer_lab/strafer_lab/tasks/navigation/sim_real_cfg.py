@@ -455,9 +455,9 @@ class LocalizationDriftCfg:
     """Control steps between redraws of every env's age (0.5 s at 30 Hz)."""
 
     replan_enable: bool = False
-    """Re-plan each subgoal episode's path from the robot's pose on the period
-    below, as the robot's subgoal generator does. Off by default: the path is
-    planned once at reset."""
+    """Re-plan each subgoal episode's path from the robot's pose on the period below, re-rooting it under the robot as
+    the subgoal generator's legacy ``rolling`` anchoring does (selectable at deploy; the shipped ``mission`` anchoring
+    keeps one path per goal and replaces it only on admission). Off by default: the path is planned once at reset."""
 
     replan_period_s: float = 0.5
     """The replan period in seconds. It mirrors the subgoal generator node's

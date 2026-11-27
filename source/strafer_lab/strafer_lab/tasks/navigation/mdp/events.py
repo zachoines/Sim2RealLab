@@ -476,7 +476,7 @@ def randomize_tf_age(
     """Forget the reset envs' base-pose history and redraw the age of the pose the goal is projected with.
 
     The process is created on the first call and lives on the env, as the referent's drift does, so the goal-shaped
-    observation terms read one aged pose. Its draws come after the reset's other draws (the term sits after the
+    observation terms read one aged pose. Its draws come after the other reset events' draws (the term sits after the
     drift's).
 
     Args:

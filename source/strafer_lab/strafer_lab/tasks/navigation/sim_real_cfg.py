@@ -37,6 +37,7 @@ from strafer_shared.constants import DEPTH_NEARFIELD_FILL, MAX_WHEEL_ANGULAR_VEL
 # Import custom noise models that generate independent per-environment noise
 from strafer_lab.tasks.navigation.mdp.noise_models import (
     IMUNoiseModelCfg,
+    BodyVelocityNoiseModelCfg,
     EncoderNoiseModelCfg,
     DepthNoiseModelCfg,
     RGBNoiseModelCfg,
@@ -196,11 +197,11 @@ class IMUNoiseCfg:
 @configclass
 class EncoderNoiseCfg:
     """Encoder noise configuration for GoBilda 5203 (Hall effect).
-    
+
     Models real encoder imperfections:
     - Quantization (discrete tick counts)
-    - Electrical noise / missed ticks
     - Velocity estimation noise
+    - The reported speed's lag behind the wheel's (the RoboClaw's speed reading)
     """
     
     enable_noise: bool = True
@@ -210,20 +211,16 @@ class EncoderNoiseCfg:
     enable_quantization: bool = True
     """Quantize positions to discrete encoder ticks."""
     
-    # Tick counting errors
-    missed_tick_probability: float = 0.001
-    """Probability of missing a tick (electrical noise). Per tick per step."""
-    
-    extra_tick_probability: float = 0.0005
-    """Probability of counting an extra tick (electrical noise)."""
-    
     # Velocity estimation noise
     velocity_noise_std: float = 0.02
     """Gaussian noise on velocity as fraction of max velocity."""
     
-    # Velocity quantization (from discrete position differencing)
-    velocity_quantization_ticks_per_step: float = 1.0
-    """Minimum detectable velocity change in ticks per control step."""
+    # The reported speed's lag (the policy's encoder and body-velocity terms share one reading)
+    reported_speed_form: str = "first_order"
+    """The lag's form: "first_order", "delay" or "window" (``EncoderNoiseModelCfg.reported_speed_form``)."""
+
+    reported_speed_lag_s: float = 0.0
+    """The lag's parameter in seconds; 0 = no lag. Not measured."""
 
 
 @configclass
@@ -345,8 +342,8 @@ class SensorFailureCfg:
     """Enable random sensor failures."""
     
     # A held source shows its previous reading, as the deployed node's cache does. Each IMU term is drawn on its own,
-    # where the robot's one IMU message holds both; the encoders are drawn apart from the body velocity, which the
-    # robot's odom holds with them.
+    # where the robot's one IMU message holds both; the encoders hold with the body velocity, one reading, as the
+    # robot's odom does with them.
     imu_stuck_probability: float = 0.0001
     """Probability per step that an IMU term repeats its previous reading."""
 
@@ -552,7 +549,6 @@ def create_real_robot_contract() -> SimRealContractCfg:
             encoders=EncoderNoiseCfg(
                 enable_noise=True,
                 enable_quantization=True,
-                missed_tick_probability=0.001,
                 velocity_noise_std=0.02,
             ),
             depth_camera=DepthCameraNoiseCfg(
@@ -630,7 +626,6 @@ def create_robust_training_contract() -> SimRealContractCfg:
             encoders=EncoderNoiseCfg(
                 enable_noise=True,
                 enable_quantization=True,
-                missed_tick_probability=0.005,  # 5x typical
                 velocity_noise_std=0.05,  # 2.5x typical
             ),
             depth_camera=DepthCameraNoiseCfg(
@@ -771,8 +766,8 @@ def get_imu_gyro_noise(contract: SimRealContractCfg) -> IMUNoiseModelCfg | None:
 def get_encoder_noise(contract: SimRealContractCfg) -> EncoderNoiseModelCfg | None:
     """Get encoder velocity noise config from contract.
 
-    Returns EncoderNoiseModelCfg which generates independent noise per environment,
-    and includes quantization and tick error simulation.
+    Returns EncoderNoiseModelCfg, which applies the reported speed's lag and then independent noise per environment,
+    with quantization; the policy's body velocity takes the same reading (``get_body_velocity_noise``).
     """
     if not contract.sensors.encoders.enable_noise:
         return None
@@ -785,11 +780,18 @@ def get_encoder_noise(contract: SimRealContractCfg) -> EncoderNoiseModelCfg | No
         noise_cfg=GaussianNoiseCfg(std=contract.sensors.encoders.velocity_noise_std),
         enable_quantization=contract.sensors.encoders.enable_quantization,
         velocity_noise_std=contract.sensors.encoders.velocity_noise_std,
-        missed_tick_prob=contract.sensors.encoders.missed_tick_probability,
-        extra_tick_prob=contract.sensors.encoders.extra_tick_probability,
+        reported_speed_form=contract.sensors.encoders.reported_speed_form,
+        reported_speed_lag_s=contract.sensors.encoders.reported_speed_lag_s,
+        control_frequency_hz=contract.timing.control_frequency_hz,
         stuck_probability=stuck_prob,
         latency_steps=contract.timing.encoder_latency_steps,
     )
+
+
+def get_body_velocity_noise(contract: SimRealContractCfg) -> BodyVelocityNoiseModelCfg | None:
+    """The policy's body velocity as the kinematics of the encoders' reading (one chain), where the encoders are
+    noised; None where they are not."""
+    return BodyVelocityNoiseModelCfg() if contract.sensors.encoders.enable_noise else None
 
 
 def get_depth_noise(contract: SimRealContractCfg) -> DepthNoiseModelCfg | None:

@@ -23,12 +23,12 @@ import numpy as np
 import pytest
 
 from test_sim.common import (
-    CONFIDENCE_LEVEL,
     N_SAMPLES_STEPS,
     IMU_ACCEL_MAX,
     IMU_GYRO_MAX,
     variance_ratio_test,
 )
+from test_sim.noise_models.seeded_stream import CASE_ALPHA, CASE_CONFIDENCE, seeded_stream
 
 from test_sim.noise_models.conftest import (
     collect_stationary_observations,
@@ -127,6 +127,7 @@ else:
 # =============================================================================
 
 
+@seeded_stream(301)
 def test_accel_noise_std_matches_config(noisy_env):
     """Verify accelerometer noise std matches theoretical prediction.
 
@@ -134,14 +135,13 @@ def test_accel_noise_std_matches_config(noisy_env):
         Δy_t = drift_step + (v_t - v_{t-1})
         Var(Δy) = drift_rate² * dt + 2 * white_noise_std²
 
-    Statistical approach: chi-squared variance ratio test.
-
-    Note: uses 99% CI instead of the default 95%. With thousands of pooled
-    samples the chi-squared CI is extremely tight (~±1%), so even small
-    systematic effects (physics engine micro-vibrations, numerical precision)
-    cause consistent failures at 95%.
+    Statistical approach: chi-squared variance ratio test, at alpha 1e-6 on
+    its own stream. First differences are correlated at lag 1 (-1/2), so the
+    variance estimate's sampling variance is 1.5 times the independent one:
+    the interval uses n / 1.5 samples, which keeps the stated alpha. At
+    76 608 differences a sigma off by 1.95 % still fails (power 0.9).
     """
-    accel_confidence = 0.99
+    accel_confidence = CASE_CONFIDENCE
 
     obs = collect_stationary_observations(noisy_env, N_SAMPLES_STEPS)
     # Use first differences for clean theoretical prediction
@@ -152,7 +152,7 @@ def test_accel_noise_std_matches_config(noisy_env):
 
     # Chi-squared variance ratio test
     expected_var = ACCEL_DIFF_STD_THEORETICAL**2
-    result = variance_ratio_test(measured_var, expected_var, n_samples,
+    result = variance_ratio_test(measured_var, expected_var, round(n_samples / 1.5),
                                  confidence_level=accel_confidence)
 
     print(f"\n  Accelerometer first-difference analysis (chi-squared test):")
@@ -163,15 +163,16 @@ def test_accel_noise_std_matches_config(noisy_env):
     print(f"      Measured std(Δy): {measured_std:.6f}")
     print(f"      Theoretical std(Δy): {ACCEL_DIFF_STD_THEORETICAL:.6f}")
     print(f"      Variance ratio (measured/theoretical): {result.ratio:.4f}")
-    print(f"      {accel_confidence*100:.0f}% CI: [{result.ci_low:.4f}, {result.ci_high:.4f}]")
+    print(f"      CI at alpha {1 - accel_confidence:.0e}: [{result.ci_low:.4f}, {result.ci_high:.4f}]")
     print(f"    Result: Variance ratio {'is' if result.in_ci else 'is NOT'} within CI")
 
     assert result.in_ci, (
         f"Accelerometer variance ratio {result.ratio:.4f} not within "
-        f"{accel_confidence*100:.0f}% CI [{result.ci_low:.4f}, {result.ci_high:.4f}]"
+        f"the CI at alpha {1 - accel_confidence:.0e} [{result.ci_low:.4f}, {result.ci_high:.4f}]"
     )
 
 
+@seeded_stream(302)
 def test_gyro_noise_std_matches_config(noisy_env):
     """Verify gyroscope noise std matches theoretical prediction.
 
@@ -179,7 +180,11 @@ def test_gyro_noise_std_matches_config(noisy_env):
         Δy_t = drift_step + (v_t - v_{t-1})
         Var(Δy) = drift_rate² * dt + 2 * white_noise_std²
 
-    Statistical approach: chi-squared variance ratio test.
+    Statistical approach: chi-squared variance ratio test, at alpha 1e-6 on
+    its own stream. First differences are correlated at lag 1 (-1/2), so the
+    variance estimate's sampling variance is 1.5 times the independent one:
+    the interval uses n / 1.5 samples, which keeps the stated alpha. At
+    76 608 differences a sigma off by 1.95 % still fails (power 0.9).
     """
     obs = collect_stationary_observations(noisy_env, N_SAMPLES_STEPS)
 
@@ -191,7 +196,8 @@ def test_gyro_noise_std_matches_config(noisy_env):
 
     # Chi-squared variance ratio test
     expected_var = GYRO_DIFF_STD_THEORETICAL**2
-    result = variance_ratio_test(measured_var, expected_var, n_samples)
+    result = variance_ratio_test(measured_var, expected_var, round(n_samples / 1.5),
+                                 confidence_level=CASE_CONFIDENCE)
 
     print(f"\n  Gyroscope first-difference analysis (chi-squared test):")
     print(f"    Config values:")
@@ -201,12 +207,12 @@ def test_gyro_noise_std_matches_config(noisy_env):
     print(f"      Measured std(Δy): {measured_std:.6f}")
     print(f"      Theoretical std(Δy): {GYRO_DIFF_STD_THEORETICAL:.6f}")
     print(f"      Variance ratio (measured/theoretical): {result.ratio:.4f}")
-    print(f"      {CONFIDENCE_LEVEL*100:.0f}% CI: [{result.ci_low:.4f}, {result.ci_high:.4f}]")
+    print(f"      CI at alpha {CASE_ALPHA:.0e}: [{result.ci_low:.4f}, {result.ci_high:.4f}]")
     print(f"    Result: Variance ratio {'is' if result.in_ci else 'is NOT'} within CI")
 
     assert result.in_ci, (
         f"Gyroscope variance ratio {result.ratio:.4f} not within "
-        f"{CONFIDENCE_LEVEL*100:.0f}% CI [{result.ci_low:.4f}, {result.ci_high:.4f}]"
+        f"the CI at alpha {CASE_ALPHA:.0e} [{result.ci_low:.4f}, {result.ci_high:.4f}]"
     )
 
 

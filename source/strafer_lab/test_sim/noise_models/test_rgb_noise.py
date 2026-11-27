@@ -21,6 +21,7 @@ from test_sim.common import (
     chi_squared_variance_test,
     DEVICE,
 )
+from test_sim.noise_models.seeded_stream import CASE_CONFIDENCE, seeded_stream
 
 # -- imports resolved after AppLauncher (root conftest) --
 from strafer_lab.tasks.navigation.mdp.noise_models import RGBNoiseModel, RGBNoiseModelCfg
@@ -55,17 +56,20 @@ def _make_rgb_model(
 # =============================================================================
 
 
+@seeded_stream(601)
 def test_pixel_noise_std():
     """Verify pixel noise variance matches configured std.
 
     Uses chi-squared variance test with brightness fixed at 1.0
     so the only noise source is the per-pixel Gaussian.
-    Data is flattened to (N_ENVS, pixels) as required by the model.
+    Data is flattened to (N_ENVS, pixels) as required by the model. Tested
+    at alpha 1e-6 on its own stream: at 5 000 samples a sigma off by 6.3 %
+    still fails (power 0.9).
     """
     model = _make_rgb_model(brightness_range=(1.0, 1.0))
 
     # Use fewer samples for chi-squared to accommodate float32 GPU precision.
-    # At 5 000 df the 95 % CI is ≈ ±4 %, wide enough for float32 noise.
+    # At 5 000 df the interval at alpha 1e-6 is about ±10 % on the variance.
     n_chi2 = 5_000
     # Mid-gray image avoids clamping at 0 or 1
     clean = torch.full((N_ENVS, N_PIXELS), 0.5, device=DEVICE)
@@ -77,7 +81,7 @@ def test_pixel_noise_std():
         samples.append(noisy[0, 0].cpu().item() - 0.5)
 
     samples = np.array(samples)
-    result = chi_squared_variance_test(samples, TEST_PIXEL_NOISE_STD**2)
+    result = chi_squared_variance_test(samples, TEST_PIXEL_NOISE_STD**2, confidence_level=CASE_CONFIDENCE)
 
     print(f"\n  RGB pixel noise variance test:")
     print(f"    Expected std: {TEST_PIXEL_NOISE_STD}")

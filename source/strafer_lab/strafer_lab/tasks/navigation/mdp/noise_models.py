@@ -2,7 +2,7 @@
 
 Implements realistic sensor noise models that go beyond simple Gaussian noise:
 - IMU: bias drift, temperature effects
-- Encoders: quantization, missed ticks
+- Encoders: the reported speed's lag, quantization
 - Cameras: depth-dependent noise, holes, dropped frames
 - Observation latency: per-sensor delay buffers
 
@@ -16,6 +16,8 @@ attribute is properly set when the Cfg is instantiated.
 
 from __future__ import annotations
 
+import math
+
 import torch
 from collections.abc import Sequence
 from typing import TYPE_CHECKING
@@ -24,7 +26,10 @@ from isaaclab.utils.noise import NoiseModel
 from isaaclab.utils.configclass import configclass
 from isaaclab.utils.noise import NoiseModelCfg, GaussianNoiseCfg
 
-from strafer_shared.constants import DEPTH_HEIGHT, DEPTH_NEARFIELD_FILL, DEPTH_WIDTH
+from strafer_shared.constants import (
+    DEPTH_HEIGHT, DEPTH_NEARFIELD_FILL, DEPTH_WIDTH, ENCODER_TICKS_TO_RADIANS, POLICY_PERIOD_S,
+)
+from strafer_shared.mecanum_kinematics import INVERSE_KINEMATIC_MATRIX
 
 from .hold_process import HoldProcess
 
@@ -340,21 +345,26 @@ class IMUNoiseModelCfg(NoiseModelCfg):
 # =============================================================================
 
 class EncoderNoiseModel(NoiseModel):
-    """Encoder noise model with quantization, tick errors, and failure modes.
+    """Encoder noise model: the reported speed's lag, noise, quantization and failure modes.
 
-    Models realistic encoder behavior:
-    - Quantization to discrete ticks
-    - Random missed/extra ticks
+    Models the wheel speed the robot reports:
+    - The reported speed's lag behind the wheel (``ReportedSpeedLag``), off at a lag of 0
     - Velocity estimation noise
+    - Quantization to discrete ticks
     - A stuck encoder, which repeats its previous reading
+
+    Its output is the one wheel-speed reading of the control step: it keeps it as ``last_output`` and offers itself to
+    the ``BodyVelocityNoiseModel`` built next in the same observation group, whose body velocity is the kinematics of
+    this reading, as the robot's odom is of the speeds its ``joint_states`` carry.
     """
 
     def __init__(self, noise_model_cfg, num_envs: int, device: str):
         super().__init__(noise_model_cfg, num_envs, device)
         self.cfg = noise_model_cfg
-
-        # Track accumulated tick errors for position observations
-        self._tick_error_accumulator = None
+        self._lag = ReportedSpeedLag(noise_model_cfg.reported_speed_form, noise_model_cfg.reported_speed_lag_s, num_envs,
+                                     noise_model_cfg.output_size, 1.0 / noise_model_cfg.control_frequency_hz, device)
+        self.last_output: torch.Tensor | None = None
+        _offer_wheel_reading(self)
 
         # The previous reading a stuck encoder repeats, and whether each env has one since its last reset
         self._prev_output = None
@@ -366,52 +376,32 @@ class EncoderNoiseModel(NoiseModel):
         ) if self.cfg.latency_steps > 0 else None
 
     def reset(self, env_ids: Sequence[int] | None = None):
-        """Reset tick error accumulator and delay buffer, and forget the previous reading."""
+        """Reset the lag and the delay buffer, and forget the previous reading."""
         self._has_prev[slice(None) if env_ids is None else env_ids] = False
-        if self._tick_error_accumulator is not None:
-            if env_ids is None:
-                self._tick_error_accumulator.zero_()
-            else:
-                self._tick_error_accumulator[env_ids] = 0.0
+        self._lag.reset(None if env_ids is None else torch.as_tensor(env_ids, device=self._device))
 
         # Reset delay buffer
         if self._delay_buffer is not None:
             self._delay_buffer.reset(env_ids)
 
     def __call__(self, data: torch.Tensor) -> torch.Tensor:
-        """Apply encoder noise: quantization + tick errors + noise + failures.
+        """Apply the reported speed's lag, then encoder noise: velocity noise + quantization + failures.
 
         Expects RAW input data in ticks/sec (not normalized).
         Noise is applied in physical units for realism.
 
-        Pipeline: raw obs → noise → scale (normalize) → clip
+        Pipeline: raw obs → noise → clip → scale; the observation manager clips and scales the return in place.
 
         Failure mode:
         - stuck_probability: the encoders repeat their previous reading (on an env's first step after a reset there
           is none, and the current reading passes)
         """
-        noisy_data = data.clone()
-
-        # Initialize accumulator if needed
-        if self._tick_error_accumulator is None:
-            self._tick_error_accumulator = torch.zeros_like(data)
+        noisy_data = self._lag(data).clone()
 
         # Add velocity noise (Gaussian) in raw ticks/sec
         # velocity_noise_std is a fraction, so actual std = fraction * max_velocity
         noise_std = self.cfg.velocity_noise_std * self.cfg.max_velocity
         noisy_data = noisy_data + torch.randn_like(data) * noise_std
-
-        # Simulate missed/extra ticks (random discrete errors)
-        # Each tick error is ±1 tick/timestep in raw units
-        if self.cfg.missed_tick_prob > 0:
-            missed = torch.rand_like(data) < self.cfg.missed_tick_prob
-            tick_sign = torch.sign(noisy_data)
-            noisy_data = torch.where(missed, noisy_data - tick_sign, noisy_data)
-
-        if self.cfg.extra_tick_prob > 0:
-            extra = torch.rand_like(data) < self.cfg.extra_tick_prob
-            tick_sign = torch.sign(noisy_data)
-            noisy_data = torch.where(extra, noisy_data + tick_sign, noisy_data)
 
         # Quantization (round to nearest tick)
         if self.cfg.enable_quantization:
@@ -431,6 +421,7 @@ class EncoderNoiseModel(NoiseModel):
         if self._delay_buffer is not None:
             noisy_data = self._delay_buffer(noisy_data)
 
+        self.last_output = noisy_data.clone()  # the manager scales the returned tensor in place
         return noisy_data
 
 
@@ -442,15 +433,21 @@ class EncoderNoiseModelCfg(NoiseModelCfg):
 
     # Quantization
     enable_quantization: bool = True
-    ticks_per_radian: float = 85.57  # 537.7 PPR / 2π
 
     # Noise
     velocity_noise_std: float = 0.02  # Fraction of max velocity
     max_velocity: float = 3000.0  # Max ticks/sec (312 RPM ≈ 2796 ticks/s + margin)
 
-    # Errors
-    missed_tick_prob: float = 0.001
-    extra_tick_prob: float = 0.0005
+    # The reported speed's lag, applied before the noise by the shared wheel reading
+    reported_speed_form: str = "first_order"
+    """The lag's form: "first_order" (a filter whose 63 % rise time is the parameter), "delay" (a pure delay) or
+    "window" (a moving average over the parameter's span)."""
+
+    reported_speed_lag_s: float = 0.0
+    """The lag's parameter in seconds (the time constant, the delay, or the window's span); 0 = no lag."""
+
+    control_frequency_hz: float = 1.0 / POLICY_PERIOD_S
+    """The rate the observation is computed at, to convert the lag's seconds to steps."""
 
     # Failure mode (for robustness training)
     stuck_probability: float = 0.0
@@ -965,3 +962,98 @@ class RGBNoiseModelCfg(NoiseModelCfg):
     # Observation latency
     latency_steps: int = 1
     """Observation latency in control steps. 1 = one step delay (default for cameras)."""
+
+
+# =============================================================================
+# The shared wheel reading
+# =============================================================================
+
+REPORTED_SPEED_FORMS = ("first_order", "delay", "window")
+
+
+class ReportedSpeedLag:
+    """The lag of the wheel speed the robot reports behind the wheel's own speed, per env, in one of three forms.
+
+    The parameter is in seconds and is converted at the control step, so it means the same at any decimation: a
+    first-order filter with alpha = 1 - exp(-dt / lag), a delay of round(lag / dt) steps, or a moving average over
+    max(1, round(lag / dt)) steps. A lag of 0 is the identity. An env's first reading after a reset seeds the state,
+    so the lag starts from the wheel's speed, not from zero.
+    """
+
+    def __init__(self, form: str, lag_s: float, num_envs: int, width: int, step_dt: float, device):
+        if form not in REPORTED_SPEED_FORMS:
+            raise ValueError(f"reported_speed_form {form!r} is not one of {REPORTED_SPEED_FORMS}")
+        if lag_s < 0:
+            raise ValueError(f"reported_speed_lag_s {lag_s} is negative")
+        self.form = form
+        self.enabled = lag_s > 0
+        self._fresh = torch.ones(num_envs, dtype=torch.bool, device=device)
+        if not self.enabled:
+            return
+        if form == "first_order":
+            self._alpha = -math.expm1(-step_dt / lag_s)
+            self._state = torch.zeros(num_envs, width, device=device)
+        else:
+            steps = round(lag_s / step_dt)
+            self._length = max(1, steps) if form == "window" else steps + 1
+            self._history = torch.zeros(num_envs, self._length, width, device=device)
+
+    def reset(self, env_ids: torch.Tensor | None = None) -> None:
+        self._fresh[slice(None) if env_ids is None else env_ids] = True
+
+    def __call__(self, x: torch.Tensor) -> torch.Tensor:
+        if not self.enabled:
+            return x
+        fresh = self._fresh
+        if self.form == "first_order":
+            self._state = torch.where(fresh.unsqueeze(-1), x, self._state + self._alpha * (x - self._state))
+            out = self._state
+        else:
+            self._history = torch.roll(self._history, shifts=1, dims=1)
+            self._history[:, 0] = x
+            self._history[fresh] = x[fresh].unsqueeze(1).expand(-1, self._length, -1)
+            out = self._history[:, -1] if self.form == "delay" else self._history.mean(dim=1)
+        self._fresh = torch.zeros_like(fresh)
+        return out.clone()
+
+
+_OFFERED_WHEEL_READING: list = []
+
+
+def _offer_wheel_reading(model: "EncoderNoiseModel") -> None:
+    """Offer the encoder model just built to the body-velocity model built next in the same observation group."""
+    _OFFERED_WHEEL_READING[:] = [model]
+
+
+class BodyVelocityNoiseModel(NoiseModel):
+    """The body velocity of the control step's one wheel-speed reading: the mecanum kinematics of the output of the
+    ``EncoderNoiseModel`` built just before it in the same observation group, so the encoder and body-velocity terms
+    carry one noise chain, as on the robot. It takes the encoder model on construction and releases the offer, so a
+    group without an encoder model before it fails to build."""
+
+    def __init__(self, noise_model_cfg, num_envs: int, device: str):
+        super().__init__(noise_model_cfg, num_envs, device)
+        if not _OFFERED_WHEEL_READING:
+            raise RuntimeError("BodyVelocityNoiseModel needs the group's wheel_encoder_velocities term, with an "
+                               "EncoderNoiseModel, before it")
+        source = _OFFERED_WHEEL_READING.pop()
+        if source._num_envs != num_envs or str(source._device) != str(device):
+            raise RuntimeError("BodyVelocityNoiseModel's encoder model belongs to another env")
+        self._source = source
+        self._inverse_k = torch.as_tensor(INVERSE_KINEMATIC_MATRIX, dtype=torch.float32, device=device)
+
+    def __call__(self, data: torch.Tensor) -> torch.Tensor:
+        ticks = self._source.last_output
+        if ticks is None:
+            return data
+        wheel_rad_s = ticks * ENCODER_TICKS_TO_RADIANS
+        return (wheel_rad_s @ self._inverse_k.T.to(wheel_rad_s.dtype))[:, :2]
+
+
+@configclass
+class BodyVelocityNoiseModelCfg(NoiseModelCfg):
+    """The body velocity of the group's one wheel-speed reading (``BodyVelocityNoiseModel``); it adds no noise of its
+    own."""
+
+    class_type: type = BodyVelocityNoiseModel
+    noise_cfg: GaussianNoiseCfg = GaussianNoiseCfg(std=0.0)

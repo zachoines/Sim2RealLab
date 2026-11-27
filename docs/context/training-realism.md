@@ -4,7 +4,7 @@ Navigation training perturbs the actuation, the sensors and the world on one of 
 `RealismCfg(level=...)` ([`composed_env_cfg.py`](../../source/strafer_lab/strafer_lab/tasks/navigation/composed_env_cfg.py)):
 `ideal` (nothing), `real` (the realistic tier) and `robust`. The action term, the sensor noise and the subgoal-frame
 drift come from the tier contracts `IDEAL_SIM_CONTRACT`, `REAL_ROBOT_CONTRACT` and `ROBUST_TRAINING_CONTRACT`
-([`sim_real_cfg.py:692-694`](../../source/strafer_lab/strafer_lab/tasks/navigation/sim_real_cfg.py#L692)); friction,
+([`sim_real_cfg.py:687-689`](../../source/strafer_lab/strafer_lab/tasks/navigation/sim_real_cfg.py#L687)); friction,
 mass, motor strength, the mount angle, the room and the lookahead bands are per-tier values in
 [`strafer_env_cfg.py`](../../source/strafer_lab/strafer_lab/tasks/navigation/strafer_env_cfg.py), and the re-render is
 set per sensor stack in `composed_env_cfg.py`. Every RL ID trains on `real` unless it is named `…-Robust-…`;
@@ -47,11 +47,11 @@ per control step to the policy's observation.
 
 | perturbation | ideal | real | robust | models | basis |
 |---|---|---|---|---|---|
-| [IMU noise](../../source/strafer_lab/strafer_lab/tasks/navigation/mdp/noise_models.py#L182) | off | white, σ 0.0537 m/s² and 0.00131 rad/s per sample (density 0.0098 m/s²/√Hz and 0.00024 rad/s/√Hz × √(30 Hz)); initial bias ±0.04 m/s², ±0.0017 rad/s; bias random walk 0.001 m/s² and 0.0001 rad/s per √s, clamped at twice the initial-bias band | σ 0.0822 and 0.00197 (density 0.015 and 0.00036); bias ±0.06, ±0.0025; walk 0.001 and 0.0001 | the D555's IMU, read once per control tick | the density the code gives for the BMI055, converted at the policy rate; the bias values unknown |
+| [IMU noise](../../source/strafer_lab/strafer_lab/tasks/navigation/mdp/noise_models.py#L187) | off | white, σ 0.0537 m/s² and 0.00131 rad/s per sample (density 0.0098 m/s²/√Hz and 0.00024 rad/s/√Hz × √(30 Hz)); initial bias ±0.04 m/s², ±0.0017 rad/s; bias random walk 0.001 m/s² and 0.0001 rad/s per √s, clamped at twice the initial-bias band | σ 0.0822 and 0.00197 (density 0.015 and 0.00036); bias ±0.06, ±0.0025; walk 0.001 and 0.0001 | the D555's IMU, read once per control tick | the density the code gives for the BMI055, converted at the policy rate; the bias values unknown |
 | IMU and encoder latency | off | none | 1 control step | the age of a reading at the policy | design |
-| [Wheel encoder noise](../../source/strafer_lab/strafer_lab/tasks/navigation/mdp/noise_models.py#L342) | off | σ 0.02 of 3000 ticks/s; a missed tick 0.001, an extra 0.0005, each moving the reading by one tick/s; integer ticks/s | σ 0.05; missed 0.005; extra 0.0005 | the quadrature encoders' speed estimate | design |
-| Sensor dropouts | off | none | per control step: each IMU channel (accelerometer, gyroscope) repeats its last reading 2e-4; the encoders repeat theirs 1e-4; a failed depth frame repeats the previous one, within the frame drop | a sensor that stops reporting: each IMU channel and the encoders repeat their last reading, as a held source does on the robot. On the robot the IMU's channels hold together, and the encoders with the body velocity, which training draws apart or not at all; past the node's timeout the robot stops, which training does not model | design |
-| [Depth disparity noise](../../source/strafer_lab/strafer_lab/tasks/navigation/mdp/noise_models.py#L476) | off | σ_d 0.08 px, independent per 80×45 cell after the block median, scaled to depth as σ_z = z²·σ_d / (f·B) with f 673 px and B 0.095 m: 1.25 mm at 1 m, 5.01 mm at 2 m, 45.0 mm at 6 m | σ_d per env, log-uniform on [0.002, 0.16] px | the D555's stereo depth error | design, from a literature range (not a D555 figure); its amplitude checked against the real unit; the robust band is design |
+| [Wheel encoder noise](../../source/strafer_lab/strafer_lab/tasks/navigation/mdp/noise_models.py#L347) | off | σ 0.02 of 3000 ticks/s; integer ticks/s; one reading per control step, which the body velocity is the kinematics of; the reported speed's lag off | σ 0.05 | the quadrature encoders' speed as the motor controller reports it: `joint_states` and odom carry the same reading | design |
+| Sensor dropouts | off | none | per control step: each IMU channel (accelerometer, gyroscope) repeats its last reading 2e-4; the encoders repeat theirs 1e-4; a failed depth frame repeats the previous one, within the frame drop | a sensor that stops reporting: each IMU channel and the encoders repeat their last reading, as a held source does on the robot. The encoders and the body velocity hold together, one reading, as on the robot; the IMU's channels are drawn apart, where the robot's one message holds both; past the node's timeout the robot stops, which training does not model | design |
+| [Depth disparity noise](../../source/strafer_lab/strafer_lab/tasks/navigation/mdp/noise_models.py#L473) | off | σ_d 0.08 px, independent per 80×45 cell after the block median, scaled to depth as σ_z = z²·σ_d / (f·B) with f 673 px and B 0.095 m: 1.25 mm at 1 m, 5.01 mm at 2 m, 45.0 mm at 6 m | σ_d per env, log-uniform on [0.002, 0.16] px | the D555's stereo depth error | design, from a literature range (not a D555 figure); its amplitude checked against the real unit; the robust band is design |
 | Depth holes and lost frames | off | holes on 0.01 of cells, independent, each filled with the median of its valid neighbouring cells (the near fill where none is valid); a frame lost (the previous frame repeated) 0.001 | 0.03; 0.011, a failed frame included | invalid pixels and dropped frames. The deploy node instead writes an invalid pixel as the far clamp before the 8×8 block median, so a mostly invalid block reads far | design |
 | Depth stream hold | off | a fraction U(0, 0.35) of ticks, in runs of mean U(1, 1.6) ticks, both drawn per env at each reset | same | depth arriving slower than the 30 Hz tick, the node reusing its last frame | design: a band chosen around the arrival rate of the sim-in-the-loop rig's sessions, not set from a robot-side statistic |
 | Depth latency | off | 0–2 control steps, drawn per env at each reset | 1–3 | the age of the depth frame at the policy | design: a per-env spread centred on one control step (two on `robust`); not measured as the age at the policy |
@@ -63,10 +63,7 @@ per control step to the policy's observation.
 | [Path and lookahead](../../source/strafer_lab/strafer_lab/tasks/navigation/mdp/commands.py#L668) | no subgoal ID | subgoal IDs only: waypoint noise 0.025 m; lookahead U(0.9, 1.1) m | subgoal IDs only: waypoint noise 0.025 m; lookahead U(0.7, 1.3) m | the deployed planner's path and lookahead | design |
 
 Not applied on any tier: RGB noise (no registered ID observes RGB), depth quantization and temporal noise, lens
-distortion, body-velocity noise, wheel-odometry drift and TF staleness. Declared, not applied:
-`velocity_quantization_ticks_per_step`
-([`sim_real_cfg.py:225`](../../source/strafer_lab/strafer_lab/tasks/navigation/sim_real_cfg.py#L225)) and the
-encoder noise model's `ticks_per_radian`.
+distortion, wheel-odometry drift and TF staleness.
 
 ## The world
 

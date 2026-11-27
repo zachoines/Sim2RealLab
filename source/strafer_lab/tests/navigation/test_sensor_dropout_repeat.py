@@ -8,7 +8,8 @@ emitted reading bit for bit, never zeros; a reset forgets the previous reading, 
 the current reading. The depth model has no failure mode: a failed frame is a dropped one, which repeats the previous
 frame and never reads all far. The composed cfgs carry the stated rates and none of the removed fields. The real tier's
 IMU and encoder models are pinned to the bits frozen here, so an added random draw on that tier fails. (On the robot the
-IMU's two channels hold together, and the encoders with the body velocity; training draws them apart.)
+IMU's two channels hold together, where training draws them apart; the encoders and the body velocity are one reading in
+both.)
 
 No Kit / GPU. Run with the pure-Python lab tests.
 """
@@ -144,8 +145,8 @@ REAL_FINGERPRINTS = {
     (ACC, "avx2"): "bedd48d007eace53f40b0173e7317c8104fded739f60d4050d1b3c20c140494e",
     (GYR, "scalar"): "ebaf4fd31b20ea714c3a70885303f4c746e4ebecbb6f459975022f8098c3d4c3",
     (GYR, "avx2"): "ebaf4fd31b20ea714c3a70885303f4c746e4ebecbb6f459975022f8098c3d4c3",
-    (ENC, "scalar"): "819741b6b50fd10123ec59c40e661f39b78315837ed94baf013e340d43ab9ccc",
-    (ENC, "avx2"): "819741b6b50fd10123ec59c40e661f39b78315837ed94baf013e340d43ab9ccc",
+    (ENC, "scalar"): "2080ec6f506f789d4f49aac076dd3e0936d78a8b9369aa56a78ce03e6bd4d1a4",
+    (ENC, "avx2"): "2080ec6f506f789d4f49aac076dd3e0936d78a8b9369aa56a78ce03e6bd4d1a4",
 }
 
 

@@ -139,7 +139,7 @@ def test_accel_noise_std_matches_config(noisy_env):
     its own stream. First differences are correlated at lag 1 (-1/2), so the
     variance estimate's sampling variance is 1.5 times the independent one:
     the interval uses n / 1.5 samples, which keeps the stated alpha. At
-    76 608 differences a sigma off by 1.9 % still fails (power 0.9).
+    76 608 differences a sigma off by 1.95 % still fails (power 0.9).
     """
     accel_confidence = CASE_CONFIDENCE
 
@@ -184,7 +184,7 @@ def test_gyro_noise_std_matches_config(noisy_env):
     its own stream. First differences are correlated at lag 1 (-1/2), so the
     variance estimate's sampling variance is 1.5 times the independent one:
     the interval uses n / 1.5 samples, which keeps the stated alpha. At
-    76 608 differences a sigma off by 1.9 % still fails (power 0.9).
+    76 608 differences a sigma off by 1.95 % still fails (power 0.9).
     """
     obs = collect_stationary_observations(noisy_env, N_SAMPLES_STEPS)
 

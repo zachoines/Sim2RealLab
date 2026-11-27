@@ -557,6 +557,10 @@ class _ComposedStraferNavEnvCfg(base._BaseStraferNavEnvCfg):
             }.get(level)
             if _lookahead_band is not None:
                 self.commands.goal_command.lookahead_randomization_m = _lookahead_band
+            self.commands.goal_command.replan_period_s = {
+                "real": base._SUBGOAL_REAL_REPLAN_PERIOD_S,
+                "robust": base._SUBGOAL_ROBUST_REPLAN_PERIOD_S,
+            }.get(level)
         else:
             self.commands = _COMMANDS_BY_SOURCE[kind]()
             self.rewards = _REWARDS_BY_SOURCE[kind]()

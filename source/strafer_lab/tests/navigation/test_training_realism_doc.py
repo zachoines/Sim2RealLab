@@ -578,11 +578,14 @@ def _():
         p = _event(t, "randomize_subgoal_drift")
         if p is None:
             return OFF
-        assert p["jump_rate_hz"] == 0.0  # the row describes no jumps
-        return [*p["gain_range"], p["position_rms_m"], p["heading_sigma_deg"], p["tau_s"]]
+        assert _event(t, "randomize_tf_age") is None, t  # the row: the TF-age delay built, off
+        return [*p["gain_range"], p["position_rms_m"], p["heading_sigma_deg"], p["tau_s"],
+                p["jump_rate_hz"], *p["jump_position_range_m"], *p["jump_heading_range_deg"]]
     for name, cfg in _composed().items():  # "on the goal-objective IDs it moves the goal"
         if name.startswith("StraferNavCfg_RL") and cfg.objective.kind == "goal":
             assert getattr(cfg.events, "randomize_subgoal_drift", None) is not None, name
+        if cfg.objective.kind == "subgoal":
+            assert cfg.commands.goal_command.replan_period_s is None, name  # the row: the replan built, off
     return {**_tiers(cell), "models": [], "basis": []}
 
 
@@ -778,7 +781,7 @@ EVENT_ROWS = {
     "randomize_difficulty": "Room", "generate_room": "Room", "reset_robot": "Spawn and goal",
     "randomize_friction": "Friction", "randomize_mass": "Mass", "randomize_motor_strength": "Motor strength",
     "randomize_d555_mount": "Mount misalignment", "jitter_d555_camera_prim": "Mount misalignment",
-    "randomize_subgoal_drift": "Subgoal-frame drift",
+    "randomize_subgoal_drift": "Subgoal-frame drift", "randomize_tf_age": "Subgoal-frame drift",
 }
 
 
@@ -896,7 +899,8 @@ COMMAND_FIELDS = {
     "multi_goal": STRUCTURAL, "goal_reach_threshold": STRUCTURAL, "goal_reach_cooldown_s": STRUCTURAL,
     "spawn_points_xy": STRUCTURAL, "goal_sphere_visualizer_cfg": STRUCTURAL, "goal_heading_visualizer_cfg": STRUCTURAL,
     "goal_range": "Spawn and goal", "lookahead_m": "Path and lookahead",
-    "lookahead_randomization_m": "Path and lookahead", "max_goal_attempts": STRUCTURAL, "path_spacing_m": STRUCTURAL,
+    "lookahead_randomization_m": "Path and lookahead", "replan_period_s": "Subgoal-frame drift",
+    "max_goal_attempts": STRUCTURAL, "path_spacing_m": STRUCTURAL,
     "waypoint_noise_std_m": "Path and lookahead", "dwell_radius_m": STRUCTURAL, "dwell_speed_max_m_s": STRUCTURAL,
     "dwell_steps": STRUCTURAL, "max_path_points": STRUCTURAL, "subgoal_sphere_visualizer_cfg": STRUCTURAL,
     "subgoal_heading_visualizer_cfg": STRUCTURAL, "path_points_visualizer_cfg": STRUCTURAL,
@@ -980,14 +984,14 @@ ANCHORS = {
     "actions.py#L254": "_max_delta_per_step", "actions.py#L395": "torch.expm1(",
     "actions.py#L304": "def _draw_speed_scale",
     "actions.py#L451": "l1_clamp_twist_batched(", "actions.py#L572": "max_wheel_angular_vel",
-    "events.py#L468": "def randomize_motor_strength", "events.py#L519": "def randomize_d555_mount_offset",
-    "events.py#L421": "def randomize_subgoal_drift", "events.py#L175": "class randomize_wheel_grip(",
-    "events.py#L359": "def randomize_mass", "events.py#L657": "def reset_robot_proc_room",
+    "events.py#L495": "def randomize_motor_strength", "events.py#L546": "def randomize_d555_mount_offset",
+    "events.py#L422": "def randomize_subgoal_drift", "events.py#L176": "class randomize_wheel_grip(",
+    "events.py#L360": "def randomize_mass", "events.py#L684": "def reset_robot_proc_room",
     "noise_models.py#L187": "class IMUNoiseModel(", "noise_models.py#L353": "class EncoderNoiseModel(",
     "noise_models.py#L479": "class DepthNoiseModel(",
     "observations.py#L45": "def reduce_depth_to_policy_grid", "d555_cfg.py#L145": "focal_length=",
-    "composed_env_cfg.py#L572": "num_rerenders_on_reset = 1", "commands.py#L668": "perturb_waypoints(",
-    "proc_room.py#L990": "def generate_proc_room", "sim_real_cfg.py#L714": "IDEAL_SIM_CONTRACT",
+    "composed_env_cfg.py#L576": "num_rerenders_on_reset = 1", "planner.py#L251": "def perturb_waypoints(",
+    "proc_room.py#L990": "def generate_proc_room", "sim_real_cfg.py#L749": "IDEAL_SIM_CONTRACT",
 }
 
 

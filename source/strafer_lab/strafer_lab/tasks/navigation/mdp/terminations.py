@@ -187,7 +187,7 @@ def path_time_out_limit(
     """
     base = env.max_episode_length
     command = env.command_manager.get_term(command_name)
-    arc = command.path_cursor.total_arc
+    arc = command.path_arc  # the reset plan's, which a replan leaves
     action_term = env.action_manager.get_term(action_name)
     if getattr(action_term.cfg, "speed_scale_range", None) is None:
         stretch = torch.ones_like(arc)
@@ -215,7 +215,7 @@ def path_time_out(
 
     Args:
         env: The environment instance.
-        command_name: Name of the subgoal command term (its ``path_cursor.total_arc`` is L, its ``path_turning`` K).
+        command_name: Name of the subgoal command term (its ``path_arc`` is L, its ``path_turning`` K).
         action_name: Name of the action term (its ``speed_scale`` is s when its cfg sets ``speed_scale_range``).
         intercept_s: Seconds the limit allows at zero arc and no turning.
         time_per_m_s: Seconds the limit adds per metre of arc.

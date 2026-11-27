@@ -348,18 +348,21 @@ lengths, not just its mean latency: a stream that averages 25 Hz by alternating
 The goal-shaped observations — relative offset, range, signed bearing — are read
 through the SLAM frame on the robot, and that frame moves. `LocalizationDriftCfg`
 randomizes it as a correlated SE(2) walk: a per-environment gain over the
-measured 0.166 m / 6.7° class, `(0.0, 0.5)` on Realistic and `(0.0, 1.25)` on
-Robust, with a 2.0 s correlation time. All four dims are recomputed from one
+measured 0.166 m / 6.7° class, `(0.0, 0.5)` on Realistic and on Robust, with a
+2.0 s correlation time. All four dims are recomputed from one
 perturbed vector, so the policy never sees an offset, a range and a bearing that
 no geometry can produce together, and the privileged critic still reads the true
 referent.
 
-Measure this as the movement of `map→odom` itself, not as a position error
-against ground truth: what matters to the policy is how far and how fast the
-frame it reads through wanders. Two numbers are still open and both come from
+Measure this at the robot, not as a position error against ground truth and
+not as the movement of `map→odom` itself: size each change as
+|T_after·o − T_prev·o|, with o the robot's position in `odom`, together with the
+yaw change of `map→odom`. What matters to the policy is how far and how fast the
+frame it reads through moves at the robot; the transform's own step differs from
+that by up to 2r·sin(Δψ/2) at a distance r from the odom origin. Two numbers are still open and both come from
 the same log — the correlation time (shipped as a 2.0 s assumption) and the
 loop-closure jump distribution. Closure snaps are a second error class this
-config carries as a Poisson term, shipped with its rate and magnitude at zero
+config carries as a Poisson term, at design values on Realistic and Robust
 until that log exists.
 
 ---

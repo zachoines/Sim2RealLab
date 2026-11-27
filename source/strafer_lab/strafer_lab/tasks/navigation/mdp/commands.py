@@ -553,11 +553,14 @@ class SubgoalCommand(CommandTerm):
         self._distance_to_subgoal = torch.zeros(env.num_envs, device=device)
         # 1.0 on envs whose last plan fell back to a straight segment.
         self._path_fallback = torch.zeros(env.num_envs, device=device)
-        # Total turning (rad) of each env's planned path, measured before the
-        # waypoint perturbation on the part the cursor installs; 0 on a
-        # straight-segment fallback. A plain buffer, not a metric: it is state
-        # the time-out term reads, not a logged statistic.
+        # Total turning (rad) of each env's reset plan, measured before the
+        # waypoint perturbation on the part the cursor installs at reset; 0 on
+        # a straight-segment fallback. A replan leaves it. A plain buffer, not a
+        # metric: it is state the time-out term reads, not a logged statistic.
         self._path_turning = torch.zeros(env.num_envs, device=device)
+        # The reset plan's arc length (m), held as the turning is: a replan installs a shorter path from the robot's
+        # position, and the episode's time-out is the reset plan's.
+        self._path_arc = torch.zeros(env.num_envs, device=device)
 
         # Per-env lookahead distance. Constant at ``lookahead_m`` unless
         # ``lookahead_randomization_m`` is set, in which case it is resampled
@@ -565,6 +568,13 @@ class SubgoalCommand(CommandTerm):
         # the base reset() zeros every metric tensor, which would wipe the
         # lookahead the same step it is sampled.
         self._lookahead = torch.full((env.num_envs,), cfg.lookahead_m, device=device)
+
+        # Each env's goal in its local frame, kept so a replan can re-plan to it; and the periodic replan's state.
+        self._goal_local = np.zeros((env.num_envs, 2), dtype=np.float32)
+        self._replan_steps = None
+        if cfg.replan_period_s is not None:
+            self._replan_steps = max(1, int(round(cfg.replan_period_s / env.step_dt)))
+        self._steps_since_plan = torch.zeros(env.num_envs, dtype=torch.long, device=device)
 
         # Waypoint-noise / lookahead RNG, seeded from the torch seed for
         # reproducibility.
@@ -594,8 +604,13 @@ class SubgoalCommand(CommandTerm):
         return self._path_cursor
 
     @property
+    def path_arc(self) -> torch.Tensor:
+        """Each env's reset plan's arc length in metres, shape (num_envs,)."""
+        return self._path_arc
+
+    @property
     def path_turning(self) -> torch.Tensor:
-        """Each env's planned path's total turning in radians, shape (num_envs,)."""
+        """Each env's reset plan's total turning in radians, shape (num_envs,)."""
         return self._path_turning
 
     """
@@ -675,8 +690,11 @@ class SubgoalCommand(CommandTerm):
                 )
 
             paths_world.append(torch.as_tensor(path + origins_np[k], dtype=torch.float32))
+            self._goal_local[env_idx] = goal
 
         self._path_cursor.set_paths(env_ids, paths_world)
+        self._path_arc[env_ids] = self._path_cursor.total_arc[env_ids]
+        self._steps_since_plan[env_ids] = 0
 
         # Resample the per-env lookahead distance when randomization is on, so
         # the policy learns to track a subgoal at any distance in the band
@@ -703,10 +721,52 @@ class SubgoalCommand(CommandTerm):
         self._subgoal[env_ids, 2] = state.subgoal_heading
         self.cross_track_error[env_ids] = state.cross_track
 
+    def _replan(self, robot_xy_w: torch.Tensor) -> None:
+        """Re-plan each due env's path from the robot's current position to its episode's goal, with the reset's
+        planner and waypoint perturbation; an env whose plan fails keeps its path. The path's turning, which the
+        time-out reads, stays the reset plan's."""
+        self._steps_since_plan += 1
+        due = torch.nonzero(self._steps_since_plan >= self._replan_steps).flatten()
+        if len(due) == 0:
+            return
+        self._steps_since_plan[due] = 0
+        env_origins = self._env.scene.env_origins[:, :2]
+        start_local = (robot_xy_w[due] - env_origins[due]).cpu().numpy()
+        origins_np = env_origins[due].cpu().numpy()
+        free_grids = self._env._proc_room_free_space[due].cpu().numpy()
+        replanned, paths_world = [], []
+        for k, env_idx in enumerate(due.tolist()):
+            try:
+                path = plan_path(
+                    start_local[k],
+                    self._goal_local[env_idx],
+                    free_grids[k],
+                    grid_res=GRID_RES,
+                    grid_origin_xy=_PROC_ROOM_GRID_ORIGIN,
+                    discretization_m=self.cfg.path_spacing_m,
+                )
+            except PathPlanningError:
+                continue
+            path = perturb_waypoints(
+                path,
+                self.cfg.waypoint_noise_std_m,
+                free_grids[k],
+                grid_res=GRID_RES,
+                grid_origin_xy=_PROC_ROOM_GRID_ORIGIN,
+                rng=self._np_rng,
+            )
+            replanned.append(env_idx)
+            paths_world.append(torch.as_tensor(path + origins_np[k], dtype=torch.float32))
+        if replanned:
+            self._path_cursor.set_paths(torch.tensor(replanned, dtype=torch.long, device=self.device), paths_world)
+
     def _update_command(self):
         """Advance the cursor to the robot's projection and refresh the subgoal,
-        cross-track / along-track state, and the dwell-gated completion flag."""
+        cross-track / along-track state, and the dwell-gated completion flag.
+        With ``replan_period_s`` set, the due envs re-plan first."""
         robot_xy_w = wp.to_torch(self._robot.data.root_pos_w)[:, :2]
+        if self._replan_steps is not None:
+            self._replan(robot_xy_w)
         state = self._path_cursor.update(robot_xy_w, self._lookahead)
         self._subgoal[:, :2] = state.subgoal_xy
         self._subgoal[:, 2] = state.subgoal_heading
@@ -796,6 +856,15 @@ class SubgoalCommandCfg(CommandTermCfg):
     Trains the policy to track a subgoal across a range of distances so the
     deployed selector only has to land inside the band, not hit one exact
     distance. ``None`` keeps the fixed ``lookahead_m`` (baseline)."""
+
+    replan_period_s: float | None = None
+    """When set, each env's path is re-planned from the robot's position to the
+    episode's goal every ``replan_period_s`` seconds (whole control steps), with
+    the reset's planner and waypoint perturbation. That re-roots the path under
+    the robot on the period, as the subgoal generator's legacy ``rolling``
+    anchoring does (selectable at deploy); the shipped ``mission`` anchoring
+    keeps one path per goal and replaces it only on admission. ``None`` plans
+    once at reset."""
 
     min_goal_distance: float = 1.0
     """Minimum straight-line distance (meters) between the robot and the

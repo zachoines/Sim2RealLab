@@ -66,9 +66,10 @@ import torch.nn as nn
 # importable when only torch is available (the test suite path).
 
 
-# Default training environment IDs per variant. Used for both the CLI's
-# ``--env`` default and as the ``env_id`` field in the metadata sidecar
-# when the operator does not pass ``--env`` explicitly.
+# Default export environment IDs per variant: the CLI's ``--env`` default, and
+# so the sidecar's ``env_id`` when the operator does not pass ``--env``. They
+# name the env the export reconstructs the runner in, not the task the
+# checkpoint trained on; the sidecar's ``training_env_id`` carries that.
 _DEFAULT_ENV_BY_VARIANT = {
     "NOCAM": "Isaac-Strafer-Nav-RLNoCam-Play-v0",
     "DEPTH": "Isaac-Strafer-Nav-RLDepth-Real-Play-v0",
@@ -239,6 +240,8 @@ def write_metadata_sidecar(
     tensorrt_version: str | None = None,
     git_commit: str | None = None,
     export_timestamp: str | None = None,
+    training_env_id: str | None = None,
+    training_manifest: str | Path | None = None,
 ) -> Path:
     """Write the ``<output_stem>.json`` sidecar describing the export.
 
@@ -255,7 +258,9 @@ def write_metadata_sidecar(
         obs_dim: Observation dimensionality, validated against
             ``PolicyVariant.<variant>.obs_dim`` by the caller.
         action_dim: Action dimensionality (expected 3 -- vx, vy, omega).
-        env_id: Registered Gym task ID the checkpoint trained against.
+        env_id: Registered Gym task ID the export reconstructed the runner
+            in (``--env``, by default the variant's Play ID). It is not the
+            task the checkpoint trained on: ``training_env_id`` is.
         training_preset: rsl_rl runner config name (e.g.
             ``"STRAFER_PPO_RUNNER_CFG"``).
         source_checkpoint: Path to the rsl_rl checkpoint that was exported.
@@ -280,6 +285,15 @@ def write_metadata_sidecar(
             ``git rev-parse HEAD`` when ``None``.
         export_timestamp: ISO 8601 timestamp; auto-set to ``datetime.now``
             when ``None``.
+        training_env_id: The task of the leg that wrote the checkpoint, from
+            its run's ``train_manifest.json``; a resumed run's earlier legs,
+            whose tasks may differ, are in that manifest's ``resume_chain``.
+            Recorded as ``null`` where the run wrote no manifest: absent and
+            explicit rather than guessed.
+        training_manifest: The manifest ``training_env_id`` was read from,
+            or ``None`` (recorded as ``null``). Recorded by its file name,
+            which sits in ``source_checkpoint``'s run directory, so the
+            sidecar carries no host path.
 
     Returns:
         The resolved sidecar ``Path``.
@@ -323,6 +337,8 @@ def write_metadata_sidecar(
         "trained_period_s": trained_period_s,
         "git_commit": git_commit,
         "export_timestamp": export_timestamp,
+        "training_env_id": training_env_id,
+        "training_manifest": None if training_manifest is None else Path(training_manifest).name,
     }
     if "onnx" in formats_list:
         payload["onnx_opset"] = onnx_opset if onnx_opset is not None else _DEFAULT_ONNX_OPSET
@@ -545,7 +561,9 @@ def main() -> None:
         default=None,
         help=(
             "Registered Gym task ID used to reconstruct the rsl_rl runner. "
-            "Defaults to the deployment-target Play env for the chosen variant."
+            "Defaults to the deployment-target Play env for the chosen variant. "
+            "The sidecar records it as env_id, beside the training task from the "
+            "checkpoint's run manifest."
         ),
     )
     parser.add_argument(
@@ -606,6 +624,14 @@ def main() -> None:
     checkpoint_path = Path(args.checkpoint)
     if not checkpoint_path.is_file():
         raise SystemExit(f"Checkpoint not found: {checkpoint_path}")
+
+    from strafer_lab.tools.train_manifest import MANIFEST_NAME, read_manifest_for_checkpoint
+
+    run_manifest = read_manifest_for_checkpoint(checkpoint_path)
+    training_env_id = run_manifest.get("task_id") if run_manifest else None
+    training_manifest = checkpoint_path.resolve().parent / MANIFEST_NAME if run_manifest else None
+    print(f"[INFO] Export env: {args.env}; training env: "
+          + (f"{training_env_id} (from {training_manifest})" if run_manifest else "not recorded (the run has no manifest)"))
 
     if _should_enable_cameras(args.variant, args.num_envs):
         args.enable_cameras = True
@@ -737,6 +763,8 @@ def main() -> None:
             onnx_opset=args.onnx_opset if "onnx" in formats_written else None,
             tensorrt_engine_path=args.tensorrt_engine_path,
             tensorrt_version=args.tensorrt_version,
+            training_env_id=training_env_id,
+            training_manifest=training_manifest,
         )
         print(f"[INFO] Wrote sidecar: {sidecar_path}")
         print("[INFO] Export complete.")

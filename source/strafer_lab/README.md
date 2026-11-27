@@ -125,11 +125,11 @@ runnable scripts under `scripts/`, importable modules under
 
 | Path | Purpose | Runtime |
 |---|---|---|
-| `scripts/train_strafer_navigation.py` | PPO training wrapper with video capture, resume, headless | IsaacLab |
+| `scripts/train_strafer_navigation.py` | PPO training wrapper with video capture, resume, headless. Writes `train_manifest.json` into the run directory at its start: the task ID, the git SHA and a dirty flag, the seed, env count and iterations, the command line, and the resume chain back to the first leg | IsaacLab |
 | `scripts/play_strafer_navigation.py` | Inference rollout from a checkpoint *or* an exported `.pt` (via `--policy`) — headed in the Kit viewport or headless with MP4 capture | IsaacLab |
 | `scripts/eval_cadence_emulation.py` | Closed-loop evaluation of a checkpoint under an emulated inference cadence — per-env schedules of held ticks (no inference, previous action re-issued, recurrent state frozen) and duplicate-depth ticks, scored on completion, along-track progress, and signed direction offset. Several profiles per session; `--profile measured` replays a temporal profile out of an inference-node observation dump | IsaacLab |
 | `scripts/test_strafer_env.py` | Motion-pattern smoke test (forward / strafe / rotate / circle / figure8) | IsaacLab |
-| `scripts/export_policy.py` | Convert an rsl_rl checkpoint to a deployable TorchScript `.pt` + (where supported) ONNX `.onnx`. Round-trips the artifact through `strafer_shared.policy_interface.load_policy()` and refuses to write if the deterministic-mean head wasn't frozen. Emits a JSON sidecar with variant, dimensions, source checkpoint, repo SHA, ONNX opset, `is_recurrent`, and `trained_period_s` | IsaacLab |
+| `scripts/export_policy.py` | Convert an rsl_rl checkpoint to a deployable TorchScript `.pt` + (where supported) ONNX `.onnx`. Round-trips the artifact through `strafer_shared.policy_interface.load_policy()` and refuses to write if the deterministic-mean head wasn't frozen. Emits a JSON sidecar with variant, dimensions, source checkpoint, repo SHA, ONNX opset, `is_recurrent`, `trained_period_s`, the export env (`env_id`) and, from the checkpoint run's manifest, the training env (`training_env_id`) and the manifest's file name (`training_manifest`), both `null` where the run wrote none | IsaacLab |
 | `scripts/benchmark_policy.py` | Median / p95 / p99 inference-latency stats on an exported artifact. Accepts an ONNX execution-provider preference list so the Jetson lane can record TRT-EP latency after rsync | pure-Python |
 | `scripts/capture.py` | Unified harness data-capture entry point (`--driver × --mission-source` cross-product). Wires `(teleop, scene-metadata)` via `scripts/teleop_capture.py`, `(bridge, scene-metadata)` / `(bridge, queue)` via `scripts/run_sim_in_the_loop.py --mode harness`, and `(scripted, coverage)` via `scripts/coverage_capture.py`; the scripted `queue` / `captioner` cells raise `NotImplementedError` until those mission sources ship | Isaac Sim (drivers); pure-Python for argv validation |
 | `scripts/teleop_capture.py` | In-process Isaac Lab teleop driver. Boots `AppLauncher`, loads `Isaac-Strafer-Nav-Capture-Teleop-v0`, reads gamepad, drives `env.step()`, and writes a LeRobot v3 dataset via `StraferLeRobotWriter` | Isaac Sim, pygame, lerobot |
@@ -170,6 +170,7 @@ runnable scripts under `scripts/`, importable modules under
 | `build_mission_queue` | `build_mission_queue`, `load_scene_inputs`, `GeneratorConfig`, `SceneInputs` — the canonical `mission_queue.yaml` producer: connectivity-gated free-text missions with oracle waypoints (via the shared `plan_path`), pluggable LLM/VLM passes, cache keys. Run via `scripts/build_mission_corpus.py` |
 | `grounding_injection` | `plan_injection`, `InjectionPlan`, `resolve_target_room_idx` — hard-negative goal perturbation for `--inject-bad-grounding` |
 | `infinigen_label_parser` | Infinigen-specific semantic label normalization |
+| `train_manifest` | `build_train_manifest`, `write_train_manifest`, `read_manifest_for_checkpoint`, `resume_chain`, `code_revision` — the training run's `train_manifest.json` (Kit-free) |
 | `command_overlay` | `CommandOverlay`, `draw_command`, `draw_robot`, `project` — draws the goal, rolling subgoal and planned path, and the robot's footprint, onto recorded video frames from the command state and the robot pose. The command terms create no scene geometry, so no camera renders them; `play`, `train` and `test_strafer_env` wrap `RecordVideo` with it |
 
 **Deprecated** (`scripts/retired/`, `tools/retired/`) — retained for reference / mining, **not imported or invoked by any live entry point**; each is deleted when its successor ships:
@@ -441,7 +442,7 @@ cd /home/zachoines/Workspace/Sim2RealLab
     --resume logs/rsl_rl/strafer_navigation/run_XXXXX/model_500.pt
 ```
 
-Windows equivalents use `.\IsaacLab\isaaclab.bat` and the `C:\Workspace` paths. Checkpoints land in `logs/rsl_rl/strafer_navigation/<timestamp>/`. TensorBoard:
+Windows equivalents use `.\IsaacLab\isaaclab.bat` and the `C:\Workspace` paths. Checkpoints land in `logs/rsl_rl/strafer_navigation/run_<timestamp>/`, beside the run's `train_manifest.json`. TensorBoard:
 
 ```bash
 tensorboard --logdir logs/rsl_rl/strafer_navigation

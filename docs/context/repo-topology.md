@@ -126,7 +126,7 @@ Ownership boundaries are spelled out in
 
 | Path | Purpose |
 |------|---------|
-| `source/strafer_lab/scripts/train_strafer_navigation.py` | RL training (rsl_rl PPO, optional video) |
+| `source/strafer_lab/scripts/train_strafer_navigation.py` | RL training (rsl_rl PPO, optional video); writes the run's `train_manifest.json` |
 | `source/strafer_lab/scripts/play_strafer_navigation.py` | Inference rollout from a checkpoint or an exported `.pt` (headed or headless+MP4) |
 | `source/strafer_lab/scripts/export_policy.py` | Export an rsl_rl checkpoint to a deployable `.pt` / `.onnx` (+ JSON sidecar) consumed by `strafer_shared.policy_interface.load_policy()` |
 | `source/strafer_lab/scripts/benchmark_policy.py` | Inference-latency stats on an exported artifact, with ONNX execution-provider preference for the Jetson TRT-EP path |

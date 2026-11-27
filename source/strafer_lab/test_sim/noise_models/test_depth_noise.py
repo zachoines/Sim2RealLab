@@ -310,22 +310,41 @@ def test_hole_fill_at_the_frame_edge_reads_only_real_neighbours():
     )
 
 
-def test_hole_fill_is_invisible_on_a_uniform_surface():
-    """On one flat surface every neighbourhood median is the surface itself."""
+@seeded_stream(103)
+def test_hole_fill_reads_the_surface_or_the_near_fill_on_a_uniform_surface():
+    """On one flat surface a hole with a valid 3x3 neighbour reads the surface itself, and a hole whose whole
+    neighbourhood is holes takes the near fill, the model's convention there.
+
+    The fill is checked on hole masks drawn from the case's own generator, with one corner and its neighbours forced
+    invalid so both kinds occur in every frame; the model's own call writes nothing but those two values.
+    """
     depth = 3.0
     model = _make_depth_model(hole_probability=0.05, disparity_noise_px=0.0)
     clean = torch.full((N_ENVS, N_PIXELS), depth, device=DEVICE)
+    gen = torch.Generator(device=DEVICE).manual_seed(7)
+    ones = torch.ones(1, 1, 3, 3, device=DEVICE)
+    in_frame = torch.nn.functional.conv2d(torch.ones(1, 1, TEST_HEIGHT, TEST_WIDTH, device=DEVICE), ones,
+                                          padding=1).reshape(1, -1) - 1.0
 
-    worst = 0.0
-    holes_seen = 0
+    outvoted = isolated = 0
     for _ in range(50):
-        noisy = model(clean.clone())
-        worst = max(worst, float((noisy - depth).abs().max().item()))
-        holes_seen += int((noisy != depth).sum().item())
+        holes = torch.rand(clean.shape, generator=gen, device=DEVICE) < 0.05
+        holes.view(N_ENVS, TEST_HEIGHT, TEST_WIDTH)[:, :2, :2] = True  # a corner with no valid neighbour
+        grid = holes.view(N_ENVS, 1, TEST_HEIGHT, TEST_WIDTH).float()
+        holed_neighbours = (torch.nn.functional.conv2d(grid, ones, padding=1) - grid).reshape(N_ENVS, -1)
+        no_valid = holes & (holed_neighbours == in_frame)
+        some_valid = holes & ~no_valid
+        filled = torch.where(holes, model._invalid_fill(clean, holes), clean)
+        assert bool((filled[some_valid] == depth).all()), "a hole with a valid neighbour left its surface"
+        assert bool((filled[no_valid] == TEST_MIN_RANGE).all()), "a hole with no valid neighbour missed the near fill"
+        outvoted += int(some_valid.sum())
+        isolated += int(no_valid.sum())
 
-    print(f"  Hole median on a uniform {depth} m surface: worst deviation "
-          f"{worst:.3e} m")
-    assert worst == 0.0, f"a hole deviated by {worst:.4e} m from its surface"
+        noisy = model(clean.clone())
+        assert bool(((noisy == depth) | (noisy == TEST_MIN_RANGE)).all()), "the model wrote a third value"
+
+    print(f"  Hole fill on a uniform {depth} m surface: {outvoted} holes read the surface, {isolated} the near fill")
+    assert outvoted > 0 and isolated > 0
 
 
 def test_hole_fill_falls_back_where_the_whole_neighbourhood_is_invalid():

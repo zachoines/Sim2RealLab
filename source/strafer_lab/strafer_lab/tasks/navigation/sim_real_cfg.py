@@ -93,7 +93,7 @@ class TimingCfg:
     rgb_latency_steps: int = 1
     """RGB camera latency in control steps. Image processing adds delay (~33-66ms)."""
 
-    # Action latency (policy → actuator), in seconds, so it means the same at any decimation
+    # Action latency (policy → actuator), in seconds: the same at a decimation whose env step divides the band's ends
     action_latency_s: float = 0.0
     """Fixed command latency in seconds, added to the band below."""
 

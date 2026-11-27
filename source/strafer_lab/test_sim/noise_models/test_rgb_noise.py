@@ -63,7 +63,7 @@ def test_pixel_noise_std():
     Uses chi-squared variance test with brightness fixed at 1.0
     so the only noise source is the per-pixel Gaussian.
     Data is flattened to (N_ENVS, pixels) as required by the model. Tested
-    at alpha 1e-6 on its own stream: at 5 000 samples a sigma off by 6 %
+    at alpha 1e-6 on its own stream: at 5 000 samples a sigma off by 6.3 %
     still fails (power 0.9).
     """
     model = _make_rgb_model(brightness_range=(1.0, 1.0))

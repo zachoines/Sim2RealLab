@@ -478,6 +478,9 @@ def _():
         d = _noise(t, DEPTH)
         if d is None:
             return OFF
+        if d.disparity_noise_px == 0 and d.disparity_noise_px_range is None:
+            assert "noise" in _event(t, "randomize_d555_sensor"), t  # the row: the sensor noise replaces it
+            return OFF
         if d.disparity_noise_px_range is not None:
             return list(d.disparity_noise_px_range)
         f, b = d.focal_length_px, d.baseline_m
@@ -504,6 +507,29 @@ def _():
         return [d.hole_probability, d.frame_drop_prob]
     blocks = [k.PERCEPTION_HEIGHT // k.DEPTH_HEIGHT, k.PERCEPTION_WIDTH // k.DEPTH_WIDTH]
     return {**_tiers(cell), "models": blocks, "basis": []}
+
+
+@row("Depth sensor noise", {"measured", "design"})
+def _():
+    from strafer_lab.tasks.navigation.mdp.d555_noise import _RIM_REACH_PX, D555NoiseCfg
+
+    def cell(t):
+        p = _event(t, "randomize_d555_sensor")
+        if p is None or "noise" not in p:
+            return OFF
+        c = D555NoiseCfg(**p["noise"])
+        assert c.lattice_lut and c.round_to_mm and c.hole_p_ref == 0, t  # the row: the lattice, whole mm, no grazing
+        out = [c.t_sigma0_px, c.t_angle_exponent, c.t_length_x_px, c.t_width_y_px, c.s_sigma0_px, c.s_slope_gain,
+               c.s_sigma_max_px, c.s_length_x_px, c.s_length_y_px, 1, 32, c.hole_p_floor, c.hole_p_base,
+               c.hole_floor_grad_px, c.hole_rim_p0, c.hole_rim_length_px, c.hole_edge_jump_px, _RIM_REACH_PX,
+               c.hole_rho, c.hole_m_static]
+        if c.amp_t_range == c.amp_s_range == (1.0, 1.0):
+            assert c.clean_fraction == 0 and c.s_static_probability == 1 and c.patch_share_range[1] == 0, t
+            return out
+        assert c.amp_t_range == c.amp_s_range, t
+        return out + [*c.amp_t_range, c.clean_fraction, c.s_static_probability, *c.s_tau_range_s,
+                      *c.patch_share_range, c.patch_zero_probability]
+    return {**_tiers(cell), "models": [], "basis": []}
 
 
 @row("Depth stereo validity", {"measured", "design"})
@@ -1006,14 +1032,15 @@ ANCHORS = {
     "actions.py#L254": "_max_delta_per_step", "actions.py#L395": "torch.expm1(",
     "actions.py#L304": "def _draw_speed_scale",
     "actions.py#L458": "l1_clamp_twist_batched(", "actions.py#L579": "max_wheel_angular_vel",
-    "events.py#L570": "def randomize_motor_strength", "events.py#L621": "def randomize_d555_mount_offset",
-    "events.py#L424": "def randomize_subgoal_drift", "events.py#L178": "class randomize_wheel_grip(",
-    "events.py#L362": "def randomize_mass", "events.py#L759": "def reset_robot_proc_room",
+    "events.py#L578": "def randomize_motor_strength", "events.py#L629": "def randomize_d555_mount_offset",
+    "events.py#L427": "def randomize_subgoal_drift", "events.py#L181": "class randomize_wheel_grip(",
+    "events.py#L365": "def randomize_mass", "events.py#L767": "def reset_robot_proc_room",
     "noise_models.py#L188": "class IMUNoiseModel(", "noise_models.py#L360": "class EncoderNoiseModel(",
-    "noise_models.py#L492": "class DepthNoiseModel(", "d555_sensor.py#L67": "def stereo_validity",
+    "noise_models.py#L492": "class DepthNoiseModel(", "d555_noise.py#L50": "class D555NoiseCfg",
+    "d555_sensor.py#L71": "def stereo_validity",
     "observations.py#L46": "def reduce_depth_to_policy_grid", "d555_cfg.py#L145": "focal_length=",
-    "composed_env_cfg.py#L579": "num_rerenders_on_reset = 1", "planner.py#L251": "def perturb_waypoints(",
-    "proc_room.py#L990": "def generate_proc_room", "sim_real_cfg.py#L827": "IDEAL_SIM_CONTRACT",
+    "composed_env_cfg.py#L586": "num_rerenders_on_reset = 1", "planner.py#L251": "def perturb_waypoints(",
+    "proc_room.py#L990": "def generate_proc_room", "sim_real_cfg.py#L863": "IDEAL_SIM_CONTRACT",
 }
 
 

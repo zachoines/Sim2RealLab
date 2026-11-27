@@ -25,10 +25,13 @@ from isaaclab.utils.math import (
 
 from isaaclab.managers import ManagerTermBase
 
+from strafer_shared.constants import POLICY_PERIOD_S
+
 from .subgoal_drift import SubgoalDriftProcess
 from .tf_age import TfAgeProcess
 from .sensor_outage import OutageProcess
 from .d555_sensor import D555SensorCfg, D555SensorProcess
+from .d555_noise import D555NoiseCfg
 
 logger = logging.getLogger(__name__)
 
@@ -537,8 +540,9 @@ def randomize_d555_sensor(
     occlusion_tol_px: float,
     invalid_depth_m: float,
     max_return_m: float,
+    noise: dict | None = None,
 ) -> None:
-    """Redraw the reset envs' stereo-validity scale.
+    """Redraw the reset envs' stereo-validity scale, and the sensor noise's per-env state where it is on.
 
     The process is created on the first call and lives on the env, where the perceived depth term reads it
     (``mdp.d555_sensor``). Its draws come from its own generator, seeded from the env's seed, so no other term's
@@ -555,6 +559,7 @@ def randomize_d555_sensor(
         occlusion_tol_px: Right-image overlap beyond which a pixel is occluded, in px.
         invalid_depth_m: Depth written at an invalid pixel.
         max_return_m: Depth beyond which nothing returns.
+        noise: The sensor noise's per-env spread (``D555NoiseCfg`` fields over its fitted centres), or None for none.
     """
     process = getattr(env, "_d555_sensor", None)
     if process is None:
@@ -562,7 +567,10 @@ def randomize_d555_sensor(
                             core_px=core_px, min_depth_m=min_depth_m, occlusion_tol_px=occlusion_tol_px,
                             invalid_depth_m=invalid_depth_m, max_return_m=max_return_m)
         seed = getattr(getattr(env, "cfg", None), "seed", None)
-        process = D555SensorProcess(env.num_envs, env.device, cfg, seed=0 if seed is None else int(seed))
+        noise_cfg = None if noise is None else D555NoiseCfg(
+            **{k: tuple(v) if isinstance(v, list) else v for k, v in noise.items()})
+        process = D555SensorProcess(env.num_envs, env.device, cfg, seed=0 if seed is None else int(seed),
+                                    noise=noise_cfg, step_dt=getattr(env, "step_dt", POLICY_PERIOD_S))
         env._d555_sensor = process
     process.reset(env_ids)
 

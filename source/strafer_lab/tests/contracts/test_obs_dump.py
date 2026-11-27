@@ -172,3 +172,26 @@ class TestRecordSchema:
         assert all(len(r["obs"]) == variant.obs_dim for r in recs)
         assert all(r["variant"] == "NOCAM_SUBGOAL" for r in recs)
         assert all(r["referent"] is None for r in recs)
+
+
+def test_the_dump_reads_the_depth_terms_clean_render(monkeypatch):
+    """The depth term reads the frame through the D555's sensor function unless called with ``perceived=False``; the
+    dump compares clean signals, so it passes it."""
+    import torch
+
+    from strafer_lab.bridge.obs_dump_terms import evaluate_obs_terms
+    from strafer_lab.tasks.navigation import mdp
+
+    calls = {}
+
+    def stub(name, width):
+        def term(env, *args, **kwargs):
+            calls[name] = kwargs
+            return torch.zeros(1, width)
+        return term
+
+    for name, width in (("imu_linear_acceleration", 3), ("imu_angular_velocity", 3), ("wheel_encoder_velocities", 4),
+                        ("body_velocity_xy", 2), ("depth_image", 3600)):
+        monkeypatch.setattr(mdp, name, stub(name, width))
+    evaluate_obs_terms(object(), PolicyVariant.DEPTH)
+    assert calls["depth_image"]["perceived"] is False

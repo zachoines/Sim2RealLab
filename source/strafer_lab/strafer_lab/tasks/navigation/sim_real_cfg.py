@@ -281,7 +281,8 @@ class DepthCameraNoiseCfg:
     """Stereo baseline in meters (95mm for D555)."""
 
     focal_length_px: float = 673.0
-    """Focal length in pixels at native 1280x720 resolution."""
+    """Focal length in px at 1280 wide, the 80×45 disparity noise's constant; the unit's measured lens reads 643 px
+    there (321.522 at 640 wide). It enters nothing where the sensor noise is on."""
 
     disparity_noise_px: float = 0.08
     """Subpixel disparity noise (typical: 0.05-0.1 pixels)."""
@@ -317,6 +318,31 @@ class DepthCameraNoiseCfg:
 
     stereo_occlusion_tol_px: float = STEREO_OCCLUSION_TOL_PX
     """Right-image overlap beyond which a pixel is occluded, in px."""
+
+    # The sensor's correlated depth noise in the same function (off by default; needs the stereo mask)
+    stereo_noise_enable: bool = False
+    """Add the D555's depth noise on the rendered frame, in disparity before the block median: a temporal field
+    correlated in space, a static field held per episode, the 1/32 px disparity lattice with millimetre rounding, and
+    invalid blobs. Its centres are fitted to one unit; this tier draws its spread around them. The 80×45 disparity
+    noise must be off with it on."""
+
+    stereo_noise_amp_range: tuple[float, float] = (1.0, 1.0)
+    """Per-env scales on the temporal and the static field, each drawn log-uniformly at each reset."""
+
+    stereo_noise_clean_fraction: float = 0.0
+    """Share of envs drawn with both fields at zero."""
+
+    stereo_noise_s_static_probability: float = 1.0
+    """Share of envs whose static field is held in the image for the episode; the rest decay."""
+
+    stereo_noise_s_tau_range_s: tuple[float, float] = (1.0, 10.0)
+    """The decaying static field's time constant, in s, drawn uniformly per env."""
+
+    stereo_noise_patch_share_range: tuple[float, float] = (0.0, 0.0)
+    """Share of pixels in a per-episode invalid patch field, drawn uniformly per env."""
+
+    stereo_noise_patch_zero_probability: float = 0.0
+    """Probability an env draws no patch field."""
 
     # Range limits
     min_range_m: float = DEPTH_NEARFIELD_FILL
@@ -666,7 +692,7 @@ def create_real_robot_contract() -> SimRealContractCfg:
                 # Intel D555 stereo parameters (default values)
                 baseline_m=0.095,
                 focal_length_px=673.0,
-                disparity_noise_px=0.08,
+                disparity_noise_px=0.0,  # 0: the sensor noise below models the disparity error
                 # The sensor's stereo validity on the rendered frame, fitted on the robot's frames at mount height:
                 # the left band f·B/z + 6.5 px with no core, the occlusion shadows at 0.5 px. It replaces the cell
                 # holes. The 0.244 m minimum is the bench sensor's nearest finite return, near where a 126-disparity
@@ -675,6 +701,9 @@ def create_real_robot_contract() -> SimRealContractCfg:
                 stereo_margin_px=STEREO_MARGIN_PX,
                 stereo_core_px=0.0,
                 stereo_min_depth_m=D555_MIN_DEPTH_M,
+                # The sensor's depth noise on the rendered frame, at its centres: fitted to one unit, one glossy
+                # floor and static poses (the temporal and static fields, the lattice, the invalid blobs)
+                stereo_noise_enable=True,
                 hole_probability=0.0,
                 frame_drop_probability=0.001,
                 # Design: a band around the sim-in-the-loop bridge's depth
@@ -758,12 +787,7 @@ def create_robust_training_contract() -> SimRealContractCfg:
                 # Intel D555 stereo parameters with increased disparity noise
                 baseline_m=0.095,
                 focal_length_px=673.0,
-                disparity_noise_px=0.16,  # 2x typical for robust training
-                # Drawn per env at reset, log-uniform over the band. No
-                # single sigma matches the deploy field's texture at every
-                # depth, so the tier spans the range the per-band matches
-                # cover rather than picking one of them.
-                disparity_noise_px_range=(0.002, 0.16),
+                disparity_noise_px=0.0,  # 0, no band: the sensor noise below models the disparity error
                 # The sensor's stereo validity on the rendered frame, fitted on the robot's frames at mount height:
                 # the left band f·B/z + 6.5 px with no core, the occlusion shadows at 0.5 px. It replaces the cell
                 # holes. The 0.244 m minimum is the bench sensor's nearest finite return, near where a 126-disparity
@@ -775,6 +799,18 @@ def create_robust_training_contract() -> SimRealContractCfg:
                 # Design: f·B scaled per env around the nominal 30.545 px m, bracketing the band's fitted slope
                 # (about 31.8) and the depth lattice's estimate (31.2-32.2)
                 stereo_fb_scale_range=(0.98, 1.06),
+                # The sensor's depth noise on the rendered frame, at its centres: fitted to one unit, one glossy
+                # floor and static poses (the temporal and static fields, the lattice, the invalid blobs)
+                stereo_noise_enable=True,
+                # Design, not measured: the two fields scaled per env over [0.5, 2] each, a tenth of envs at zero;
+                # the static field held in the image for half the envs and decaying over 1-10 s for the rest; a
+                # per-episode invalid patch field on up to 4 % of the pixels, none for a quarter of the envs
+                stereo_noise_amp_range=(0.5, 2.0),
+                stereo_noise_clean_fraction=0.1,
+                stereo_noise_s_static_probability=0.5,
+                stereo_noise_s_tau_range_s=(1.0, 10.0),
+                stereo_noise_patch_share_range=(0.0, 0.04),
+                stereo_noise_patch_zero_probability=0.25,
                 hole_probability=0.0,
                 # 10x typical, plus the 0.001 of a failed frame, which repeats the previous one as a drop does
                 frame_drop_probability=0.011,
@@ -955,6 +991,8 @@ def get_depth_noise(contract: SimRealContractCfg) -> DepthNoiseModelCfg | None:
     cfg = contract.sensors.depth_camera
     if cfg.stereo_mask_enable and cfg.hole_probability > 0:
         raise ValueError("the stereo mask replaces the cell holes; set hole_probability to 0 with it on")
+    if cfg.stereo_noise_enable and (cfg.disparity_noise_px > 0 or cfg.disparity_noise_px_range is not None):
+        raise ValueError("the sensor noise replaces the 80x45 disparity noise; set it to 0 with no band")
     noise_at_1m = cfg.disparity_noise_px / (cfg.focal_length_px * cfg.baseline_m)
 
     return DepthNoiseModelCfg(
@@ -1033,8 +1071,10 @@ def get_d555_sensor_params(contract: SimRealContractCfg) -> dict | None:
     """The ``randomize_d555_sensor`` event's params, or None where the stereo mask is off (the caller omits the term)."""
     d = contract.sensors.depth_camera
     if not d.stereo_mask_enable:
+        if d.stereo_noise_enable:
+            raise ValueError("the sensor noise is computed in the stereo validity's function; enable the mask with it")
         return None
-    return {
+    params = {
         "fb_px_m": D555_MEASURED_FX_PX * d.baseline_m,
         "fb_scale_range": d.stereo_fb_scale_range,
         "margin_px": d.stereo_margin_px,
@@ -1044,6 +1084,17 @@ def get_d555_sensor_params(contract: SimRealContractCfg) -> dict | None:
         "invalid_depth_m": d.max_range_m,
         "max_return_m": D555_RENDER_FAR_CLIP_M,
     }
+    if d.stereo_noise_enable:
+        params["noise"] = {
+            "amp_t_range": d.stereo_noise_amp_range,
+            "amp_s_range": d.stereo_noise_amp_range,
+            "clean_fraction": d.stereo_noise_clean_fraction,
+            "s_static_probability": d.stereo_noise_s_static_probability,
+            "s_tau_range_s": d.stereo_noise_s_tau_range_s,
+            "patch_share_range": d.stereo_noise_patch_share_range,
+            "patch_zero_probability": d.stereo_noise_patch_zero_probability,
+        }
+    return params
 
 
 def get_outage_params(contract: SimRealContractCfg) -> dict | None:

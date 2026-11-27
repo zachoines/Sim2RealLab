@@ -236,10 +236,17 @@ class RealismCfg:
     rather than a policy input: the bridge variants hand their observation to a
     deploy stack that reads its own drifting TF, so a sim drift on top would
     both double-count and corrupt the sim-vs-deploy parity reference.
+
+    ``depth_sensor`` opts a variant out of the D555's sensor function on the
+    policy depth term (its stereo validity and its noise). It belongs off where
+    nothing reads the policy observation as an input: the bridge variants
+    publish the clean render to the deploy stack, so the function would run at
+    every env step for a term no one reads.
     """
 
     level: str = "real"
     localization_drift: bool = True
+    depth_sensor: bool = True
 
 
 @configclass
@@ -531,7 +538,7 @@ class _ComposedStraferNavEnvCfg(base._BaseStraferNavEnvCfg):
         ):
             self.events.randomize_subgoal_drift = None
         # The stereo validity reads the policy camera's depth; a profile without one has none to read
-        if profile == "nocam" and hasattr(self.events, "randomize_d555_sensor"):
+        if (profile == "nocam" or not self.realism.depth_sensor) and hasattr(self.events, "randomize_d555_sensor"):
             self.events.randomize_d555_sensor = None
         if objective == "subgoal":
             try:
@@ -762,7 +769,7 @@ class StraferNavCfg_BridgeAutonomy(_ComposedStraferNavEnvCfg):
         cameras_required=("rgb_full", "depth_full", "depth_policy"),
     )
     scene_source = SceneSourceCfg(kind="infinigen")
-    realism = RealismCfg(level="real", localization_drift=False)
+    realism = RealismCfg(level="real", localization_drift=False, depth_sensor=False)
 
 
 @configclass
@@ -784,7 +791,7 @@ class StraferNavCfg_BridgeAutonomy_ProcRoom(_ComposedStraferNavEnvCfg):
         cameras_required=("rgb_full", "depth_full", "depth_policy"),
     )
     scene_source = SceneSourceCfg(kind="procroom")
-    realism = RealismCfg(level="real", localization_drift=False)
+    realism = RealismCfg(level="real", localization_drift=False, depth_sensor=False)
 
 
 @configclass

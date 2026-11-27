@@ -144,3 +144,18 @@ def test_scene_class_keeps_both_cameras_and_procroom_replication(cfg):
     assert hasattr(scene, "room_primitives")
     # ProcRoom rooms are per-env replicated primitives, so physics replicates.
     assert scene.replicate_physics is True
+
+
+def test_the_bridge_variants_run_no_sensor_function_and_the_training_ids_keep_it(cfg):
+    """The bridge publishes the clean render to the deploy stack and reads no policy observation, so neither bridge
+    variant carries the D555's sensor function; the realistic training ID with the same camera keeps it. The
+    Infinigen variant is read by its declared realism, since building it needs the scene corpus."""
+    import dataclasses
+
+    from strafer_lab.tasks.navigation import composed_env_cfg as composed
+
+    assert cfg.realism.depth_sensor is False
+    assert getattr(cfg.events, "randomize_d555_sensor", None) is None
+    realism = next(f for f in dataclasses.fields(composed.StraferNavCfg_BridgeAutonomy) if f.name == "realism")
+    assert realism.default_factory().depth_sensor is False
+    assert composed.StraferNavCfg_RLDepthSubgoal_Real().events.randomize_d555_sensor is not None

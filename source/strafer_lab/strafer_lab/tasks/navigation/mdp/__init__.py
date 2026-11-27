@@ -76,6 +76,7 @@ from .subgoal_drift import SubgoalDriftProcess, drift_referent
 from .tf_age import TfAgeProcess
 from .sensor_outage import OutageProcess, current_outage
 from .d555_sensor import D555SensorCfg, D555SensorProcess, sensor_frame, stereo_validity
+from .d555_noise import D555NoiseCfg, D555NoiseProcess
 
 # Custom actions
 from .actions import MecanumWheelActionCfg

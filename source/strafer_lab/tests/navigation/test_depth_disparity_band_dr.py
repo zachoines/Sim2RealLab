@@ -17,12 +17,19 @@ leaving it unset changes nothing at all — not the output bits, not the RNG
 state — and that a band pinned to a single value reproduces the fixed path for
 that value, temporal terms live or stilled.
 
+On the shipped realistic and robust tiers the sensor noise at render resolution
+replaces this term (``disparity_noise_px`` 0, no band). The suite runs on each
+tier's own i.i.d. arm: the shipped contract with the 80x45 noise at 0.08 px
+(realistic) or over its (0.002, 0.16) px band (robust), and the sensor noise
+off.
+
 Pure torch on CPU — no Isaac Sim, no Kit boot. The same equivalences on CUDA are
 measured in the record rather than gated here, so the suite needs no device.
 """
 
 from __future__ import annotations
 
+import copy
 import hashlib
 
 import pytest
@@ -43,7 +50,21 @@ HEIGHT, WIDTH = 4, 16
 PIXELS = HEIGHT * WIDTH
 NUM_ENVS = 8
 BAND = (0.002, 0.16)
-TIERS = {"realistic": REAL_ROBOT_CONTRACT, "robust": ROBUST_TRAINING_CONTRACT}
+
+
+def _iid_arm(contract, sigma, band):
+    """The tier's contract with the 80x45 disparity noise at ``sigma``, or drawn over ``band`` when one is given, and
+    the sensor noise off."""
+    arm = copy.deepcopy(contract)
+    depth = arm.sensors.depth_camera
+    depth.stereo_noise_enable = False
+    depth.disparity_noise_px, depth.disparity_noise_px_range = sigma, band
+    return arm
+
+
+REAL_IID = _iid_arm(REAL_ROBOT_CONTRACT, 0.08, None)
+ROBUST_IID = _iid_arm(ROBUST_TRAINING_CONTRACT, 0.16, BAND)
+TIERS = {"realistic": REAL_IID, "robust": ROBUST_IID}
 
 # The bits each tier's depth noise produces with its band cleared -- the path
 # the tier ran before it carried one. Frozen literals, because a tier that
@@ -161,29 +182,35 @@ class TestTheNeutralPath:
             "returns the generator to where the pre-band code left it"
         )
 
-    def test_each_shipped_tier_declares_the_band_it_trains_on(self):
+    def test_the_shipped_tiers_carry_the_sensor_noise_and_no_80x45_disparity_noise(self):
+        for contract in (REAL_ROBOT_CONTRACT, ROBUST_TRAINING_CONTRACT):
+            depth = contract.sensors.depth_camera
+            assert depth.stereo_noise_enable and depth.disparity_noise_px == 0.0
+            assert depth.disparity_noise_px_range is None
+
+    def test_each_tiers_iid_arm_declares_its_band(self):
         """Robust draws over the band; realistic stays on one amplitude.
 
         The tiers are named individually rather than looped over, because the
         thing worth catching is one tier acquiring the other's law.
         """
-        realistic = REAL_ROBOT_CONTRACT.sensors.depth_camera
+        realistic = REAL_IID.sensors.depth_camera
         assert realistic.disparity_noise_px_range is None
-        assert get_depth_noise(REAL_ROBOT_CONTRACT).disparity_noise_px_range is None
+        assert get_depth_noise(REAL_IID).disparity_noise_px_range is None
 
-        robust = ROBUST_TRAINING_CONTRACT.sensors.depth_camera
+        robust = ROBUST_IID.sensors.depth_camera
         assert robust.disparity_noise_px_range == BAND
-        assert get_depth_noise(ROBUST_TRAINING_CONTRACT).disparity_noise_px_range == BAND
+        assert get_depth_noise(ROBUST_IID).disparity_noise_px_range == BAND
 
 
 class TestTheBandIsAReparameterisation:
     @pytest.mark.parametrize("sigma", [0.002, 0.08, 0.16])
     def test_a_band_pinned_to_one_value_reproduces_that_fixed_amplitude(self, sigma):
         data = _frames()
-        fixed = _emit(_cfg(REAL_ROBOT_CONTRACT, disparity_noise_px=sigma), data)
+        fixed = _emit(_cfg(REAL_IID, disparity_noise_px=sigma), data)
         # The fixed field is left at a value the band cannot produce, so a
         # model reading the wrong one of the two cannot pass.
-        pinned = _emit(_cfg(REAL_ROBOT_CONTRACT, disparity_noise_px=0.5,
+        pinned = _emit(_cfg(REAL_IID, disparity_noise_px=0.5,
                             disparity_noise_px_range=(sigma, sigma)), data)
         assert torch.equal(fixed, pinned)
 
@@ -202,8 +229,8 @@ class TestTheBandIsAReparameterisation:
 
     def test_a_reversed_band_is_read_as_the_interval_it_names(self):
         data = _frames()
-        forward = _emit(_cfg(REAL_ROBOT_CONTRACT, disparity_noise_px_range=BAND), data)
-        reversed_ = _emit(_cfg(REAL_ROBOT_CONTRACT,
+        forward = _emit(_cfg(REAL_IID, disparity_noise_px_range=BAND), data)
+        reversed_ = _emit(_cfg(REAL_IID,
                                disparity_noise_px_range=BAND[::-1]), data)
         assert torch.equal(forward, reversed_)
 
@@ -213,7 +240,7 @@ class TestTheBandIsAReparameterisation:
         the band into a different law at its low end."""
         with pytest.raises(ValueError, match="positive"):
             DepthNoiseModel(
-                _cfg(REAL_ROBOT_CONTRACT, disparity_noise_px_range=band),
+                _cfg(REAL_IID, disparity_noise_px_range=band),
                 NUM_ENVS, DEVICE)
 
 
@@ -224,7 +251,7 @@ class TestTheDrawLaw:
         torch.manual_seed(53)
         low, high = 0.001, 0.1
         model = DepthNoiseModel(
-            _cfg(REAL_ROBOT_CONTRACT, disparity_noise_px_range=(low, high)),
+            _cfg(REAL_IID, disparity_noise_px_range=(low, high)),
             4096, DEVICE)
         sigma = model._env_coeff * model._focal_baseline
         median = float(sigma.median())
@@ -237,7 +264,7 @@ class TestTheDrawLaw:
         quiet one."""
         torch.manual_seed(59)
         model = DepthNoiseModel(
-            _cfg(REAL_ROBOT_CONTRACT, disparity_noise_px_range=(0.001, 0.1)),
+            _cfg(REAL_IID, disparity_noise_px_range=(0.001, 0.1)),
             4096, DEVICE)
         sigma = (model._env_coeff * model._focal_baseline).ravel()
         lower_decade = float((sigma < 0.01).to(torch.float64).mean())
@@ -249,7 +276,7 @@ class TestThePerEnvDraw:
         torch.manual_seed(31)
         low, high = BAND
         model = DepthNoiseModel(
-            _cfg(REAL_ROBOT_CONTRACT, disparity_noise_px_range=BAND), 512, DEVICE)
+            _cfg(REAL_IID, disparity_noise_px_range=BAND), 512, DEVICE)
         sigma = model._env_coeff * model._focal_baseline
         assert sigma.min() >= low and sigma.max() <= high
         assert sigma.unique().numel() > 400  # a draw per env, not one shared
@@ -257,7 +284,7 @@ class TestThePerEnvDraw:
     def test_a_partial_reset_redraws_only_the_envs_it_names(self):
         torch.manual_seed(37)
         model = DepthNoiseModel(
-            _cfg(REAL_ROBOT_CONTRACT, disparity_noise_px_range=BAND), NUM_ENVS, DEVICE)
+            _cfg(REAL_IID, disparity_noise_px_range=BAND), NUM_ENVS, DEVICE)
         before = model._env_coeff.clone()
 
         reset_ids = torch.tensor([1, 4, 6])
@@ -269,7 +296,7 @@ class TestThePerEnvDraw:
     def test_a_full_reset_redraws_every_env(self):
         torch.manual_seed(41)
         model = DepthNoiseModel(
-            _cfg(REAL_ROBOT_CONTRACT, disparity_noise_px_range=BAND), NUM_ENVS, DEVICE)
+            _cfg(REAL_IID, disparity_noise_px_range=BAND), NUM_ENVS, DEVICE)
         before = model._env_coeff.clone()
         model.reset(None)
         assert not torch.equal(before, model._env_coeff)
@@ -280,7 +307,7 @@ class TestThePerEnvDraw:
         torch.manual_seed(43)
         data = torch.full((2, PIXELS), 4.0)
         model = DepthNoiseModel(
-            _cfg(REAL_ROBOT_CONTRACT, hole_probability=0.0,
+            _cfg(REAL_IID, hole_probability=0.0,
                  disparity_noise_px_range=BAND), 2, DEVICE)
         with torch.no_grad():
             model._env_coeff[0] = BAND[0] / model._focal_baseline
